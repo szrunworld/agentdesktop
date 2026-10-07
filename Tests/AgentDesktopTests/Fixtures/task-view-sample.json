@@ -1,0 +1,57 @@
+{
+  "ok": true,
+  "service": {
+    "host": {
+      "product": "Agent Desktop",
+      "bundleId": "com.agentdesktop.app",
+      "pid": 4100,
+      "controlProtocolVersion": "1",
+      "engineRevision": "7a9615406b4bbc2fcf09224a30667404b4765ecb"
+    },
+    "task": {
+      "protocolVersion": "0",
+      "runtimeVersion": "0.3.0",
+      "capabilities": ["task.view", "task.control", "task.artifacts", "agent.host"]
+    }
+  },
+  "task": {
+    "id": "t-2026-10-07-0001",
+    "kind": "agent",
+    "agentId": "assistant",
+    "taskType": "extract-page",
+    "scope": { "clientId": "com.agentdesktop.app", "agentId": "assistant" },
+    "state": "waiting",
+    "raw": { "status": "running", "phase": "executing" },
+    "waiting": { "reason": "approval", "since": "2026-10-07T13:20:00Z", "resolvedBy": "approval", "inboxId": "inbox-77" },
+    "updatedAt": "2026-10-07T13:20:05Z",
+    "heartbeat": { "at": "2026-10-07T13:20:04Z", "stale": false },
+    "progress": { "current": "提交表单前需要批准", "counts": { "pages": 2, "items": 7 } },
+    "allowed": ["approve", "deny", "cancel"],
+    "executor": { "ownerPid": 4242, "epoch": "e-91", "stopped": false },
+    "artifacts": [
+      { "id": "a-1", "path": "page-1.png", "kind": "screenshot", "sha256": "1f3a", "verified": true }
+    ],
+    "usage": { "modelCalls": 3, "inputTokens": 2100, "outputTokens": "unknown", "cost": "unknown" },
+    "submittedAt": "2026-10-07T13:10:00Z",
+    "startedAt": "2026-10-07T13:10:30Z"
+  },
+  "inbox": [
+    {
+      "id": "inbox-77",
+      "kind": "approval",
+      "taskId": "t-2026-10-07-0001",
+      "agentId": "assistant",
+      "action": { "effect": "external-submit", "app": "com.apple.Safari", "target": "form#contact", "label": "Submit" },
+      "expiresAt": "2026-10-07T13:35:00Z"
+    }
+  ],
+  "receipt": {
+    "requestId": "r-1",
+    "taskId": "t-2026-10-07-0001",
+    "operation": "cancel",
+    "accepted": true,
+    "acceptedAt": "2026-10-07T13:21:00Z",
+    "executorStopped": false,
+    "settlesTo": ["cancelled"]
+  }
+}

@@ -120,7 +120,7 @@ struct SettingsView: View {
 
     var serviceText: String {
         switch model.serviceState {
-        case .ready(let s): return "\(s.product) pid \(s.pid)，协议 \(s.protocolVersion)，能力 \(s.capabilities.joined(separator: " "))"
+        case .ready(let s): return "\(s.host.product) pid \(s.host.pid)，契约 \(s.task.protocolVersion)，控制协议 \(s.host.controlProtocolVersion)，能力 \(s.task.capabilities.joined(separator: " "))"
         case .checking: return "检测中"
         case .runtimeMissing(let m), .offline(let m), .connectionFailed(let m), .capabilityMissing(let m), .error(let m): return m
         case .versionMismatch(let f, let s): return "协议 \(f)，本产品支持 \(s)"

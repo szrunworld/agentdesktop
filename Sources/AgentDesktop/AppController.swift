@@ -151,8 +151,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Dock icon and the menu bar bring the window back.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    /// The Dock icon reopens the main window whenever that window itself is
+    /// not visible, whatever other windows (previews) are open.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { openMainWindow() }
+        if mainWindow?.window?.isVisible != true { openMainWindow() }
         return true
     }
 

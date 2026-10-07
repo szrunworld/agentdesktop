@@ -14,9 +14,9 @@ final class SampleTaskClient: TaskClient {
     }
 
     static let identity = ServiceIdentity(
-        product: "Agent Desktop", bundleId: "com.agentdesktop.app", pid: 0,
-        protocolVersion: ServiceIdentity.supportedProtocolVersion, runtimeVersion: "sample",
-        engineRevision: "sample", capabilities: ["task.view", "task.control", "task.artifacts", "agent.host"])
+        host: .init(product: "Agent Desktop", bundleId: "com.agentdesktop.app", pid: 0, controlProtocolVersion: "1", engineRevision: "sample"),
+        task: .init(protocolVersion: ServiceIdentity.supportedProtocolVersion, runtimeVersion: "sample",
+                    capabilities: ["task.view", "task.control", "task.artifacts", "agent.host"]))
 
     func service() async throws -> ServiceIdentity { Self.identity }
 
@@ -58,6 +58,13 @@ final class SampleTaskClient: TaskClient {
             task.heartbeat = .init(at: now, stale: false)
             settles = [.running]
         case .approve, .answer, .bindAccount:
+            // The fixed inputs of the contract; a payload without them is refused like the service would.
+            let missing = request.operation.inputFields.filter { request.payload?[$0] == nil }
+            if !missing.isEmpty {
+                return ControlReceipt(requestId: request.requestId, taskId: task.id, operation: request.operation, accepted: false,
+                                      acceptedAt: nil, reason: .init(code: "invalid_input", message: "missing \(missing.joined(separator: ", "))"),
+                                      executorStopped: task.executor?.stopped ?? false, settlesTo: [])
+            }
             task.state = .running
             task.waiting = nil
             task.allowed = [.pause, .cancel]
@@ -79,7 +86,7 @@ final class SampleTaskClient: TaskClient {
                               acceptedAt: now, reason: nil, executorStopped: task.executor?.stopped ?? false, settlesTo: settles)
     }
 
-    private func settleLater(_ id: String, to state: TaskUiState, allowed: [Operation]) {
+    private func settleLater(_ id: String, to state: TaskUiState, allowed: [TaskOperation]) {
         queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self, var task = self.tasks[id] else { return }
             task.state = state
@@ -98,7 +105,7 @@ final class SampleTaskClient: TaskClient {
     static var samples: [TaskView] {
         let t0 = Date(timeIntervalSince1970: 1_791_400_000)
         func at(_ minutes: Double) -> String { stamp(t0.addingTimeInterval(minutes * 60)) }
-        func task(_ n: Int, _ state: TaskUiState, _ kind: TaskKind, _ type: String, allowed: [Operation],
+        func task(_ n: Int, _ state: TaskUiState, _ kind: TaskKind, _ type: String, allowed: [TaskOperation],
                   raw: String, _ edit: (inout TaskView) -> Void = { _ in }) -> TaskView {
             var v = TaskView(
                 id: "sample-\(n)", kind: kind, agentId: kind == .skill ? "builtin:\(type)" : "assistant",
@@ -149,7 +156,7 @@ final class SampleTaskClient: TaskClient {
                                   verification: .init(platform: .passed, business: .passed, notes: nil))
                 $0.artifacts = [.init(id: "a1", path: "result.json", kind: "json", sha256: "0ab3", verified: true),
                                 .init(id: "a2", path: "page-1.png", kind: "screenshot", sha256: "9f1c", verified: true)]
-                $0.usage = .init(modelCalls: .known(4), inputTokens: .known(5_100), outputTokens: .known(900), cost: .known(0))
+                $0.usage = .init(modelCalls: .known(4), inputTokens: .known(5_100), outputTokens: .known(900), cost: .known(0.0123))
                 $0.endedAt = at(11)
             },
             task(12, .partial, .agent, "extract-page", allowed: [.openOutput, .resubmit], raw: "partial") {

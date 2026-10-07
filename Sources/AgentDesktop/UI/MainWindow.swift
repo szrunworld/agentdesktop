@@ -98,7 +98,7 @@ struct ServiceBanner: View {
         case .ready(let s):
             HStack {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("\(s.product) · runtime \(s.runtimeVersion) · 协议 \(s.protocolVersion)")
+                Text("\(s.host.product) · runtime \(s.task.runtimeVersion) · 契约 \(s.task.protocolVersion) · 控制协议 \(s.host.controlProtocolVersion)")
                 if model.mode == .sample { Text("样例数据").font(.caption).padding(4).background(.yellow.opacity(0.3)).cornerRadius(4) }
                 Spacer()
                 if let at = model.lastRefresh { Text(at.formatted(date: .omitted, time: .standard)).font(.caption).foregroundStyle(.secondary) }

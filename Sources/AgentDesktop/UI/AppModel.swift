@@ -40,7 +40,12 @@ final class AppModel: ObservableObject {
 
     let role: HostRole
     private(set) var client: TaskClient
+    /// Bumped on every client switch; a result that comes back with an older
+    /// generation belongs to a client that is gone and is dropped.
+    private(set) var generation = 0
     private var timer: Timer?
+    /// Windows that asked for polling; the one timer runs while any is open.
+    private var pollers = 0
 
     init(role: HostRole, mode: TaskClientMode = .current) {
         self.role = role
@@ -61,49 +66,109 @@ final class AppModel: ObservableObject {
         guard mode != self.mode else { return }
         self.mode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: "taskClient")
-        client = Self.makeClient(mode)
+        switchClient(Self.makeClient(mode))
+    }
+
+    /// Replaces the client: a new generation, nothing of the old one kept.
+    func switchClient(_ next: TaskClient) {
+        generation += 1
+        client = next
         tasks = []
+        receipts = []
         serviceState = .checking
+        lastRefresh = nil
         Task { await refresh() }
     }
 
+    /// Idempotent: the first caller starts the one timer, later callers
+    /// only count; `stop` from each of them ends it with the last.
     func start() {
+        pollers += 1
         Task { await refresh() }
+        guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
         }
     }
 
     func stop() {
+        pollers = max(0, pollers - 1)
+        guard pollers == 0 else { return }
         timer?.invalidate()
         timer = nil
     }
 
+    var isPolling: Bool { timer != nil }
+
     func refresh() async {
         permissions = PermissionStatus.check()
+        let client = self.client
+        let gen = generation
         do {
             let service = try await client.service()
+            let views = try await client.views()
+            guard gen == generation else { return }  // answered by a client that was switched away
             serviceState = .ready(service)
-            tasks = try await client.views()
+            tasks = views
         } catch {
+            guard gen == generation else { return }
             if client is MissingRuntimeClient {
                 serviceState = .runtimeMissing("产品包里还没有 task runtime（Contents/Resources/task-runtime）")
             } else {
                 serviceState = ServiceState.from(error)
             }
-            if case .ready = serviceState {} else if !(client is SampleTaskClient) { tasks = [] }
+            tasks = []
         }
         lastRefresh = Date()
     }
 
-    func send(_ operation: Operation, to task: TaskView, payload: [String: String]? = nil) async -> ControlReceipt? {
+    /// Why an operation cannot be sent right now, or nil when it can. Checked
+    /// again at the click, against the service and the task as they are now,
+    /// not the cached button list.
+    enum Refusal: Equatable {
+        case serviceNotReady
+        case capabilityMissing(String)
+        case notAllowedNow(TaskUiState)
+        case inputMissing([String])
+    }
+
+    func refusal(for operation: TaskOperation, on taskId: String, payload: JSONValue?) async -> Refusal? {
+        guard case .ready(let service) = serviceState else { return .serviceNotReady }
+        if !service.task.capabilities.contains("task.control") { return .capabilityMissing("task.control") }
+        let client = self.client
+        let gen = generation
+        guard let latest = try? await client.view(taskId), gen == generation else { return .serviceNotReady }
+        guard latest.allowed.contains(operation) else { return .notAllowedNow(latest.state) }
+        let missing = operation.inputFields.filter { payload?[$0] == nil }
+        return missing.isEmpty ? nil : .inputMissing(missing)
+    }
+
+    func send(_ operation: TaskOperation, to task: TaskView, payload: JSONValue? = nil) async -> ControlReceipt? {
+        if let why = await refusal(for: operation, on: task.id, payload: payload) {
+            let reason: ControlReceipt.Reason
+            switch why {
+            case .serviceNotReady: reason = .init(code: "offline", message: "服务未就绪，操作未发送")
+            case .capabilityMissing(let c): reason = .init(code: "capability_missing", message: "服务没有 \(c) 能力")
+            case .notAllowedNow(let s): reason = .init(code: "conflict", message: "任务现在是\(TaskStateDisplay.label(s))，不再允许\(TaskStateDisplay.label(operation))")
+            case .inputMissing(let f): reason = .init(code: "invalid_input", message: "缺少输入 \(f.joined(separator: ", "))")
+            }
+            let refused = ControlReceipt(requestId: "", taskId: task.id, operation: operation, accepted: false, acceptedAt: nil,
+                                         reason: reason, executorStopped: task.executor?.stopped ?? false, settlesTo: [])
+            receipts.insert(refused, at: 0)
+            await refresh()
+            return refused
+        }
         let request = ControlRequest(taskId: task.id, operation: operation, payload: payload, requestId: UUID().uuidString)
+        let client = self.client
+        let gen = generation
         do {
             let receipt = try await client.control(request)
+            guard gen == generation else { return nil }
             receipts.insert(receipt, at: 0)
             await refresh()
             return receipt
         } catch {
+            guard gen == generation else { return nil }
             serviceState = ServiceState.from(error)
             return nil
         }

@@ -23,23 +23,15 @@ final class CLITaskClient: TaskClient {
     }
 
     func service() async throws -> ServiceIdentity {
-        let reply = try await run(["task", "service"])
-        guard let service = reply.service else { throw TaskClientError.connectionFailed("no service in the reply") }
-        try Self.checkVersion(service)
-        return service
+        try Self.validated(try await run(["task", "service"]), expecting: .service).service!
     }
 
     func views() async throws -> [TaskView] {
-        let reply = try await run(["task", "views"])
-        if let service = reply.service { try Self.checkVersion(service) }
-        return reply.tasks ?? []
+        try Self.validated(try await run(["task", "views"]), expecting: .views).tasks!
     }
 
     func view(_ taskId: String) async throws -> TaskView {
-        let reply = try await run(["task", "view", taskId])
-        if let service = reply.service { try Self.checkVersion(service) }
-        guard let task = reply.task else { throw TaskClientError.connectionFailed("no task in the reply") }
-        return task
+        try Self.validated(try await run(["task", "view", taskId]), expecting: .view).task!
     }
 
     func control(_ request: ControlRequest) async throws -> ControlReceipt {
@@ -47,9 +39,24 @@ final class CLITaskClient: TaskClient {
         if let payload = request.payload, let data = try? JSONEncoder().encode(payload), let json = String(data: data, encoding: .utf8) {
             words += ["--payload", json]
         }
-        let reply = try await run(words)
-        guard let receipt = reply.receipt else { throw TaskClientError.connectionFailed("no receipt in the reply") }
-        return receipt
+        return try Self.validated(try await run(words), expecting: .control).receipt!
+    }
+
+    enum Expecting { case service, views, view, control }
+
+    /// A successful reply must carry the service, at this contract's version,
+    /// and the field the call is for. Anything else is not a reply this
+    /// client understands, never an empty result.
+    static func validated(_ reply: Reply, expecting: Expecting) throws -> Reply {
+        guard let service = reply.service else { throw TaskClientError.connectionFailed("the reply names no service") }
+        try checkVersion(service)
+        switch expecting {
+        case .service: break
+        case .views: guard reply.tasks != nil else { throw TaskClientError.connectionFailed("the reply to `task views` has no tasks field") }
+        case .view: guard reply.task != nil else { throw TaskClientError.connectionFailed("the reply to `task view` has no task") }
+        case .control: guard reply.receipt != nil else { throw TaskClientError.connectionFailed("the reply to `task control` has no receipt") }
+        }
+        return reply
     }
 
     // MARK: Replies
@@ -64,23 +71,35 @@ final class CLITaskClient: TaskClient {
         var service: ServiceIdentity?
         var task: TaskView?
         var tasks: [TaskView]?
+        var inbox: [InboxItem]?
         var receipt: ControlReceipt?
     }
 
     static func checkVersion(_ service: ServiceIdentity) throws {
-        guard service.protocolVersion == ServiceIdentity.supportedProtocolVersion else {
-            throw TaskClientError.versionMismatch(found: service.protocolVersion, supported: ServiceIdentity.supportedProtocolVersion)
+        guard service.task.protocolVersion == ServiceIdentity.supportedProtocolVersion else {
+            throw TaskClientError.versionMismatch(found: service.task.protocolVersion, supported: ServiceIdentity.supportedProtocolVersion)
         }
     }
 
-    /// One JSON line from the command line, or the client error it stands for.
+    /// One JSON line from the command line, or the client error it stands
+    /// for. Structured first: a line that parses as a reply is read as one,
+    /// whatever words it contains. Only output that is not JSON at all goes
+    /// through the legacy prose check (the engine CLI's "is not running").
     static func parse(stdout: String, exitCode: Int32) throws -> Reply {
         let text = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The engine CLI answers in prose when no host listens on the socket.
-        if text.lowercased().contains("is not running") { throw TaskClientError.offline(text) }
-        guard let line = text.split(separator: "\n").last, let data = line.data(using: .utf8),
-              let reply = try? JSONDecoder().decode(Reply.self, from: data)
-        else {
+        // The command line prints one JSON line; a pretty-printed document is read whole.
+        let candidates = [text, text.split(separator: "\n").last.map(String.init) ?? ""]
+        var decoded: Reply?
+        for candidate in candidates {
+            guard let data = candidate.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data), json is [String: Any] else { continue }
+            guard let reply = try? JSONDecoder().decode(Reply.self, from: data) else {
+                throw TaskClientError.connectionFailed("the reply is JSON this contract does not describe: \(candidate.prefix(200))")
+            }
+            decoded = reply
+            break
+        }
+        guard let reply = decoded else {
+            if text.lowercased().contains("is not running") { throw TaskClientError.offline(text) }
             throw TaskClientError.connectionFailed(text.isEmpty ? "the command line answered nothing (exit \(exitCode))" : text)
         }
         if reply.ok { return reply }

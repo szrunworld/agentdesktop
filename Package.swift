@@ -29,7 +29,8 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentDesktopTests",
-            dependencies: ["AgentDesktop"]
+            dependencies: ["AgentDesktop"],
+            resources: [.copy("Fixtures")]
         ),
     ]
 )

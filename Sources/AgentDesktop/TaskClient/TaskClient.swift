@@ -29,18 +29,21 @@ enum TaskClientMode: String {
 }
 
 /// What the UI says about a task's state, and whether a stop is settled.
+/// A pause or cancel counts as settled only on the executor's own evidence:
+/// `executor.stopped == true`. Without an executor record there is no
+/// evidence, and the task stays "停止中"/"暂停中".
 enum TaskStateDisplay {
-    /// The word for the state. "停止中" and "暂停中" are shown until the
-    /// executor is proven stopped; only then "已停止" / "已暂停".
+    static let noExecutorEvidence = "缺少执行端停止证据"
+
     static func label(_ task: TaskView) -> String {
         switch task.state {
         case .queued: return "排队中"
         case .running: return task.heartbeat?.stale == true ? "失联" : "执行中"
         case .waiting: return "等待处理"
         case .pausing: return "暂停中"
-        case .paused: return task.executor?.stopped == false ? "暂停中" : "已暂停"
+        case .paused: return isSettledStop(task) ? "已暂停" : "暂停中"
         case .stopping: return "停止中"
-        case .cancelled: return task.executor?.stopped == false ? "停止中" : "已停止"
+        case .cancelled: return isSettledStop(task) ? "已停止" : "停止中"
         case .succeeded: return "已完成"
         case .partial: return "部分完成"
         case .failed: return "失败"
@@ -49,15 +52,26 @@ enum TaskStateDisplay {
         }
     }
 
-    /// True once a pause or cancel is settled: the executor has stopped.
+    /// A note beside the label when a stop is shown as unsettled because the
+    /// service gave no executor record, as opposed to one that is still running.
+    static func note(_ task: TaskView) -> String? {
+        switch task.state {
+        case .pausing, .paused, .stopping, .cancelled:
+            return task.executor == nil ? noExecutorEvidence : nil
+        default:
+            return nil
+        }
+    }
+
+    /// True once a pause or cancel is settled: the executor is reported stopped.
     static func isSettledStop(_ task: TaskView) -> Bool {
         switch task.state {
-        case .paused, .cancelled: return task.executor?.stopped ?? true
+        case .paused, .cancelled: return task.executor?.stopped == true
         default: return false
         }
     }
 
-    static func label(_ operation: Operation) -> String {
+    static func label(_ operation: TaskOperation) -> String {
         switch operation {
         case .pause: return "暂停"
         case .resume: return "继续"
@@ -85,6 +99,20 @@ enum TaskStateDisplay {
         case .failed: return "失败"
         case .interrupted: return "已中断"
         case .unknown: return "结果不明"
+        }
+    }
+
+    /// What a receipt means, by operation: a pause or cancel waits for the
+    /// executor to stop; the others report where the task settles.
+    static func receiptLine(_ r: ControlReceipt) -> String {
+        let op = label(r.operation)
+        guard r.accepted else { return "\(op) 未受理：\(r.reason?.message ?? r.reason?.code ?? "")" }
+        switch r.operation {
+        case .pause, .cancel:
+            return r.executorStopped ? "\(op) 已受理，执行者已停止" : "\(op) 已受理，等待执行者停止…"
+        case .resume, .answer, .approve, .deny, .bindAccount, .resubmit, .openOutput:
+            let to = r.settlesTo.map(label).joined(separator: " / ")
+            return to.isEmpty ? "\(op) 已受理" : "\(op) 已受理，任务将进入\(to)"
         }
     }
 }

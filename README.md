@@ -38,7 +38,10 @@ open "build/Agent Desktop.app"   # 菜单栏图标；首次启动会打开一个
 
 - `CLITaskClient`：产品默认，调包内 `bin/agentdesktop task service|views|view|control`。当前 runtime 还没有这些子命令、产品包里也没有 runtime，所以界面显示「未安装 Runtime」或「服务缺少这项能力」，并给出下一步。
 - `SampleTaskClient`：覆盖契约全部状态与操作组合的样例数据，只用于界面开发。设置页可切换，或启动时设 `AGENTDESKTOP_TASK_CLIENT=sample`。
-- 停止与暂停按契约区分「请求已受理」与「执行者已停止」：收到回执只显示停止中，视图里 `executor.stopped` 为真才显示已停止。
+- 停止与暂停按契约区分「请求已受理」与「执行者已停止」：收到回执只显示停止中，视图里 `executor.stopped` 为真才显示已停止；没有执行者记录时继续显示停止中，并标注「缺少执行端停止证据」。
+- 点击操作按钮时重新核对服务状态、`task.control` 能力和该任务最新的 `allowed`，不只看缓存的按钮列表。批准、拒绝、绑定账号、重新提交需要契约固定的输入（待处理条目、账号作用域、原任务输入），服务提供前按钮禁用并说明。
+- 服务身份分两层：`host`（产品、bundle id、pid、原生控制协议版本、引擎提交）和 `task`（本契约版本、runtime 版本、能力）。
+- `Tests/AgentDesktopTests/Fixtures/task-view-sample.json` 是与契约文档一致的共享样本，两端都用它做解码测试。
 
 ## 命令行
 

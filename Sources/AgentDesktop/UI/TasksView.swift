@@ -81,7 +81,10 @@ struct TaskDetailView: View {
                         Text("\(task.id) · \(task.kind.rawValue) · \(task.agentId)").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(TaskStateDisplay.label(task)).font(.headline)
+                    VStack(alignment: .trailing) {
+                        Text(TaskStateDisplay.label(task)).font(.headline)
+                        if let note = TaskStateDisplay.note(task) { Text(note).font(.caption).foregroundStyle(.orange) }
+                    }
                 }
                 Divider()
                 field("当前步骤", task.progress?.current ?? (task.state == .queued ? "等待执行者" : "—"))
@@ -130,14 +133,20 @@ struct TaskDetailView: View {
                     }
                     HStack {
                         ForEach(task.allowed, id: \.self) { op in
+                            let gate = OperationGate.check(op, task: task, answer: answer)
                             Button(TaskStateDisplay.label(op)) {
-                                Task { _ = await model.send(op, to: task, payload: op == .answer ? ["answer": answer] : nil) }
+                                Task { _ = await model.send(op, to: task, payload: gate.payload) }
                             }
+                            .disabled(gate.reason != nil)
+                            .help(gate.reason ?? "")
                         }
+                    }
+                    ForEach(task.allowed.compactMap { OperationGate.check($0, task: task, answer: answer).reason }, id: \.self) {
+                        Text($0).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if let receipt = model.receipts.first(where: { $0.taskId == task.id }) {
-                    Text(receiptLine(receipt)).font(.caption).foregroundStyle(.secondary)
+                    Text(TaskStateDisplay.receiptLine(receipt)).font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(16)
@@ -156,8 +165,33 @@ struct TaskDetailView: View {
         switch v { case .passed: return "通过"; case .failed: return "未通过"; case .none: return "无" }
     }
 
-    func receiptLine(_ r: ControlReceipt) -> String {
-        if !r.accepted { return "\(TaskStateDisplay.label(r.operation)) 未受理：\(r.reason?.message ?? "")" }
-        return "\(TaskStateDisplay.label(r.operation)) 已受理" + (r.executorStopped ? "，执行者已停止" : "，等待执行者停止…")
+}
+
+/// Whether an allowed operation can be sent from this window, with the
+/// payload the contract fixes for it. The ones whose input the service does
+/// not yet hand out (inbox items, account scopes, the original input) stay
+/// closed until C03/C04 provide it.
+enum OperationGate {
+    struct Verdict {
+        var payload: JSONValue?
+        var reason: String?
+    }
+
+    static func check(_ op: TaskOperation, task: TaskView, answer: String) -> Verdict {
+        switch op {
+        case .pause, .resume, .cancel, .openOutput:
+            return Verdict(payload: nil, reason: nil)
+        case .answer:
+            guard let inbox = task.waiting?.inboxId else { return Verdict(payload: nil, reason: "回答需要待处理条目 id，服务尚未提供（C03）") }
+            let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return Verdict(payload: nil, reason: "先填写回答") }
+            return Verdict(payload: .object(["inboxId": .string(inbox), "answer": .string(text)]), reason: nil)
+        case .approve, .deny:
+            return Verdict(payload: nil, reason: "批准与拒绝要绑定待处理条目里的具体动作（effect、app、target），等 C03/C04 提供后开放")
+        case .bindAccount:
+            return Verdict(payload: nil, reason: "绑定账号需要 platform 与 accountKey 的输入界面，等 C03 提供账号作用域后开放")
+        case .resubmit:
+            return Verdict(payload: nil, reason: "重新提交需要原任务输入，等 C03 在视图里提供后开放")
+        }
     }
 }
