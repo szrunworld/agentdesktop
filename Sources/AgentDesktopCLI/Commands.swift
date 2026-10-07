@@ -60,7 +60,7 @@ enum CommandTable {
         t += crud(["ai", "model-profiles"], "ai.modelProfiles", idParam: "modelProfileId")
         t += crud(["ai", "profiles"], "ai.profiles", idParam: "guiProfileId")
         t += [
-            CommandSpec(words: ["runtime", "capabilities"], command: "runtime.capabilities"),
+            CommandSpec(words: ["ai", "capabilities"], command: "runtime.capabilities"),
             CommandSpec(words: ["ai", "credentials", "rotate"], command: "ai.credentials.rotate",
                         flags: [.s("connection-id", "connectionId"), .i("expected-revision", "expectedRevision")],
                         required: ["connectionId", "expectedRevision"], credentialStdin: true),
@@ -128,7 +128,7 @@ enum LocalFailure: Error {
     case validation(String)
 }
 
-extension CLI {
+extension ContractCLI {
     func buildInvocation(_ spec: CommandSpec, _ args: [String]) throws -> Invocation {
         var inv = Invocation()
         var fields: [String: JSONValue] = [:]

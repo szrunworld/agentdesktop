@@ -10,6 +10,8 @@ import AppKit
 import Carbon.HIToolbox
 import SecondScreenCore
 import SecondScreenRuntime
+import AgentDesktopProtocol
+import AgentDesktopRuntime
 
 /// Persisted user choices. The app restores them on launch.
 struct Preferences {
@@ -66,6 +68,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Agent screens, input into them, and the socket agents reach them on.
     private let runtime: AgentRuntime
     private var agentScreens: AgentScreens { runtime.screens }
+    /// The Runtime API endpoint every product entry uses (CLI plan v1.2).
+    private var runtimeServer: RuntimeServer?
     /// Live previews of agent screens, keyed by screen name.
     private var agentPreviews: [String: DisplayPreview] = [:]
 
@@ -134,10 +138,32 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch {
             presentError("Agents cannot reach \(Self.displayName): \(error.localizedDescription)")
         }
+        startRuntimeServer()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        runtimeServer?.stop()
         runtime.stop()
+    }
+
+    private func startRuntimeServer() {
+        let path = role.runtimeEndpoint.path
+        let build = Bundle.main.resourceURL.map(BuildInfo.load(resourcesDirectory:)) ?? .unknown
+        let identity = RuntimeIdentity(instanceId: RuntimeRequest.newId(prefix: "rt"), pid: getpid(),
+                                       startedAt: Timestamp.string(Date()), endpoint: path,
+                                       buildSource: build.source, builtAt: build.builtAt)
+        let server = RuntimeServer(path: path, service: RuntimeService(identity: identity, backend: MacBackend()))
+        do {
+            try server.start()
+            runtimeServer = server
+        } catch {
+            let message = "The agentdesktop command cannot reach \(Self.displayName): \(error)"
+            if role.isSideInstance {
+                FileHandle.standardError.write(Data((message + "\n").utf8))
+            } else {
+                presentError(message)
+            }
+        }
     }
 
     // MARK: Display lifecycle

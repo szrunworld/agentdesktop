@@ -450,7 +450,7 @@ struct VerticalSliceTests {
 
         let out = LinesBox()
         let request = #"{"schemaVersion":"agentdesktop.ai/1","requestId":"44444444-4444-4444-8444-444444444444","command":"runtime.capabilities","params":{}}"#
-        let cli = CLI(stdout: out.add, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
+        let cli = ContractCLI(stdout: out.add, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
                       environment: ["HOME": NSHomeDirectory()], send: SocketClient.exchange)
         let code = await Task.detached { cli.run(["--json", "--socket", path, "rpc", "--request-file", "r.json"]) }.value
         #expect(code == .ok)
@@ -475,7 +475,7 @@ struct VerticalSliceTests {
         }
         try await Task.sleep(nanoseconds: 100_000_000)
         let out2 = LinesBox()
-        let cli2 = CLI(stdout: out2.add, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
+        let cli2 = ContractCLI(stdout: out2.add, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
                        environment: ["HOME": NSHomeDirectory()], send: SocketClient.exchange)
         #expect(await Task.detached { cli2.run(["--socket", path, "rpc", "--request-file", "r.json"]) }.value == .ok)
     }

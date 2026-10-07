@@ -34,10 +34,20 @@ jobs:
         run: ./scripts/verify-archive.sh build/Agent\ Desktop-*.zip build/Agent\ Desktop-*.manifest.json
       - name: The bundled command line refuses tasks without the product's runtime
         run: |
-          out="$("build/Agent Desktop.app/Contents/Resources/bin/agentdesktop" task status nope || true)"
+          out="$("build/Agent Desktop.app/Contents/Resources/bin/2ndscreen" task status nope || true)"
           echo "$out"
           echo "$out" | grep -q '"capability_missing"'
           echo "$out" | grep -q 'Agent Desktop.app/Contents/Resources/bin/../task-runtime'
+      - name: The product CLI is the native agentdesktop and needs no Runtime for help and version
+        run: |
+          CLI="build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
+          codesign --verify --strict "$CLI"
+          "$CLI" help | grep -q 'usage: agentdesktop'
+          "$CLI" version --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["build"]["source"] != "unknown", d'
+          set +e; "$CLI" runtime status --endpoint /nonexistent/runtime.sock --format json > status.json; code=$?; set -e
+          cat status.json
+          test "$code" = 3
+          python3 -c 'import json; d=json.load(open("status.json")); assert d["error"]["code"] == "runtime_offline", d'
       - name: Keep the archive and manifest
         uses: actions/upload-artifact@v4
         with:

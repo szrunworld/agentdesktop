@@ -5,9 +5,10 @@
 #   Contents/MacOS/Agent Desktop            the host (Sources/AgentDesktop)
 #   Contents/Resources/libexec/2ndscreen    the engine's CLI, built from the pinned
 #                                           2ndscreen release in the dependency graph
-#   Contents/Resources/bin/2ndscreen        the supported command line: the CLI bound
-#                                           to this product's endpoint and runtime
-#   Contents/Resources/bin/agentdesktop     the same command under the product's name
+#   Contents/Resources/bin/agentdesktop     the product's command line (Sources/AgentDesktopCLI),
+#                                           speaking agentdesktop.runtime/1 to the host
+#   Contents/Resources/bin/2ndscreen        the engine's CLI bound to this product's
+#                                           engine endpoint and runtime
 #
 # Beside the bundle, after signing: "Agent Desktop-<build>.zip" (ditto, keeps
 # the .app) and "Agent Desktop-<build>.manifest.json" with the sha256 of every
@@ -53,10 +54,12 @@ ENGINE_REVISION="$(/usr/bin/python3 -c 'import json,sys; p=[x for x in json.load
 ENGINE_VERSION="$(/usr/bin/python3 -c 'import json,sys; p=[x for x in json.load(open("Package.resolved"))["pins"] if x["identity"]=="2ndscreen"][0]; print(p["state"].get("version","")) ')"
 "$ROOT/scripts/check-engine-checkout.sh" "$ROOT/.build/checkouts/2ndscreen" "$ENGINE_REVISION"
 
-swift build -c release
+swift build -c release --product AgentDesktopApp
+swift build -c release --product agentdesktop
 swift build -c release --product 2ndscreen
 BIN_DIR="$(swift build -c release --show-bin-path)"
-BIN="$BIN_DIR/AgentDesktop"
+BIN="$BIN_DIR/AgentDesktopApp"
+PRODUCT_CLI="$BIN_DIR/agentdesktop"
 CLI="$BIN_DIR/2ndscreen"
 
 rm -rf "$APP"
@@ -80,7 +83,7 @@ export SECONDSCREEN_TASK_RUNTIME="$here/../task-runtime"
 exec "$here/../libexec/2ndscreen" "$@"
 WRAPPER
 chmod 755 "$APP/Contents/Resources/bin/2ndscreen"
-ln -s 2ndscreen "$APP/Contents/Resources/bin/agentdesktop"
+cp "$PRODUCT_CLI" "$APP/Contents/Resources/bin/agentdesktop"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -118,7 +121,8 @@ cat > "$APP/Contents/Resources/build.json" <<JSON
   "inputs": {
     "note": "sha256 of the build products before the bundle's signature; the files as shipped are listed in the distribution manifest beside the archive",
     "Contents/MacOS/Agent Desktop": "$(sha "$BIN")",
-    "Contents/Resources/libexec/2ndscreen": "$(sha "$CLI")"
+    "Contents/Resources/libexec/2ndscreen": "$(sha "$CLI")",
+    "Contents/Resources/bin/agentdesktop": "$(sha "$PRODUCT_CLI")"
   },
   "taskRuntime": null,
   "android": null
@@ -179,6 +183,7 @@ restore_keychains() { security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@
 security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" "$KEYCHAIN"
 # Nested code is signed before the bundle that seals it.
 if ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.cli" "$APP/Contents/Resources/libexec/2ndscreen" \
+    || ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.agentdesktop" "$APP/Contents/Resources/bin/agentdesktop" \
     || ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"; then
     restore_keychains
     exit 1

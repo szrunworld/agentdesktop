@@ -13,12 +13,21 @@ let package = Package(
     name: "AgentDesktop",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "AgentDesktop", targets: ["AgentDesktop"]),
+        // The app's executable product is not "AgentDesktop": on a
+        // case-insensitive volume it would be the same file as the CLI's
+        // "agentdesktop" in the build directory. bundle-app.sh names the
+        // binary inside the bundle.
+        .executable(name: "AgentDesktopApp", targets: ["AgentDesktop"]),
+        // The formal command line (CLI plan v1.2 §03); bundled at
+        // Contents/Resources/bin/agentdesktop.
+        .executable(name: "agentdesktop", targets: ["AgentDesktopCLI"]),
+        .library(name: "AgentDesktopProtocol", targets: ["AgentDesktopProtocol"]),
+        .library(name: "AgentDesktopClient", targets: ["AgentDesktopClient"]),
+        .library(name: "AgentDesktopRuntime", targets: ["AgentDesktopRuntime"]),
         .library(name: "AgentDesktopContracts", targets: ["AgentDesktopContracts"]),
         .library(name: "AgentDesktopAI", targets: ["AgentDesktopAI"]),
         .library(name: "AgentDesktopGUI", targets: ["AgentDesktopGUI"]),
         .library(name: "AgentDesktopService", targets: ["AgentDesktopService"]),
-        .executable(name: "agentdesktop-cli", targets: ["AgentDesktopCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/szrunworld/2ndscreen.git", exact: engineVersion),
@@ -30,6 +39,8 @@ let package = Package(
             dependencies: [
                 .product(name: "SecondScreenCore", package: "2ndscreen"),
                 .product(name: "SecondScreenRuntime", package: "2ndscreen"),
+                "AgentDesktopRuntime",
+                "AgentDesktopProtocol",
             ]
         ),
         .testTarget(
@@ -73,15 +84,42 @@ let package = Package(
             name: "AgentDesktopGUITests",
             dependencies: ["AgentDesktopGUI", "AgentDesktopAI", "AgentDesktopContracts"]
         ),
-        // Contract v1 client (spec §13): talks to the runtime only through
-        // the local endpoint; never links an input backend.
-        .executableTarget(
-            name: "AgentDesktopCLI",
+        // Runtime API agentdesktop.runtime/1 (CLI plan v1.2 §02, §05).
+        // Dependency direction: CLI → Client → Protocol → Contracts (JSON
+        // and schema primitives); Runtime → Protocol. The CLI never links
+        // the Runtime, the engine or a model loop. contracts/runtime/v1 is
+        // embedded as code (scripts/generate-runtime-contract.sh): binaries
+        // inside the app bundle cannot locate a SwiftPM resource bundle.
+        .target(
+            name: "AgentDesktopProtocol",
             dependencies: ["AgentDesktopContracts"]
         ),
+        .target(
+            name: "AgentDesktopClient",
+            dependencies: ["AgentDesktopProtocol", "AgentDesktopContracts"]
+        ),
+        // The only execution authority. PR1 serves the read-only surface.
+        .target(
+            name: "AgentDesktopRuntime",
+            dependencies: ["AgentDesktopProtocol", "AgentDesktopContracts"]
+        ),
+        .executableTarget(
+            name: "AgentDesktopCLI",
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+        ),
+        .testTarget(
+            name: "AgentDesktopClientTests",
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+        ),
+        .testTarget(
+            name: "AgentDesktopRuntimeTests",
+            dependencies: ["AgentDesktopRuntime", "AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+        ),
+        // End-to-end tests run the CLI against a real RuntimeServer.
         .testTarget(
             name: "AgentDesktopCLITests",
-            dependencies: ["AgentDesktopCLI", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopCLI", "AgentDesktopRuntime", "AgentDesktopClient",
+                           "AgentDesktopProtocol", "AgentDesktopContracts"]
         ),
         // Composition of contract v1 (spec §03.1): wires AI and GUI into the
         // 32 handlers. Takes input only through an injected backend.
