@@ -1,0 +1,90 @@
+{
+ "operationId": "op_9b18ed91de8a408190d9",
+ "kind": "capability_test",
+ "state": "succeeded",
+ "resourceId": "gp_cd4724f1830942f38cc4",
+ "resourceRevision": 1,
+ "createdAt": "2026-10-07T19:52:53.929Z",
+ "updatedAt": "2026-10-07T19:53:06.130Z",
+ "result": {
+  "guiProfileId": "gp_cd4724f1830942f38cc4",
+  "guiProfileRevision": 1,
+  "levels": [
+   {
+    "level": "network",
+    "status": "passed",
+    "latencyMs": 500,
+    "reasonCode": null,
+    "httpStatus": 401
+   },
+   {
+    "level": "auth_model",
+    "status": "passed",
+    "latencyMs": 2597,
+    "reasonCode": null,
+    "httpStatus": 200
+   },
+   {
+    "level": "image_input",
+    "status": "passed",
+    "latencyMs": 4703,
+    "reasonCode": null,
+    "httpStatus": 200
+   },
+   {
+    "level": "gui_contract",
+    "status": "passed",
+    "latencyMs": 4386,
+    "reasonCode": null,
+    "httpStatus": 200
+   }
+  ],
+  "capabilities": {
+   "network": {
+    "status": "verified",
+    "checkedAt": "2026-10-07T19:52:54.432Z",
+    "testOperationId": "op_9b18ed91de8a408190d9",
+    "scope": {
+     "connectionRevision": 1,
+     "modelProfileRevision": 1
+    },
+    "reasonCode": null
+   },
+   "authModel": {
+    "status": "verified",
+    "checkedAt": "2026-10-07T19:52:57.032Z",
+    "testOperationId": "op_9b18ed91de8a408190d9",
+    "scope": {
+     "connectionRevision": 1,
+     "modelProfileRevision": 1
+    },
+    "reasonCode": null
+   },
+   "imageInput": {
+    "status": "verified",
+    "checkedAt": "2026-10-07T19:53:01.738Z",
+    "testOperationId": "op_9b18ed91de8a408190d9",
+    "scope": {
+     "connectionRevision": 1,
+     "modelProfileRevision": 1
+    },
+    "reasonCode": null
+   },
+   "guiContract": {
+    "status": "verified",
+    "checkedAt": "2026-10-07T19:53:06.127Z",
+    "testOperationId": "op_9b18ed91de8a408190d9",
+    "scope": {
+     "connectionRevision": 1,
+     "modelProfileRevision": 1,
+     "adapterVersion": "1.0.0",
+     "promptVersion": "uitars-prompt-1",
+     "parserVersion": "uitars-parser-1"
+    },
+    "reasonCode": null
+   }
+  },
+  "performedDesktopInput": false
+ },
+ "error": null
+}
