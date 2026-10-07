@@ -122,8 +122,8 @@ public final class ContractBundle: Sendable {
 
     public init(domain: Data, rpc: Data, operations: Data) throws {
         let registry = SchemaRegistry()
-        try registry.add(jsonData: domain)
-        try registry.add(jsonData: rpc)
+        _ = try registry.add(jsonData: domain)
+        _ = try registry.add(jsonData: rpc)
         self.registry = registry
 
         let catalog = try StrictJSON.parse(operations)

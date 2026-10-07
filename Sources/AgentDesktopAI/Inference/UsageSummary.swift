@@ -1,6 +1,30 @@
 import Foundation
 import AgentDesktopContracts
 
+/// One ledger row as usage sees it.
+public struct UsageRow: Equatable, Sendable {
+    public let inferenceAttemptId: ResourceID
+    public let startedAt: Date
+    public let connectionId: ResourceID
+    /// nil when upstream reported nothing (or the attempt never finished).
+    public let usage: UsageTokens?
+    public let cost: CostEstimate?
+
+    public init(inferenceAttemptId: ResourceID, startedAt: Date, connectionId: ResourceID,
+                usage: UsageTokens?, cost: CostEstimate?) {
+        self.inferenceAttemptId = inferenceAttemptId
+        self.startedAt = startedAt
+        self.connectionId = connectionId
+        self.usage = usage
+        self.cost = cost
+    }
+
+    public init(_ r: AiCallRecord) {
+        self.init(inferenceAttemptId: r.context.inferenceAttemptId, startedAt: r.startedAt,
+                  connectionId: r.target.connection.connectionId, usage: r.usage, cost: r.cost)
+    }
+}
+
 /// `ai.usage.summary` (spec §09.3, §18.1): model attempts of both purposes,
 /// counted once each by inferenceAttemptId, with known values, unknown
 /// counts and estimated cost kept apart. Never a final bill.
@@ -13,11 +37,17 @@ public enum UsageSummaryBuilder {
     ///     receipts, counted separately; model attempts never stand in for them.
     public static func summarize(_ records: [AiCallRecord], from: Date, to: Date, connectionId: ResourceID? = nil,
                                  confirmedActions: Int = 0, unknownActionOutcomes: Int = 0) -> JSONValue {
+        summarize(rows: records.map(UsageRow.init), from: from, to: to, connectionId: connectionId,
+                  confirmedActions: confirmedActions, unknownActionOutcomes: unknownActionOutcomes)
+    }
+
+    public static func summarize(rows all: [UsageRow], from: Date, to: Date, connectionId: ResourceID? = nil,
+                                 confirmedActions: Int = 0, unknownActionOutcomes: Int = 0) -> JSONValue {
         var seen = Set<ResourceID>()
-        let rows = records.filter { r in
+        let rows = all.filter { r in
             guard r.startedAt >= from, r.startedAt < to else { return false }
-            if let c = connectionId, r.target.connection.connectionId != c { return false }
-            return seen.insert(r.context.inferenceAttemptId).inserted
+            if let c = connectionId, r.connectionId != c { return false }
+            return seen.insert(r.inferenceAttemptId).inserted
         }
 
         func sum(_ pick: (UsageTokens) -> Int?) -> Int? {
