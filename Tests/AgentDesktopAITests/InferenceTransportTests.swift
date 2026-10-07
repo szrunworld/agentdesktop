@@ -111,7 +111,8 @@ struct InferenceTransportTests {
             #expect(e.code == code)
             #expect(e.retryable == retryable)
             #expect(!e.message.contains(canaryKey) && !e.message.contains("secret form data"))
-            #expect(!(e.details?.encoded() ?? "").contains(canaryKey))
+            let detailsLeak = (e.details?.encoded() ?? "").contains(canaryKey)
+            #expect(!detailsLeak)
             if status == 429 { #expect(e.details?["retryAfterMs"]?.intValue == 2000) }
         }
         let rec = try #require(await ledger.records().first)
@@ -257,7 +258,8 @@ struct InferenceLoopbackTests {
             Issue.record("expected UPSTREAM_PROTOCOL_ERROR")
         } catch let e as ContractError {
             #expect(e.code == .upstreamProtocolError)
-            #expect(!"\(e) \(e.details?.encoded() ?? "")".contains(canaryKey))
+            let errorLeak = "\(e) \(e.details?.encoded() ?? "")".contains(canaryKey)
+            #expect(!errorLeak)
         }
         #expect(b.requests.isEmpty, "the redirect target received nothing")
         #expect(a.requests.count == 1)
