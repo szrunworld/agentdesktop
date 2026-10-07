@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agentdesktop.invalid/runtime/v1/runtime.schema.json",
+  "title": "AgentDesktop Runtime API agentdesktop.runtime/1 (draft, PR1 read-only surface)",
+  "$defs": {
+    "ApiVersion": {"const": "agentdesktop.runtime/1"},
+    "Id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"},
+    "Timestamp": {"type": "string", "format": "date-time"},
+
+    "Context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {"$ref": "#/$defs/Id"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "desktopId": {"$ref": "#/$defs/Id"}
+      }
+    },
+
+    "Request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apiVersion", "requestId", "method", "params"],
+      "properties": {
+        "apiVersion": {"$ref": "#/$defs/ApiVersion"},
+        "requestId": {"$ref": "#/$defs/Id"},
+        "method": {"type": "string", "pattern": "^[a-z]+(\\.[a-z][a-zA-Z]*)*$"},
+        "context": {"$ref": "#/$defs/Context"},
+        "deadline": {"$ref": "#/$defs/Timestamp"},
+        "params": {"type": "object"}
+      }
+    },
+
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "phase", "retryable"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^[a-z][a-z_]*$"},
+        "message": {"type": "string"},
+        "phase": {"enum": ["local", "connect", "transport", "handshake", "request", "handler"]},
+        "retryable": {"type": "boolean"},
+        "notSent": {"type": "boolean", "description": "true only when it is certain the request never reached the Runtime"},
+        "details": {"type": "object"}
+      }
+    },
+
+    "Response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["apiVersion", "requestId", "ok", "data"],
+          "properties": {
+            "apiVersion": {"$ref": "#/$defs/ApiVersion"},
+            "requestId": {"$ref": "#/$defs/Id"},
+            "ok": {"const": true},
+            "data": {"type": "object"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["apiVersion", "requestId", "ok", "error"],
+          "properties": {
+            "apiVersion": {"$ref": "#/$defs/ApiVersion"},
+            "requestId": {"anyOf": [{"$ref": "#/$defs/Id"}, {"type": "null"}]},
+            "ok": {"const": false},
+            "error": {"$ref": "#/$defs/Error"}
+          }
+        }
+      ]
+    },
+
+    "empty_params": {"type": "object", "additionalProperties": false},
+    "runtime_handshake_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apiVersions", "client"],
+      "properties": {
+        "apiVersions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1, "maxLength": 64},
+            "version": {"type": "string", "minLength": 1, "maxLength": 64}
+          }
+        }
+      }
+    },
+    "desktop_show_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desktopId"],
+      "properties": {"desktopId": {"$ref": "#/$defs/Id"}}
+    },
+    "app_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"includeBackground": {"type": "boolean"}}
+    },
+    "window_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pid": {"type": "integer", "minimum": 1},
+        "bundleId": {"type": "string", "minLength": 1, "maxLength": 255},
+        "includeOffscreen": {"type": "boolean", "description": "also minimized, hidden and other-Space windows; default on-screen only"}
+      },
+      "not": {"required": ["pid", "bundleId"]}
+    },
+
+    "Platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "osVersion", "arch"],
+      "properties": {
+        "os": {"enum": ["macos", "windows"]},
+        "osVersion": {"type": "string"},
+        "arch": {"type": "string"}
+      }
+    },
+    "RuntimeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "productVersion", "apiVersion", "apiVersions", "instanceId", "pid", "startedAt", "endpoint", "platform", "build"],
+      "properties": {
+        "product": {"const": "AgentDesktop"},
+        "productVersion": {"type": "string"},
+        "apiVersion": {"$ref": "#/$defs/ApiVersion"},
+        "apiVersions": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "instanceId": {"$ref": "#/$defs/Id"},
+        "pid": {"type": "integer", "minimum": 1},
+        "startedAt": {"$ref": "#/$defs/Timestamp"},
+        "endpoint": {"type": "string", "minLength": 1},
+        "platform": {"$ref": "#/$defs/Platform"},
+        "build": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": {
+            "source": {"type": "string", "description": "commit the product was built from, or \"unknown\" outside a bundled build"},
+            "builtAt": {"type": "string"}
+          }
+        }
+      }
+    },
+    "RuntimeStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instanceId", "state", "startedAt", "uptimeSeconds", "connections", "desktops", "sessions", "runs"],
+      "properties": {
+        "instanceId": {"$ref": "#/$defs/Id"},
+        "state": {"enum": ["running", "stopping"]},
+        "startedAt": {"$ref": "#/$defs/Timestamp"},
+        "uptimeSeconds": {"type": "number", "minimum": 0},
+        "connections": {"type": "integer", "minimum": 0},
+        "desktops": {"type": "integer", "minimum": 0},
+        "sessions": {"type": "integer", "minimum": 0},
+        "runs": {"type": "integer", "minimum": 0}
+      }
+    },
+    "PermissionState": {"enum": ["granted", "denied", "unknown"]},
+    "Capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apiVersion", "interface", "backend"],
+      "properties": {
+        "apiVersion": {"$ref": "#/$defs/ApiVersion"},
+        "interface": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["methods"],
+          "properties": {
+            "methods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["method", "mutation", "stage"],
+                "properties": {
+                  "method": {"type": "string"},
+                  "mutation": {"type": "boolean"},
+                  "stage": {"enum": ["P0", "P1", "P2"]}
+                }
+              }
+            }
+          }
+        },
+        "backend": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["platform", "permissions", "features"],
+          "properties": {
+            "platform": {"$ref": "#/$defs/Platform"},
+            "permissions": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["screenRecording", "accessibility"],
+              "properties": {
+                "screenRecording": {"$ref": "#/$defs/PermissionState"},
+                "accessibility": {"$ref": "#/$defs/PermissionState"}
+              }
+            },
+            "features": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^[a-z]+(\\.[a-z][a-zA-Z]*)+$"}
+            }
+          }
+        }
+      }
+    },
+
+    "Desktop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desktopId", "name", "state", "createdAt"],
+      "properties": {
+        "desktopId": {"$ref": "#/$defs/Id"},
+        "name": {"type": "string"},
+        "state": {"enum": ["ready", "busy", "destroying"]},
+        "createdAt": {"$ref": "#/$defs/Timestamp"}
+      }
+    },
+    "DesktopList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desktops"],
+      "properties": {"desktops": {"type": "array", "items": {"$ref": "#/$defs/Desktop"}}}
+    },
+
+    "ProcessIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid", "startedAt"],
+      "properties": {
+        "pid": {"type": "integer", "minimum": 1},
+        "startedAt": {"anyOf": [{"$ref": "#/$defs/Timestamp"}, {"type": "null"}], "description": "process start time; pid plus start time names one launch"}
+      }
+    },
+    "App": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["process", "bundleId", "name", "active", "hidden"],
+      "properties": {
+        "process": {"$ref": "#/$defs/ProcessIdentity"},
+        "bundleId": {"type": ["string", "null"]},
+        "name": {"type": "string"},
+        "active": {"type": "boolean"},
+        "hidden": {"type": "boolean"}
+      }
+    },
+    "AppList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apps"],
+      "properties": {"apps": {"type": "array", "items": {"$ref": "#/$defs/App"}}}
+    },
+
+    "Rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "number"}, "y": {"type": "number"},
+        "width": {"type": "number", "minimum": 0}, "height": {"type": "number", "minimum": 0}
+      }
+    },
+    "Window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["windowId", "process", "appName", "bundleId", "title", "frame", "onScreen"],
+      "properties": {
+        "windowId": {"type": "integer", "minimum": 1},
+        "process": {"$ref": "#/$defs/ProcessIdentity"},
+        "appName": {"type": "string"},
+        "bundleId": {"type": ["string", "null"]},
+        "title": {"type": ["string", "null"], "description": "null when the OS withholds titles (no Screen Recording grant)"},
+        "frame": {"$ref": "#/$defs/Rect", "description": "global points, top-left origin"},
+        "onScreen": {"type": "boolean"}
+      }
+    },
+    "WindowList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["windows"],
+      "properties": {"windows": {"type": "array", "items": {"$ref": "#/$defs/Window"}}}
+    }
+  }
+}

@@ -45,6 +45,20 @@ enum HostRole {
         }
     }
 
+    /// Where the Runtime API (agentdesktop.runtime/1) listens: beside the
+    /// engine endpoint, `runtime.sock` for the product and
+    /// `<socket>.runtime.sock` for a side instance. The `agentdesktop` CLI
+    /// finds the product's on its own (AgentDesktopClient.EndpointResolver)
+    /// and a side instance's through `--endpoint` or AGENTDESKTOP_ENDPOINT.
+    var runtimeEndpoint: URL {
+        switch self {
+        case .product:
+            return Self.productEndpoint.deletingLastPathComponent().appendingPathComponent("runtime.sock")
+        case .sideInstance(let socket):
+            return socket.deletingPathExtension().appendingPathExtension("runtime.sock")
+        }
+    }
+
     var isSideInstance: Bool {
         if case .sideInstance = self { return true }
         return false

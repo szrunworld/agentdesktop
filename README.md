@@ -23,25 +23,29 @@ open "build/Agent Desktop.app"   # 菜单栏图标；首次启动会打开一个
 
 ## 命令行
 
-受支持的入口只有 `Contents/Resources/bin` 下的两个名字，它们是同一个脚本：
-
 | 路径 | 作用 |
 | --- | --- |
-| `Contents/Resources/bin/agentdesktop` | 产品的命令行 |
-| `Contents/Resources/bin/2ndscreen` | 同一个命令，沿用引擎的命令名 |
+| `Contents/Resources/bin/agentdesktop` | 产品的正式命令行（`Sources/AgentDesktopCLI`，原生 Swift），经 `agentdesktop.runtime/1` 连接宿主里的 Runtime |
+| `Contents/Resources/bin/2ndscreen` | 引擎 CLI 的入口脚本，绑定本产品的引擎 endpoint 与 task runtime 目录 |
 | `Contents/Resources/libexec/2ndscreen` | 引擎 CLI 的二进制本体，不作为入口使用 |
 
-入口脚本把 `SECONDSCREEN_SOCKET` 默认指到本产品的 endpoint（测试副本时可以自己指定），并把 `SECONDSCREEN_TASK_RUNTIME` 固定绑定到本产品包内的 `Contents/Resources/task-runtime`。这样 `task` 命令和 MCP 里派生 task 子进程的工具只会用产品自己的 runtime；目录还不存在时直接返回 `capability_missing`，不会退回到正在运行的 2ndscreen.app 里的 runtime。直接执行 `libexec` 里的二进制不在支持范围内，它会按引擎自己的规则去找 runtime。
+`agentdesktop` 按 CLI 方案 v1.2 逐步开放命令；目前是 PR1 的只读面：
 
 ```bash
 CLI="build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
-"$CLI" screen create --name demo --size 1280x800
-"$CLI" screen list
-"$CLI" screenshot --screen demo --output demo.png    # 需要给 Agent Desktop 屏幕录制权限
-"$CLI" screen destroy demo
+"$CLI" version
+"$CLI" runtime start            # 没有 Runtime 应答时启动已安装的产品并等待握手
+"$CLI" runtime status --format json
+"$CLI" runtime capabilities     # 已实现的方法与 backend 权限/能力分开报告
+"$CLI" doctor                   # 只读：endpoint、握手、版本、权限
+"$CLI" desktop list
+"$CLI" app list
+"$CLI" window list --bundle-id com.apple.calculator
 ```
 
-命令的完整说明在引擎仓 README。`agentdesktop task …` 在本阶段返回 `capability_missing`，消息里是产品包内尚不存在的 runtime 路径：task runtime 要等引擎发布不带业务 skills 的版本后再装进产品包（路线 C01）。`agentdesktop android …` 在产品里明确返回不支持。
+Runtime endpoint 是 `~/Library/Application Support/AgentDesktop/runtime.sock`（只允许当前用户，`runtime.sock.lock` 上的 flock 保证单实例）；测试副本的是 `<SECONDSCREEN_SOCKET 去掉扩展名>.runtime.sock`，用 `--endpoint` 或 `AGENTDESKTOP_ENDPOINT` 指过去。协议、方法表、错误码与退出码在 `contracts/runtime/v1/`，夹具在 `contracts/fixtures/runtime/v1/`。
+
+屏幕、截图、窗口移动等写操作在 PR2 进入 `agentdesktop`；在那之前仍可用引擎命令 `bin/2ndscreen`（`screen create/list/destroy`、`screenshot` 等，说明见引擎仓 README）。`2ndscreen task …` 返回 `capability_missing`，`2ndscreen android …` 在产品里明确返回不支持。
 
 ## 角色、endpoint 与编号
 

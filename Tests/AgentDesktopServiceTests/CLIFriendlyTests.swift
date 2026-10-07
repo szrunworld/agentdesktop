@@ -16,8 +16,8 @@ final class CLIRun: @unchecked Sendable {
     private var polls = 0
     private var clockMs: UInt64 = 0
 
-    func cli() -> CLI {
-        CLI(stdout: out.add, stderr: err.add,
+    func cli() -> ContractCLI {
+        ContractCLI(stdout: out.add, stderr: err.add,
             readFile: { [files] p in guard let s = files[p] else { throw CocoaError(.fileNoSuchFile) }; return Data(s.utf8) },
             environment: ["HOME": NSHomeDirectory()],
             send: SocketClient.exchange,

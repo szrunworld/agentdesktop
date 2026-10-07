@@ -1,0 +1,1 @@
+{"def":"Response","instance":{"apiVersion":"agentdesktop.runtime/1","requestId":null,"ok":false,"error":{"code":"frame_too_large","message":"a message exceeds 1048576 bytes","phase":"request","retryable":false}}}

@@ -1,0 +1,22 @@
+{
+  "apiVersion": "agentdesktop.runtime/1",
+  "status": "DRAFT_PR1",
+  "transport": {
+    "macOS": "owner-only Unix domain socket ~/Library/Application Support/AgentDesktop/runtime.sock",
+    "windows": "current-user named pipe (W1)",
+    "framing": "UTF-8 JSON, one message per LF-terminated line; requests on one connection are answered in order",
+    "maxFrameBytes": 1048576,
+    "countIncludesNewline": true,
+    "firstMethod": "runtime.handshake"
+  },
+  "schema": "runtime.schema.json",
+  "methods": [
+    {"method": "runtime.handshake",    "stage": "P0", "mutation": false, "params": "runtime_handshake_params",    "result": "RuntimeIdentity"},
+    {"method": "runtime.status",       "stage": "P0", "mutation": false, "params": "empty_params",                "result": "RuntimeStatus"},
+    {"method": "runtime.capabilities", "stage": "P0", "mutation": false, "params": "empty_params",                "result": "Capabilities"},
+    {"method": "desktop.list",         "stage": "P0", "mutation": false, "params": "empty_params",                "result": "DesktopList"},
+    {"method": "desktop.show",         "stage": "P0", "mutation": false, "params": "desktop_show_params",         "result": "Desktop"},
+    {"method": "app.list",             "stage": "P0", "mutation": false, "params": "app_list_params",             "result": "AppList"},
+    {"method": "window.list",          "stage": "P0", "mutation": false, "params": "window_list_params",          "result": "WindowList"}
+  ]
+}

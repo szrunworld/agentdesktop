@@ -1,0 +1,1 @@
+{"def":"RuntimeIdentity","instance":{"product":"2ndscreen","productVersion":"0.2.0","apiVersion":"agentdesktop.runtime/1","apiVersions":["agentdesktop.runtime/1"],"instanceId":"rt_1","pid":1,"startedAt":"2026-10-08T03:40:00Z","endpoint":"/x","platform":{"os":"macos","osVersion":"15","arch":"arm64"},"build":{"source":"unknown"}}}
