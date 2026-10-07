@@ -68,6 +68,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var agentScreens: AgentScreens { runtime.screens }
     /// Live previews of agent screens, keyed by screen name.
     private var agentPreviews: [String: DisplayPreview] = [:]
+    /// The main window and its data; the product role only.
+    private var mainWindow: MainWindowController?
 
     init(role: HostRole) {
         self.role = role
@@ -124,6 +126,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let preview = self?.agentPreviews[name] else { return }
             Task { @MainActor in try? await preview.restartStream() }
         }
+        if !role.isSideInstance {
+            mainWindow = MainWindowController(model: AppModel(role: role))
+            mainWindow?.show()
+        }
+
         do {
             // The endpoint is explicit for every role; the product never
             // takes it from the environment (roadmap decision 2).
@@ -138,6 +145,26 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         runtime.stop()
+    }
+
+    /// Closing the main window keeps the app, its screens and its tasks; the
+    /// Dock icon and the menu bar bring the window back.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { openMainWindow() }
+        return true
+    }
+
+    @objc private func openMainWindow() {
+        mainWindow?.show()
+    }
+
+    /// The emergency stop of the roadmap's menu bar entry. Until C03 gives a
+    /// per-task cancel with a stop receipt, this only destroys the agent
+    /// screens, which ends the screens' input; it is labelled as such.
+    @objc private func emergencyStop() {
+        agentScreens.destroyAll()
     }
 
     // MARK: Display lifecycle
@@ -558,6 +585,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let status = NSMenuItem(title: statusLine(), action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
+        menu.addItem(.separator())
+        let open = item("Open \(Self.displayName)", #selector(openMainWindow), on: false)
+        open.keyEquivalent = "o"
+        open.keyEquivalentModifierMask = [.command]
+        menu.addItem(open)
+        let stop = item("Emergency Stop (agent screens only)", #selector(emergencyStop), on: false)
+        stop.toolTip = "Destroys every agent screen now. Per-task cancel with a stop receipt comes with roadmap C03."
+        stop.isEnabled = !agentScreens.screens.isEmpty
+        menu.addItem(stop)
         menu.addItem(.separator())
 
         menu.addItem(item("Virtual Display", #selector(toggleDisplay), on: display != nil))

@@ -4,7 +4,7 @@ Agent Desktop 是面向用户的独立桌面产品：把支持范围内的桌面
 
 本仓库只放产品：App 宿主、品牌、界面、安装更新和发布材料。虚拟显示、窗口、输入、截图、Agent 屏幕和控制协议来自引擎仓 [szrunworld/2ndscreen](https://github.com/szrunworld/2ndscreen)，以固定版本依赖，不在这里复制或修改。边界见 [docs/boundaries.md](docs/boundaries.md)，路线见 [docs/roadmap](docs/roadmap/)。
 
-当前状态：阶段 0「宿主骨架」已于 2026-10-07 在目标机验收关闭。产品能构建、能被识别、路由正确；任务工作台、审批、模型配置等产品功能尚未开始，见 [docs/features.md](docs/features.md)。
+当前状态：阶段 0「宿主骨架」已于 2026-10-07 在目标机验收关闭，A02 前置已有主窗口、权限向导、任务界面结构和 TaskClient 类型；真实任务数据要等引擎的 C03 任务视图接口。各项进度见 [docs/features.md](docs/features.md)。
 
 ## 构建
 
@@ -20,6 +20,25 @@ open "build/Agent Desktop.app"   # 菜单栏图标；首次启动会打开一个
 脚本会拒绝本地覆盖的依赖：`Packages/` 目录、`swift package edit` 状态，或 `.build/checkouts/2ndscreen` 不在锁定提交、有工作区改动、有暂存改动或有未跟踪文件时都不打包（`scripts/check-engine-checkout.sh`，回归用例在 `scripts/test-check-engine-checkout.sh`）。
 
 单元测试：`swift test`（swift-testing，只装 Command Line Tools 也能跑）。CI 见 `.github/workflows/macos.yml`。
+
+## 主窗口
+
+产品宿主有 Dock 图标和主窗口，侧栏四个入口对应路线文档第五节的界面组织表：
+
+| 入口 | 现在有什么 |
+| --- | --- |
+| 任务主页 | 当前、历史列表与任务详情：当前步骤、等待原因、心跳、执行者、结果与验证、产物、用量，以及服务此刻允许的操作按钮 |
+| Agent | 官方参考 Agent 占位、已导入列表（空）、本 runtime 托管过任务的 agent |
+| 待处理 | 等待审批、提问、登录、中断核对与结果不明的任务，在详情里处理 |
+| 设置 | 权限向导（屏幕录制、辅助功能、task runtime 的真实检测与申请入口）、任务数据来源、构建来源 |
+
+关闭主窗口不退出 App，宿主、工作屏和任务继续；菜单栏的 **Open Agent Desktop** 或点 Dock 图标重新打开。菜单栏还有 **Emergency Stop (agent screens only)**：销毁全部工作屏，这只是按任务取消落地前的占位，按钮名里写明了范围。测试副本没有主窗口和 Dock 图标。
+
+任务数据来自 `Sources/AgentDesktop/TaskClient` 的薄客户端，类型按引擎仓 `docs/task-client-contract.md`（C03 草案，版本 0）翻译：
+
+- `CLITaskClient`：产品默认，调包内 `bin/agentdesktop task service|views|view|control`。当前 runtime 还没有这些子命令、产品包里也没有 runtime，所以界面显示「未安装 Runtime」或「服务缺少这项能力」，并给出下一步。
+- `SampleTaskClient`：覆盖契约全部状态与操作组合的样例数据，只用于界面开发。设置页可切换，或启动时设 `AGENTDESKTOP_TASK_CLIENT=sample`。
+- 停止与暂停按契约区分「请求已受理」与「执行者已停止」：收到回执只显示停止中，视图里 `executor.stopped` 为真才显示已停止。
 
 ## 命令行
 
