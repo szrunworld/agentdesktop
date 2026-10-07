@@ -1,0 +1,554 @@
+// Puts the runtime together: where its files live, the skills it can run,
+// a control client for the short-lived `2ndscreen task` process, and the
+// full worker (session, ledger, procedures, the registered workflows, vision,
+// bridge, runner, daemon) for the background process that owns the tasks.
+//
+// The generic runtime starts with no business package: no skills directory,
+// an empty one, and so no workflow, runner or business session. A skill
+// package is a business registration; its workflow must be registered in
+// this build (workflows.ts) or the package fails to load, by name.
+//
+// The command line never runs tasks. It opens the ledger, makes its one
+// control call through a daemon that does not claim tasks, makes sure a
+// worker is running, and exits. The worker is the only process that drives
+// the app; it is started detached so it outlives the command that started it.
+
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import {
+  DEFAULT_PROMOTION,
+  RuntimeError,
+  assertValid,
+  isRuntimeError,
+  validateTaskSpec,
+  type BossWorkflow,
+  type LineProcessSpawner,
+  type TaskRunner,
+  type TaskSpec,
+  type TaskStore,
+  type WindowProfile,
+} from './contracts.ts';
+import { ActorRegistry, VERIFY_KILL_GRACE_MS, deadWorkers, liveWorkers, pruneClosedRecords, verifyWorkerStopped } from './actors.ts';
+import { createAgentHosting, type AgentHosting } from './agent-hosting.ts';
+import { createUnitService } from './agent-units.ts';
+import { agentSpecFromTaskSpec } from './agent-contracts.ts';
+import { agentDataPaths, createFileEffectLedger, prepareAgentDataDir } from './agent-ledgers.ts';
+import { builtinPolicySource, checkedSessionManager } from './builtin-agents.ts';
+import { createAgentBridge, createLineProcessSpawner } from './adapters/agent-bridge.ts';
+import { createLocalVision, type LocalVisionClient } from './adapters/local-vision.ts';
+import { createCommandRunner, createSecondScreenAdapter } from './adapters/second-screen.ts';
+import { createArtifactStore } from './artifacts.ts';
+import { createTaskDaemon, daemonOwnerPid, ensureDaemon, spawnDetachedWorker, type TaskDaemon } from './daemon.ts';
+import { createLearner } from './learning.ts';
+import { createProcedureEngine } from './procedures.ts';
+import { createRecovery } from './recovery.ts';
+import { createTaskRunner } from './runner.ts';
+import { createSessionManager } from './session.ts';
+import { defaultTaskDbPath, openTaskStore, type TaskLedgerStore } from './store.ts';
+import { createTelemetryHub } from './telemetry.ts';
+import { NO_WORKFLOWS, legacyWorkflows, type WorkflowRegistry } from './workflows.ts';
+
+// ---------------------------------------------------------------------------
+// Where things are
+
+export interface RuntimePaths {
+  /** ~/Library/Application Support/2ndscreen/tasks, or $SECONDSCREEN_TASKS_DIR. Private (0700). */
+  tasksDir: string;
+  dbPath: string;
+  /** Screenshots the session takes; A4 copies what it keeps into the task's staging. */
+  screenshotsDir: string;
+  /** Records of what each worker started (actors.ts). */
+  actorsDir: string;
+  /** stdout and stderr of the background worker. */
+  workerLog: string;
+}
+
+export function runtimePaths(env: NodeJS.ProcessEnv = process.env): RuntimePaths {
+  const override = env.SECONDSCREEN_TASKS_DIR;
+  if (override !== undefined && override !== '' && !isAbsolute(override))
+    throw new RuntimeError('invalid_input', 'SECONDSCREEN_TASKS_DIR must be an absolute directory');
+  const tasksDir = override ? resolve(override) : dirname(defaultTaskDbPath(homedir()));
+  return {
+    tasksDir,
+    dbPath: join(tasksDir, 'tasks.db'),
+    screenshotsDir: join(tasksDir, 'screenshots'),
+    actorsDir: join(tasksDir, 'actors'),
+    workerLog: join(tasksDir, 'worker.log'),
+  };
+}
+
+/** Creates the runtime's directories readable by the user alone, tightening any that exist. */
+export function preparePrivateDirs(paths: RuntimePaths): void {
+  for (const dir of [paths.tasksDir, paths.screenshotsDir, paths.actorsDir]) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if ((statSync(dir).mode & 0o077) !== 0) chmodSync(dir, 0o700);
+  }
+}
+
+/** What the runtime needs from its surroundings; every path absolute. */
+export interface RuntimeConfig {
+  paths: RuntimePaths;
+  /** The 2ndscreen executable: screens, the agent bridge and the vision helper. */
+  cli: string;
+  /** Control socket of the 2ndscreen side instance tasks use. */
+  socket: string;
+  /** 2ndscreen.app, to start that side instance when it is not running. */
+  app?: string;
+  skillsDir: string;
+  /** Whether SECONDSCREEN_SKILLS_DIR named the directory: then it must exist. The default may be absent. */
+  skillsDirExplicit: boolean;
+  /** Node running this runtime, and the worker entry it starts. */
+  node: string;
+  workerEntry: string;
+}
+
+/**
+ * Reads the configuration from the environment `2ndscreen task` sets
+ * (SECONDSCREEN_CLI) and the files next to the entry point. `entryDir` is
+ * the directory of main.mjs (installed) or of src/ (development).
+ */
+export function resolveConfig(entryDir: string, env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
+  const absolute = (name: string): string | undefined => {
+    const value = env[name];
+    if (value === undefined || value === '') return undefined;
+    if (!isAbsolute(value)) throw new RuntimeError('invalid_input', `${name} must be an absolute path`);
+    return value;
+  };
+  const installed = existsSync(join(entryDir, 'worker.mjs'));
+  const cli = absolute('SECONDSCREEN_CLI');
+  if (!cli) throw new RuntimeError('capability_missing', 'SECONDSCREEN_CLI is not set; run the runtime through `2ndscreen task`');
+  // Installed at <app>/Contents/Resources/task-runtime: the app is three levels up.
+  const bundled = resolve(entryDir, '../../..');
+  const app = absolute('SECONDSCREEN_APP') ?? (installed && bundled.endsWith('.app') ? bundled : undefined);
+  const explicitSkills = absolute('SECONDSCREEN_SKILLS_DIR');
+  const skillsDir = explicitSkills ?? (installed ? join(entryDir, 'skills') : resolve(entryDir, '../../../skills'));
+  return {
+    paths: runtimePaths(env),
+    cli,
+    socket: absolute('SECONDSCREEN_SOCKET') ?? join(homedir(), 'Library/Caches/2ndscreen/boss.sock'),
+    ...(app ? { app } : {}),
+    skillsDir,
+    skillsDirExplicit: explicitSkills !== undefined,
+    node: process.execPath,
+    workerEntry: installed ? join(entryDir, 'worker.mjs') : join(entryDir, 'worker.ts'),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Skills
+
+export interface SkillPackage {
+  dir: string;
+  spec: TaskSpec;
+  profile: WindowProfile;
+}
+
+export interface LoadSkillsOptions {
+  /** The directory was named explicitly (SECONDSCREEN_SKILLS_DIR): then it must exist and be readable. */
+  explicit?: boolean;
+  /** The workflows this build registers; a skill naming another one fails to load. Default: none. */
+  workflows?: WorkflowRegistry;
+}
+
+function validateProfile(raw: unknown, where: string): WindowProfile {
+  const p = raw as Record<string, unknown>;
+  const errors: string[] = [];
+  if (typeof p !== 'object' || p === null || Array.isArray(p)) throw new RuntimeError('invalid_input', `${where}: not an object`);
+  const allowed = new Set(['id', 'version', 'logicalWidth', 'logicalHeight', 'bundleId', 'appVersion', 'locale', 'mainWindowMinWidth']);
+  for (const key of Object.keys(p)) if (!allowed.has(key)) errors.push(`unknown field ${key}`);
+  if (typeof p.id !== 'string' || p.id === '') errors.push('id must be a string');
+  for (const key of ['version', 'logicalWidth', 'logicalHeight'] as const)
+    if (!Number.isInteger(p[key]) || (p[key] as number) < 1) errors.push(`${key} must be a positive integer`);
+  if (typeof p.bundleId !== 'string' || p.bundleId === '' || p.bundleId.includes(':')) errors.push('bundleId must be a bundle id');
+  if (p.mainWindowMinWidth !== undefined && !(typeof p.mainWindowMinWidth === 'number' && p.mainWindowMinWidth > 0 && p.mainWindowMinWidth <= (p.logicalWidth as number)))
+    errors.push('mainWindowMinWidth must be above 0 and at most logicalWidth');
+  if (errors.length) throw new RuntimeError('invalid_input', `${where}: ${errors.join('; ')}`, { errors });
+  return p as unknown as WindowProfile;
+}
+
+/**
+ * Every skill package under `skillsDir` with a task.json, checked in full. A
+ * broken package fails the load; so does one whose workflow this build does
+ * not register. No directory, or none with a package in it, is the generic
+ * runtime with no business installed: an empty map — unless the directory
+ * was named explicitly, which is a configuration error when it is missing.
+ */
+export function loadSkills(skillsDir: string, options: LoadSkillsOptions = {}): Map<string, SkillPackage> {
+  const workflows = options.workflows ?? NO_WORKFLOWS;
+  const skills = new Map<string, SkillPackage>();
+  let names: string[];
+  try {
+    names = readdirSync(skillsDir).sort();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' && !options.explicit) return skills;
+    if (code === 'ENOENT') throw new RuntimeError('invalid_input', `SECONDSCREEN_SKILLS_DIR ${skillsDir} does not exist`);
+    throw new RuntimeError('invalid_input', `cannot read the skills directory ${skillsDir}: ${code ?? String(error)}`);
+  }
+  for (const name of names) {
+    const dir = join(skillsDir, name);
+    const taskJson = join(dir, 'task.json');
+    if (!existsSync(taskJson)) continue;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(taskJson, 'utf8'));
+    } catch (error) {
+      throw new RuntimeError('invalid_input', `${taskJson}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const spec = assertValid(validateTaskSpec(raw), `${taskJson}`);
+    if (!workflows.has(spec.workflow))
+      throw new RuntimeError('capability_missing', `${taskJson}: workflow ${spec.workflow} is not registered in this build (registered: ${workflows.ids().join(', ') || 'none'})`);
+    const profilePath = join(dir, 'profiles', 'macos', `${spec.windowProfile}.json`);
+    const profile = validateProfile(JSON.parse(readFileSync(profilePath, 'utf8')), profilePath);
+    if (profile.id !== spec.windowProfile) throw new RuntimeError('invalid_input', `${profilePath}: id is not ${spec.windowProfile}`);
+    if (profile.bundleId !== spec.application) throw new RuntimeError('invalid_input', `${profilePath}: bundleId is not ${spec.application}`);
+    if (skills.has(spec.id)) throw new RuntimeError('invalid_input', `skill ${spec.id} is defined twice`);
+    skills.set(spec.id, { dir, spec, profile });
+  }
+  return skills;
+}
+
+// ---------------------------------------------------------------------------
+// The command line's side
+
+export interface ControlClient {
+  control: TaskDaemon;
+  /** Agent tasks, in the same ledger. */
+  agentTasks: TaskLedgerStore['agentTasks'];
+  /** The task type a builtin skill takes as an agent of the hub (agentSpecFromTaskSpec), if the id is one. */
+  builtinTaskType(skillId: string): string | undefined;
+  /** Starts the background worker unless one owns the ledger already. */
+  ensureWorker(): Promise<{ started: boolean; pid?: number }>;
+  close(): Promise<void>;
+}
+
+/** The worker command, as the CLI starts it. */
+export function workerCommand(config: RuntimeConfig): { command: string; args: string[]; env: Record<string, string>; logPath: string } {
+  const env: Record<string, string> = {
+    SECONDSCREEN_CLI: config.cli,
+    SECONDSCREEN_SOCKET: config.socket,
+    SECONDSCREEN_TASKS_DIR: config.paths.tasksDir,
+  };
+  // The worker resolves the same default next to its own entry; only an explicit choice is passed on.
+  if (config.skillsDirExplicit) env.SECONDSCREEN_SKILLS_DIR = config.skillsDir;
+  if (config.app) env.SECONDSCREEN_APP = config.app;
+  // Development runs the TypeScript entry through this package's tsx; installs run the built worker.mjs.
+  const quiet = '--disable-warning=ExperimentalWarning'; // node:sqlite's, on Node 22
+  const args = config.workerEntry.endsWith('.ts') ? [quiet, '--import', import.meta.resolve('tsx'), config.workerEntry] : [quiet, config.workerEntry];
+  return { command: config.node, args, env, logPath: config.paths.workerLog };
+}
+
+export interface ControlClientOptions {
+  /** The workflows this build registers (workflows.ts). Default: the legacy set this package still carries. */
+  workflows?: WorkflowRegistry;
+}
+
+export async function openControlClient(config: RuntimeConfig, options: ControlClientOptions = {}): Promise<ControlClient> {
+  preparePrivateDirs(config.paths);
+  const skills = loadSkills(config.skillsDir, { explicit: config.skillsDirExplicit, workflows: options.workflows ?? (await legacyWorkflows()) });
+  const store = await openTaskStore({ path: config.paths.dbPath });
+  // This process exits right after its call: it never claims or runs a task.
+  const control = createTaskDaemon({ store, runner: refusingRunner, specs: (id) => skills.get(id)?.spec, claim: false });
+  return {
+    control,
+    agentTasks: store.agentTasks,
+    builtinTaskType: (id) => {
+      const skill = skills.get(id);
+      return skill ? Object.keys(agentSpecFromTaskSpec(skill.spec).tasks)[0] : undefined;
+    },
+    ensureWorker: () => ensureWorker(store, config),
+    async close() {
+      await control.shutdown();
+      await store.close();
+    },
+  };
+}
+
+function processAlive(pid: number): boolean {
+  return processExists(pid) !== false;
+}
+
+/** true or false when the system says, undefined when it will not. */
+function processExists(pid: number): boolean | undefined {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === 'ESRCH' ? false : code === 'EPERM' ? true : undefined;
+  }
+}
+
+/** Held while one command line starts a worker, so concurrent commands start one between them. */
+export const SPAWN_LOCK_SCOPE = '2ndscreen.task-spawn:*';
+
+/**
+ * Makes sure a worker owns the ledger, starting one when none does. Command
+ * lines that race take turns through a short lease, so they start one worker
+ * between them: the first starts it and waits until it holds the daemon
+ * lease; the next finds it.
+ *
+ * After a crash the daemon lease names a worker that is gone, and nobody can
+ * take it over until it runs out. Then a standby worker is started without
+ * waiting: it takes the lease once it expires, and unless some worker is
+ * already alive (a live, unclosed actor record), in which case that one will.
+ */
+async function ensureWorker(store: TaskStore, config: RuntimeConfig): Promise<{ started: boolean; pid?: number }> {
+  const readyTimeoutMs = 10_000;
+  const deadline = Date.now() + readyTimeoutMs + 5_000;
+  for (;;) {
+    let lock;
+    try {
+      lock = await store.acquireLease({ scopeKey: SPAWN_LOCK_SCOPE, holder: 'runtime', ownerPid: process.pid, ttlMs: readyTimeoutMs + 5_000 });
+    } catch (error) {
+      if (!isRuntimeError(error, 'lease_held') || Date.now() > deadline) throw error;
+      await new Promise((r) => setTimeout(r, 100));
+      continue;
+    }
+    try {
+      const live = liveWorkers(config.paths.actorsDir);
+      const owner = await daemonOwnerPid(store);
+      if (owner !== undefined && live.some((w) => w.pid === owner)) return { started: false };
+      if (live.length > 0) return { started: false }; // starting, or waiting to take over: it will own the ledger
+      if (owner === undefined) {
+        const result = await ensureDaemon(store, workerCommand(config), { readyTimeoutMs });
+        return result.started ? { started: true, pid: result.pid } : { started: false };
+      }
+      // The lease names a process with no worker record. Unless that process is certainly gone, it may
+      // still be the owner (an unknown is not a death): start nothing.
+      if (processExists(owner) !== false) return { started: false };
+      // The owner is gone and its lease has not run out yet: start the worker that takes over then.
+      const pid = await spawnDetachedWorker(workerCommand(config));
+      // It counts as started only once its own record shows it running.
+      for (const until = Date.now() + readyTimeoutMs; Date.now() < until; ) {
+        if (liveWorkers(config.paths.actorsDir).some((w) => w.pid === pid)) return { started: true, pid };
+        if (processExists(pid) === false) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      throw new RuntimeError('io', `a standby worker (pid ${pid}) did not come up; see ${config.paths.workerLog}`, { pid });
+    } finally {
+      await store.releaseLease(lock.leaseId).catch(() => undefined);
+    }
+  }
+}
+
+const refusingRunner: TaskRunner = {
+  run: () => Promise.reject(new RuntimeError('conflict', 'a control client does not run tasks')),
+};
+
+// ---------------------------------------------------------------------------
+// The worker
+
+export interface Worker {
+  daemon: TaskDaemon;
+  store: TaskLedgerStore;
+  registry: ActorRegistry;
+  /** The worker's 2ndscreen adapter: its commands are on the actor record. */
+  adapter: ReturnType<typeof createSecondScreenAdapter>;
+  /** Stop the daemon (tasks become paused), then every helper, then the ledger. */
+  close(): Promise<void>;
+}
+
+export interface WorkerOptions {
+  /** Replaces the A5 spawner (tests); the registry still wraps it. */
+  spawn?: LineProcessSpawner;
+  /** Replaces the workflow for a skill (tests). */
+  workflow?: (spec: TaskSpec) => BossWorkflow;
+  /** The workflows this build registers (workflows.ts). Default: the legacy set this package still carries. */
+  workflows?: WorkflowRegistry;
+  /** Daemon timing, for tests. */
+  daemon?: { pollMs?: number; leaseTtlMs?: number; ackWaitMs?: number };
+}
+
+export async function startWorker(config: RuntimeConfig, options: WorkerOptions = {}): Promise<Worker> {
+  preparePrivateDirs(config.paths);
+  const workflows = options.workflows ?? (await legacyWorkflows());
+  const skills = loadSkills(config.skillsDir, { explicit: config.skillsDirExplicit, workflows });
+  // Screenshots of workers that are gone are not evidence of anything now; A4 keeps its own copies.
+  for (const name of readdirSync(config.paths.screenshotsDir)) {
+    const pid = Number(name);
+    if (!Number.isSafeInteger(pid) || pid === process.pid || !processAlive(pid)) rmSync(join(config.paths.screenshotsDir, name), { recursive: true, force: true });
+  }
+  // A worker of its own: another worker may be starting at the same time and lose the daemon lease.
+  const screenshotDir = join(config.paths.screenshotsDir, String(process.pid));
+  mkdirSync(screenshotDir, { recursive: true, mode: 0o700 });
+  pruneClosedRecords(config.paths.actorsDir, 7 * 24 * 60 * 60 * 1000);
+  const store = await openTaskStore({ path: config.paths.dbPath });
+  let registry: ActorRegistry | undefined;
+  let stopHeartbeat: (() => void) | undefined;
+  let vision: LocalVisionClient | undefined;
+  /** What was acquired, given back in reverse; also after a failed start. */
+  const release = async () => {
+    await vision?.close().catch(() => undefined);
+    stopHeartbeat?.();
+    registry?.close();
+    await store.close().catch(() => undefined);
+    rmSync(screenshotDir, { recursive: true, force: true });
+  };
+  let daemon: TaskDaemon;
+  let adapter: ReturnType<typeof createSecondScreenAdapter>;
+  try {
+    // Recorded before the daemon can start a task: every actor of this worker is on file.
+    registry = ActorRegistry.create(config.paths.actorsDir);
+    const spawn = registry.wrap(options.spawn ?? createLineProcessSpawner());
+    stopHeartbeat = registry.startHeartbeat();
+
+    vision = createLocalVision({ helper: config.cli, spawn });
+    adapter = createSecondScreenAdapter({
+      cli: config.cli,
+      socket: config.socket,
+      ...(config.app ? { app: config.app } : {}),
+      // Every 2ndscreen command leads a group of its own: announced in the actor record before it
+      // starts, then recorded as that exact group when the runner reports the spawn.
+      run: registry.wrapRunner(createCommandRunner(registry.commandHooks())),
+      screenshotDir,
+    });
+    const hub = createTelemetryHub();
+    // The bridge is made only when a unit needs exploration: stable and scripted runs never start a model.
+    const explorer = async () => createAgentBridge({ cli: config.cli, spawn });
+
+    const runners = new Map<string, TaskRunner>();
+    const agentPaths = agentDataPaths(config.paths.tasksDir);
+    prepareAgentDataDir(agentPaths);
+    const effects = createFileEffectLedger(agentPaths.effects);
+    for (const { spec, profile } of skills.values()) {
+      // The skill as an agent of the hub: every act passes the same check chain as a process agent's,
+      // with the work hours and ceilings of its builtin:<id> entry in the agent config.
+      const sessions = checkedSessionManager(
+        createSessionManager({
+          adapter,
+          leases: store,
+          policy: { submitAllowed: spec.submitAllowed, foregroundAllowed: spec.foregroundAllowed },
+          vision,
+        }),
+        {
+          spec: agentSpecFromTaskSpec(spec),
+          policy: builtinPolicySource(agentPaths.config, spec.id),
+          ledger: effects,
+          onRefusal: (r) => process.stderr.write(`${new Date().toISOString()} worker ${process.pid}: ${spec.id}: task ${r.taskId}: action refused (${r.reason}): ${r.message}\n`),
+        },
+      );
+      // No telemetry on the engine: the runner counts replays itself.
+      const engine = createProcedureEngine({ repository: store, rule: { ...DEFAULT_PROMOTION, promoteAfterSuccesses: spec.learning.promoteAfterSuccesses } });
+      const learner = createLearner({ repository: store });
+      const recovery = createRecovery({ engine, learner, explorer, telemetry: hub.shared });
+      // A business workflow is built only here, for an installed package that names it.
+      const workflow = options.workflow?.(spec) ?? workflows.create(spec.workflow, { vision, telemetry: hub.shared });
+      runners.set(
+        spec.id,
+        createTaskRunner({
+          store,
+          sessions,
+          artifacts: (task) => createArtifactStore({ outputDir: task.input.outputDir, taskId: task.id }),
+          engine,
+          learner,
+          recovery,
+          workflow,
+          spec,
+          profile,
+          telemetry: hub.forTask,
+        }),
+      );
+    }
+    const runner: TaskRunner = {
+      async run(taskId, signal) {
+        const task = await store.getTask(taskId);
+        const chosen = task && runners.get(task.skillId);
+        if (!chosen) throw new RuntimeError('capability_missing', `no runner for task ${taskId}: the skill package ${task?.skillId ?? '?'} is not installed in this runtime`);
+        return chosen.run(taskId, signal);
+      },
+    };
+
+    daemon = createTaskDaemon({
+      store,
+      runner,
+      specs: (id) => skills.get(id)?.spec,
+      // A worker whose exit no daemon recorded: proven stopped only from its actor record.
+      verifyActorExit: (worker, { signal }) => verifyWorkerStopped(config.paths.actorsDir, worker, { signal }),
+      // Room for a SIGTERM grace and the SIGKILL rounds of each recorded group, and the process scans.
+      verifyTimeoutMs: 4 * VERIFY_KILL_GRACE_MS,
+      ...options.daemon,
+    });
+  } catch (error) {
+    await release();
+    throw error;
+  }
+
+  let closing: Promise<void> | undefined;
+  return {
+    daemon,
+    store,
+    registry: registry!,
+    adapter: adapter!,
+    close() {
+      closing ??= (async () => {
+        await daemon.shutdown();
+        await release();
+      })();
+      return closing;
+    },
+  };
+}
+
+/**
+ * The agents a worker hosts (agent-hosting.ts): sessions on the worker's
+ * adapter, agent processes started through its actor record, tasks in its
+ * ledger, and the crash check of dead workers' records before any agent
+ * starts.
+ */
+export function createWorkerAgentHosting(
+  config: RuntimeConfig,
+  worker: Pick<Worker, 'store' | 'registry' | 'adapter'>,
+  log: (line: string) => void,
+  options: { spawn?: LineProcessSpawner } = {},
+): AgentHosting {
+  const managers = new Map<string, ReturnType<typeof createSessionManager>>();
+  const manager = (submitAllowed: boolean, foregroundAllowed: boolean) => {
+    const key = `${submitAllowed}/${foregroundAllowed}`;
+    let m = managers.get(key);
+    if (!m) managers.set(key, (m = createSessionManager({ adapter: worker.adapter, leases: worker.store, policy: { submitAllowed, foregroundAllowed } })));
+    return m;
+  };
+  // run_unit for agents: the runner's procedures, learning and recovery, on the same ledger. The
+  // bridge is made only when a unit needs exploration, and its process is on the actor record.
+  const units = createUnitService({
+    engine: createProcedureEngine({ repository: worker.store, rule: DEFAULT_PROMOTION }),
+    learner: createLearner({ repository: worker.store }),
+    explorer: async () => createAgentBridge({ cli: config.cli, spawn: worker.registry.wrap(createLineProcessSpawner()) }),
+  });
+  // Agents run with this Node unless their package bundles a runtime; python only when the host names one.
+  const interpreters: Record<string, string> = { node: config.node };
+  if (process.env.SECONDSCREEN_AGENT_PYTHON) interpreters.python = process.env.SECONDSCREEN_AGENT_PYTHON;
+  return createAgentHosting({
+    tasksDir: config.paths.tasksDir,
+    tasks: worker.store.agentTasks,
+    units,
+    openSession: (r, signal) =>
+      manager(r.submitAllowed, r.foregroundAllowed).open({ taskId: `agent:${r.agentId}`, profile: r.profile, takeOver: r.takeOver, leaseTtlMs: 60_000 }, signal),
+    quitApp: (binding) => worker.adapter.quitApp!(binding),
+    // Agents get only the environment the host builds, and each is on this worker's actor record.
+    spawn: worker.registry.wrap(
+      options.spawn ??
+        createLineProcessSpawner({
+          inheritEnv: false,
+          // Each agent's own log (its stderr), next to the other agent records.
+          stderrPath: (env) => {
+            const id = env?.AGENT_DESKTOP_AGENT_ID;
+            return id && /^[A-Za-z0-9._-]+$/.test(id) ? join(agentDataPaths(config.paths.tasksDir).dir, 'logs', `${id}.log`) : undefined;
+          },
+        }),
+    ),
+    interpreters,
+    log,
+    async previousStopped() {
+      const workers: number[] = [];
+      for (const dead of deadWorkers(config.paths.actorsDir)) {
+        const verdict = await verifyWorkerStopped(config.paths.actorsDir, { ownerPid: dead.pid, processStartedAt: dead.startedAt });
+        if (!verdict.stopped) return { stopped: false, reason: verdict.reason };
+        workers.push(dead.pid);
+      }
+      return { stopped: true, workers };
+    },
+  });
+}
