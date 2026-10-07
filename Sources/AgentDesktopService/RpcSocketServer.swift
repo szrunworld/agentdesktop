@@ -49,11 +49,13 @@ public final class RpcSocketServer: @unchecked Sendable {
             if Self.isListening(path) { close(fd); throw ContractError(.desktopBusy, "another server owns \(path)") }
             unlink(path)
         }
-        let old = umask(0o177)
+        // Never change the process umask here: it is shared by every thread,
+        // and a directory another thread creates meanwhile would lose its
+        // execute bit. The 0700 directory keeps the socket private until
+        // chmod makes it 0600.
         let rc = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
-        umask(old)
         guard rc == 0, chmod(path, 0o600) == 0, listen(fd, 16) == 0 else {
             close(fd)
             throw posix("bind")

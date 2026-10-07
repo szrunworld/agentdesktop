@@ -30,6 +30,7 @@ final class SQLiteDatabase {
         guard rc == SQLITE_OK else {
             let msg = db.map { String(cString: sqlite3_errmsg($0)) } ?? "open failed"
             sqlite3_close(db)
+            db = nil  // deinit runs after a throwing init; never close twice
             throw SQLiteError(code: rc, message: msg)
         }
         try exec("PRAGMA journal_mode=WAL")
