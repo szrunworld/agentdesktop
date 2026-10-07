@@ -8,6 +8,7 @@
 | T01 原生执行边界 G0 | NOT_STARTED | 同上；真实 GUI 输入入口保持关闭 |
 | T02 合同、版本化解码、32 操作、CLI rpc | PARTIAL | AgentDesktopContracts：严格 JSON、Schema 子集校验器（加载合同文件做权威校验）、信封与分帧、错误码、操作目录、路由器（结果按合同自检）。AgentDesktopCLI：`rpc --request-file`、`runtime capabilities`、`--dry-run`（脱敏、不连接）、本地 Schema 校验、§13.2 退出码 0/2/3/4、真实 Unix socket 客户端。尚缺：接入 ControlServer 的旧/新双解码、C# DTO |
 | T11 CLI | PARTIAL | 只有 rpc 入口与退出码；友好别名、--wait/--follow、--credential-stdin、退出码 5/6/130 待 T03/T07/T08 |
+| T07 Explorer | PARTIAL | RunLifecycle：§07.1 状态边、generation CAS、§07.2 取消协议、未知结果隔离与不可恢复、终态不变；Explorer 循环、GoalVerifier、Runtime 组装待 T01/T05/T06 |
 | T03–T14（其余） | NOT_STARTED | |
 
 ## 契约层测试覆盖（swift test --filter AgentDesktopContractsTests）
@@ -22,3 +23,4 @@
 | CFG-007 | GUI 限额上限（Schema 部分） | 服务端 LIMIT_EXCEEDED 路径 |
 | 规格示例 | 规格 HTML 中 35 个请求、32 个成功响应、1 个错误响应全部通过校验 | |
 | CLI-001/002（部分） | rpc 完整信封入口、dry-run 不连接且脱敏、本地校验失败 exit 2 且不发送、运行时不可达 exit 3、业务拒绝 exit 4、响应不属于本请求或越出合同 exit 3、单行 stdout | 友好别名、--wait、stdin 凭据 |
+| CAN-001/003/004、RET-004、GUI-008、EXE-003（状态机部分） | 取消先使 generation 失效且不改初始值；迟到建议不能变成输入；在途输入取消后等执行器结论；unknown 保持隔离、不能恢复、重复取消无副作用、终态不变 | 真实 HTTP 取消、执行器、计时器、冲突域锁 |
