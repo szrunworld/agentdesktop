@@ -14,6 +14,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "AgentDesktop", targets: ["AgentDesktop"]),
+        .library(name: "AgentDesktopContracts", targets: ["AgentDesktopContracts"]),
     ],
     dependencies: [
         .package(url: "https://github.com/szrunworld/2ndscreen.git", exact: engineVersion),
@@ -30,6 +31,23 @@ let package = Package(
         .testTarget(
             name: "AgentDesktopTests",
             dependencies: ["AgentDesktop"]
+        ),
+
+        // AI/GUI contract v1 (docs/ai-gui/implementation-spec.md §03.1):
+        // wire envelope, strict JSON, schema validation, operation catalog.
+        // The JSON files under Resources are byte copies of
+        // contracts/ai-gui/v1; ContractBundleTests keeps them equal.
+        .target(
+            name: "AgentDesktopContracts",
+            resources: [
+                .copy("Resources/domain.schema.json"),
+                .copy("Resources/rpc.schema.json"),
+                .copy("Resources/operations.json"),
+            ]
+        ),
+        .testTarget(
+            name: "AgentDesktopContractsTests",
+            dependencies: ["AgentDesktopContracts"]
         ),
     ]
 )

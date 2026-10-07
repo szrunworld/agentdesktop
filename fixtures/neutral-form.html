@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">
+  <title>AgentDesktop 中立验收表单</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; background:#f0f1f2; color:#202124; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:28px; }
+    main { width:min(100%,960px); margin:0 auto; }
+    header,section { background:#fff; border:1px solid #c9cccf; border-radius:10px; padding:24px; margin-bottom:18px; }
+    header { border-top:5px solid #34383c; }
+    .eyebrow { font-size:12px; letter-spacing:.12em; color:#555; margin:0 0 8px; }
+    h1 { font-size:28px; margin:0 0 12px; }
+    h2 { font-size:19px; margin:0 0 18px; }
+    p { line-height:1.6; margin:8px 0; }
+    .muted { font-size:14px; color:#575c61; }
+    .badges { display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; }
+    .badge { display:inline-block; padding:7px 11px; background:#eceeef; border:1px solid #c3c7ca; border-radius:4px; font-size:14px; }
+    .layout { display:grid; grid-template-columns:minmax(0,1fr) 250px; gap:24px; }
+    label { display:block; font-size:16px; font-weight:600; margin:0 0 8px; }
+    input,textarea { display:block; width:100%; border:1.5px solid #8b9095; border-radius:5px; font:inherit; font-size:17px; padding:12px; background:white; color:#202124; }
+    textarea { height:100px; resize:vertical; }
+    .field { margin-bottom:20px; }
+    button { min-height:48px; padding:11px 18px; border:1.5px solid #454b51; border-radius:5px; background:#fff; color:#202124; font:inherit; font-size:16px; font-weight:600; cursor:pointer; }
+    button:hover { background:#eceeef; }
+    button:active { background:#d9dcdf; }
+    button.primary { background:#2d3237; color:#fff; }
+    button.primary:hover { background:#11171d; }
+    button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible { outline:3px solid #111; outline-offset:3px; }
+    .counterbox { border:1px solid #aeb4b9; background:#f7f8f9; border-radius:7px; padding:20px; align-self:start; text-align:center; }
+    .counterbox h2 { margin-bottom:8px; font-size:17px; }
+    #counter { display:block; font-size:56px; font-variant-numeric:tabular-nums; line-height:1.3; margin:7px 0 18px; }
+    #increment { width:100%; }
+    #saveStatus { font-size:18px; font-weight:600; min-height:58px; padding:15px; background:#f1f3f4; border-left:4px solid #535b62; margin-top:22px; overflow-wrap:anywhere; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .small { font-size:13px; }
+    details { margin-top:18px; border-top:1px solid #d1d4d7; padding-top:16px; }
+    summary { cursor:pointer; font-weight:600; }
+    pre { font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; background:#f3f4f5; border:1px solid #d5d7d9; padding:14px; overflow:auto; max-height:260px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .scroll-box { height:130px; overflow:auto; border:1px solid #c3c7ca; padding:12px; background:#fafafa; margin-top:16px; }
+    .scroll-box div { min-height:40px; padding:8px; border-bottom:1px solid #e0e2e4; }
+    @media(max-width:720px) { body{padding:12px;} header,section{padding:18px;} .layout{grid-template-columns:1fr;} .counterbox{text-align:left;} #counter{font-size:42px;} #increment{width:auto;} }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">AGENTDESKTOP · SYNTHETIC ACCEPTANCE TARGET</p>
+    <h1>中立验收表单</h1>
+    <p>填入测试姓名与备注，点一次「计数 +1」，再点「应用到本页」。所有变化只留在当前页面。</p>
+    <p class="muted">用于验证真实桌面输入、目标隔离和重复动作。页面没有网络请求、付款、消息发送或后台存储。</p>
+    <div class="badges">
+      <span class="badge">角色：<strong id="roleLabel">A</strong></span>
+      <span class="badge">用例标记：<strong id="caseLabel">neutral-001</strong></span>
+      <span class="badge">页面实例：<strong id="instanceLabel"></strong></span>
+    </div>
+  </header>
+  <section aria-labelledby="formHeading">
+    <h2 id="formHeading">1. 操作区</h2>
+    <form id="neutralForm" autocomplete="off">
+      <div class="layout">
+        <div>
+          <div class="field">
+            <label for="name">姓名 Name</label>
+            <input id="name" name="name" type="text" maxlength="160" placeholder="例如：Ada" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="note">备注 Note</label>
+            <textarea id="note" name="note" maxlength="1200" placeholder="例如：neutral" spellcheck="false"></textarea>
+          </div>
+          <button id="localApply" class="primary" type="submit">应用到本页 Apply locally</button>
+        </div>
+        <div class="counterbox">
+          <h2>点击计数 Counter</h2>
+          <span id="counter" aria-live="polite">0</span>
+          <button id="increment" type="button">计数 +1 Increment</button>
+          <p class="muted small">每次点击严格加 1。发生未知回执时，可据此识别重复点击。</p>
+        </div>
+      </div>
+    </form>
+    <p id="saveStatus" aria-live="polite">尚未应用</p>
+    <p class="muted small">验收器读取当前窗口中新观测的完整状态文本。模型自行说「已完成」不能代替此状态。</p>
+  </section>
+  <section aria-labelledby="evidenceHeading">
+    <h2 id="evidenceHeading">2. 人工核对与证据</h2>
+    <div class="row">
+      <button id="exportEvidence" type="button">导出本页 JSON 证据</button>
+      <button id="resetFixture" type="button">人工重置本页</button>
+      <span class="muted small" id="eventCount">0 条本地事件</span>
+    </div>
+    <p class="muted small">导出与重置由验收人员操作。验收任务目标只包含上方操作区。重置会清空当前实例的测试状态与事件；刷新页面也会开始新实例。</p>
+    <details>
+      <summary>查看本地事件与滚动测试区</summary>
+      <pre id="eventLog" aria-label="本地事件日志"></pre>
+      <div class="scroll-box" id="scrollArea" tabindex="0" aria-label="中立滚动测试区">
+        <div>滚动条目 01</div><div>滚动条目 02</div><div>滚动条目 03</div><div>滚动条目 04</div><div>滚动条目 05</div>
+        <div>滚动条目 06</div><div>滚动条目 07</div><div>滚动条目 08</div><div>滚动条目 09</div><div>滚动条目 10</div>
+      </div>
+    </details>
+  </section>
+</main>
+<script>
+(() => {
+  'use strict';
+  const params = new URLSearchParams(window.location.search);
+  const safeLabel = (value, fallback) => (value || fallback).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
+  const role = safeLabel(params.get('role'), 'A');
+  const caseLabel = safeLabel(params.get('case'), 'neutral-001');
+  const instanceId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `page-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const startedAt = new Date().toISOString();
+  const elements = Object.fromEntries(['name','note','counter','saveStatus','eventCount','eventLog'].map(id => [id, document.getElementById(id)]));
+  let counter = 0;
+  let appliedCount = 0;
+  let lastApplied = null;
+  let resetCount = 0;
+  let events = [];
+  document.getElementById('roleLabel').textContent = role;
+  document.getElementById('caseLabel').textContent = caseLabel;
+  document.getElementById('instanceLabel').textContent = instanceId.slice(0, 8);
+  document.title = `Neutral · ${role} · ${caseLabel}`;
+
+  function snapshot() {
+    return {
+      schemaVersion: 'agentdesktop.neutral-fixture/1',
+      role, caseLabel, instanceId, startedAt,
+      exportedAt: new Date().toISOString(),
+      resetCount,
+      state: {
+        name: elements.name.value,
+        note: elements.note.value,
+        counter, appliedCount,
+        statusText: elements.saveStatus.textContent,
+        lastApplied: lastApplied ? {...lastApplied} : null
+      },
+      environment: {
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio,
+        timeOrigin: performance.timeOrigin,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        visibilityState: document.visibilityState
+      },
+      events: events.map(item => ({...item})),
+      notice: '合成表单证据；不能单独证明输入来源、操作系统隔离、模型能力或原生取消。须配套原生ActionReceipt与录像。'
+    };
+  }
+
+  function record(type, targetId, extra = {}) {
+    const event = {
+      seq: events.length + 1,
+      at: new Date().toISOString(),
+      monotonicMs: Number(performance.now().toFixed(3)),
+      type, targetId,
+      counter, appliedCount,
+      ...extra
+    };
+    events.push(event);
+    elements.eventCount.textContent = `${events.length} 条本地事件`;
+    elements.eventLog.textContent = JSON.stringify(events.slice(-12), null, 2);
+  }
+
+  document.getElementById('increment').addEventListener('click', event => {
+    counter += 1;
+    elements.counter.textContent = String(counter);
+    record('increment', 'increment', {isTrusted: event.isTrusted, clientX: event.clientX, clientY: event.clientY});
+  });
+
+  document.getElementById('neutralForm').addEventListener('submit', event => {
+    event.preventDefault();
+    appliedCount += 1;
+    lastApplied = {name: elements.name.value, note: elements.note.value, counter, appliedCount};
+    elements.saveStatus.textContent = `已保存：${elements.name.value} / ${caseLabel} / 提交次数 ${appliedCount}`;
+    record('apply_local', 'localApply', {isTrusted: event.isTrusted, name: elements.name.value, note: elements.note.value, statusText: elements.saveStatus.textContent});
+  });
+
+  for (const id of ['name', 'note']) {
+    const input = elements[id];
+    for (const eventName of ['input', 'change', 'focus']) {
+      input.addEventListener(eventName, event => record(eventName, id, {isTrusted: event.isTrusted, value: input.value}));
+    }
+    input.addEventListener('keydown', event => record('keydown', id, {isTrusted: event.isTrusted, key: event.key, code: event.code}));
+  }
+
+  document.getElementById('scrollArea').addEventListener('scroll', event => {
+    record('scroll', 'scrollArea', {isTrusted: event.isTrusted, scrollTop: event.currentTarget.scrollTop});
+  });
+
+  document.getElementById('exportEvidence').addEventListener('click', () => {
+    record('evidence_export', 'exportEvidence');
+    const data = JSON.stringify(snapshot(), null, 2) + '\n';
+    const url = URL.createObjectURL(new Blob([data], {type: 'application/json'}));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `neutral-${caseLabel}-${role}-${instanceId.slice(0, 8)}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  document.getElementById('resetFixture').addEventListener('click', () => {
+    resetCount += 1;
+    counter = 0;
+    appliedCount = 0;
+    lastApplied = null;
+    events = [];
+    elements.name.value = '';
+    elements.note.value = '';
+    elements.counter.textContent = '0';
+    elements.saveStatus.textContent = '尚未应用';
+    record('manual_reset', 'resetFixture', {resetCount});
+  });
+
+  // Read-only QA helpers. Live acceptance must not set fields or synthesize actions through JavaScript.
+  Object.defineProperty(window, 'neutralFixture', {
+    value: Object.freeze({
+      snapshot,
+      hitTest(clientX, clientY) {
+        const element = document.elementFromPoint(clientX, clientY);
+        return element ? {id: element.id || null, tagName: element.tagName, text: element.textContent?.slice(0, 160) || null} : null;
+      }
+    }),
+    writable: false,
+    configurable: false
+  });
+  record('page_ready', 'document', {role, caseLabel, instanceId});
+})();
+</script>
+</body>
+</html>
