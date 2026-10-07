@@ -4,7 +4,7 @@ Agent Desktop 是面向用户的独立桌面产品：把支持范围内的桌面
 
 本仓库只放产品：App 宿主、品牌、界面、安装更新和发布材料。虚拟显示、窗口、输入、截图、Agent 屏幕和控制协议来自引擎仓 [szrunworld/2ndscreen](https://github.com/szrunworld/2ndscreen)，以固定版本依赖，不在这里复制或修改。边界见 [docs/boundaries.md](docs/boundaries.md)，路线见 [docs/roadmap](docs/roadmap/)。
 
-当前状态：阶段 0「宿主骨架」。产品能构建、能被识别、路由正确；任务工作台、审批、模型配置等产品功能尚未开始，见 [docs/features.md](docs/features.md)。
+当前状态：阶段 0「宿主骨架」已于 2026-10-07 在目标机验收关闭。产品能构建、能被识别、路由正确；任务工作台、审批、模型配置等产品功能尚未开始，见 [docs/features.md](docs/features.md)。
 
 ## 构建
 

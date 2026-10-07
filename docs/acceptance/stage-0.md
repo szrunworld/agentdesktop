@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | 干净 checkout 可构建 | 通过 | `swift build -c release` 与 `swift build -c release --product 2ndscreen` 均成功；引擎 CLI 可直接从依赖图构建，不必进 checkout |
 | 新 App 响应 create/list/destroy | 通过 | 测试副本与产品宿主两种角色各跑一轮，见下 |
-| 新 App 响应截图 | 通过（2026-10-07 21:47 补验） | 用户通过菜单 Show Preview 触发系统提示并授权屏幕录制，重开 App 后：请求经 `bin/agentdesktop` 发到产品 endpoint，`screen list` 的主屏名为 Agent Desktop，确认响应者是新宿主；`screen create verify 1280x800` → `screenshot` 返回 ok，PNG 可解码，2560×1600 即 1280×800 HiDPI，画面是该工作屏自己的桌面与菜单栏；`screen destroy` 后列表为空。工作屏上预放测试内容一项未做：`app launch` 需要辅助功能授权，新身份尚未授予 |
+| 新 App 响应截图 | 通过（2026-10-07 21:47 补验） | 用户通过菜单 Show Preview 触发系统提示并授权屏幕录制，重开 App 后：请求经 `bin/agentdesktop` 发到产品 endpoint，`screen list` 的主屏名为 Agent Desktop，确认响应者是新宿主；`screen create verify 1280x800` → `screenshot` 返回 ok，PNG 可解码，2560×1600 即 1280×800 HiDPI，画面是该工作屏自己的桌面与菜单栏；`screen destroy` 后列表为空。21:49 用户授予辅助功能后补做：`app launch --bundle com.apple.calculator` 把计算器放到工作屏 verify3，截图里左上角是计算器窗口，背景是该屏桌面；`window release` 把窗口交还主显示器，`window move` 再放回工作屏，`app quit` 退出计算器，`screen destroy` 后列表为空 |
 | 包无 Android 默认依赖 | 通过 | 包内文件只有宿主、`bin/2ndscreen`、`bin/agentdesktop`、`build.json`、Info.plist、签名；脚本对 adb/scrcpy/android 目录/boss skills 做了拒绝检查 |
 | 包无开发路径 | 通过 | 没有 Python 路径、没有 task runtime 目录；`android.list` 等命令返回「not supported by Agent Desktop」 |
 
@@ -70,4 +70,6 @@ osascript quit                              → 进程退出，socket 文件被�
 | 依赖改动检查只看工作区 | `scripts/check-engine-checkout.sh` 在编译前核对提交并用 `git status --porcelain --untracked-files=all` | `scripts/test-check-engine-checkout.sh` 六个用例：干净、工作区改动、暂存改动、未跟踪文件、新目录内未跟踪文件、另一提交；CI 运行 |
 | `build.json` 的哈希是签名前的，与包内文件不符 | 字段改名为 `inputs` 并注明语义；签名后在包外生成 zip 归档与分发清单，含每个文件和归档的 SHA-256 以及符号链接 | `scripts/verify-archive.sh` 解包后逐文件比对；CI 运行并上传归档与清单 |
 
-截图已于授权后补验通过（见出口条件表）。仍待：辅助功能授权后在工作屏上放置测试内容并截图核对，以及窗口搬移、Bring Back 与 ⌃⌥⌘M 热键的真机回归；单实例检查仍非原子（C02）。
+截图、放置内容、窗口交还与搬回均已在目标机通过（见出口条件表）。阶段 0 出口条件全部满足，阶段 0 关闭。
+
+未在本记录内的项：菜单里的 Show Preview 和 ⌃⌥⌘M 热键需要用户在自己屏幕上操作，不由执行 agent 代做；单实例检查仍非原子（C02）。
