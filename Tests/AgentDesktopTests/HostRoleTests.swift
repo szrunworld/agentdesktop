@@ -3,14 +3,13 @@ import Testing
 @testable import AgentDesktop
 
 struct HostRoleTests {
-    @Test func productEndpointIsApartFromTheEngineHost() {
+    @Test func productEndpointUsesAgentDesktop() {
         let product = HostRole.productEndpoint.path
         #expect(product.hasSuffix("/Application Support/AgentDesktop/control.sock"), "\(product)")
-        #expect(!product.contains("/2ndscreen/"), "the product must not share 2ndscreen.app's socket")
     }
 
     @Test func serialNumbersKeepHostsApart() {
-        // 2ndscreen.app: primary 1, agents 100…, side instances 900…; vdisplay 2.
+        // Product and test instances use distinct serial ranges.
         #expect(HostRole.product.primaryDisplaySerial == 5)
         #expect(HostRole.product.agentSerialBase == 500)
         #expect(HostRole.sideInstance(socket: URL(fileURLWithPath: "/tmp/x.sock")).agentSerialBase == 950)

@@ -1,0 +1,1870 @@
+{
+  "sourceRepository": "szrunworld/2ndscreen",
+  "sourceCommit": "da5677c2be421dc2d35cdda5cdf66b7134f6a381",
+  "files": [
+    {
+      "sourcePath": ".github/workflows/windows.yml",
+      "targetPath": "engine/.github/workflows/windows.yml",
+      "mode": "100644",
+      "gitBlob": "fda8e93dae4a57b43f30ceae31b12e0dce53f23d",
+      "sha256": "a02b9e87b755c1219f0db88758d2186facb1f2f2d3523e8009b8608bec1af287",
+      "bytes": 3555
+    },
+    {
+      "sourcePath": ".gitignore",
+      "targetPath": "engine/.gitignore",
+      "mode": "100644",
+      "gitBlob": "1a3c3722220cf7ddb19c1ad99ddbd8d6ec0571f3",
+      "sha256": "c579d9861b2de891d4cf66ddc4207f0a51ee126d4576554aa7e49e2ba1220e5e",
+      "bytes": 118
+    },
+    {
+      "sourcePath": "Package.swift",
+      "targetPath": "engine/Package.swift",
+      "mode": "100644",
+      "gitBlob": "2e6cabedec17155889844064a4d075766a1bf1db",
+      "sha256": "64a0fe5391fd8ead4c803b5ad49c0c3e92059fa1d3a6691dd16ed0e8fa2bd384",
+      "bytes": 2468
+    },
+    {
+      "sourcePath": "README.md",
+      "targetPath": "engine/README.md",
+      "mode": "100644",
+      "gitBlob": "c752564578d4ce07871f043ac359976449654b40",
+      "sha256": "11864bde3a970aa64b8e51180df54b84ebe4f9fa4e40c51b7903007ea28ae522",
+      "bytes": 33065
+    },
+    {
+      "sourcePath": "Sources/CGVirtualDisplayPrivate/include/CGVirtualDisplayPrivate.h",
+      "targetPath": "engine/Sources/CGVirtualDisplayPrivate/include/CGVirtualDisplayPrivate.h",
+      "mode": "100644",
+      "gitBlob": "36f1e7a18157d0b5223246b1bee5d30467213daa",
+      "sha256": "98287490ee6de85067b7473d60fec547f030a1b2af668233654a06c9ce6120a6",
+      "bytes": 1715
+    },
+    {
+      "sourcePath": "Sources/CGVirtualDisplayPrivate/shim.m",
+      "targetPath": "engine/Sources/CGVirtualDisplayPrivate/shim.m",
+      "mode": "100644",
+      "gitBlob": "2a74481cc3593f620ff45880fc89ff7e899d29f9",
+      "sha256": "a66ce5e85f71c2c9d8397de93f12cbf1f4fc524a9a9d213026b7a2201a04adec",
+      "bytes": 162
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/AgentBridge.swift",
+      "targetPath": "engine/Sources/ScreenCLI/AgentBridge.swift",
+      "mode": "100644",
+      "gitBlob": "1ab1d2e7d8dacb82d1a508a795dce0985661d988",
+      "sha256": "3bdd07519c8f117cbe00394e61dc232bcb3ee3de5dfd853550fd725706f486b3",
+      "bytes": 3680
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/AgentCommand.swift",
+      "targetPath": "engine/Sources/ScreenCLI/AgentCommand.swift",
+      "mode": "100644",
+      "gitBlob": "2ffc66af54f9ce8de5904e4dc8d781f2b52ea4ae",
+      "sha256": "1815101eaa49bb626f9542243caec9fb0049693c2d44520d64b2c6ed10b355b5",
+      "bytes": 3963
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/AndroidCommands.swift",
+      "targetPath": "engine/Sources/ScreenCLI/AndroidCommands.swift",
+      "mode": "100644",
+      "gitBlob": "76eeab335031c5a6548ad83fb301f1aeab448c7b",
+      "sha256": "9e02a9805c06423490a01b50237a1d58c930a167790bd8f094c0d1e821de7958",
+      "bytes": 6541
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/AppQuit.swift",
+      "targetPath": "engine/Sources/ScreenCLI/AppQuit.swift",
+      "mode": "100644",
+      "gitBlob": "b52f6d0396933d9e7cb955de1275fbc0077796a0",
+      "sha256": "c32643c5373059b2092e4c14d960e7d8e9875e8ebdf2ac810c7aa36fba2d59c1",
+      "bytes": 1854
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/DriverCommands.swift",
+      "targetPath": "engine/Sources/ScreenCLI/DriverCommands.swift",
+      "mode": "100644",
+      "gitBlob": "7256a3f5dc1d8020a621bc0c94835f31a00ac121",
+      "sha256": "ee4487b83c8a73a797d3f4de8009ccadc89e900f95e2885d9bb3b98892b6185f",
+      "bytes": 11323
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/IPhoneAgent.swift",
+      "targetPath": "engine/Sources/ScreenCLI/IPhoneAgent.swift",
+      "mode": "100644",
+      "gitBlob": "5641737053d6e1ee752f2fe923c16a02e782bbe5",
+      "sha256": "bcf9a4d8a7a1617687714409e989802270c64be29a152d290037679b6864c0b2",
+      "bytes": 6268
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/LocalVision.swift",
+      "targetPath": "engine/Sources/ScreenCLI/LocalVision.swift",
+      "mode": "100644",
+      "gitBlob": "b3366337fcef831e2d37b43d623c5ed1e2d1ce3f",
+      "sha256": "03dc043b6a58d4ad83b95a05528dfbbeedbbc84042aaefec1d30f2d7b1db8536",
+      "bytes": 2464
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/MCPServer.swift",
+      "targetPath": "engine/Sources/ScreenCLI/MCPServer.swift",
+      "mode": "100644",
+      "gitBlob": "1f32921491a2862b028a43ea0a0327c50feee8e0",
+      "sha256": "4021c5766bf31c7867cc1caaa26fa8e7ebf5c0f25f3637aa42711ee1bef32c32",
+      "bytes": 49512
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/TaskCommand.swift",
+      "targetPath": "engine/Sources/ScreenCLI/TaskCommand.swift",
+      "mode": "100644",
+      "gitBlob": "c57f1abb1160b369e23060a56fb961c016b0eccb",
+      "sha256": "cb58fef78fdeb19632377b1693bbe5a9a1cb72c9dd4181c3fa6a293067f5e1de",
+      "bytes": 9152
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/main.swift",
+      "targetPath": "engine/Sources/ScreenCLI/main.swift",
+      "mode": "100644",
+      "gitBlob": "354fb89b39a4f451e51105b777c830f05a7011c0",
+      "sha256": "194cfb14f5aba6e192363c7d088b7abe41cd3e4560d065b4befd53dfb668f901",
+      "bytes": 13483
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AndroidAudio.swift",
+      "targetPath": "engine/Sources/SecondScreen/AndroidAudio.swift",
+      "mode": "100644",
+      "gitBlob": "a359f4003cb24b8b3dd8555969ab9130501c1823",
+      "sha256": "57e6af0c73e6c038783e7db5b63c0a97fc3ab0b8430f1597c25afa60dbc55fb1",
+      "bytes": 7499
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AndroidMirror.swift",
+      "targetPath": "engine/Sources/SecondScreen/AndroidMirror.swift",
+      "mode": "100644",
+      "gitBlob": "a6ebf12298800801d55c1db5325ad314ec8ef618",
+      "sha256": "cefd94f6ea3f2768d8dc5689a29bc349e383fd8415ced67507631f1824cbf7e2",
+      "bytes": 29285
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AndroidMirrorWindow.swift",
+      "targetPath": "engine/Sources/SecondScreen/AndroidMirrorWindow.swift",
+      "mode": "100644",
+      "gitBlob": "3d15ed8675e5699aca02393199c7b4d16c8babed",
+      "sha256": "d9e14f01348d420c78605822a5c0089f7a4ba8e2cf6e92e8081d16b52006cd7f",
+      "bytes": 15024
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AndroidPairing.swift",
+      "targetPath": "engine/Sources/SecondScreen/AndroidPairing.swift",
+      "mode": "100644",
+      "gitBlob": "c3ccfc6d4ee4467ddea45ed0225ff1111b016015",
+      "sha256": "66266f8f4818d4a86793c09c1e4f871c298133efefce59a2780ac0889a67df94",
+      "bytes": 10678
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AppController.swift",
+      "targetPath": "engine/Sources/SecondScreen/AppController.swift",
+      "mode": "100644",
+      "gitBlob": "6b531840e0b0f76c0b5221f559734ba913cd478d",
+      "sha256": "02eae71985e6a58444c42b8b7a363a0fe4eeb362787ab89dc3508b6ee1578c72",
+      "bytes": 50576
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/HotKey.swift",
+      "targetPath": "engine/Sources/SecondScreen/HotKey.swift",
+      "mode": "100644",
+      "gitBlob": "196a0cbb685d962961fa391aa5ccb7b9a2297777",
+      "sha256": "5a73a7f6fc6ff6238c28d8ca90cab3c5ccc76cf6a5fe52fde074c3afff460141",
+      "bytes": 1835
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/main.swift",
+      "targetPath": "engine/Sources/SecondScreen/main.swift",
+      "mode": "100644",
+      "gitBlob": "5f2a374de88797c9181d0c0797f04487a0c9642a",
+      "sha256": "0aeb327b552b332cff3b3d896fa2596419c7560599697b73a7eab01126be4e75",
+      "bytes": 745
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/ADB.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/ADB.swift",
+      "mode": "100644",
+      "gitBlob": "b32c03e02f838b8ea01e14e407c6ce48c97046ea",
+      "sha256": "b641b0d3658e88ac5ab26410978f01ef8abdb8e3a17b87e093cb1dd9e57406c4",
+      "bytes": 13045
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/Accessibility.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/Accessibility.swift",
+      "mode": "100644",
+      "gitBlob": "4cb56b8468ce7e9824f73b55c4a3ff42269bd590",
+      "sha256": "cd3d63dacf916f2c95adc503e5be705d3ecb9e98bd13c995911c39ead26b1d3a",
+      "bytes": 17950
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/AgentCursorEvent.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/AgentCursorEvent.swift",
+      "mode": "100644",
+      "gitBlob": "2ccd1ef35624a0a26f0a18879cf648d72402f431",
+      "sha256": "03f6da01a9c23db58a44b7ec564a6967b0d441ec8bbf47c8b534a356979a9da7",
+      "bytes": 1693
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/AgentScreenAdmission.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/AgentScreenAdmission.swift",
+      "mode": "100644",
+      "gitBlob": "fc2481dc48a4efe4cb9e8c9b2d12e01d49b5d5c2",
+      "sha256": "8338f45ef78b1572b6eef60d01f4288b772c3606e038086aac3942fb7d6af08e",
+      "bytes": 1028
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/BackgroundInput.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/BackgroundInput.swift",
+      "mode": "100644",
+      "gitBlob": "382a9f3c74c21edbd47b7d7dd94cdb1d7ab84bfb",
+      "sha256": "3f86cc26041221885f09426f16acfe6f1dd13fe23288d2eb35179e1ac0aa1099",
+      "bytes": 25286
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/ControlProtocol.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/ControlProtocol.swift",
+      "mode": "100644",
+      "gitBlob": "3f3ba2e5088820d0b2044cd99de83396984c8d19",
+      "sha256": "a09fd0c6ee4fa6a4ef52b0be341001ffee2a63b0947284da8f4610a3adc3e649",
+      "bytes": 15264
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/DisplayConfigurator.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/DisplayConfigurator.swift",
+      "mode": "100644",
+      "gitBlob": "89e111fe6f2e294e497f37f7fc1bfae31d6f272a",
+      "sha256": "be782739a5078cd17de1e14f2627ab5d7382a9dbcb5ecd5accdbca828136251f",
+      "bytes": 7803
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/DisplayLayout.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/DisplayLayout.swift",
+      "mode": "100644",
+      "gitBlob": "733a42997b9150875517db1ca30615b5816fae7c",
+      "sha256": "201f5742d8219e58b9a6d0cd45f18079661b004e9804cd82e0ffa9e058cdbd98",
+      "bytes": 3032
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/DisplayPreview.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/DisplayPreview.swift",
+      "mode": "100644",
+      "gitBlob": "84ae4dd80a2a6c184f041f9684c8c348ed4c1904",
+      "sha256": "b578dd4f3ac74031226468ae033c86c0f8b9a61dbd668c1a009f655edf0103b2",
+      "bytes": 18572
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/DisplaySleep.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/DisplaySleep.swift",
+      "mode": "100644",
+      "gitBlob": "bb24fcc473eb2874d0cee32ea3579c3204b5e305",
+      "sha256": "0e432c2ddfd97882cae2a2898225276ac12e868fc299f11c85314a04188fa8c2",
+      "bytes": 9333
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/FocusGuard.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/FocusGuard.swift",
+      "mode": "100644",
+      "gitBlob": "96fb22e88f89e68a6ede50db116b8ccd262f41ef",
+      "sha256": "f8ffc5f26c6417af856f24afa1cbae3b048ec4431974254f09150992633a950c",
+      "bytes": 4689
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/Images.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/Images.swift",
+      "mode": "100644",
+      "gitBlob": "d7dd7c6675faba0d2fda0e7aeb063b40719447f6",
+      "sha256": "31bd6fae899118bf2f47ac90645c817c7af752a3b8a3702829b2d31655e771a6",
+      "bytes": 3411
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/InputEngine.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/InputEngine.swift",
+      "mode": "100644",
+      "gitBlob": "395c1e4d18c5fc4511790f9f46494704a75e7b87",
+      "sha256": "e3be9a371d7773bb61684f28ab07e384fb688331469b83a84c3dc7034faee880",
+      "bytes": 16984
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/JitterBuffer.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/JitterBuffer.swift",
+      "mode": "100644",
+      "gitBlob": "1728808bf280ee5c351852d617a91a749db5c51d",
+      "sha256": "1fd2e0b330f4e695c5c75399d2c83ad35885a5464718a110d3cd218ccd97ff59",
+      "bytes": 5138
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/LocalVision.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/LocalVision.swift",
+      "mode": "100644",
+      "gitBlob": "b8e6139bcad2cba554777134f2c178b1bc9d7751",
+      "sha256": "06794bfb86cdea83b9382b4ca4f38d6a6aebb49cf4b4920ae1b65e84e0301c60",
+      "bytes": 39081
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/SkyLight.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/SkyLight.swift",
+      "mode": "100644",
+      "gitBlob": "400d79af46e17a04b27bf86813485b43111a927a",
+      "sha256": "def4a0930f24569b7b65281b1c6ccd77695b369ce5d9812fb52c352a039db8a0",
+      "bytes": 11070
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/SystemVolume.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/SystemVolume.swift",
+      "mode": "100644",
+      "gitBlob": "05570ac64c1bdef59c312a4fc31a3a7680b6da26",
+      "sha256": "b51eb9375907a2651f94200e6151cf6d2eb858a27c94067cc2bf7e843ccf4f8b",
+      "bytes": 2838
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/VirtualDisplay.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/VirtualDisplay.swift",
+      "mode": "100644",
+      "gitBlob": "d72d90a42c9210d8275700741de097b7ec588122",
+      "sha256": "35fde0932bcea83c3bb5455c35eede96fe20275dab9292eda201e0b9a04eccdf",
+      "bytes": 9206
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/WindowContainment.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/WindowContainment.swift",
+      "mode": "100644",
+      "gitBlob": "a479624d72669eafcfc032de429c27150bff0dff",
+      "sha256": "6cc30e04b510066d29e6f1dfe4c3df8408a2dc29264a68da4e105931787824f3",
+      "bytes": 1399
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/WindowMover.swift",
+      "targetPath": "engine/Sources/SecondScreenCore/WindowMover.swift",
+      "mode": "100644",
+      "gitBlob": "3de41b59909220206eb0d746e19680ff5334fce9",
+      "sha256": "809b567c1b9bdae9df0627a6bf525b6da3d8c2a5230c626281fb76955d1b4cfa",
+      "bytes": 10732
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/AgentCursorOverlay.swift",
+      "targetPath": "engine/Sources/SecondScreenRuntime/AgentCursorOverlay.swift",
+      "mode": "100644",
+      "gitBlob": "1ce54a81c9dc89eb34538ca6ff9eb90581be977c",
+      "sha256": "ba3b67a6603575d34f296400f94071b7d370807bfdfdcb0a0c59bcd46cbc34ba",
+      "bytes": 6349
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/AgentRuntime.swift",
+      "targetPath": "engine/Sources/SecondScreenRuntime/AgentRuntime.swift",
+      "mode": "100644",
+      "gitBlob": "caa7643cba682e6a626c68962bc167edad95f504",
+      "sha256": "dde6beb09b3f4c148dfeab28ebc311134694d237e200b0179e0b4612edf74b7e",
+      "bytes": 9472
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/AgentScreens.swift",
+      "targetPath": "engine/Sources/SecondScreenRuntime/AgentScreens.swift",
+      "mode": "100644",
+      "gitBlob": "0de2f38144807f132c43d27c60c828a67520ba34",
+      "sha256": "54f31fef922c658fedd185d28ec4e6c1748791faadb0970ff8a61483e08ac1f5",
+      "bytes": 44055
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/ControlServer.swift",
+      "targetPath": "engine/Sources/SecondScreenRuntime/ControlServer.swift",
+      "mode": "100644",
+      "gitBlob": "3ed4b28429eca451b5a092624847e8b002416547",
+      "sha256": "c9d3e2d902fe8adcfbfa45dfbb733ea15638b227e67b31679988d7fe144651dd",
+      "bytes": 4290
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/DisplayMatch.swift",
+      "targetPath": "engine/Sources/SecondScreenRuntime/DisplayMatch.swift",
+      "mode": "100644",
+      "gitBlob": "3fb28ddc3512fdcc32a4faf3302acd69e3b0ab28",
+      "sha256": "cc4ed766761feeda413cc9f262c1d43f057822916af4d3a582831901972a8178",
+      "bytes": 1182
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/ActionParser.swift",
+      "targetPath": "engine/Sources/TarsAgent/ActionParser.swift",
+      "mode": "100644",
+      "gitBlob": "791647fa6028fbed0fc5652556783178a4709c85",
+      "sha256": "8187044164f3070acfe692a49657224b62edb28bafdacff77466071d944c6ce4",
+      "bytes": 7542
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Agent.swift",
+      "targetPath": "engine/Sources/TarsAgent/Agent.swift",
+      "mode": "100644",
+      "gitBlob": "50b3c9b60beb76a78fccbb8d85696ffbf01c5335",
+      "sha256": "62c30c3b6a04619ca19012eaf788e9d5dc4c2500f5c8baa6ff18a599dbd404a2",
+      "bytes": 27964
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/AndroidPlan.swift",
+      "targetPath": "engine/Sources/TarsAgent/AndroidPlan.swift",
+      "mode": "100644",
+      "gitBlob": "9583bcae61642e75e417e709ba5775c81cd36957",
+      "sha256": "c470f5e981a731296efdcfb2606978272b4471b17ac174a24e746d4df20f485a",
+      "bytes": 5265
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Bridge.swift",
+      "targetPath": "engine/Sources/TarsAgent/Bridge.swift",
+      "mode": "100644",
+      "gitBlob": "53b84fa36b49997cacd005489a4de83c0c6206a4",
+      "sha256": "dd95c499fe2eb63cd6d93bae40f5449de981b369d6d03dcefbb75066a4677deb",
+      "bytes": 34855
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Describe.swift",
+      "targetPath": "engine/Sources/TarsAgent/Describe.swift",
+      "mode": "100644",
+      "gitBlob": "87733b502f3ed14c4b4207929a9bf1e7e9d1ec2c",
+      "sha256": "e05185fdeff5ccbc65fad57c3b740aa987d9a0b139fe0c05e38ea7aaee6a762e",
+      "bytes": 2072
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/IPhoneScreen.swift",
+      "targetPath": "engine/Sources/TarsAgent/IPhoneScreen.swift",
+      "mode": "100644",
+      "gitBlob": "93bfc73ec309bb016331dc26e49cb34d1ecbd1df",
+      "sha256": "1e3705c7e773517a458e6e48f2ee72d248977a6a6757fb4482655a8338883111",
+      "bytes": 11689
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Learning.swift",
+      "targetPath": "engine/Sources/TarsAgent/Learning.swift",
+      "mode": "100644",
+      "gitBlob": "5de66e96d3017e0eaf3608f5b527d090a2135bc2",
+      "sha256": "8ead80ec5b7c8bde102c368903c77a15dbd7a5120a748f7c1a8f157a8ca71162",
+      "bytes": 22088
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Model.swift",
+      "targetPath": "engine/Sources/TarsAgent/Model.swift",
+      "mode": "100644",
+      "gitBlob": "32cdd70b959863f2d94752574b28e797d311fd26",
+      "sha256": "6ea439b3957d842365104b67c5770f743ae445bfda8fa140ec07124bcce740ca",
+      "bytes": 5774
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Planner.swift",
+      "targetPath": "engine/Sources/TarsAgent/Planner.swift",
+      "mode": "100644",
+      "gitBlob": "197c4bb0831448dba6a408dfac3ec22141a2759a",
+      "sha256": "2158f7b76caf764083a3ebe09024f63c7887fa283f0a022254ffdf4d39e4b8b8",
+      "bytes": 10246
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Procedure.swift",
+      "targetPath": "engine/Sources/TarsAgent/Procedure.swift",
+      "mode": "100644",
+      "gitBlob": "3fef04d3b9651bc1d4376d45fc3c580bd0974c0e",
+      "sha256": "b7521d8c1a33f933e7962432552b13c936c10586455afa5f9d7b1cb3d44b79d6",
+      "bytes": 16918
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Screens.swift",
+      "targetPath": "engine/Sources/TarsAgent/Screens.swift",
+      "mode": "100644",
+      "gitBlob": "3412f746744d0d59ae15d929b3d22a7bad167b83",
+      "sha256": "b2a6a77a84e6f0c44439f1773053c7fcb921375776258b6a0bf6a57a8fbb41f6",
+      "bytes": 7614
+    },
+    {
+      "sourcePath": "Sources/vdisplay/main.swift",
+      "targetPath": "engine/Sources/vdisplay/main.swift",
+      "mode": "100644",
+      "gitBlob": "7491e8a9c97cf9fdfe6cfc3697c5b206cbb22ddc",
+      "sha256": "0c4f8e6fe555c1285c95be6d1cb976504f6ddd00abfcb3adf1926293d63edf85",
+      "bytes": 4935
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/AccessibilityPressTests.swift",
+      "targetPath": "engine/Tests/SecondScreenCoreTests/AccessibilityPressTests.swift",
+      "mode": "100644",
+      "gitBlob": "d047bbc8cf2a5fe3ca4a6e1fe3f5129bbee53cfb",
+      "sha256": "8a243342b0e1419e22fc4dd1a99936b7181e8f9b2cbfbb4539e62109affa1520",
+      "bytes": 5537
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/AgentScreenAdmissionTests.swift",
+      "targetPath": "engine/Tests/SecondScreenCoreTests/AgentScreenAdmissionTests.swift",
+      "mode": "100644",
+      "gitBlob": "5d7f4fbde0a86cc19385d5c0c69f947d5520a9b6",
+      "sha256": "bb2eaee8bf17289090e1b60f13d925c65d2b9fac8cb395cd968855a8eb4c1ae8",
+      "bytes": 5971
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/DisplayConfiguratorTests.swift",
+      "targetPath": "engine/Tests/SecondScreenCoreTests/DisplayConfiguratorTests.swift",
+      "mode": "100644",
+      "gitBlob": "8382f5b9aca4e8fdd11fac577ce8a33c2edfadd0",
+      "sha256": "149dd33129760b81c7db4b6934086bf7136b4464c8db62c5691782f0cd8904ff",
+      "bytes": 8477
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/DisplaySleepTests.swift",
+      "targetPath": "engine/Tests/SecondScreenCoreTests/DisplaySleepTests.swift",
+      "mode": "100644",
+      "gitBlob": "010fdc31e205ce33c7143c2f7c1192148285aee6",
+      "sha256": "2fbf67febddf195315da92ab30104957e6001dd5659048abef94e8331b1e932c",
+      "bytes": 11987
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/JitterBufferTests.swift",
+      "targetPath": "engine/Tests/SecondScreenCoreTests/JitterBufferTests.swift",
+      "mode": "100644",
+      "gitBlob": "67d0c7f5646d2f708b9ac7e670a79e08dc0c01ce",
+      "sha256": "78d49eedbf662359206e85e442b53181d79c74514e4473fc55b187ed6b113270",
+      "bytes": 4090
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/LocalVisionTests.swift",
+      "targetPath": "engine/Tests/SecondScreenCoreTests/LocalVisionTests.swift",
+      "mode": "100644",
+      "gitBlob": "cb6ea567938b14f2d5ed987ee909ee9d273c101d",
+      "sha256": "85af95af8adb969f48056825d30e08b7a9ff5f04360bc7b50ea64b5058e392da",
+      "bytes": 27139
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/WindowContainmentTests.swift",
+      "targetPath": "engine/Tests/SecondScreenCoreTests/WindowContainmentTests.swift",
+      "mode": "100644",
+      "gitBlob": "0ff365b15adcc620e29b0d792d5a725a6fdacdf3",
+      "sha256": "f121eec588a959577a93b1a83fc6abcbad8ca4dc9b7ff67ba39b852c8c4b9eef",
+      "bytes": 1869
+    },
+    {
+      "sourcePath": "Tests/SecondScreenRuntimeTests/AgentRuntimeTests.swift",
+      "targetPath": "engine/Tests/SecondScreenRuntimeTests/AgentRuntimeTests.swift",
+      "mode": "100644",
+      "gitBlob": "8fa5190aad3e5cb6cb6f3f734c7ad5a47faf3ff0",
+      "sha256": "67b7713789e8d42b81a7b9c70f704479f1b0a063be3f628cc9c47e4f43d395a1",
+      "bytes": 2457
+    },
+    {
+      "sourcePath": "Tests/SecondScreenRuntimeTests/ControlServerTests.swift",
+      "targetPath": "engine/Tests/SecondScreenRuntimeTests/ControlServerTests.swift",
+      "mode": "100644",
+      "gitBlob": "4a145a2d2113fbc555b83a3290a96e08e77800fb",
+      "sha256": "db9f9adf70078953708b10788738bd7521079b76d2ff37b9c50980cb9e6ce470",
+      "bytes": 3182
+    },
+    {
+      "sourcePath": "Tests/TarsAgentTests/BridgeTests.swift",
+      "targetPath": "engine/Tests/TarsAgentTests/BridgeTests.swift",
+      "mode": "100644",
+      "gitBlob": "74f5b12236f88077815c141a984e5e61c3d12837",
+      "sha256": "56340745f254ed0e7337d825333676af57eea42607f39d5b839fec15e3a79548",
+      "bytes": 20140
+    },
+    {
+      "sourcePath": "Tests/TarsAgentTests/TarsAgentTests.swift",
+      "targetPath": "engine/Tests/TarsAgentTests/TarsAgentTests.swift",
+      "mode": "100644",
+      "gitBlob": "6cd558ad4b23fcc1a1e4bf08d015a6e37052a12d",
+      "sha256": "5da3002bc8a3e888e53c94490059a3c7ac5fb548a4814852ceca1a627349e27f",
+      "bytes": 45395
+    },
+    {
+      "sourcePath": "docs/agent-reports/A0.md",
+      "targetPath": "engine/docs/agent-reports/A0.md",
+      "mode": "100644",
+      "gitBlob": "780e6376b97e89d38383e22ee476c1688e1af7c7",
+      "sha256": "e78c73aa0ecf5dda031f0daad55a0963c7de0619cb80d0e38d9e262eb13c91c4",
+      "bytes": 6076
+    },
+    {
+      "sourcePath": "docs/agent-reports/A1.md",
+      "targetPath": "engine/docs/agent-reports/A1.md",
+      "mode": "100644",
+      "gitBlob": "93685867c8f6501e4ca48b90764b9b22ffb9bea1",
+      "sha256": "63d929ae3c7fdccc115507b22d7869e03062accf9626bc71d54ea75c25b63c08",
+      "bytes": 12268
+    },
+    {
+      "sourcePath": "docs/agent-reports/A2.md",
+      "targetPath": "engine/docs/agent-reports/A2.md",
+      "mode": "100644",
+      "gitBlob": "86c61cc8b31fca366a8c61ec0a146076979ff5b3",
+      "sha256": "5627ed23334efe2018e02d08eb519dbe8cf7a57c3a098f893166109178ec6f06",
+      "bytes": 18003
+    },
+    {
+      "sourcePath": "docs/agent-reports/A3.md",
+      "targetPath": "engine/docs/agent-reports/A3.md",
+      "mode": "100644",
+      "gitBlob": "93d7ed74f0e0b791ab30a61abf2b4030df9c5248",
+      "sha256": "2806d804356fa87236143d1e03c7dd0480710bf0b91f7b2fb80a7d5706c33d74",
+      "bytes": 15484
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4-ax.md",
+      "targetPath": "engine/docs/agent-reports/A4-ax.md",
+      "mode": "100644",
+      "gitBlob": "ce995bc9fa87c58cc0587d6bdbabe38bfb7e6c5d",
+      "sha256": "12575300414380b61fa21c1502fb6b9e0befa9f8bf68413610947b5436cb2631",
+      "bytes": 9492
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4-followup.md",
+      "targetPath": "engine/docs/agent-reports/A4-followup.md",
+      "mode": "100644",
+      "gitBlob": "a0374a4d4ac1309b2d0642527e03024fe38b258a",
+      "sha256": "218678e78ac11f3cee258ae2ccd705c548b446db57d79ee20a12b464e27d1205",
+      "bytes": 8981
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4-geometry.md",
+      "targetPath": "engine/docs/agent-reports/A4-geometry.md",
+      "mode": "100644",
+      "gitBlob": "870a1cb1aeee3d853c41817ccb74c01ca0a5f9f7",
+      "sha256": "73b4695199bfc7b36cb50223754c4e72599803a7a546cd8a19a420f5a20d0020",
+      "bytes": 5448
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4-live.md",
+      "targetPath": "engine/docs/agent-reports/A4-live.md",
+      "mode": "100644",
+      "gitBlob": "07ede4974cd27e9f0e8e90f17b44b9d241f1e630",
+      "sha256": "549666c75e6208550807534ac5c4e0febfd87027e6219513499f2b6d09680dcf",
+      "bytes": 17682
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4.md",
+      "targetPath": "engine/docs/agent-reports/A4.md",
+      "mode": "100644",
+      "gitBlob": "a66c7d968db5dd38606a3a0164a988e8c8395ef9",
+      "sha256": "905fe441ba8661ede0eb91c7591fef96fff4b93f6f54a633d09b211802296069",
+      "bytes": 20081
+    },
+    {
+      "sourcePath": "docs/agent-reports/A5.md",
+      "targetPath": "engine/docs/agent-reports/A5.md",
+      "mode": "100644",
+      "gitBlob": "8efdb522fa83c9c608cdfa7bd4ea486a26e0a88a",
+      "sha256": "f28cd1cf0419357f170428ea3ae91aa482a0ec0a7c1cec6f3d67de0fbdbcfd9f",
+      "bytes": 14718
+    },
+    {
+      "sourcePath": "docs/agent-reports/A6.md",
+      "targetPath": "engine/docs/agent-reports/A6.md",
+      "mode": "100644",
+      "gitBlob": "fcac6829de9e00087f68a29b03783fa08046bc82",
+      "sha256": "2486b3d7c944cb4648e9b5babaa2fabea2a84b3793c1448c9564c16004a5f0a0",
+      "bytes": 31200
+    },
+    {
+      "sourcePath": "docs/agent-reports/A7-prep.md",
+      "targetPath": "engine/docs/agent-reports/A7-prep.md",
+      "mode": "100644",
+      "gitBlob": "2a4fb50c0ccbbe992b086b3b2ce2377ea14ea03e",
+      "sha256": "4227b059f93485e407a6fb6346066dac79d1c40fb33537b2b0cdb7df20369e3e",
+      "bytes": 10463
+    },
+    {
+      "sourcePath": "docs/agent-reports/A7.md",
+      "targetPath": "engine/docs/agent-reports/A7.md",
+      "mode": "100644",
+      "gitBlob": "519494560307e71d35a110507e978ca0f57ceba9",
+      "sha256": "2dfccedc6f6df60c5e28a99f20343d63d09a28433706aed07a57ad154078cd67",
+      "bytes": 24913
+    },
+    {
+      "sourcePath": "docs/agent-reports/A8.md",
+      "targetPath": "engine/docs/agent-reports/A8.md",
+      "mode": "100644",
+      "gitBlob": "e8c4d333193afbf5b11b9bb03197a62a5d63b236",
+      "sha256": "de2e8db8f4db73451692f20c396686374e1f7d83799c366094724e54e8033166",
+      "bytes": 13847
+    },
+    {
+      "sourcePath": "docs/agent-reports/A9-display.md",
+      "targetPath": "engine/docs/agent-reports/A9-display.md",
+      "mode": "100644",
+      "gitBlob": "422e75586cf21abf342bf5e339263cfd16547468",
+      "sha256": "00afac2fca99eff42c76dfcc3fe312077b95a013e0ef73e2a5098b8e15d9622d",
+      "bytes": 19622
+    },
+    {
+      "sourcePath": "docs/agent-reports/Coordinator-review.md",
+      "targetPath": "engine/docs/agent-reports/Coordinator-review.md",
+      "mode": "100644",
+      "gitBlob": "b601ee4666000853ac33817e5efe9f669bd89b34",
+      "sha256": "52828e5b1f1c001f294ae3efd9803b3978ecd055174205caa58f2b64e35b3c25",
+      "bytes": 14704
+    },
+    {
+      "sourcePath": "docs/boss-macos-baseline.md",
+      "targetPath": "engine/docs/boss-macos-baseline.md",
+      "mode": "100644",
+      "gitBlob": "6e5182235757b40a6db8cfac14cb4d88b6b4075c",
+      "sha256": "ace649148efbe60f2c3f7a4d6a6d2e7fcde2a5e72af686b7028755a15e021130",
+      "bytes": 2601
+    },
+    {
+      "sourcePath": "docs/boss-macos-capabilities.md",
+      "targetPath": "engine/docs/boss-macos-capabilities.md",
+      "mode": "100644",
+      "gitBlob": "e7a01665231a7c99df4e20f6c65c8dfe7be7f23e",
+      "sha256": "b945556924f39a8767971391d2dbd81a8516e4abb38d4990ef1c5b5a910712d8",
+      "bytes": 21251
+    },
+    {
+      "sourcePath": "docs/parallel-agent-tasks.md",
+      "targetPath": "engine/docs/parallel-agent-tasks.md",
+      "mode": "100644",
+      "gitBlob": "e1052a2974003bb7dab5b5f2574c291c7344670e",
+      "sha256": "ca5ef6ea04eeb47c87090668be9f533e2bb4d5aaeae8b2b6bab258198f50f006",
+      "bytes": 9734
+    },
+    {
+      "sourcePath": "docs/rfc/0001-agent-hub/README.md",
+      "targetPath": "engine/docs/rfc/0001-agent-hub/README.md",
+      "mode": "100644",
+      "gitBlob": "54fabb066fe328d9bdbcaacc691b2b22731d41b6",
+      "sha256": "3d925ecf9408ac272966994b3d17eba7aa02b40843aa8d092c3182a7b507ab78",
+      "bytes": 46205
+    },
+    {
+      "sourcePath": "docs/skill-runtime-boss-plan.md",
+      "targetPath": "engine/docs/skill-runtime-boss-plan.md",
+      "mode": "100644",
+      "gitBlob": "5bdf1b4ec9c010294bf937c760bcade8f9e03ed7",
+      "sha256": "635d7e37cafc92077a9a0ae33b4e759ace4c77670620d3741b43528af3f299c2",
+      "bytes": 41339
+    },
+    {
+      "sourcePath": "docs/task-runtime-contracts.md",
+      "targetPath": "engine/docs/task-runtime-contracts.md",
+      "mode": "100644",
+      "gitBlob": "8cf5690d80dac8bc22011c0f9e43f3270a578bb6",
+      "sha256": "ae8a074551f2fe134799f81982549e236f79c65c7589f8f5532c053298b6a337",
+      "bytes": 48777
+    },
+    {
+      "sourcePath": "packages/task-runtime/package-lock.json",
+      "targetPath": "engine/packages/task-runtime/package-lock.json",
+      "mode": "100644",
+      "gitBlob": "0203ba600faa06d67338d155e0a302db65987078",
+      "sha256": "a6671402877cc4eb6f57f0fc9e28a156779ed4857bd8c637f985b9abce9c6c6a",
+      "bytes": 16790
+    },
+    {
+      "sourcePath": "packages/task-runtime/package.json",
+      "targetPath": "engine/packages/task-runtime/package.json",
+      "mode": "100644",
+      "gitBlob": "20beadfb6c3f5d87cd4555117c466760c5df6733",
+      "sha256": "c9094b7f6c3f7e36b15067254e381bef8c598cb86334f5213e9cdba4ab49f622",
+      "bytes": 503
+    },
+    {
+      "sourcePath": "packages/task-runtime/scripts/build.mjs",
+      "targetPath": "engine/packages/task-runtime/scripts/build.mjs",
+      "mode": "100644",
+      "gitBlob": "876d18ba6400b8a0e0a509dc2bc4b14a29dc1f05",
+      "sha256": "e8e84b07af7033e7439ed65fbb293fd71dff0f81800583bbc252ea16f1be4186",
+      "bytes": 2800
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/actors.ts",
+      "targetPath": "engine/packages/task-runtime/src/actors.ts",
+      "mode": "100644",
+      "gitBlob": "56a79a40548c407949f49c94334b637bf25615ca",
+      "sha256": "4c97e77495ae9bbe2f05cae392a9df87de0a54f2a0638ff88f13a9cdccc5b58f",
+      "bytes": 24669
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/adapters/agent-bridge.ts",
+      "targetPath": "engine/packages/task-runtime/src/adapters/agent-bridge.ts",
+      "mode": "100644",
+      "gitBlob": "21d4943357beec12f3c061d75c2afa19450f1a65",
+      "sha256": "e2af81ad6c4bf4c5f4b3fd3c99f6d5e373496a1d5d07eda0d0aa7b1274df1a9e",
+      "bytes": 18822
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/adapters/local-vision.ts",
+      "targetPath": "engine/packages/task-runtime/src/adapters/local-vision.ts",
+      "mode": "100644",
+      "gitBlob": "89b2c1fbbf9b75630a7b7374f62efb44a6f0ce3e",
+      "sha256": "cd59c6ca5ff832d49b39d65d92416b054c5852906de71ec28ca8c2d5c766585a",
+      "bytes": 16826
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/adapters/second-screen.ts",
+      "targetPath": "engine/packages/task-runtime/src/adapters/second-screen.ts",
+      "mode": "100644",
+      "gitBlob": "dcf90252738ca2b9a9d14119bb4f0ea9908ddc38",
+      "sha256": "22c23d14640ddc7d4a4cae32060c8ffca2d7f1e6ab66544cce6155914258101e",
+      "bytes": 43914
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-config.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-config.ts",
+      "mode": "100644",
+      "gitBlob": "c3f5a8bea4cea1627f7bb747ad6ebf91a018053a",
+      "sha256": "fad411d31d6fe7f1807457b621aa151ef11a4936c56c4ff80720f89efe76b088",
+      "bytes": 22672
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-contracts.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-contracts.ts",
+      "mode": "100644",
+      "gitBlob": "de89932eda58596052f787f81bb3a443023c1082",
+      "sha256": "cb42695dced3015b7c3d7bf22f976fa18c48d11e160362a1a5f00e53922e4dec",
+      "bytes": 47559
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-daemon.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-daemon.ts",
+      "mode": "100644",
+      "gitBlob": "8d067766181bb570f0c0616e3609bfd2a886aefc",
+      "sha256": "9dc5da7ef857640cf7ba35b9d60d79ab27142116687159eecf68ef3ea02bdfa9",
+      "bytes": 32064
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-host.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-host.ts",
+      "mode": "100644",
+      "gitBlob": "f2e827adcc8b435b9e379cd1ef2c5f261ab804d3",
+      "sha256": "3da1683a1cd3b72a80a2b19762dbbd5b23235c692f6ca5eba25d95119f46a744",
+      "bytes": 69821
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-hosting.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-hosting.ts",
+      "mode": "100644",
+      "gitBlob": "3eb5c57e722d716e8ccf15abc88626ed43fcaf98",
+      "sha256": "87a565bd947700949eeacfa9a81e84ea79bf2d8151c3902264ea3571239d9331",
+      "bytes": 6292
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-inbox.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-inbox.ts",
+      "mode": "100644",
+      "gitBlob": "3378e9e1a9b942f6d7e76667aad2448b2d6349ad",
+      "sha256": "834cc55d9a7e1be4e0fca3c2ab0d0594dd939937ae45df46d734ab4084f4cc7f",
+      "bytes": 8506
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-ledgers.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-ledgers.ts",
+      "mode": "100644",
+      "gitBlob": "8d4f412ce82b387e6a9e7440e745c03d90b8ffc0",
+      "sha256": "0d402b733b23f8aafb597d78c9bc426536721d86dc7fe48ed94bf32f4fbafd49",
+      "bytes": 13458
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-providers.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-providers.ts",
+      "mode": "100644",
+      "gitBlob": "19896db7803cb964139b1d6a59be96e336b7d5a5",
+      "sha256": "8f9804f7b3ad7e0d5ac6d3569a0ddb4c7af967e9b8b844115dfac3e889df6531",
+      "bytes": 5296
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-requests.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-requests.ts",
+      "mode": "100644",
+      "gitBlob": "76751791eb7eb6bad22b41d4cc3d5ffec56f0556",
+      "sha256": "17ceb40184dfe9bccdd334564a6df98f5668efbcdc8264ac8d4fe66ad0177617",
+      "bytes": 11458
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-status.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-status.ts",
+      "mode": "100644",
+      "gitBlob": "c9dc7a5c168cb4d41803de27da960642baf66fa7",
+      "sha256": "bee7df9c217130c3863d7e1b96813056067851597db703fd505fd91cad08d88a",
+      "bytes": 12901
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-units.ts",
+      "targetPath": "engine/packages/task-runtime/src/agent-units.ts",
+      "mode": "100644",
+      "gitBlob": "3e807f29f440c21c52bd198ae832c91f6a0be6a6",
+      "sha256": "a1fa21843f03bcbf5179838e5f6ce342efdebedc776c26ef356887e0d7dbe53f",
+      "bytes": 12475
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/artifacts.ts",
+      "targetPath": "engine/packages/task-runtime/src/artifacts.ts",
+      "mode": "100644",
+      "gitBlob": "c896cb4a6b720cda122c69234394b468d0d4368f",
+      "sha256": "983058f2abb3ed1cf7c468bf38ba36aea79924465283a4294ffbb985e591d781",
+      "bytes": 63469
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/bootstrap.ts",
+      "targetPath": "engine/packages/task-runtime/src/bootstrap.ts",
+      "mode": "100644",
+      "gitBlob": "f8d29116dd9a0627f1eb3cd3c09bd83b98d87143",
+      "sha256": "75e5beb0ba2e93d11521aae1ef69285414062c0ed97ae4e3944fb6651ec4ffd7",
+      "bytes": 26815
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/actions.ts",
+      "targetPath": "engine/packages/task-runtime/src/boss/actions.ts",
+      "mode": "100644",
+      "gitBlob": "594759b9fe2c275293b7ee4304ed4db97ea634da",
+      "sha256": "d4b586ffc79747aa9c9ca9e682daec9d9dc4c1aa8f54fdb98b19173460d39844",
+      "bytes": 6857
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/candidates.ts",
+      "targetPath": "engine/packages/task-runtime/src/boss/candidates.ts",
+      "mode": "100644",
+      "gitBlob": "8f73b710178c6bb831457301947baedf85c7547b",
+      "sha256": "27ecdb3b56a5b32513a8693997f030d62af00a5c7ad546c87f144a0cb01ed798",
+      "bytes": 12632
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/capture.ts",
+      "targetPath": "engine/packages/task-runtime/src/boss/capture.ts",
+      "mode": "100644",
+      "gitBlob": "086020fc3fe8541a64e9a27402cdefadb12c33d6",
+      "sha256": "fe0f33ec9fcfafd595be131e237d7a51f9496df2b95d10e88ef0023e5f449c10",
+      "bytes": 36657
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/chat.ts",
+      "targetPath": "engine/packages/task-runtime/src/boss/chat.ts",
+      "mode": "100644",
+      "gitBlob": "9238917f4a351a257eda64d35899325272f7015d",
+      "sha256": "23d95050acfae28ea3d52499c468eb89787c7b92f14f21571863a4baa7224986",
+      "bytes": 6435
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/pages.ts",
+      "targetPath": "engine/packages/task-runtime/src/boss/pages.ts",
+      "mode": "100644",
+      "gitBlob": "870a9a1ea57df25c067f8e673c96f72aaaedb95f",
+      "sha256": "d192d41e514307a1f8e19b98a73fe462a87c9d905671347f2b10e3113a284923",
+      "bytes": 15258
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/parse.ts",
+      "targetPath": "engine/packages/task-runtime/src/boss/parse.ts",
+      "mode": "100644",
+      "gitBlob": "db086e5f8e3533e7bdbe62f52668bf350d67ec07",
+      "sha256": "b34d64ba9e2067b59634d888d1587715efc2032076dd2bde29f03bef64d35328",
+      "bytes": 2484
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/validators.ts",
+      "targetPath": "engine/packages/task-runtime/src/boss/validators.ts",
+      "mode": "100644",
+      "gitBlob": "60af8646e8d4cc99513b64601c1c9fd0580dd91c",
+      "sha256": "7ed192a022103ebb6f34669a2a7dd2d05b4114e08730d47cc86f0b87a24db332",
+      "bytes": 10058
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/workflow.ts",
+      "targetPath": "engine/packages/task-runtime/src/boss/workflow.ts",
+      "mode": "100644",
+      "gitBlob": "da4387fff7f8c9b850fb06fd3dab4412304d22d7",
+      "sha256": "8cdad4134263b84c56f91f10c6b0f3ca17da4425b0ea6cebcf0b91255214e9a4",
+      "bytes": 23603
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/builtin-agents.ts",
+      "targetPath": "engine/packages/task-runtime/src/builtin-agents.ts",
+      "mode": "100644",
+      "gitBlob": "131844aeca695c64fc9c91165310e3b75aa2c225",
+      "sha256": "b9e8d808df31edf345f520c06b427e65e088dcb3795f0b68585d42c85957d0af",
+      "bytes": 5372
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/cli.ts",
+      "targetPath": "engine/packages/task-runtime/src/cli.ts",
+      "mode": "100644",
+      "gitBlob": "bfb74787666bcdf11052dfbfe7c35d7bc67403fa",
+      "sha256": "029f6a56c16c65012b0ebf2896ee49f474ea9a6482dbf3d39f6f05080174ee81",
+      "bytes": 28457
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/contracts.ts",
+      "targetPath": "engine/packages/task-runtime/src/contracts.ts",
+      "mode": "100644",
+      "gitBlob": "ec03a1e34805c64b84eb5bf5718ec57fc3e88474",
+      "sha256": "9ad947d9f67b44b5303cbbf5b23c22ae941604cd166eb92acfd2786cc098ce2f",
+      "bytes": 77868
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/daemon.ts",
+      "targetPath": "engine/packages/task-runtime/src/daemon.ts",
+      "mode": "100644",
+      "gitBlob": "1874bb05af00e7e36efcbc1b189ad51678b5cbea",
+      "sha256": "0bb798769e78dbf585038bd1348d1fc2fb3fc783c1e506eadbc6e918ec893ce6",
+      "bytes": 41418
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/index.ts",
+      "targetPath": "engine/packages/task-runtime/src/index.ts",
+      "mode": "100644",
+      "gitBlob": "47570148c7730886e228300cb4cbda8214dcc755",
+      "sha256": "931b759bba0ae5befd346521004f8af6010f076a2348d67559656c2d5126adac",
+      "bytes": 1227
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/learning.ts",
+      "targetPath": "engine/packages/task-runtime/src/learning.ts",
+      "mode": "100644",
+      "gitBlob": "c9f4c819dbd61a55a39ea75ea74bf98a0003830c",
+      "sha256": "81c5563af403d7f6bbda3e99ef06feccdb9a5361d1469385c6230b5869b2f2b7",
+      "bytes": 10796
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/main.ts",
+      "targetPath": "engine/packages/task-runtime/src/main.ts",
+      "mode": "100644",
+      "gitBlob": "d2277d22f22d7752287247232d97f6ae2029296a",
+      "sha256": "ce75b1ae1e9146666e33c6a67a95c80d9bafc245f43bbdc9f18c0f2223a374eb",
+      "bytes": 10922
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/procedures.ts",
+      "targetPath": "engine/packages/task-runtime/src/procedures.ts",
+      "mode": "100644",
+      "gitBlob": "aec68b94a0ec852ff27936b5488bea003764a1db",
+      "sha256": "35fcf3cff657ddb62d054bdf98744a506db354dfbd743802a6aa6c6f71c89db0",
+      "bytes": 15377
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/recovery.ts",
+      "targetPath": "engine/packages/task-runtime/src/recovery.ts",
+      "mode": "100644",
+      "gitBlob": "485f9b8251589c540a299b47ac82231b0eb12b48",
+      "sha256": "ac967407f4dcaafbc0714602f2a279c4f7920ba7f4a05590d0dc103b8fe17398",
+      "bytes": 21147
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/runner.ts",
+      "targetPath": "engine/packages/task-runtime/src/runner.ts",
+      "mode": "100644",
+      "gitBlob": "e66d40debc98bfaca73ec567d5510d65c8a3d242",
+      "sha256": "c4b348f7676845991dc61a6f40d46592f177a2b71617159f88e301971b7948e9",
+      "bytes": 46359
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/session.ts",
+      "targetPath": "engine/packages/task-runtime/src/session.ts",
+      "mode": "100644",
+      "gitBlob": "286f8f687e1917450bcc56fa3ebe1146a288c3bb",
+      "sha256": "903df9efb82d71070b54ced594681f38c8574abb3d107e92abf3bf54aaf4f336",
+      "bytes": 27170
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/store.ts",
+      "targetPath": "engine/packages/task-runtime/src/store.ts",
+      "mode": "100644",
+      "gitBlob": "d9a4d957d5b75a691706f5b26097ac7e7755db52",
+      "sha256": "7b7989290a5b2b845105ac4199d8e0b9d718ecfe1ef30a62838aec1935a6fbab",
+      "bytes": 51078
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/telemetry.ts",
+      "targetPath": "engine/packages/task-runtime/src/telemetry.ts",
+      "mode": "100644",
+      "gitBlob": "04a9af9b86c51547559f87c6d285b3b4972a3bb3",
+      "sha256": "7d075256803da612eb8fdd90768aa409e1b82fc7e14ae7bddf87b22837ea24a1",
+      "bytes": 5993
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/worker.ts",
+      "targetPath": "engine/packages/task-runtime/src/worker.ts",
+      "mode": "100644",
+      "gitBlob": "159bb2a0eec5e12fce62889ce2484ca57ecda544",
+      "sha256": "87a85bb5cb981d927d1bcbcff320a1f4b86bb8e5daf26c0f88ebd0dbcbfad393",
+      "bytes": 4294
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/workflows.ts",
+      "targetPath": "engine/packages/task-runtime/src/workflows.ts",
+      "mode": "100644",
+      "gitBlob": "27197660043522de39134cccbc808dda902f726f",
+      "sha256": "245ce29b38532954aee445636292cf20885100d3f3c44b0c2a41f9b39c181ba6",
+      "bytes": 1731
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/actors.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/actors.test.ts",
+      "mode": "100644",
+      "gitBlob": "83f29e38a874e3cc9c1c1ecfb8c9bdbb6db4521a",
+      "sha256": "6b382d33f524f85cbd50a3db94d304f3e20df906753d747d405db569df8b785e",
+      "bytes": 18482
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-bridge.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/agent-bridge.test.ts",
+      "mode": "100644",
+      "gitBlob": "0d6c903fba7aae8729d05ff9e8044e9919432615",
+      "sha256": "8c4e0f12b4cf826da8ca9c3217e588b9b215e02c0327e437b808d10b7c1ff52f",
+      "bytes": 31019
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-contracts.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/agent-contracts.test.ts",
+      "mode": "100644",
+      "gitBlob": "c018e30472c0d777079e42c936c37cf5f8e3139e",
+      "sha256": "352974b428f407b7f0cd18acee3a8623c0e4cab1d62dfcfef640434931928d3e",
+      "bytes": 22817
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-host.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/agent-host.test.ts",
+      "mode": "100644",
+      "gitBlob": "4c45dab0737bca0326a148aad2832fa4b9dd13c5",
+      "sha256": "9337e6e38f67becbddb90483c39e686eca10fd4db71256d28061b531c2837979",
+      "bytes": 36736
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-hostd.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/agent-hostd.test.ts",
+      "mode": "100644",
+      "gitBlob": "3af6d22fc81ccf37d29497148fbd445fec6b5a19",
+      "sha256": "81b7339dd0955b7b810468427c33edd5c5ad7fa7cc0b20c462ee99b7664950e9",
+      "bytes": 47850
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-inbox.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/agent-inbox.test.ts",
+      "mode": "100644",
+      "gitBlob": "e116a68ce9f31852529c2607738faf87349b3831",
+      "sha256": "e320abd1a37466f2253cfe138fb0d37341a51f27b45d844de9bc75b9bbe53393",
+      "bytes": 11938
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-resident.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/agent-resident.test.ts",
+      "mode": "100644",
+      "gitBlob": "65d6b90b181cf0a5726a371af24ee6130f3e2fcf",
+      "sha256": "3e6cf1df365cc58171bdd6ccfad25d1f6cbc6382716ac62e33397365fc5896cb",
+      "bytes": 17161
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-status.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/agent-status.test.ts",
+      "mode": "100644",
+      "gitBlob": "cd33020eab70f861485e2eacbb3642cf060e5554",
+      "sha256": "64ff29540d201ce53970dca88ce55db28a6d91596bf17456ba747e75f8ff8697",
+      "bytes": 16878
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-units.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/agent-units.test.ts",
+      "mode": "100644",
+      "gitBlob": "8dcbe9317de6bc7ef4c1db3c6db1b217e5ebee4f",
+      "sha256": "4ee6bcc0f73b307b2d85425ba519a8a8211c73b16cd623ba2ff13b336cd74354",
+      "bytes": 5990
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/artifacts.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/artifacts.test.ts",
+      "mode": "100644",
+      "gitBlob": "8b536bc0d9ff9e83e7c2bd2086b1911823280707",
+      "sha256": "b285a92732d20e1edaf67ad614d00760d4a06ece63e65930f2d529bf2f3247cd",
+      "bytes": 51349
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/boss-chat.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/boss-chat.test.ts",
+      "mode": "100644",
+      "gitBlob": "c667c6b4a79daf21b446609dc969a182e2c0e6c7",
+      "sha256": "5664c820337b56f4dee7d5a70f3ac3daa1aff61ac03d6aa2881eb5ab84556085",
+      "bytes": 2758
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/boss-parse.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/boss-parse.test.ts",
+      "mode": "100644",
+      "gitBlob": "3cb274d4da0e5fc079f53f64286d7ab1109b3862",
+      "sha256": "d381cf6c5dca20684ee56d705a2d19a53a7cec87fcf0974d5b2487c2d46029d4",
+      "bytes": 1339
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/boss-resumes.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/boss-resumes.test.ts",
+      "mode": "100644",
+      "gitBlob": "0f9b1ec4b0ef7bb5b31c20c5bc8e81e139b8f008",
+      "sha256": "2de864d9c279947abc337826c6076dd2f1c6a7b281df27892bcfc9427668c3f9",
+      "bytes": 111670
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/boss-skill.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/boss-skill.test.ts",
+      "mode": "100644",
+      "gitBlob": "951d8e223ebbb3074a297db77d0af2e818ac55df",
+      "sha256": "977b982b131cb05c7aaf1ca73be7ca612613614d180d399a70a1e9bef3594887",
+      "bytes": 5879
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/builtin-agents.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/builtin-agents.test.ts",
+      "mode": "100644",
+      "gitBlob": "5bf086b3837223216cf9ad6a1eb019bc843d1b90",
+      "sha256": "5caced3e17af6b2ef751cf52ff4971c13fa96e570afecfa8f542eea391f4c99f",
+      "bytes": 6665
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/cli-native.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/cli-native.test.ts",
+      "mode": "100644",
+      "gitBlob": "0413943e1882bd439ff30aa92ed531af797db530",
+      "sha256": "41d1cf12362753889329579826b5b7f167f55c40fc2c7e006009ea8f0123a130",
+      "bytes": 27216
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/cli.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/cli.test.ts",
+      "mode": "100644",
+      "gitBlob": "332b7e0cc3cb379bbd1bfd755b79c0d0af49d117",
+      "sha256": "c65af4701d23dba6673ffa9a1cd622597be7c9ae9d8ac6bcd0246f86fc5f6604",
+      "bytes": 16388
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/contracts.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/contracts.test.ts",
+      "mode": "100644",
+      "gitBlob": "61288084ce536ce0e3aec228c789116c78b8706f",
+      "sha256": "7f0c27a0bccd9889c8c4e5b42b81dc5db8a635472e75926c63b53772ab998524",
+      "bytes": 23760
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/daemon.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/daemon.test.ts",
+      "mode": "100644",
+      "gitBlob": "66b0a325ed8f1a5738eea64c0c3bfb161f5f9e5e",
+      "sha256": "a239ec9ae34a55c9d2a01216cb68d5a8da9e9bcb5d55b00729fea7e1a0741e22",
+      "bytes": 49165
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/fixtures/actor-worker.ts",
+      "targetPath": "engine/packages/task-runtime/tests/fixtures/actor-worker.ts",
+      "mode": "100644",
+      "gitBlob": "bc757ba443a492ba740f1f186077f1cac9c02f41",
+      "sha256": "ad39fb893d4476d952a8cd4c682544311d99e8a04c989f05f5e021cd3a4926a7",
+      "bytes": 649
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/fixtures/boss/chat-labels.json",
+      "targetPath": "engine/packages/task-runtime/tests/fixtures/boss/chat-labels.json",
+      "mode": "100644",
+      "gitBlob": "cbdee4945636486a7a84df46191373236a5b57b9",
+      "sha256": "4a4833fe79b07fc91d9826b8f0c4445692e0e1ddbaaaf197948bc1cb462411ce",
+      "bytes": 6324
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/fixtures/boss/chat.json",
+      "targetPath": "engine/packages/task-runtime/tests/fixtures/boss/chat.json",
+      "mode": "100644",
+      "gitBlob": "d1aa68a0cb855ffdf74fd55c7bf9f4624165c013",
+      "sha256": "57756bbfdecdbca644506d4e2f22784b029614d4fccc12cc357e8105e2a0c4a2",
+      "bytes": 8700
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/fixtures/boss/list.json",
+      "targetPath": "engine/packages/task-runtime/tests/fixtures/boss/list.json",
+      "mode": "100644",
+      "gitBlob": "b32fe086fc60fe167ad48dc1219d00db37f77be2",
+      "sha256": "3f730b183f0a0f866cfdcfc7ffd1490bebdcde9d402e1b09b50fcae1fe6494b4",
+      "bytes": 9878
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/generic-runtime.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/generic-runtime.test.ts",
+      "mode": "100644",
+      "gitBlob": "42f965a74018cff52680cbbf15dabb0feb039ffb",
+      "sha256": "7bec046cfc4d029633742a89030117d09a4531e7ae3d257b47cf0857aa2c1edc",
+      "bytes": 8854
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/learning.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/learning.test.ts",
+      "mode": "100644",
+      "gitBlob": "0c4acc9491d34cb5a6548bce3b24718044b4fe11",
+      "sha256": "5f2a3f6bd47a7a3dffe028d47bf26c56d213d9a6bda54fa7fc3f48ac92fc11da",
+      "bytes": 9176
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/lifecycle.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/lifecycle.test.ts",
+      "mode": "100644",
+      "gitBlob": "a40fa43c97cf94abdd275231d92c10490e93d862",
+      "sha256": "ab3cded522444398f2f77bf185a5c694accff3ba7f1ef2993641d1db98f8bb90",
+      "bytes": 11874
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/procedures-fixtures.ts",
+      "targetPath": "engine/packages/task-runtime/tests/procedures-fixtures.ts",
+      "mode": "100644",
+      "gitBlob": "af171eecac2de04ae3cd4e2345bcc71adedfce01",
+      "sha256": "9789e0f8211c1001036c13a0a04fa390284bedd3e129e569afda736ae83a9de1",
+      "bytes": 16264
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/procedures.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/procedures.test.ts",
+      "mode": "100644",
+      "gitBlob": "aef23c494247dd1cb60eea3edc5246262b7e9f2c",
+      "sha256": "1724a0ea038565a3ddbbfc00067f9df2a89f7f9c282039873505244a6d008f9c",
+      "bytes": 16629
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/recovery.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/recovery.test.ts",
+      "mode": "100644",
+      "gitBlob": "dad27104d5d8400d380756147bd7e6b4b5d0bf6a",
+      "sha256": "64be130c76d7af71cae47edc4ed650c809ebe6e78dc4fa24412f5869727725c9",
+      "bytes": 28215
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/runner.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/runner.test.ts",
+      "mode": "100644",
+      "gitBlob": "c5c10434f9636a1b7ee83fb318229bd24e04bb36",
+      "sha256": "fb40727fc9024e353b941a7feed4f2c7b0084408d96f82b890085b8c00a4d594",
+      "bytes": 57821
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/second-screen.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/second-screen.test.ts",
+      "mode": "100644",
+      "gitBlob": "d4bf1faae4a5b2418f90a4b9a0494b603d71c4c3",
+      "sha256": "fb8f4989296fdca6351b869a08c2178e09fe21845b3703362b78b6ec985fba4e",
+      "bytes": 61703
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/session.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/session.test.ts",
+      "mode": "100644",
+      "gitBlob": "c0ef3caaec32fdea59461df3afba953c18f77e5b",
+      "sha256": "9d0b5fdee8cb120e86e19f4a67c36092f6ec0de19a41ebcfff1dba0a2f1e6979",
+      "bytes": 35530
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/store.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/store.test.ts",
+      "mode": "100644",
+      "gitBlob": "985b0b866d392c81bf50597acbe2b027be34524d",
+      "sha256": "10dbc12701e15aa553300b7448890ca5ffdd90afd5e798d471d4dcf0710cf91a",
+      "bytes": 34179
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/vision.test.ts",
+      "targetPath": "engine/packages/task-runtime/tests/vision.test.ts",
+      "mode": "100644",
+      "gitBlob": "b9dcd397dac38e5d45d6fd91e0e9bf82a8b00d18",
+      "sha256": "ce87872460e627e58ad92865552d683be73a4bb3236857f5cb2282241ff88db7",
+      "bytes": 20816
+    },
+    {
+      "sourcePath": "packages/task-runtime/tsconfig.json",
+      "targetPath": "engine/packages/task-runtime/tsconfig.json",
+      "mode": "100644",
+      "gitBlob": "cc9a756776e60f471153ba60ea9222f66f3d28f3",
+      "sha256": "4d639cc1cea39d86d6af61892f9b356b27f09f20590d966d4f7ff7d78cb254a0",
+      "bytes": 435
+    },
+    {
+      "sourcePath": "scripts/bundle-app.sh",
+      "targetPath": "engine/scripts/bundle-app.sh",
+      "mode": "100755",
+      "gitBlob": "a9e9c9adb8fa4853006d4537c8eeabe053b74463",
+      "sha256": "b87c96c3e177aed594c4d5acde2279e093018c76fa20ecd58d7f985a8ca954dc",
+      "bytes": 5823
+    },
+    {
+      "sourcePath": "scripts/fetch-android-tools.sh",
+      "targetPath": "engine/scripts/fetch-android-tools.sh",
+      "mode": "100755",
+      "gitBlob": "ec772d433656396debad63f352fdcca5986d2b28",
+      "sha256": "d078b77a512953a7579bfcb525122d16a964e65ac2c173ca8c2b33868863745e",
+      "bytes": 1980
+    },
+    {
+      "sourcePath": "scripts/fetch-node.sh",
+      "targetPath": "engine/scripts/fetch-node.sh",
+      "mode": "100755",
+      "gitBlob": "62eb5f36932da40542a940d42ddad86557939a04",
+      "sha256": "d2dca83b2b0c52c6542ae35b3faba2676702a4be055d591e661edada22731367",
+      "bytes": 1466
+    },
+    {
+      "sourcePath": "scripts/install-task-runtime.sh",
+      "targetPath": "engine/scripts/install-task-runtime.sh",
+      "mode": "100755",
+      "gitBlob": "029bcf3127cf8686ec311064d8d70dd76f797de4",
+      "sha256": "3177bf481932d5ba37e04a5eabd5e936a527b63ec567eace42c0894867271789",
+      "bytes": 2255
+    },
+    {
+      "sourcePath": "skills/2ndscreen/SKILL.md",
+      "targetPath": "engine/skills/2ndscreen/SKILL.md",
+      "mode": "100644",
+      "gitBlob": "96b607b1d173a5a020303208d10a75bfedf3742b",
+      "sha256": "8d81332196448641528e30216371281507b0b393f662d95b20d530e6896427ec",
+      "bytes": 11032
+    },
+    {
+      "sourcePath": "skills/boss-resumes/SKILL.md",
+      "targetPath": "engine/skills/boss-resumes/SKILL.md",
+      "mode": "100644",
+      "gitBlob": "13a895dadda76047143aa7fa7f8b491990e8c997",
+      "sha256": "026c711b3310d3db625f5c9b592282b11cfac9fbc5664b6cf3171c71b067cce4",
+      "bytes": 8292
+    },
+    {
+      "sourcePath": "skills/boss-resumes/procedures/open_resume.seed.json",
+      "targetPath": "engine/skills/boss-resumes/procedures/open_resume.seed.json",
+      "mode": "100644",
+      "gitBlob": "1e13bb66781db7cc5fd28ead4fca047dc143b6a8",
+      "sha256": "d0db0eb5cdcbc923ff917ccdb320eaa7b50f1f2232f4c20c7cf46d0fe641e4ec",
+      "bytes": 1773
+    },
+    {
+      "sourcePath": "skills/boss-resumes/procedures/return_to_list.seed.json",
+      "targetPath": "engine/skills/boss-resumes/procedures/return_to_list.seed.json",
+      "mode": "100644",
+      "gitBlob": "8bf1607aaa542c12661db265b8bb25a9be790271",
+      "sha256": "8f8bd3f556b1110ba9a54c019bd4c4559716d676708dca65d2902a0f45c67db5",
+      "bytes": 1028
+    },
+    {
+      "sourcePath": "skills/boss-resumes/profiles/macos/boss-macos-1440x900.json",
+      "targetPath": "engine/skills/boss-resumes/profiles/macos/boss-macos-1440x900.json",
+      "mode": "100644",
+      "gitBlob": "fa75ca8fa0343a617145f634b8346a56e9ddc544",
+      "sha256": "549add527e2fae6f4b63d121608d0958fe7a51f2539198fca6ba108f05155220",
+      "bytes": 130
+    },
+    {
+      "sourcePath": "skills/boss-resumes/task.json",
+      "targetPath": "engine/skills/boss-resumes/task.json",
+      "mode": "100644",
+      "gitBlob": "82cad90fe3fae4134b232bb71b82ecc85ed6cbca",
+      "sha256": "2f9477b92a3470bab9b4b38c48c491d0a6d51fd349124bc890a551f03384f7d7",
+      "bytes": 509
+    },
+    {
+      "sourcePath": "windows/Directory.Build.props",
+      "targetPath": "engine/windows/Directory.Build.props",
+      "mode": "100644",
+      "gitBlob": "8c39d93078a50459cbd238545e1741b53bdec2e4",
+      "sha256": "ade19a182cfd44c542ffa09c9807db1d49372fe8d42cd1791ba664fdd900a992",
+      "bytes": 470
+    },
+    {
+      "sourcePath": "windows/README.md",
+      "targetPath": "engine/windows/README.md",
+      "mode": "100644",
+      "gitBlob": "da2e3d2c8dbe10abe480fafa14bac009d55d0c91",
+      "sha256": "b983019cd8383c997d5fef7b963a983fa43097bc97ac44a8b16da5276a70a7bc",
+      "bytes": 8264
+    },
+    {
+      "sourcePath": "windows/SecondScreen.sln",
+      "targetPath": "engine/windows/SecondScreen.sln",
+      "mode": "100644",
+      "gitBlob": "7732b8a1d7e2e63e1ac6990cb6ee396b78305a1b",
+      "sha256": "a3af9368aae3b1d4c9e7bd647847878bb222acb1db074e4fed5cb2a4b061be79",
+      "bytes": 4353
+    },
+    {
+      "sourcePath": "windows/scripts/e2e.ps1",
+      "targetPath": "engine/windows/scripts/e2e.ps1",
+      "mode": "100644",
+      "gitBlob": "f137bc4eaca51c722847b99cc84163106de8a9c1",
+      "sha256": "625c36c700f82f4498732ae87ee05242388046e763a1a5fcf2948a2b4f30c264",
+      "bytes": 28444
+    },
+    {
+      "sourcePath": "windows/scripts/install-driver.ps1",
+      "targetPath": "engine/windows/scripts/install-driver.ps1",
+      "mode": "100644",
+      "gitBlob": "3f801150a4d232de0cec7f379450451035fb2301",
+      "sha256": "59026c51f659a7d7f19b0e30c4be16949d073d6ad267b91d1e08f3e5ae3f9624",
+      "bytes": 4586
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/AppLauncher.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/AppLauncher.cs",
+      "mode": "100644",
+      "gitBlob": "05475b9d6cd8bd4aecaa790494ecf050414e23f6",
+      "sha256": "068fffd57e60db9383b577bce957cfbb5bf91ac8a639c3a4d44ebaba65a48177",
+      "bytes": 8471
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/ControlServer.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/ControlServer.cs",
+      "mode": "100644",
+      "gitBlob": "2cca0a246a916ee5946e7a52bbbc6f88b8e02563",
+      "sha256": "de11b1e72904421820effce8f03402df4273c0d13240760439e5552e09414442",
+      "bytes": 2673
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/DisplayScale.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/DisplayScale.cs",
+      "mode": "100644",
+      "gitBlob": "e472f37ba7ee7eb9be46f55ea35f3c2b3bfc7c13",
+      "sha256": "0fb33fc81fd5c9671f8ff0bdacf660301971b937d448bd04828e370044426107",
+      "bytes": 2432
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/PreviewForm.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/PreviewForm.cs",
+      "mode": "100644",
+      "gitBlob": "f6fcd3a3eaad24bf10ce1d7c9ab8d1a89b3cda57",
+      "sha256": "3fe61d893f5a048a3695f99b34212871af27e4a3dae4967bfbbfd8019db93faf",
+      "bytes": 4538
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/Program.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/Program.cs",
+      "mode": "100644",
+      "gitBlob": "8db373e822bb22656e84947fcfa7f84e05348a7a",
+      "sha256": "89b6d8e85a1e998e1e12532d2a87aa3fc55c19e6b61ca572caa093f259c44ef7",
+      "bytes": 1632
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/ScreenCapture.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/ScreenCapture.cs",
+      "mode": "100644",
+      "gitBlob": "7a71753f27772ca3ee68dea873283da85242c11e",
+      "sha256": "31dc295bcd6efc64e81cc5f13500cc554c406b91d1b7561d06f106500a479bd1",
+      "bytes": 3579
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/Screens.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/Screens.cs",
+      "mode": "100644",
+      "gitBlob": "f0889b26b8a6e97b181de321127b4227a5186ede",
+      "sha256": "838826f07992626f534df020d17d4bd32058d2f8c1bddd625f76453a51cd81d5",
+      "bytes": 17795
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/SecondScreen.App.csproj",
+      "targetPath": "engine/windows/src/SecondScreen.App/SecondScreen.App.csproj",
+      "mode": "100644",
+      "gitBlob": "b38d4bbeb96405fa4c68e14afbcf253098f1ba8c",
+      "sha256": "5704fd8287a7f0fc89b7dfeecc152fd799025904bf5e3466b0f8141083d72cf5",
+      "bytes": 573
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/TrayApp.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/TrayApp.cs",
+      "mode": "100644",
+      "gitBlob": "792786ac0be99f710211c2c50254f5a9c4b20e29",
+      "sha256": "4401d0e48e38691b0eb55c23b18556ad3ddeb66c1ed3010245b6cf6af07c48fa",
+      "bytes": 22967
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/VirtualDesktops.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/VirtualDesktops.cs",
+      "mode": "100644",
+      "gitBlob": "0baf4da8858fadb03c32f011ba1d95b23bd5091d",
+      "sha256": "47b7f5f525d1031c27093f39fdeeaf94ceeb96c41a73c1c00abdae00c8731e64",
+      "bytes": 8470
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/VirtualDisplayDriver.cs",
+      "targetPath": "engine/windows/src/SecondScreen.App/VirtualDisplayDriver.cs",
+      "mode": "100644",
+      "gitBlob": "4d731cb86c28ee52e84389b61e9d80e5b8299056",
+      "sha256": "7bd6e23fdadc54c5c97e03a9d3d18122544451a8eee3c449290f0bd08f2425c0",
+      "bytes": 7068
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/AgentCommand.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/AgentCommand.cs",
+      "mode": "100644",
+      "gitBlob": "6e91f6b28786577683ae98736c96977ad479dfef",
+      "sha256": "e39cf92d06a19e1585eee0712a69e627638f09ec0f90e51690115bffa9ed5c53",
+      "bytes": 6803
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Automation.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/Automation.cs",
+      "mode": "100644",
+      "gitBlob": "2345869740ac354d8d77f375e296c8cae680dd30",
+      "sha256": "e82c3b757465255e87f13742b75875912ffe34134755391e6492ab3fa9d56c0e",
+      "bytes": 13248
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Doctor.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/Doctor.cs",
+      "mode": "100644",
+      "gitBlob": "b35a8010124f8c6367b7b7be137c9e83fbb8fd6c",
+      "sha256": "337caf6925584c43f9bec1367abfbc8e5a793d5b0cdbfbc93be4adfc4dc9b490",
+      "bytes": 2786
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/DriverCommands.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/DriverCommands.cs",
+      "mode": "100644",
+      "gitBlob": "565f0bb961d4907ebe52d7897180c9fd93074fae",
+      "sha256": "e54eba7df3fa92daefdede702d2968819f60a8cd5fc61c2f93cdbd64af929269",
+      "bytes": 22489
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Input.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/Input.cs",
+      "mode": "100644",
+      "gitBlob": "285f6e73eddcc19f2d7b9ea6fed1e25f36006bad",
+      "sha256": "a783942f0de9889081f4e30a7ad9cb3ede9cced2c3d56e8313ec3186b2014246",
+      "bytes": 18526
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Mcp.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/Mcp.cs",
+      "mode": "100644",
+      "gitBlob": "08e16f3e5aa391bef77d6e7886b461506a19a034",
+      "sha256": "6adbfce3280ffb59e0c01a10b3bc86f43727f8c23eab699f1a7009d709356f22",
+      "bytes": 20062
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Program.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/Program.cs",
+      "mode": "100644",
+      "gitBlob": "2035bdcf5589416302ff1aeddb9a16df673fbe22",
+      "sha256": "e737846e39f18d26d6ef769ddbe5f736af0b38497b607810cdbfdaf9e70a5c92",
+      "bytes": 9640
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/SecondScreen.Cli.csproj",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/SecondScreen.Cli.csproj",
+      "mode": "100644",
+      "gitBlob": "135b7365f9bc0b06be206e07d91cc7433249cc3d",
+      "sha256": "f1324cfd7a8064ddb4353ea33947145cc7c3ae173365b2ed0d58707d78f8c3ab",
+      "bytes": 894
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Win32.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/Win32.cs",
+      "mode": "100644",
+      "gitBlob": "ef9faf2b6d320098c9c465f5d12cd566f69430e4",
+      "sha256": "b48dfd4d400607e1009cdf247ac7ff427d4353f56832f17e44f7ae888432047c",
+      "bytes": 5718
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/WindowCapture.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Cli/WindowCapture.cs",
+      "mode": "100644",
+      "gitBlob": "62d3796a9be3f6151f0f1bff2e5df653a5be7567",
+      "sha256": "0150503a4ea0f6964cb042a3113309f0987c064c42fdf92f52d1c4b8a0f8796a",
+      "bytes": 1432
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/ControlPipe.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/ControlPipe.cs",
+      "mode": "100644",
+      "gitBlob": "d1bbbecc0fe92547a471127598daa48f0aaae5b5",
+      "sha256": "1ccfb24cf8deb9939c3896d1be1d0548623a7b9843793f3e1ddaf7cb9275e3db",
+      "bytes": 2145
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Desktop.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Desktop.cs",
+      "mode": "100644",
+      "gitBlob": "da5cd030e28358774db71aefeee5f2c2a48f07dd",
+      "sha256": "ba39278b33e88b44f4cadf01a13f808ab3c794377513a531ef7720b22f67243f",
+      "bytes": 10049
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/InputLogic.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/InputLogic.cs",
+      "mode": "100644",
+      "gitBlob": "ed0f0745409eb7c857173f87f525b84f31438f90",
+      "sha256": "e3ecd0e7c9f7d8395d6526cd16e45dfe189ed60538bc947de94ca4c4a97fb5a2",
+      "bytes": 4793
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Logic.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Logic.cs",
+      "mode": "100644",
+      "gitBlob": "222896cc6ddde32e415003e60b19e1b19781d479",
+      "sha256": "0e3761230df8cf7f0a7e71e948e2eeeb2b96f37b58e0f517e0b18634d882eb52",
+      "bytes": 8095
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Native.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Native.cs",
+      "mode": "100644",
+      "gitBlob": "1b1a29cdcef66ea82530f54f0933ef4f9cfce254",
+      "sha256": "4df8e20eed4ade6f287a238c8499944b680f56fb0df831ba31d3d1fc5df09b99",
+      "bytes": 6765
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Protocol.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Protocol.cs",
+      "mode": "100644",
+      "gitBlob": "38655db2fc95e3c4da042e9c54d0ec32a663c0e5",
+      "sha256": "2576af0e77d8d3bb4e0c0a7c390265d069b1686bcdea525e28648550b129435f",
+      "bytes": 6087
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/SecondScreen.Core.csproj",
+      "targetPath": "engine/windows/src/SecondScreen.Core/SecondScreen.Core.csproj",
+      "mode": "100644",
+      "gitBlob": "e3fd0fb133745bb8a9e08d869d2037a3dc7e2a44",
+      "sha256": "5d76eb636d39b11a094808798e813de50dfb1ee939ff76b61c4f2274fc8d8c45",
+      "bytes": 376
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/ActionParser.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Tars/ActionParser.cs",
+      "mode": "100644",
+      "gitBlob": "d5b4bd30d3d9974755702738d49ae3fdbe112aae",
+      "sha256": "d782e4d508c6a94ed750747a9d91db9a5616281955035d65ca9a739ea8b39298",
+      "bytes": 6308
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Agent.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Tars/Agent.cs",
+      "mode": "100644",
+      "gitBlob": "ae99f467c16539825acda66e441e4fb203b6b727",
+      "sha256": "6d3ed4ef480f7544fcca399b69708fdaa9102a1ba58652b7c8d0caed6717d751",
+      "bytes": 15461
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Learning.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Tars/Learning.cs",
+      "mode": "100644",
+      "gitBlob": "6e085a381889079d7764a73530b933cdc15ca301",
+      "sha256": "40e738e265cd1220392465fef60ab23c4d0aed9ac54d96a32d376588e02264f3",
+      "bytes": 18097
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Model.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Tars/Model.cs",
+      "mode": "100644",
+      "gitBlob": "da84d2260eb5da4a4ee93c0e1f26c527787b1895",
+      "sha256": "b915325f59e23dc84adc4f9a8dfc71f806b5b214829ce39e28076950c87929c7",
+      "bytes": 6023
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Planner.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Tars/Planner.cs",
+      "mode": "100644",
+      "gitBlob": "5c135e20ddd0d416e74a85b56ef9991e1a8bd1a4",
+      "sha256": "0a61a1068b0779350fe862f9f6eed15130ac55c4a82e0b73122daf94aaa6e4ce",
+      "bytes": 9864
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Procedure.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Tars/Procedure.cs",
+      "mode": "100644",
+      "gitBlob": "28838626815a1f0bb166e47f2349bd92252278db",
+      "sha256": "392178626609fa72e7b6753a063918454968c529140e3f81955861a6a77c40e5",
+      "bytes": 14379
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Topology.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/Topology.cs",
+      "mode": "100644",
+      "gitBlob": "bd15f73394e975fbe62f3127f3fedd0f1f3af66c",
+      "sha256": "a9193a7fc8e01072801b5c22acfabf0b9e94ad98efee656fa8a4ac6ba6226cb9",
+      "bytes": 11646
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/VddSettings.cs",
+      "targetPath": "engine/windows/src/SecondScreen.Core/VddSettings.cs",
+      "mode": "100644",
+      "gitBlob": "c4bfbfbe2dd9aabec1fad9261c2e424f981f6b73",
+      "sha256": "e94f40155ab8d24ad7151cf8acf1e10bf722404507a3788926eafea94f31f1fd",
+      "bytes": 3775
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/CoreTests.cs",
+      "targetPath": "engine/windows/tests/SecondScreen.Tests/CoreTests.cs",
+      "mode": "100644",
+      "gitBlob": "a5c046d4799b924cecd7eabb6c5017e9d43cb6e6",
+      "sha256": "a31cd5c68cbb7dd1cda7d8f5f9dab7d6a6b592f5dc43650c04732b80fef2356c",
+      "bytes": 10362
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/Fixtures/mac-error.json",
+      "targetPath": "engine/windows/tests/SecondScreen.Tests/Fixtures/mac-error.json",
+      "mode": "100644",
+      "gitBlob": "908a6fea1773c5e336c4fe2d7697ce13b04b2899",
+      "sha256": "cbbdd31d3ec218c186bf8568e96e8a0302ec2aca6a50640cbd375c8cf3487663",
+      "bytes": 59
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/Fixtures/mac-screen-create.json",
+      "targetPath": "engine/windows/tests/SecondScreen.Tests/Fixtures/mac-screen-create.json",
+      "mode": "100644",
+      "gitBlob": "5c0af8811a39b85e4d42fefa001be7d01d720d4d",
+      "sha256": "433b0627c7b8efcfa73aaecb0d8c74b3ff342dc77c325d63f2d537710b7ee792",
+      "bytes": 314
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/Fixtures/mac-screen-list.json",
+      "targetPath": "engine/windows/tests/SecondScreen.Tests/Fixtures/mac-screen-list.json",
+      "mode": "100644",
+      "gitBlob": "b366cce83fddb613f9c2b72df892bafb08d2d346",
+      "sha256": "4e67f9009f82360269fccd6a3720058815fbd5273799f4819c72756ae2bc424e",
+      "bytes": 627
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/LearningTests.cs",
+      "targetPath": "engine/windows/tests/SecondScreen.Tests/LearningTests.cs",
+      "mode": "100644",
+      "gitBlob": "b8c714c5d174d44c84e9471f63663bd9a92d511c",
+      "sha256": "11f954b50fee814b2bbbd442adcf35040ca09cec5469d8d92de85c6af1e63f58",
+      "bytes": 18572
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/SecondScreen.Tests.csproj",
+      "targetPath": "engine/windows/tests/SecondScreen.Tests/SecondScreen.Tests.csproj",
+      "mode": "100644",
+      "gitBlob": "ba35a1198744c1b7e67a32d1a93464498e8f0da1",
+      "sha256": "00d3b3acf8e8ece2c7bfffea03a4ab593b88d661ff385ead599c53d56c208ef1",
+      "bytes": 622
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/TarsTests.cs",
+      "targetPath": "engine/windows/tests/SecondScreen.Tests/TarsTests.cs",
+      "mode": "100644",
+      "gitBlob": "71f639ecb093fd0a75f7ddd45cd00329624b188f",
+      "sha256": "7719087bf31507e3d6b7596e3b64b62b3d8a7a154212bc47fd61a89317f800dc",
+      "bytes": 10858
+    },
+    {
+      "sourcePath": "windows/tests/TestTarget/Program.cs",
+      "targetPath": "engine/windows/tests/TestTarget/Program.cs",
+      "mode": "100644",
+      "gitBlob": "a2b2033e555f0209bb3bad395d15b3d04be7951a",
+      "sha256": "97eba09af21851eb7523a121a6a2c2433971e613c179e94fa9a509f987db6f4a",
+      "bytes": 2312
+    },
+    {
+      "sourcePath": "windows/tests/TestTarget/TestTarget.csproj",
+      "targetPath": "engine/windows/tests/TestTarget/TestTarget.csproj",
+      "mode": "100644",
+      "gitBlob": "6ae19befc1904c258c1933decfafbb458df66d5b",
+      "sha256": "cd4be3f18ecc651c03f542981dcaf42a1fb6cc1c5b2c308b217c9355d07cee36",
+      "bytes": 482
+    },
+    {
+      "sourcePath": "windows/tests/TestTargetWpf/Program.cs",
+      "targetPath": "engine/windows/tests/TestTargetWpf/Program.cs",
+      "mode": "100644",
+      "gitBlob": "28a3a5df6ed7c419f3ee94a2fd0ab76481626e43",
+      "sha256": "c41dbad1f2ca83626808a65878ba8e5dbed66170496f1dc5e26be9116713da2d",
+      "bytes": 2033
+    },
+    {
+      "sourcePath": "windows/tests/TestTargetWpf/TestTargetWpf.csproj",
+      "targetPath": "engine/windows/tests/TestTargetWpf/TestTargetWpf.csproj",
+      "mode": "100644",
+      "gitBlob": "e155cc43c58de408b60022881c73edd58c3e7033",
+      "sha256": "30f997d50e9aa4517a427bb8a24ab112142e88c58b69862f2e058ed5ea269038",
+      "bytes": 418
+    }
+  ]
+}

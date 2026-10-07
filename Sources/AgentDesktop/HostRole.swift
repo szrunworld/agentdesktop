@@ -5,11 +5,8 @@ import SecondScreenCore
 /// started for testing a build. The role decides the control endpoint, the
 /// display serial numbers and what the app shows.
 ///
-/// The product endpoint is Agent Desktop's own, apart from 2ndscreen.app's
-/// (`ControlProtocol.primarySocketURL`), so the engine's development host
-/// can run beside the product on one Mac. The `2ndscreen` command reaches
-/// the product through `SECONDSCREEN_SOCKET`, which the bundled
-/// `agentdesktop` wrapper sets (scripts/bundle-app.sh).
+/// Product and isolated test instances have explicit endpoints. The CLI uses
+/// the product endpoint by default; tests set AGENTDESKTOP_SOCKET.
 ///
 /// Checking the endpoint before starting is not atomic ownership: two
 /// product hosts started at once could both pass. Real ownership, with a
@@ -22,7 +19,7 @@ enum HostRole {
     case sideInstance(socket: URL)
 
     static var current: HostRole {
-        if let path = ProcessInfo.processInfo.environment["SECONDSCREEN_SOCKET"], !path.isEmpty {
+        if let path = ProcessInfo.processInfo.environment["AGENTDESKTOP_SOCKET"], !path.isEmpty {
             return .sideInstance(socket: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
         }
         return .product
@@ -50,9 +47,7 @@ enum HostRole {
         return false
     }
 
-    /// Serial numbers keep this host's displays apart from 2ndscreen.app's
-    /// (primary 1, agents from 100, side instances from 900) and vdisplay's
-    /// (2): macOS remembers each serial's arrangement.
+    /// Product and test instances use distinct display serial ranges.
     var primaryDisplaySerial: UInt32 { 5 }
     var agentSerialBase: UInt32 { isSideInstance ? 950 : 500 }
 }

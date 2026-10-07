@@ -1,13 +1,7 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// Agent Desktop: the product app. It links the 2ndscreen engine as a
-// versioned dependency (docs/boundaries.md) and never carries engine code.
-//
-// The dependency is pinned exactly; Package.resolved records the commit.
-// Moving to a new engine release means a new tag upstream, then a change
-// here, never an edit inside .build/checkouts or an editable override.
-let engineVersion: Version = "0.2.0"
+// The product and native core are maintained in this repository.
 
 let package = Package(
     name: "AgentDesktop",
@@ -16,15 +10,15 @@ let package = Package(
         .executable(name: "AgentDesktop", targets: ["AgentDesktop"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/szrunworld/2ndscreen.git", exact: engineVersion),
+        .package(path: "engine"),
     ],
     targets: [
         // Menu bar host; scripts/bundle-app.sh wraps it in "Agent Desktop.app".
         .executableTarget(
             name: "AgentDesktop",
             dependencies: [
-                .product(name: "SecondScreenCore", package: "2ndscreen"),
-                .product(name: "SecondScreenRuntime", package: "2ndscreen"),
+                .product(name: "SecondScreenCore", package: "engine"),
+                .product(name: "SecondScreenRuntime", package: "engine"),
             ]
         ),
         .testTarget(
