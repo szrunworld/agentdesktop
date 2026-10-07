@@ -81,7 +81,10 @@ public struct AiApplicationHandlers: Sendable {
             }
             guard from < to else { throw ContractError(.validationError, "from must be before to") }
             let rows = try await s.usageRows(callerScope: callerScope)
-            return UsageSummaryBuilder.summarize(rows: rows, from: from, to: to, connectionId: p["connectionId"]?.stringValue)
+            let connection = p["connectionId"]?.stringValue
+            let actions = try await s.actionOutcomeCounts(callerScope: callerScope, from: from, to: to, connectionId: connection)
+            return UsageSummaryBuilder.summarize(rows: rows, from: from, to: to, connectionId: connection,
+                                                 confirmedActions: actions.confirmed, unknownActionOutcomes: actions.unknown)
         default:
             throw ContractError(.unsupportedCommand, "not an AI command")
         }
