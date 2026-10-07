@@ -15,6 +15,8 @@ let package = Package(
     products: [
         .executable(name: "AgentDesktop", targets: ["AgentDesktop"]),
         .library(name: "AgentDesktopContracts", targets: ["AgentDesktopContracts"]),
+        .library(name: "AgentDesktopAI", targets: ["AgentDesktopAI"]),
+        .library(name: "AgentDesktopGUI", targets: ["AgentDesktopGUI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/szrunworld/2ndscreen.git", exact: engineVersion),
@@ -48,6 +50,25 @@ let package = Package(
         .testTarget(
             name: "AgentDesktopContractsTests",
             dependencies: ["AgentDesktopContracts"]
+        ),
+        // Dependency direction is fixed: GUI may import AI and Contracts,
+        // AI only Contracts, and neither imports a Runtime or engine target.
+        .target(
+            name: "AgentDesktopAI",
+            dependencies: ["AgentDesktopContracts"],
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+        .testTarget(
+            name: "AgentDesktopAITests",
+            dependencies: ["AgentDesktopAI", "AgentDesktopContracts"]
+        ),
+        .target(
+            name: "AgentDesktopGUI",
+            dependencies: ["AgentDesktopContracts", "AgentDesktopAI"]
+        ),
+        .testTarget(
+            name: "AgentDesktopGUITests",
+            dependencies: ["AgentDesktopGUI", "AgentDesktopAI", "AgentDesktopContracts"]
         ),
     ]
 )
