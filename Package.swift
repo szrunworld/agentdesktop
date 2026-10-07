@@ -132,5 +132,16 @@ let package = Package(
             dependencies: ["AgentDesktopService", "AgentDesktopGUI", "AgentDesktopAI",
                            "AgentDesktopContracts", "AgentDesktopCLI"]
         ),
+        // AI/GUI pages W01–W08 (spec §12): SwiftUI over a contract client;
+        // knows the service only through contract v1.
+        .target(
+            name: "AgentDesktopAIUI",
+            dependencies: ["AgentDesktopContracts"]
+        ),
+        .testTarget(
+            name: "AgentDesktopAIUITests",
+            dependencies: ["AgentDesktopAIUI", "AgentDesktopContracts", "AgentDesktopService",
+                           "AgentDesktopAI", "AgentDesktopGUI"]
+        ),
     ]
 )
