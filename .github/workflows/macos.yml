@@ -1,0 +1,36 @@
+name: macOS
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Dependencies resolve exactly as pinned
+        run: |
+          swift package resolve
+          git diff --exit-code Package.resolved
+          test ! -d Packages
+      - name: Build
+        run: swift build -c release
+      - name: Unit tests
+        run: swift test
+      - name: Bundle the app
+        run: ./scripts/bundle-app.sh
+      - name: Bundle contents
+        run: |
+          find "build/Agent Desktop.app" -type f | sort
+          cat "build/Agent Desktop.app/Contents/Resources/build.json"
+          codesign --verify --strict "build/Agent Desktop.app"
+      - name: Keep the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Agent-Desktop-app
+          path: build/Agent Desktop.app
+          if-no-files-found: error
