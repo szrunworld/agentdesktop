@@ -66,7 +66,17 @@ public protocol GuiAuditPort: Sendable {
     func recordInference(_ receipt: GuiInferenceReceipt) async throws
     /// Returns the actionId the executor must use.
     func reserveAction(_ proposal: GuiProposal) async throws -> String
+    /// The same, recording the target the input is aimed at, so an input
+    /// whose verdict never arrives (a crash) can still be reported as
+    /// unknown against its target after a restart (spec §07.4).
+    func reserveAction(_ proposal: GuiProposal, target: TargetIdentity) async throws -> String
     func recordAction(_ receipt: GuiActionReceipt) async throws
+}
+
+extension GuiAuditPort {
+    public func reserveAction(_ proposal: GuiProposal, target: TargetIdentity) async throws -> String {
+        try await reserveAction(proposal)
+    }
 }
 
 /// A run as stored: who owns it, its binding, its latest snapshot.

@@ -89,7 +89,7 @@ public enum CapabilityLayer: String, Sendable, CaseIterable {
 /// idempotent mutations and the credential create/rotate outbox (§04,
 /// §05.4, §10). Secrets live only in `CredentialStore`.
 public actor ConfigStore {
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     let db: SQLiteDatabase
     let credentials: CredentialStore
@@ -103,6 +103,8 @@ public actor ConfigStore {
     /// Budget scopes whose last attempt end could not be written.
     var blockedBudgetScopes: Set<String> = []
     var ledgerFaults: Set<LedgerFault> = []
+    /// Injected run-store write failures (tests only).
+    var runStoreFaults: Set<RunStoreFault> = []
 
     public init(path: String, credentials: CredentialStore, digestKey: Data,
                 clock: ConfigClock = SystemConfigClock(), options: ConfigOptions = ConfigOptions(),
@@ -157,6 +159,7 @@ public actor ConfigStore {
         }
         if current < 1 { try migrateV1(db, now: now, defaultScope: defaultScope) }
         if current < 2 { try migrateV2(db, now: now) }
+        if current < 3 { try migrateV3(db, now: now) }
     }
 
     private static func migrateV1(_ db: SQLiteDatabase, now: String, defaultScope: String) throws {
@@ -246,6 +249,53 @@ public actor ConfigStore {
               result TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)
             """)
             try db.run("INSERT INTO schema_migrations VALUES(2, ?)", [.text(now)])
+        }
+    }
+
+    /// GUI runs, their events, inference and action receipts, and the
+    /// runtime epoch (spec §05.3, §07.4, §09.3, §10.3).
+    private static func migrateV3(_ db: SQLiteDatabase, now: String) throws {
+        try db.transaction {
+            try db.exec("""
+            CREATE TABLE gui_runs(run_id TEXT PRIMARY KEY, caller_scope TEXT NOT NULL,
+              idempotency_key TEXT NOT NULL, digest TEXT NOT NULL,
+              binding TEXT NOT NULL, start_result TEXT NOT NULL, snapshot TEXT NOT NULL,
+              state TEXT NOT NULL, last_sequence INTEGER NOT NULL DEFAULT 0, kept_from INTEGER,
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+              UNIQUE(caller_scope, idempotency_key))
+            """)
+            try db.exec("CREATE INDEX gui_runs_state ON gui_runs(state)")
+            try db.exec("""
+            CREATE TABLE gui_run_refs(run_id TEXT NOT NULL REFERENCES gui_runs(run_id),
+              kind TEXT NOT NULL, resource_id TEXT NOT NULL, PRIMARY KEY(run_id, kind, resource_id))
+            """)
+            try db.exec("CREATE INDEX gui_run_refs_resource ON gui_run_refs(kind, resource_id)")
+            try db.exec("""
+            CREATE TABLE gui_events(run_id TEXT NOT NULL REFERENCES gui_runs(run_id),
+              sequence INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(run_id, sequence))
+            """)
+            try db.exec("""
+            CREATE TABLE gui_inference_steps(run_id TEXT NOT NULL REFERENCES gui_runs(run_id),
+              step_index INTEGER NOT NULL, snapshot_id TEXT NOT NULL, reserved_at TEXT NOT NULL)
+            """)
+            try db.exec("""
+            CREATE TABLE gui_inference_receipts(attempt_id TEXT PRIMARY KEY,
+              run_id TEXT NOT NULL REFERENCES gui_runs(run_id), step_index INTEGER NOT NULL,
+              body TEXT NOT NULL, recorded_at TEXT NOT NULL)
+            """)
+            try db.exec("""
+            CREATE TABLE action_receipts(action_id TEXT PRIMARY KEY,
+              run_id TEXT NOT NULL REFERENCES gui_runs(run_id), proposal_id TEXT NOT NULL,
+              desktop_id TEXT NOT NULL, snapshot_id TEXT NOT NULL, binding_epoch INTEGER NOT NULL,
+              run_generation INTEGER NOT NULL, action_type TEXT NOT NULL,
+              state TEXT NOT NULL CHECK(state IN ('pending','not_sent','submitted','confirmed','unknown','rejected')),
+              target TEXT, body TEXT, runtime_epoch INTEGER NOT NULL, reconciled INTEGER NOT NULL DEFAULT 0,
+              reserved_at TEXT NOT NULL, updated_at TEXT NOT NULL)
+            """)
+            try db.exec("CREATE INDEX action_receipts_run ON action_receipts(run_id, state)")
+            try db.exec("CREATE TABLE runtime_state(key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
+            try db.run("INSERT INTO runtime_state VALUES('epoch', 1)")
+            try db.run("INSERT INTO schema_migrations VALUES(3, ?)", [.text(now)])
         }
     }
 
@@ -648,7 +698,7 @@ public actor ConfigStore {
 
     public func delete(_ kind: ConfigResourceKind, _ id: String, expectedRevision: Int) throws -> JSONValue {
         let row = try requireCurrent(kind, id, expectedRevision: expectedRevision)
-        if try isReferenced(kind, id) || activeRunCheck(kind, id) {
+        if try isReferenced(kind, id) || activeRunCheck(kind, id) || referencedByActiveRun(kind, id) {
             throw ContractError(.resourceInUse, "\(kind.rawValue) is still referenced; change those references first")
         }
         let t = now
