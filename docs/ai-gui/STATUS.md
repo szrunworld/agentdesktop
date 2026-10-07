@@ -17,7 +17,9 @@
 | T08 四层能力测试 | PARTIAL | 分支 ai-wiring，`AgentDesktopGUI/CapabilityTests`：ai.tests.start → operation，network（无凭据 GET base）→ auth_model → image_input（双色图）→ gui_contract（单按钮图，codec 解出点击且落在按钮内）；前置层失败后续 skipped；每 operation ≤3 次模型调用、无隐藏重试、单一 120 s deadline；证据按模型修订写入（gui_contract 带 adapter/prompt/parser 版本）；失败保留已完成层；取消不进下一层；服务不持有任何观察/输入端口。尚缺：W04 页面（T09）、真实模型上的测试素材效果 |
 | 组装（§03.1 composition） | PARTIAL | AgentDesktopService：一个配置库、一个共享模型服务（能力测试与 GUI 运行共用）、运行服务，为调用方产出全部 32 个处理器；RpcSocketServer：0700 目录、0600 socket、对端 uid 校验、一连接一请求、空探测连接不回写、早退客户端不致宿主 SIGPIPE。真实执行后端未注入时 gui.runs.start 为 CAPABILITY_MISMATCH。尚缺：接入引擎 ControlServer 的双解码（T01/T02 由单仓迁移线完成）、SQLite 运行仓库（并行分支 gui-run-store） |
 | T13 Windows 对等 | PARTIAL | `windows/`：C# 合同层（net10.0，global.json 锁 10.0.401）与 Swift 语义对等——严格 JSON、Schema 子集校验器（直接嵌入 contracts/ai-gui/v1）、信封与 1 MiB 分帧、错误码、32 操作目录、路由器结果自检；87 个 xUnit 测试含规格示例与跨平台夹具；windows-latest CI。不构成 G6：Windows 原生运行时、DPAPI、NamedPipe、AI/GUI 服务未做 |
-| T09–T10、T12、T14 | NOT_STARTED | |
+| T09 设置页 W01–W04 | PARTIAL | `AgentDesktopAIUI`（只依赖 Contracts）：ContractClient（进程内 / Unix socket，requestId 关联与结果合同校验）；W01 连接列表（两种空状态、刷新失败保留旧列表与数据时间、停用/删除 CAS）、W02 添加/编辑（本地端点规则且错误不引用 URL、密钥只在提交瞬间读出并清空、metadata 保存不动凭据、冲突保留草稿并按「只保留自己改过的字段」合并、轮换单独提交）、W03 GUI 配置与模型配置子面板（上限只能调低、生产不列 fixture 适配器、默认指针独立 d 版本 CAS）、W04 四层测试（逐层状态、未执行≠失败、取消先显示取消中、实际桌面输入 0、费用提示）。尚缺：未挂进 App 主窗口；原生 UI 自动化与录屏；900px/读屏的人工验收 |
+| T10 诊断页 W05–W08 | PARTIAL | W05 启动（仅验证不建 run、双击与重试复用同一键、fixture 配置不可选、完成条件固定为 element_text_equals）、W06 运行详情（阶段、尝试与已确认动作分列、验证证据、固定版本摘要、events 按 afterSequence 去重且游标过期重读完整状态、停止受理≠已停止）、W07 需要处理（unknown 与取消中两个分支、只读 get/events、无重试/强制成功/resume、动作前旧证据标注）、W08 用量（尝试与动作分列、未知不显示为 0、明确 0 单独标注、金额标估算与「总额未知」）。AIGUIRootView 侧栏切换八页。尚缺：同上；服务端 ai.usage.summary 的 confirmedActions/unknownActionOutcomes 目前恒为 0（未读动作回执，AI 模块缺口） |
+| T12、T14 | NOT_STARTED | |
 
 ## 契约层测试覆盖（swift test --filter AgentDesktopContractsTests）
 
@@ -133,3 +135,18 @@
 | AUDIT_UNAVAILABLE | pending 行写失败 → reserveAction 抛 AUDIT_UNAVAILABLE、无行；整条 run 失败且执行器 0 次（变异检查：去掉该判断后两项测试失败） | |
 | CFG-005（活跃 run） | 活跃 run 绑定的 GUI profile 删除 RESOURCE_IN_USE，run 取消终结后可删；引用来自 binding 的主候选与 fallback | |
 | 错误响应合规（两端） | 拒绝请求：解析失败 `details.reasonCode`、Schema 违例 `details.fieldErrors[{path,code}]`、未知版本不带 details；所有错误出门前投影到合同允许的 details 键（内部 httpStatus 等丢弃，`field` 转 fieldErrors，消息截到 512），仍不合规则去掉 details；Swift 与 C# 读同一份跨平台夹具（28 条信封 + 6 条分帧）得出相同结论 | |
+
+## 页面层测试覆盖（swift test --filter AgentDesktopAIUITests）
+
+视图模型经进程内 ContractClient 驱动真实组装服务；模型为脚本化上游，桌面为中立表单替身。不含原生 UI 自动化、真实窗口截图或真实模型。
+
+| 用例 | 覆盖的部分 | 未覆盖 |
+| --- | --- | --- |
+| UI-001 | 空库与无匹配两种空状态、刷新失败保留旧列表与数据时间（不显示为空库）、停用后 revision 与状态、过期 revision 为 CONFIG_CONFLICT 且不伪更新、视图模型中无密钥 | 五状态截图、键盘导航录屏、CLI 改动后刷新的人工核对 |
+| UI-002 | 5 类非法 URL 本地拒绝且不发请求、错误文案不引用 URL、密钥不回填、metadata 保存凭据身份不变、两窗口冲突显示 r1→r2 与变化字段并保留草稿、合并后保存成功、轮换单独提交并清空输入、未保存 Base URL 时拒绝获取模型 | 真实 Keychain |
+| UI-003 | 模型配置子面板、GUI 配置、默认指针 CAS（旧 d 冲突）、上限超出不发请求、生产不列 fixture 适配器 | 运行中 run 的绑定展示（见 UI-005） |
+| UI-004 | 四层全部通过且桌面输入 0、image 失败则 GUI 未执行、取消先 cancelling 后 cancelled 且未完成层不标通过 | 视觉录屏 |
+| UI-005 | 仅验证无 run 无输入、并发双击只发一次、重试复用键得同一 runId、之后改默认不影响已绑定 run、只提交一次表单 | Desktop A/B 双桌面（无原生后端） |
+| UI-006 | W06 成功与验证证据、事件去重有序、停止受理显示「停止请求已收到」而非「已停止」、核对后才显示已停止且停止后无新输入；W07 unknown 分支文案、旧证据标注、读证据不重发、无创建新运行入口、停止后为取消中 | 晚到模型响应的页面录屏 |
+| USG-004 | 尝试与动作分列、缺用量显示「未知 / 未报告」、明确 0 显示「0 / 明确报告」、费用标估算且不完整时「总额未知」、非账单提示 | 按 run/修订钻取、诊断导出 |
+| 其他 | Unix socket 客户端往返与不可达映射；九个视图在 NSHostingView 中 1440×1000 布局一次不崩 | 900px 宽、读屏器 |
