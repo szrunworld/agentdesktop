@@ -181,7 +181,7 @@ public final class GuiRunDriver: Sendable {
             case .action:
                 try await checkProceed()
                 try await move(.executing, "executing")
-                let actionId = try await audited { try await ports.audit.reserveAction(proposal) }
+                let actionId = try await audited { try await ports.audit.reserveAction(proposal, target: bundle.observation.target) }
                 try await lifecycle.actionStarted(actionId, generation: generation)
                 let receipt: GuiActionReceipt
                 do {
