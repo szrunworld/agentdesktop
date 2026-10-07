@@ -50,7 +50,8 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentDesktopContractsTests",
-            dependencies: ["AgentDesktopContracts"]
+            dependencies: ["AgentDesktopContracts"],
+            exclude: ["Fixtures"]
         ),
         // Dependency direction is fixed: GUI may import AI and Contracts,
         // AI only Contracts, and neither imports a Runtime or engine target.
