@@ -188,13 +188,14 @@ final class Slice: @unchecked Sendable {
     let observation: FormObservation
     let executor: FormExecutor
     let audit = CountingAudit()
-    let credentials = InMemoryCredentialStore()
+    let credentials: InMemoryCredentialStore
     let service: AgentDesktopService
     let router: RpcRouter
 
-    init(backend: Bool = true) async throws {
-        dir = URL(fileURLWithPath: "/tmp/ads-\(UUID().uuidString.prefix(8))")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    init(backend: Bool = true, reopening dir: URL? = nil, credentials: InMemoryCredentialStore? = nil) async throws {
+        self.dir = dir ?? URL(fileURLWithPath: "/tmp/ads-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: self.dir, withIntermediateDirectories: true)
+        self.credentials = credentials ?? InMemoryCredentialStore()
         observation = FormObservation(form: form)
         executor = FormExecutor(form: form)
         let be = GuiExecutionBackend(
@@ -202,8 +203,8 @@ final class Slice: @unchecked Sendable {
             sessions: OwnerSessions(),
             features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]))
         service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
-            databasePath: dir.appendingPathComponent("config.sqlite").path,
-            credentials: credentials, http: upstream, executionBackend: backend ? be : nil))
+            databasePath: self.dir.appendingPathComponent("config.sqlite").path,
+            credentials: self.credentials, http: upstream, executionBackend: backend ? be : nil))
         router = service.router(callerScope: "owner", trustedOwner: true)
     }
 
@@ -370,6 +371,28 @@ struct VerticalSliceTests {
         }
         #expect(run["state"]?.stringValue != "succeeded", "\(run.encoded())")
         #expect(run["goalVerification"]?["status"]?.stringValue != "passed")
+    }
+
+    // §07.4 at the service: a reopened service still answers for the run,
+    // with the same events, and the same start key starts nothing new.
+    @Test func runsSurviveAServiceRestart() async throws {
+        let s = try await Slice()
+        _ = try await s.configure()
+        let start = try await s.ok("gui.runs.start", Slice.startParams(), key: "restart-run-0001")
+        let runId = start["runId"]!.stringValue!
+        try await s.waitFor {
+            try await s.ok("gui.runs.get", .obj([("runId", .string(runId))]))["state"]?.stringValue == "succeeded"
+        }
+        let events = try await s.ok("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(0))]))
+        let reopened = try await Slice(reopening: s.dir, credentials: s.credentials)
+        #expect(reopened.service.recovery.quarantinedRuns.isEmpty)
+        let run = try await reopened.ok("gui.runs.get", .obj([("runId", .string(runId))]))
+        #expect(run["state"]?.stringValue == "succeeded")
+        let again = try await reopened.ok("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(0))]))
+        #expect(again["events"] == events["events"])
+        let dup = try await reopened.ok("gui.runs.start", Slice.startParams(), key: "restart-run-0001")
+        #expect(dup["runId"]?.stringValue == runId)
+        #expect(await reopened.executor.executed.isEmpty)
     }
 
     // SEC-001 (service part): the key never appears in any response or in

@@ -14,7 +14,13 @@ public struct AgentDesktopServiceOptions: Sendable {
     /// The Runtime's observation/execution ports. Nil keeps real GUI input
     /// closed: `gui.runs.start` answers CAPABILITY_MISMATCH (spec §15, G0).
     public var executionBackend: GuiExecutionBackend?
-    public var runRepository: GuiRunRepository
+    /// Runs, events and receipts. Nil keeps them in the configuration
+    /// database, which is what restart recovery reads (spec §07.4).
+    public var runRepository: GuiRunRepository?
+    /// Replace the backend's audit port with the durable one in the
+    /// configuration database, so a pending input survives a crash as
+    /// unknown (spec §09.3). Only tests that count audit calls turn it off.
+    public var durableAudit: Bool
     public var prices: AiPriceTable?
 
     public init(databasePath: String,
@@ -23,7 +29,8 @@ public struct AgentDesktopServiceOptions: Sendable {
                 clock: MonotonicClock = SystemMonotonicClock(),
                 config: ConfigOptions = ConfigOptions(),
                 executionBackend: GuiExecutionBackend? = nil,
-                runRepository: GuiRunRepository = InMemoryGuiRunRepository(),
+                runRepository: GuiRunRepository? = nil,
+                durableAudit: Bool = true,
                 prices: AiPriceTable? = nil) {
         self.databasePath = databasePath
         self.credentials = credentials
@@ -32,6 +39,7 @@ public struct AgentDesktopServiceOptions: Sendable {
         self.config = config
         self.executionBackend = executionBackend
         self.runRepository = runRepository
+        self.durableAudit = durableAudit
         self.prices = prices
     }
 }
@@ -44,12 +52,17 @@ public final class AgentDesktopService: Sendable {
     public let store: ConfigStore
     public let ai: DefaultAiService
     public let runs: GuiRunService
+    /// What restart recovery found when the service opened.
+    public let recovery: RunRecoveryReport
     let aiHandlers: AiApplicationHandlers
     let capabilityTests: CapabilityTestService
 
     public static func open(_ o: AgentDesktopServiceOptions) async throws -> AgentDesktopService {
         let digestKey = try ConfigStore.loadOrCreateDigestKey(in: o.credentials)
         let store = try ConfigStore(path: o.databasePath, credentials: o.credentials, digestKey: digestKey, options: o.config)
+        // Before anything can start: unresolved inputs of the last process
+        // become unknown and quarantined; nothing is resent.
+        let recovery = try await RunRecovery(store: store).recover()
         let admission = CredentialRevocationAdmission(store: store)
         await admission.register()
         let credentials = StoreCredentialResolver(store: store)
@@ -57,21 +70,29 @@ public final class AgentDesktopService: Sendable {
                                   admission: admission, clock: o.clock, prices: o.prices)
         let codecs = GuiCodecRegistry(fixtureAdapterEnabled: o.config.allowFixtureAdapter)
         let runner = AiOperationRunner()
-        let runs = GuiRunService(repository: o.runRepository,
+        var backend = o.executionBackend
+        if let be = backend, o.durableAudit {
+            backend = GuiExecutionBackend(
+                ports: GuiExplorerPorts(observation: be.ports.observation, execution: be.ports.execution,
+                                        audit: SQLiteGuiAuditPort(store: store)),
+                sessions: be.sessions, features: be.features)
+        }
+        let runs = GuiRunService(repository: o.runRepository ?? SQLiteGuiRunRepository(store: store),
                                  resolver: ConfigBindingResolver(store: store, codecs: codecs),
-                                 backend: o.executionBackend, aiService: ai, codecs: codecs, clock: o.clock)
+                                 backend: backend, aiService: ai, codecs: codecs, clock: o.clock)
         return AgentDesktopService(
-            store: store, ai: ai, runs: runs,
+            store: store, ai: ai, runs: runs, recovery: recovery,
             aiHandlers: AiApplicationHandlers(store: store, http: o.http, runner: runner, credentials: credentials),
             capabilityTests: CapabilityTestService(store: store, ai: ai, http: o.http, runner: runner,
                                                    codecs: codecs, clock: o.clock))
     }
 
-    init(store: ConfigStore, ai: DefaultAiService, runs: GuiRunService,
+    init(store: ConfigStore, ai: DefaultAiService, runs: GuiRunService, recovery: RunRecoveryReport,
          aiHandlers: AiApplicationHandlers, capabilityTests: CapabilityTestService) {
         self.store = store
         self.ai = ai
         self.runs = runs
+        self.recovery = recovery
         self.aiHandlers = aiHandlers
         self.capabilityTests = capabilityTests
     }
