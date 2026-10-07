@@ -426,3 +426,120 @@ struct SpecExampleTests {
         }
     }
 }
+
+// The same frames the C# contract layer decodes
+// (windows/tests/AgentDesktop.Contracts.Tests/Fixtures/cross-platform-envelope.json):
+// both platforms must reach the same verdict for each, and every refusal
+// must itself be a valid ErrorResponse.
+@Suite("Cross-platform envelope fixture")
+struct CrossPlatformEnvelopeTests {
+    let fixture: JSONValue = {
+        let url = repoRoot.appendingPathComponent("windows/tests/AgentDesktop.Contracts.Tests/Fixtures/cross-platform-envelope.json")
+        return try! StrictJSON.parse(Data(contentsOf: url))
+    }()
+
+    func bytes(_ c: JSONValue) -> Data {
+        if let b64 = c["frameBase64"]?.stringValue { return Data(base64Encoded: b64)! }
+        var text = c["frame"]?.stringValue ?? c["data"]?.stringValue ?? ""
+        if let pad = c["padToBodyBytes"]?.intValue {
+            text.removeLast()
+            text += String(repeating: " ", count: pad - text.utf8.count - 1) + "}"
+        }
+        if c["appendLF"]?.boolValue == true { text += "\n" }
+        return Data(text.utf8)
+    }
+
+    @Test func envelopeVerdicts() throws {
+        let cases = fixture["envelope"]?.arrayValue ?? []
+        #expect(cases.count >= 20)
+        for c in cases {
+            let name = c["name"]?.stringValue ?? "?"
+            let expect = c["expect"]!
+            let decoded = Envelope.decode(bytes(c))
+            var response: JSONValue?
+            switch (expect["kind"]?.stringValue, decoded) {
+            case let ("request", .request(r)):
+                if let cmd = expect["command"]?.stringValue { #expect(r.command == cmd, "\(name)") }
+                if let key = expect["idempotencyKey"]?.stringValue { #expect(r.idempotencyKey == key, "\(name)") }
+            case ("legacy", .legacy):
+                break
+            case let ("rejected", .rejected(resp, error)):
+                response = resp
+                #expect(error.code.rawValue == expect["code"]?.stringValue, "\(name)")
+                if let id = expect["requestId"] { #expect(resp["requestId"] == id, "\(name)") }
+                if let rc = expect["reasonCode"]?.stringValue { #expect(resp["error"]?["details"]?["reasonCode"]?.stringValue == rc, "\(name)") }
+                let paths = Set(resp["error"]?["details"]?["fieldErrors"]?.arrayValue?.compactMap { $0["path"]?.stringValue } ?? [])
+                for p in expect["fieldErrorPaths"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
+                    #expect(paths.contains(p), "\(name): missing fieldError \(p) in \(paths)")
+                }
+                #expect(try contract.validateRpc(resp, "ErrorResponse").isEmpty, "\(name): refusal is not a valid ErrorResponse")
+            default:
+                Issue.record("\(name): expected \(expect["kind"]?.stringValue ?? "?"), got \(decoded)")
+            }
+            if let response {
+                let text = response.encoded()
+                for s in expect["mustNotContain"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
+                    #expect(!text.contains(s), "\(name): response leaks \(s)")
+                }
+            }
+        }
+    }
+
+    @Test func frameVerdicts() throws {
+        for c in fixture["frames"]?.arrayValue ?? [] {
+            let name = c["name"]?.stringValue ?? "?"
+            let want = c["expect"]?.stringValue ?? "?"
+            func kind(_ r: FrameReader.Result) -> String {
+                switch r {
+                case .frame: return "frame"
+                case .truncated: return "truncated"
+                case .trailingData: return "trailingData"
+                case .tooLarge: return "tooLarge"
+                case .ioError: return "ioError"
+                }
+            }
+            let data = bytes(c)
+            #expect(kind(FrameReader.split(data)) == want, "\(name) via split")
+            var fds: [Int32] = [0, 0]
+            #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+            let writer = Thread {
+                data.withUnsafeBytes { buf in
+                    var off = 0
+                    while off < buf.count {
+                        let n = write(fds[1], buf.baseAddress! + off, min(65536, buf.count - off))
+                        if n <= 0 { break }
+                        off += n
+                    }
+                }
+                shutdown(fds[1], SHUT_WR)
+            }
+            writer.start()
+            #expect(kind(FrameReader.read(fd: fds[0])) == want, "\(name) via socket")
+            close(fds[0]); close(fds[1])
+        }
+    }
+}
+
+@Suite("Wire errors")
+struct WireErrorTests {
+    // Internal detail members never reach the wire; the message is cut to
+    // the contract's length; a refusal is always a valid ErrorResponse.
+    @Test func internalDetailsAreProjected() throws {
+        let long = String(repeating: "长", count: 600)
+        let e = ContractError(.upstreamUnavailable, long, details: .obj([
+            ("httpStatus", .int(503)), ("retryAfterMs", .int(2000)), ("encodedBytes", .int(9)), ("field", .string("baseUrl")),
+        ]))
+        let resp = Envelope.failure(requestId: uuid(), error: e)
+        #expect(try contract.validateRpc(resp, "ErrorResponse").isEmpty)
+        let d = resp["error"]?["details"]
+        #expect(d?["httpStatus"] == nil)
+        #expect(d?["retryAfterMs"]?.intValue == 2000)
+        #expect(d?["fieldErrors"]?.arrayValue?.first?["path"]?.stringValue == "/params/baseUrl")
+        #expect((resp["error"]?["message"]?.stringValue?.unicodeScalars.count ?? 0) <= 512)
+        // Invalid allowed members are dropped rather than sent.
+        let bad = ContractError(.notFound, "x", details: .obj([("runId", .string("bad id with spaces"))]))
+        let r2 = Envelope.failure(requestId: uuid(), error: bad)
+        #expect(r2["error"]?["details"] == nil)
+        #expect(try contract.validateRpc(r2, "ErrorResponse").isEmpty)
+    }
+}

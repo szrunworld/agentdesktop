@@ -68,14 +68,43 @@ public struct ContractError: Error, Equatable, Sendable, CustomStringConvertible
 
     public var description: String { "\(code.rawValue): \(message)" }
 
+    /// Members `RpcError.details` may carry on the wire (domain.schema.json).
+    public static let wireDetailKeys: Set<String> = [
+        "retryAfterMs", "currentRevision", "resourceId", "operationId", "runId", "reasonCode", "fieldErrors",
+    ]
+    public static let maxMessageLength = 512
+
+    /// The error as `RpcError`. Internal-only detail members (an HTTP status,
+    /// a byte count) are dropped, a `field` becomes a `fieldErrors` entry,
+    /// the message is cut to the contract's length, and details that still
+    /// break the contract are left out rather than sent.
     public var json: JSONValue {
         var m: [(String, JSONValue)] = [
             ("code", .string(code.rawValue)),
-            ("message", .string(message)),
+            ("message", .string(Self.cut(message))),
             ("retryable", .bool(retryable)),
         ]
-        if let details { m.append(("details", details)) }
+        if let d = wireDetails { m.append(("details", d)) }
         return .obj(m)
+    }
+
+    var wireDetails: JSONValue? {
+        guard let members = details?.objectMembers else { return nil }
+        var out: [(String, JSONValue)] = members.filter { Self.wireDetailKeys.contains($0.key) }.map { ($0.key, $0.value) }
+        if let field = details?["field"]?.stringValue, !out.contains(where: { $0.0 == "fieldErrors" }) {
+            out.append(("fieldErrors", .array([.obj([("path", .string("/params/\(field)")), ("code", .string("invalid"))])])))
+        }
+        guard !out.isEmpty else { return nil }
+        let candidate = JSONValue.obj(out)
+        let probe = JSONValue.obj([("code", .string(code.rawValue)), ("message", .string("x")),
+                                   ("retryable", .bool(retryable)), ("details", candidate)])
+        guard (try? ContractBundle.shared.validateDomain(probe, "RpcError"))?.isEmpty == true else { return nil }
+        return candidate
+    }
+
+    static func cut(_ s: String) -> String {
+        guard s.unicodeScalars.count > maxMessageLength else { return s.isEmpty ? "error" : s }
+        return String(String.UnicodeScalarView(s.unicodeScalars.prefix(maxMessageLength - 1))) + "…"
     }
 }
 

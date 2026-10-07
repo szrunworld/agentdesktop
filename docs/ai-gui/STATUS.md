@@ -132,3 +132,4 @@
 | USG-001（回执） | 推理回执按 attemptId 去重（重复记录不增行）；动作回执已定状态不被改写 | |
 | AUDIT_UNAVAILABLE | pending 行写失败 → reserveAction 抛 AUDIT_UNAVAILABLE、无行；整条 run 失败且执行器 0 次（变异检查：去掉该判断后两项测试失败） | |
 | CFG-005（活跃 run） | 活跃 run 绑定的 GUI profile 删除 RESOURCE_IN_USE，run 取消终结后可删；引用来自 binding 的主候选与 fallback | |
+| 错误响应合规（两端） | 拒绝请求：解析失败 `details.reasonCode`、Schema 违例 `details.fieldErrors[{path,code}]`、未知版本不带 details；所有错误出门前投影到合同允许的 details 键（内部 httpStatus 等丢弃，`field` 转 fieldErrors，消息截到 512），仍不合规则去掉 details；Swift 与 C# 读同一份跨平台夹具（28 条信封 + 6 条分帧）得出相同结论 | |
