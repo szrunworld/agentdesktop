@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>AgentDesktop.Contracts</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <!-- The contract files are embedded from contracts/ai-gui/v1, the single
+       source shared with the Swift build; there are no copies to drift. -->
+  <ItemGroup>
+    <EmbeddedResource Include="../../../contracts/ai-gui/v1/domain.schema.json" LogicalName="domain.schema.json" />
+    <EmbeddedResource Include="../../../contracts/ai-gui/v1/rpc.schema.json" LogicalName="rpc.schema.json" />
+    <EmbeddedResource Include="../../../contracts/ai-gui/v1/operations.json" LogicalName="operations.json" />
+  </ItemGroup>
+</Project>

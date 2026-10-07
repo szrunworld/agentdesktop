@@ -15,7 +15,8 @@
 | T05 AiService、OpenAIChatTransport、预算与用量 | PARTIAL | AgentDesktopAI/Inference：openai_chat 非流式传输（异步 URLSession、拒绝重定向、2 MiB 响应上限、错误分类不带上游 body）、DefaultAiService（§06.1 七步、单一单调 deadline、取消、账本先预留后请求、过期结果丢弃）、AttemptBudget/StepInference（每步 ≤2、每 run ≤30、429 Retry-After、只重试暂态错误、冻结候选）、UsageSummaryBuilder、内存账本。尚缺：SQLite 账本（T03 接 AiCallLedgerPort）、Keychain CredentialResolver（T04）、ai.models.list/refresh 模型目录、ai.usage.summary 的 RPC 处理器与调用者范围过滤；分支 ai-wiring 接上持久层：SQLiteAiCallLedger（同库预留→终态、按 attemptId 去重、记账失败阻断该预算范围、重启后 reserved→interrupted 并阻断直到核对）、ai.models.list/refresh（GET <base>/models，同一传输、失败保留旧缓存并标 stale、列表不改能力状态）、ai.usage.summary 处理器（按调用者范围、from/to/connectionId）、ai.operations.get/cancel、AiApplicationHandlers 汇总 |
 | T08 四层能力测试 | PARTIAL | 分支 ai-wiring，`AgentDesktopGUI/CapabilityTests`：ai.tests.start → operation，network（无凭据 GET base）→ auth_model → image_input（双色图）→ gui_contract（单按钮图，codec 解出点击且落在按钮内）；前置层失败后续 skipped；每 operation ≤3 次模型调用、无隐藏重试、单一 120 s deadline；证据按模型修订写入（gui_contract 带 adapter/prompt/parser 版本）；失败保留已完成层；取消不进下一层；服务不持有任何观察/输入端口。尚缺：W04 页面（T09）、真实模型上的测试素材效果 |
 | 组装（§03.1 composition） | PARTIAL | AgentDesktopService：一个配置库、一个共享模型服务（能力测试与 GUI 运行共用）、运行服务，为调用方产出全部 32 个处理器；RpcSocketServer：0700 目录、0600 socket、对端 uid 校验、一连接一请求、空探测连接不回写、早退客户端不致宿主 SIGPIPE。真实执行后端未注入时 gui.runs.start 为 CAPABILITY_MISMATCH。尚缺：接入引擎 ControlServer 的双解码（T01/T02 由单仓迁移线完成）、SQLite 运行仓库（并行分支 gui-run-store） |
-| T09–T10、T12–T14 | NOT_STARTED | |
+| T13 Windows 对等 | PARTIAL | `windows/`：C# 合同层（net10.0，global.json 锁 10.0.401）与 Swift 语义对等——严格 JSON、Schema 子集校验器（直接嵌入 contracts/ai-gui/v1）、信封与 1 MiB 分帧、错误码、32 操作目录、路由器结果自检；87 个 xUnit 测试含规格示例与跨平台夹具；windows-latest CI。不构成 G6：Windows 原生运行时、DPAPI、NamedPipe、AI/GUI 服务未做 |
+| T09–T10、T12、T14 | NOT_STARTED | |
 
 ## 契约层测试覆盖（swift test --filter AgentDesktopContractsTests）
 
