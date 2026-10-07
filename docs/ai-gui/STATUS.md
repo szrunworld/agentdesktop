@@ -14,6 +14,7 @@
 | T06 UI-TARS codec、坐标、Proposal | PARTIAL | 分支 gui-codec：GUI 领域类型（Contracts/Domain/Gui*.swift）、`CoordinateMapper`（显式协议、crop/resize/letterbox、负原点、不夹紧）、`UITarsCodec`（uitars_v1 严格单动作文法）、`FixtureJsonCodec`（仅测试模式）、`GuiCodecRegistry`、`ProposalFactory`（身份字段只取自 Observation，输出过合同校验）。尚缺：GuiAiProvider（依赖 T05 AiService）、完整 prompt 组装与历史截图裁剪、C# 端 |
 | T05 AiService、OpenAIChatTransport、预算与用量 | PARTIAL | AgentDesktopAI/Inference：openai_chat 非流式传输（异步 URLSession、拒绝重定向、2 MiB 响应上限、错误分类不带上游 body）、DefaultAiService（§06.1 七步、单一单调 deadline、取消、账本先预留后请求、过期结果丢弃）、AttemptBudget/StepInference（每步 ≤2、每 run ≤30、429 Retry-After、只重试暂态错误、冻结候选）、UsageSummaryBuilder、内存账本。尚缺：SQLite 账本（T03 接 AiCallLedgerPort）、Keychain CredentialResolver（T04）、ai.models.list/refresh 模型目录、ai.usage.summary 的 RPC 处理器与调用者范围过滤；分支 ai-wiring 接上持久层：SQLiteAiCallLedger（同库预留→终态、按 attemptId 去重、记账失败阻断该预算范围、重启后 reserved→interrupted 并阻断直到核对）、ai.models.list/refresh（GET <base>/models，同一传输、失败保留旧缓存并标 stale、列表不改能力状态）、ai.usage.summary 处理器（按调用者范围、from/to/connectionId）、ai.operations.get/cancel、AiApplicationHandlers 汇总 |
 | T08 四层能力测试 | PARTIAL | 分支 ai-wiring，`AgentDesktopGUI/CapabilityTests`：ai.tests.start → operation，network（无凭据 GET base）→ auth_model → image_input（双色图）→ gui_contract（单按钮图，codec 解出点击且落在按钮内）；前置层失败后续 skipped；每 operation ≤3 次模型调用、无隐藏重试、单一 120 s deadline；证据按模型修订写入（gui_contract 带 adapter/prompt/parser 版本）；失败保留已完成层；取消不进下一层；服务不持有任何观察/输入端口。尚缺：W04 页面（T09）、真实模型上的测试素材效果 |
+| 组装（§03.1 composition） | PARTIAL | AgentDesktopService：一个配置库、一个共享模型服务（能力测试与 GUI 运行共用）、运行服务，为调用方产出全部 32 个处理器；RpcSocketServer：0700 目录、0600 socket、对端 uid 校验、一连接一请求、空探测连接不回写、早退客户端不致宿主 SIGPIPE。真实执行后端未注入时 gui.runs.start 为 CAPABILITY_MISMATCH。尚缺：接入引擎 ControlServer 的双解码（T01/T02 由单仓迁移线完成）、SQLite 运行仓库（并行分支 gui-run-store） |
 | T09–T10、T12–T14 | NOT_STARTED | |
 
 ## 契约层测试覆盖（swift test --filter AgentDesktopContractsTests）
@@ -104,3 +105,16 @@
 | RPC-008 | 事件序号严格递增、after=2 只返回 >2、重复读取一致、after=last 为空、分页 nextAfterSequence/hasMore、过期游标 EVENTS_CURSOR_EXPIRED、未知 ID NOT_FOUND | 持久化保留策略（SQLite 版） |
 | TRN-005（GUI 侧） | 6 张历史 + 当前：发送 5 张、当前必在、保留最新历史；字节预算紧时只发当前图 | |
 | D07 / CFG-004（运行侧） | 改默认 profile 后已有 run 的 binding 不变、新 run 用新默认；禁用 profile RESOURCE_DISABLED、过期修订 CONFIG_CONFLICT，均不调用模型 | |
+
+## 纵向切片（swift test --filter AgentDesktopServiceTests）
+
+模型为脚本化 HTTP 上游，桌面为中立表单替身；不证明原生输入隔离（G0/T01）。
+
+| 用例 | 覆盖的部分 | 未覆盖 |
+| --- | --- | --- |
+| E01–E12（规格 §02） | 经组装服务：建连接、刷新并列出模型、模型配置、GUI 配置（normalized_1000，含真实缩放变换）、四层能力测试成功且桌面输入 0、设默认、启动运行、3 次模型调用 3 个输入、较新观察上验证通过、表单为期望文本、用量覆盖两类调用、事件序列单调、同 key 重启返回同 run 且无新输入 | 真实模型、真实桌面 |
+| 32 操作 | 组装后每个合同命令都有处理器 | |
+| GUI-003（服务层） | 验证文本不符时走完全部步骤也不能成功 | |
+| SEC-001（服务层） | 全部读接口响应与数据库文件中 canary=0；上游只在 chat 请求的 Authorization 中出现 | 日志与导出 |
+| MAC-007（服务层） | 无执行后端时 AI 侧完整可用、能力页 nativeIsolationEvidence=NOT_RUN、gui.runs.start CAPABILITY_MISMATCH、输入 0 | 无模型时的直接 API（引擎） |
+| CLI-001（真实 socket） | CLI 经 0600 socket 调组装服务；第二个服务器不能接管活跃端点；3 个发完即走的客户端后宿主仍存活并正常应答 | |
