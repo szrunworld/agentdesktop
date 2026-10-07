@@ -89,7 +89,7 @@ public enum CapabilityLayer: String, Sendable, CaseIterable {
 /// idempotent mutations and the credential create/rotate outbox (§04,
 /// §05.4, §10). Secrets live only in `CredentialStore`.
 public actor ConfigStore {
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     let db: SQLiteDatabase
     let credentials: CredentialStore
@@ -100,6 +100,9 @@ public actor ConfigStore {
     private var fault: (@Sendable (ConfigFaultPoint) throws -> Void)?
     private var revocationListeners: [@Sendable (String) -> Void] = []
     private var activeRunCheck: @Sendable (ConfigResourceKind, String) -> Bool = { _, _ in false }
+    /// Budget scopes whose last attempt end could not be written.
+    var blockedBudgetScopes: Set<String> = []
+    var ledgerFaults: Set<LedgerFault> = []
 
     public init(path: String, credentials: CredentialStore, digestKey: Data,
                 clock: ConfigClock = SystemConfigClock(), options: ConfigOptions = ConfigOptions(),
@@ -149,12 +152,14 @@ public actor ConfigStore {
     private static func migrate(_ db: SQLiteDatabase, now: String, defaultScope: String) throws {
         try db.exec("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
         let current = try db.row("SELECT COALESCE(MAX(version),0) FROM schema_migrations")?[0].int ?? 0
-        guard current < 1 else {
-            guard current <= schemaVersion else {
-                throw ContractError(.internalError, "configuration database is newer than this build")
-            }
-            return
+        guard current <= schemaVersion else {
+            throw ContractError(.internalError, "configuration database is newer than this build")
         }
+        if current < 1 { try migrateV1(db, now: now, defaultScope: defaultScope) }
+        if current < 2 { try migrateV2(db, now: now) }
+    }
+
+    private static func migrateV1(_ db: SQLiteDatabase, now: String, defaultScope: String) throws {
         try db.transaction {
             for kind in ConfigResourceKind.allCases {
                 try db.exec("""
@@ -200,6 +205,47 @@ public actor ConfigStore {
             """)
             try db.run("INSERT INTO ai_defaults VALUES(?, 'gui', 1, NULL, ?)", [.text(defaultScope), .text(now)])
             try db.run("INSERT INTO schema_migrations VALUES(1, ?)", [.text(now)])
+        }
+    }
+
+    /// Model call ledger, model catalog cache and asynchronous operations.
+    private static func migrateV2(_ db: SQLiteDatabase, now: String) throws {
+        try db.transaction {
+            // One row per started model call (spec §09.3, §18.1). A GUI step
+            // has a run and no operation; a capability test the reverse.
+            try db.exec("""
+            CREATE TABLE inference_attempts(
+              attempt_id TEXT PRIMARY KEY,
+              purpose TEXT NOT NULL CHECK(purpose IN ('gui_step','capability_test')),
+              run_id TEXT, operation_id TEXT, step_index INTEGER, level TEXT,
+              caller_scope TEXT NOT NULL, budget_scope TEXT NOT NULL,
+              connection_id TEXT NOT NULL, connection_revision INTEGER NOT NULL,
+              model_profile_id TEXT NOT NULL, model_profile_revision INTEGER NOT NULL,
+              credential_id TEXT NOT NULL, requested_model_id TEXT NOT NULL,
+              state TEXT NOT NULL CHECK(state IN ('reserved','succeeded','failed','cancelled','interrupted')),
+              reserved_at TEXT NOT NULL, started_at TEXT, ended_at TEXT, latency_ms INTEGER,
+              actual_model_id TEXT, upstream_request_id TEXT, http_status INTEGER, finish_reason TEXT,
+              input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER,
+              cache_write_tokens INTEGER, total_tokens INTEGER,
+              cost_amount TEXT, cost_currency TEXT, cost_source TEXT, pricing_revision TEXT,
+              error_code TEXT, discarded INTEGER NOT NULL DEFAULT 0,
+              CHECK((purpose='gui_step' AND run_id IS NOT NULL AND operation_id IS NULL)
+                 OR (purpose='capability_test' AND operation_id IS NOT NULL AND run_id IS NULL)))
+            """)
+            try db.exec("CREATE INDEX inference_attempts_scope ON inference_attempts(caller_scope, reserved_at)")
+            try db.exec("CREATE INDEX inference_attempts_budget ON inference_attempts(budget_scope, state)")
+            try db.exec("""
+            CREATE TABLE model_catalog(connection_id TEXT PRIMARY KEY, connection_revision INTEGER NOT NULL,
+              entries TEXT NOT NULL, refreshed_at TEXT NOT NULL, stale INTEGER NOT NULL DEFAULT 0)
+            """)
+            try db.exec("""
+            CREATE TABLE ai_operations(operation_id TEXT PRIMARY KEY,
+              kind TEXT NOT NULL CHECK(kind IN ('capability_test','model_refresh')),
+              caller_scope TEXT NOT NULL, resource_id TEXT NOT NULL, resource_revision INTEGER NOT NULL,
+              state TEXT NOT NULL CHECK(state IN ('queued','running','cancelling','succeeded','failed','cancelled')),
+              result TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)
+            """)
+            try db.run("INSERT INTO schema_migrations VALUES(2, ?)", [.text(now)])
         }
     }
 

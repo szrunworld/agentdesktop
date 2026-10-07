@@ -7,13 +7,14 @@
 | T00 基线与迁移清单 | NOT_STARTED（本分支） | 单仓迁移由 `codex/merge-desktop-core-20261008` 那条线负责；本分支不动引擎依赖与旧两仓规则 |
 | T01 原生执行边界 G0 | NOT_STARTED | 同上；真实 GUI 输入入口保持关闭 |
 | T02 合同、版本化解码、32 操作、CLI rpc | PARTIAL | AgentDesktopContracts：严格 JSON、Schema 子集校验器（加载合同文件做权威校验）、信封与分帧、错误码、操作目录、路由器（结果按合同自检）。AgentDesktopCLI：`rpc --request-file`、`runtime capabilities`、`--dry-run`（脱敏、不连接）、本地 Schema 校验、§13.2 退出码 0/2/3/4、真实 Unix socket 客户端。尚缺：接入 ControlServer 的旧/新双解码、C# DTO |
-| T03 SQLite 配置存储 | PARTIAL | `AgentDesktopAI/Config`：ConfigStore actor（WAL、migrations v1、§10.3 全部表）、三类资源不可变修订、expectedRevision CAS、tombstone 与引用保护、默认指针独立 CAS、游标绑定过滤条件、fallback≤1 且无自引用/循环、能力证据按层按修订保存；幂等记录按 caller+command+key 存 HMAC 摘要，保留 24 h，崩溃后 pending 标为 failed。21 个配置命令作为 RpcHandler。尚缺：gui_runs/events/attempts/receipts 表（T05/T07）、活跃 run 引用检查只有注入钩子 |
-| T04 凭据与端点 | PARTIAL | CredentialStore 协议、KeychainCredentialStore（com.agentdesktop.ai，不同步）、InMemoryCredentialStore；创建/轮换按 pending→写机密→激活→outbox，撤销后永不解析，outbox 失败重试，恢复清理孤立机密；端点规则与 chat/completions 拼接。尚缺：真实 Keychain 只写了默认跳过的测试；DPAPI（Windows）；transport 连接时的 loopback 复核归 T05 |
+| T03 SQLite 配置存储 | PARTIAL | `AgentDesktopAI/Config`：ConfigStore actor（WAL、migrations v1、§10.3 全部表）、三类资源不可变修订、expectedRevision CAS、tombstone 与引用保护、默认指针独立 CAS、游标绑定过滤条件、fallback≤1 且无自引用/循环、能力证据按层按修订保存；幂等记录按 caller+command+key 存 HMAC 摘要，保留 24 h，崩溃后 pending 标为 failed。21 个配置命令作为 RpcHandler。migrations v2（分支 ai-wiring）：inference_attempts（purpose 互斥 CHECK）、model_catalog、ai_operations；`resolveGuiProfile` 按钉住的修订解析出 AiResolvedModel。尚缺：gui_runs/events/receipts 表（T07）、活跃 run 引用检查只有注入钩子 |
+| T04 凭据与端点 | PARTIAL | CredentialStore 协议、KeychainCredentialStore（com.agentdesktop.ai，不同步）、InMemoryCredentialStore；创建/轮换按 pending→写机密→激活→outbox，撤销后永不解析，outbox 失败重试，恢复清理孤立机密；端点规则与 chat/completions 拼接。尚缺：真实 Keychain 只写了默认跳过的测试；DPAPI（Windows）；StoreCredentialResolver 只解析 active identity；CredentialRevocationAdmission 由 outbox 撤销事件和持久状态共同判定，在途调用结果作废。尚缺：transport 连接时的 loopback 复核 |
 | T11 CLI | PARTIAL | 只有 rpc 入口与退出码；友好别名、--wait/--follow、--credential-stdin、退出码 5/6/130 待 T03/T07/T08 |
 | T07 Explorer | PARTIAL | RunLifecycle：§07.1 状态边、generation CAS、§07.2 取消协议、未知结果隔离与不可恢复、终态不变；Explorer 循环、GoalVerifier、Runtime 组装待 T01/T05/T06 |
 | T06 UI-TARS codec、坐标、Proposal | PARTIAL | 分支 gui-codec：GUI 领域类型（Contracts/Domain/Gui*.swift）、`CoordinateMapper`（显式协议、crop/resize/letterbox、负原点、不夹紧）、`UITarsCodec`（uitars_v1 严格单动作文法）、`FixtureJsonCodec`（仅测试模式）、`GuiCodecRegistry`、`ProposalFactory`（身份字段只取自 Observation，输出过合同校验）。尚缺：GuiAiProvider（依赖 T05 AiService）、完整 prompt 组装与历史截图裁剪、C# 端 |
-| T05 AiService、OpenAIChatTransport、预算与用量 | PARTIAL | AgentDesktopAI/Inference：openai_chat 非流式传输（异步 URLSession、拒绝重定向、2 MiB 响应上限、错误分类不带上游 body）、DefaultAiService（§06.1 七步、单一单调 deadline、取消、账本先预留后请求、过期结果丢弃）、AttemptBudget/StepInference（每步 ≤2、每 run ≤30、429 Retry-After、只重试暂态错误、冻结候选）、UsageSummaryBuilder、内存账本。尚缺：SQLite 账本（T03 接 AiCallLedgerPort）、Keychain CredentialResolver（T04）、ai.models.list/refresh 模型目录、ai.usage.summary 的 RPC 处理器与调用者范围过滤 |
-| T08–T10、T12–T14 | NOT_STARTED | |
+| T05 AiService、OpenAIChatTransport、预算与用量 | PARTIAL | AgentDesktopAI/Inference：openai_chat 非流式传输（异步 URLSession、拒绝重定向、2 MiB 响应上限、错误分类不带上游 body）、DefaultAiService（§06.1 七步、单一单调 deadline、取消、账本先预留后请求、过期结果丢弃）、AttemptBudget/StepInference（每步 ≤2、每 run ≤30、429 Retry-After、只重试暂态错误、冻结候选）、UsageSummaryBuilder、内存账本。尚缺：SQLite 账本（T03 接 AiCallLedgerPort）、Keychain CredentialResolver（T04）、ai.models.list/refresh 模型目录、ai.usage.summary 的 RPC 处理器与调用者范围过滤；分支 ai-wiring 接上持久层：SQLiteAiCallLedger（同库预留→终态、按 attemptId 去重、记账失败阻断该预算范围、重启后 reserved→interrupted 并阻断直到核对）、ai.models.list/refresh（GET <base>/models，同一传输、失败保留旧缓存并标 stale、列表不改能力状态）、ai.usage.summary 处理器（按调用者范围、from/to/connectionId）、ai.operations.get/cancel、AiApplicationHandlers 汇总 |
+| T08 四层能力测试 | PARTIAL | 分支 ai-wiring，`AgentDesktopGUI/CapabilityTests`：ai.tests.start → operation，network（无凭据 GET base）→ auth_model → image_input（双色图）→ gui_contract（单按钮图，codec 解出点击且落在按钮内）；前置层失败后续 skipped；每 operation ≤3 次模型调用、无隐藏重试、单一 120 s deadline；证据按模型修订写入（gui_contract 带 adapter/prompt/parser 版本）；失败保留已完成层；取消不进下一层；服务不持有任何观察/输入端口。尚缺：W04 页面（T09）、真实模型上的测试素材效果 |
+| T09–T10、T12–T14 | NOT_STARTED | |
 
 ## 契约层测试覆盖（swift test --filter AgentDesktopContractsTests）
 
@@ -68,3 +69,18 @@
 | SEC-005 | https/loopback/userinfo/query/fragment/非 http(s)/chat/completions 结尾；本地选项开关；localhost 解析校验 | |
 | RPC-006 | 配置类：10 并发同 key 只建 1 个连接、1 份机密 | tests.start / runs.start |
 | RPC-007 | 配置类：同 key 不同内容（含仅机密不同）冲突、另一 caller 同 key 互不可见 | |
+
+## AI 接线与能力测试覆盖（分支 ai-wiring：swift test --filter "LedgerWiringTests|CatalogOperationTests|UsageServiceTests|CapabilityTests"）
+
+| 用例 | 覆盖的部分 | 未覆盖 |
+| --- | --- | --- |
+| TRN-008 | 四层各自 state/evidence；参数化在每一层停下：之前 passed、该层 failed、之后 skipped，模型调用数精确；非法 UI-TARS 回复（无 Action、drag、多动作）INVALID_ACTION；点击落在按钮外 TARGET_MISSED；取消延迟测试后不进下一层、结果 null、账本该次 cancelled；图片是合成素材 | 真实模型 |
+| CFG-008 | 四层测试写入证据并绑定模型修订；skipped 不写证据；模型修订更新后四层回到 unknown，旧修订证据保留；模型列表刷新不改任何能力状态 | |
+| USG-001 | 持久化：两种 purpose 同库各一行、purpose 互斥 CHECK 生效、重启后仍在、重复 finish 不重复计数；预留失败网络 0；记账失败阻断同一 run，其他 run 不受影响；崩溃后 interrupted 计为未知用量并阻断直到核对 | |
+| USG-003/004 | ai.usage.summary 从 SQLite 聚合：只含调用者自己的尝试、from/to 与 connectionId 过滤、缺用量计数、未知不当 0、结果过 Schema；端到端 3 次尝试其中 1 次无用量 | 按 run 查询（gui.runs.get，T07） |
+| SEC-002 | 解析侧接 ConfigStore：active 才解析，未知/轮换后旧 identity/机密缺失分别 CREDENTIAL_REQUIRED/REVOKED/REQUIRED，无回退 | 真实 Keychain |
+| SEC-004 | 调用挂起时轮换：迟到结果作废（账本 discarded=1）、旧 identity 之后上游调用 0、未带 K2；显式采纳新连接修订后新绑定用 K2 | 主动取消在途 HTTP（由 Explorer 的 Task 取消负责） |
+| RPC-006/007 | ai.tests.start：10 并发同 key 只 1 个 operation、模型调用数等于单次；同 key 不同内容 IDEMPOTENCY_CONFLICT；另一调用方同 key 各自独立且互不可见 | gui.runs.start（T07） |
+| CAN-004 | operation 取消：受理与终态分开、终态后重复取消 accepted=false 且无新请求/尝试、已取消的重复取消幂等、他人 operation NOT_FOUND；重启后未完成 operation 结束 | |
+| UI-004（服务端部分） | 分层结果、pending/cancelled/failed 区分、performedDesktopInput=false、费用来自尝试记录 | 页面 |
+
