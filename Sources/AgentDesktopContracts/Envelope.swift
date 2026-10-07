@@ -74,7 +74,7 @@ public enum Envelope {
             value = try StrictJSON.parse(body)
         } catch let e as StrictJSONError {
             return reject(nil, ContractError(.validationError, "request is not valid JSON",
-                                             details: .obj([("reason", .string(e.kind.rawValue))])))
+                                             details: .obj([("reasonCode", .string(e.kind.rawValue))])))
         } catch {
             return reject(nil, ContractError(.validationError, "request is not valid JSON"))
         }
@@ -88,8 +88,8 @@ public enum Envelope {
         let requestId = rawId.flatMap { Formats.check("uuid", $0) ? $0 : nil }
 
         guard version.stringValue == ContractBundle.schemaVersion else {
-            return reject(requestId, ContractError(.unsupportedSchema, "unsupported schemaVersion",
-                                                   details: .obj([("supported", .array([.string(ContractBundle.schemaVersion)]))])))
+            return reject(requestId, ContractError(.unsupportedSchema,
+                                                   "unsupported schemaVersion; this runtime speaks \(ContractBundle.schemaVersion)"))
         }
         guard let requestId else {
             return reject(nil, ContractError(.validationError, "requestId must be a UUID string"))
@@ -119,11 +119,11 @@ public enum Envelope {
             raw: value))
     }
 
-    /// Violations as error details: pointer and keyword only, never the
-    /// offending value (it may be a secret).
+    /// Violations as `details.fieldErrors`: pointer and failing keyword
+    /// only, never the offending value (it may be a secret).
     public static func violationDetails(_ v: [SchemaViolation]) -> JSONValue {
-        .obj([("violations", .array(v.prefix(20).map {
-            .obj([("path", .string($0.path.isEmpty ? "/" : $0.path)), ("keyword", .string($0.keyword))])
+        .obj([("fieldErrors", .array(v.prefix(20).map {
+            .obj([("path", .string($0.path.isEmpty ? "/" : String($0.path.prefix(256)))), ("code", .string($0.keyword))])
         }))])
     }
 }
