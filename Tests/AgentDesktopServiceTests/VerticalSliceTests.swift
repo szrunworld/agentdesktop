@@ -84,13 +84,22 @@ actor FormObservation: GuiObservationPort {
 actor FormExecutor: GuiExecutionPort {
     let form: NeutralForm
     private(set) var executed: [GuiProposal] = []
+    /// When set, the n-th input (1-based) is delivered but its outcome is unknown.
+    var unknownAt: Int?
     init(form: NeutralForm) { self.form = form }
+    func set(unknownAt n: Int?) { unknownAt = n }
 
     func execute(_ proposal: GuiProposal, actionId: String) throws -> GuiActionReceipt {
         executed.append(proposal)
         guard case let .action(action) = proposal.body else { throw ContractError(.invalidAction, "not an action") }
         form.apply(action)
         let t = Date()
+        if unknownAt == executed.count {
+            return GuiActionReceipt(actionId: actionId, proposalId: proposal.proposalId, runId: proposal.runId, stamp: proposal.stamp,
+                                    actionType: action.kind, deliveryState: .unknown, executionTarget: formTarget,
+                                    inputPath: "stand-in.event", startedAt: t, endedAt: nil, evidenceRefs: [],
+                                    createdAt: t, updatedAt: t, confirmationObservationId: nil, reasonCode: "ACTION_OUTCOME_UNKNOWN")
+        }
         return GuiActionReceipt(actionId: actionId, proposalId: proposal.proposalId, runId: proposal.runId, stamp: proposal.stamp,
                                 actionType: action.kind, deliveryState: .confirmed, executionTarget: formTarget,
                                 inputPath: "stand-in.event", startedAt: t, endedAt: t, evidenceRefs: ["ev-\(actionId)"],
@@ -342,6 +351,8 @@ struct VerticalSliceTests {
                                                              ("to", .string("2099-01-01T00:00:00Z"))]))
         #expect(usage["inferenceAttempts"]?.intValue == s.upstream.chatRequests)
         #expect(usage["attemptsMissingUsage"]?.intValue == 0)
+        #expect(usage["confirmedActions"]?.intValue == 3)
+        #expect(usage["unknownActionOutcomes"]?.intValue == 0)
 
         // Events are strictly increasing and replayable from a cursor.
         let events = try await s.ok("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(0))]))
@@ -393,6 +404,39 @@ struct VerticalSliceTests {
         let dup = try await reopened.ok("gui.runs.start", Slice.startParams(), key: "restart-run-0001")
         #expect(dup["runId"]?.stringValue == runId)
         #expect(await reopened.executor.executed.isEmpty)
+    }
+
+    // RET-004 / USG at the service: an input with an unknown outcome stops
+    // the run for a person, is never resent, and shows up in usage.
+    @Test func unknownOutcomeWaitsAndIsCounted() async throws {
+        let s = try await Slice()
+        _ = try await s.configure()
+        await s.executor.set(unknownAt: 2)
+        let start = try await s.ok("gui.runs.start", Slice.startParams(), key: "unknown-run-0001")
+        let runId = start["runId"]!.stringValue!
+        var run: JSONValue = .null
+        try await s.waitFor {
+            run = try await s.ok("gui.runs.get", .obj([("runId", .string(runId))]))
+            return ["succeeded", "failed", "cancelled", "waiting_user"].contains(run["state"]?.stringValue ?? "")
+        }
+        #expect(run["state"]?.stringValue == "waiting_user")
+        #expect(run["waitingReasonCode"]?.stringValue == "ACTION_OUTCOME_UNKNOWN")
+        try await Task.sleep(nanoseconds: 200_000_000)
+        #expect(await s.executor.executed.count == 2, "nothing after the unknown input, and it is not resent")
+        let usage = try await s.ok("ai.usage.summary", .obj([("from", .string("2026-01-01T00:00:00Z")),
+                                                             ("to", .string("2099-01-01T00:00:00Z"))]))
+        #expect(usage["confirmedActions"]?.intValue == 1)
+        #expect(usage["unknownActionOutcomes"]?.intValue == 1)
+        // Another caller sees none of it.
+        let stranger = s.service.router(callerScope: "stranger", trustedOwner: false)
+        let req = JSONValue.obj([("schemaVersion", .string("agentdesktop.ai/1")), ("requestId", .string(UUID().uuidString.lowercased())),
+                                 ("command", .string("ai.usage.summary")),
+                                 ("params", .obj([("from", .string("2026-01-01T00:00:00Z")), ("to", .string("2099-01-01T00:00:00Z"))]))]).encodedData()
+        var out = await stranger.respond(toBody: req)
+        out.removeLast()
+        let other = try StrictJSON.parse(out)
+        #expect(other["result"]?["confirmedActions"]?.intValue == 0)
+        #expect(other["result"]?["unknownActionOutcomes"]?.intValue == 0)
     }
 
     // SEC-001 (service part): the key never appears in any response or in
