@@ -17,6 +17,7 @@ let package = Package(
         .library(name: "AgentDesktopContracts", targets: ["AgentDesktopContracts"]),
         .library(name: "AgentDesktopAI", targets: ["AgentDesktopAI"]),
         .library(name: "AgentDesktopGUI", targets: ["AgentDesktopGUI"]),
+        .executable(name: "agentdesktop-cli", targets: ["AgentDesktopCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/szrunworld/2ndscreen.git", exact: engineVersion),
@@ -69,6 +70,16 @@ let package = Package(
         .testTarget(
             name: "AgentDesktopGUITests",
             dependencies: ["AgentDesktopGUI", "AgentDesktopAI", "AgentDesktopContracts"]
+        ),
+        // Contract v1 client (spec §13): talks to the runtime only through
+        // the local endpoint; never links an input backend.
+        .executableTarget(
+            name: "AgentDesktopCLI",
+            dependencies: ["AgentDesktopContracts"]
+        ),
+        .testTarget(
+            name: "AgentDesktopCLITests",
+            dependencies: ["AgentDesktopCLI", "AgentDesktopContracts"]
         ),
     ]
 )
