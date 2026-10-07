@@ -12,7 +12,8 @@
 | T11 CLI | PARTIAL | 只有 rpc 入口与退出码；友好别名、--wait/--follow、--credential-stdin、退出码 5/6/130 待 T03/T07/T08 |
 | T07 Explorer | PARTIAL | RunLifecycle：§07.1 状态边、generation CAS、§07.2 取消协议、未知结果隔离与不可恢复、终态不变；Explorer 循环、GoalVerifier、Runtime 组装待 T01/T05/T06 |
 | T06 UI-TARS codec、坐标、Proposal | PARTIAL | 分支 gui-codec：GUI 领域类型（Contracts/Domain/Gui*.swift）、`CoordinateMapper`（显式协议、crop/resize/letterbox、负原点、不夹紧）、`UITarsCodec`（uitars_v1 严格单动作文法）、`FixtureJsonCodec`（仅测试模式）、`GuiCodecRegistry`、`ProposalFactory`（身份字段只取自 Observation，输出过合同校验）。尚缺：GuiAiProvider（依赖 T05 AiService）、完整 prompt 组装与历史截图裁剪、C# 端 |
-| T05、T08–T10、T12–T14 | NOT_STARTED | |
+| T05 AiService、OpenAIChatTransport、预算与用量 | PARTIAL | AgentDesktopAI/Inference：openai_chat 非流式传输（异步 URLSession、拒绝重定向、2 MiB 响应上限、错误分类不带上游 body）、DefaultAiService（§06.1 七步、单一单调 deadline、取消、账本先预留后请求、过期结果丢弃）、AttemptBudget/StepInference（每步 ≤2、每 run ≤30、429 Retry-After、只重试暂态错误、冻结候选）、UsageSummaryBuilder、内存账本。尚缺：SQLite 账本（T03 接 AiCallLedgerPort）、Keychain CredentialResolver（T04）、ai.models.list/refresh 模型目录、ai.usage.summary 的 RPC 处理器与调用者范围过滤 |
+| T08–T10、T12–T14 | NOT_STARTED | |
 
 ## 契约层测试覆盖（swift test --filter AgentDesktopContractsTests）
 
@@ -28,6 +29,23 @@
 | GUI-001 | codec 侧：恶意字段（execute/shell/screenshot/approval/raw event）一律 INVALID_ACTION；codec 只持有 provenance；Proposal 键集合等于合同键集合 | executor/capture 计数（T07 Runtime） |
 | GUI-002 | 12 组 golden、28 组拒绝（未知/多动作/drag/重复参数/越界等）、type 文本脱敏 | 普通日志/events 落盘后的脱敏扫描（T07/T10） |
 | GUI-004 | codec 侧：stamp/screenshotId 只取自 Observation，模型文本不能改写；非本次观察的截图 STALE_OBSERVATION；按所选截图自身的变换映射 | Runtime 输入前的 generation/target/lease 复核（T07） |
+| TRN-001 | 精确的 path/headers/body（model 原样、stream:false、max_tokens、仅 temperature/seed、image_url 等于夹具 base64）；响应 text/model/usage/requestId 全保留 | 真实上游 |
+| TRN-002 | 路径拼接唯一（含 /api/v3/）；非 openai_chat 协议 UNSUPPORTED_PROTOCOL 且网络 0 | |
+| TRN-003 | 401/403/404/429/5xx/400 分类与 retryable；错误与账本不含上游 body 和 key | |
+| TRN-004 | 非 JSON、截断、缺 choices、content 非字符串、重复键、缺 message 均 UPSTREAM_PROTOCOL_ERROR，随后合法响应成功 | proposal/executor 计数（无 GUI 层） |
+| TRN-005 | 5 张图恰好 8 MiB base64 可发且实际 payload 等于上限；+4 字节与 6 张图 LIMIT_EXCEEDED 且网络 0 | 历史裁剪与保留当前图（GUI Provider，T06/T07） |
+| TRN-006 | requestOptions 只接受 temperature/seed，thinking/厂商扩展/覆盖 model、stream、凭据 VALIDATION_ERROR；max_tokens 取 profile 与 1024 的较小值；超限 LIMIT_EXCEEDED | 生产 UI-TARS profile 的请求（T06） |
+| TRN-007 | 响应体读完前不返回结果；SSE 与截断动作 UPSTREAM_PROTOCOL_ERROR | executor 计数（无 GUI 层） |
+| RET-001 | FakeClock：t<2000 ms 第二次请求 0，t=2000 ms 为 1；剩余 1500 ms 不重试 | |
+| RET-002 | 503 最多 2 次，401/400/坏响应 1 次，从不第 3 次 | INVALID_ACTION/CAPABILITY_MISMATCH（GUI 层） |
+| RET-003 | 暂态失败换到冻结的 fallback（端点、模型、凭据均为快照）；每步总 attempt=2 | 绑定前的越权/能力检查（T07） |
+| RET-004 | 仅证明模型服务没有任何输入端口 | 动作不重放（Runtime，T01/T07） |
+| USG-001 | 失败、成功、取消 3 行且 id 唯一，重复 finish 不重复计数；账本预留失败网络 0，记账失败后阻止下一次调用 | 持久化（T03）、调用者/session 归属 |
+| USG-002 | 100/10、只 input、无 usage 三种：小计 300/10、缺用量 2、无金额 unknown；实际与请求模型分别记录 | UI/CLI 渲染 |
+| USG-003 | requireReportedUsage 时下一次推理 USAGE_UNAVAILABLE 且网络 0；false 对照组继续 | |
+| USG-004 | connectionId/时间过滤、estimated 标签、未知不转 0、结果通过 ai_usage_summary_result 校验 | gui.runs.get、诊断导出、改价后旧 run |
+| SEC-002 | 撤销/缺失凭据 CREDENTIAL_REVOKED/REQUIRED，网络与账本均 0 | Keychain 与重启（T04） |
+| SEC-006 | 真实 URLSession + 回环服务器：302/307 不跟随，B 收到 0 个请求，A 的 Authorization 精确；错误不回显 body（变异测试确认：放开重定向时测试失败） | CLI stdin 与 argv（T11） |
 | 规格示例 | 规格 HTML 中 35 个请求、32 个成功响应、1 个错误响应全部通过校验 | |
 | CLI-001/002（部分） | rpc 完整信封入口、dry-run 不连接且脱敏、本地校验失败 exit 2 且不发送、运行时不可达 exit 3、业务拒绝 exit 4、响应不属于本请求或越出合同 exit 3、单行 stdout | 友好别名、--wait、stdin 凭据 |
 | CAN-001/003/004、RET-004、GUI-008、EXE-003（状态机部分） | 取消先使 generation 失效且不改初始值；迟到建议不能变成输入；在途输入取消后等执行器结论；unknown 保持隔离、不能恢复、重复取消无副作用、终态不变 | 真实 HTTP 取消、执行器、计时器、冲突域锁 |
