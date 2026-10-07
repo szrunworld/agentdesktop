@@ -6,7 +6,7 @@
 
 | 组件 | 来源 |
 | --- | --- |
-| task runtime | 2ndscreen 分支 c01b-generic-build（PR #65）`scripts/install-task-runtime.sh DEST --generic`：bin/node 22.23.2、main.mjs、worker.mjs、build.json；`build.json.inputs` 无任何 `src/boss/` 模块，无 skills 目录 |
+| task runtime | 2ndscreen 分支 c01b-generic-build（PR #65）`scripts/install-task-runtime.sh DEST --generic`：bin/node 22.23.2、main.mjs、worker.mjs、build.json；`build.json.inputs` 无任何 `src/boss/` 模块（BOSS 页面 workflow 与解析器），无 skills 目录。bundle 里仍有旧 skill runner、`platform === 'boss'` 账号校验和简历清单导出（runner.ts、artifacts.ts），它们在本次任务中没有被执行 |
 | 屏幕与输入 | Agent Desktop 0.1.0-dev（产品仓 main 6b9ff7d）以测试副本运行：runtime 通过 `SECONDSCREEN_APP` 指向 `build/Agent Desktop.app`、`SECONDSCREEN_SOCKET` 指向独立 socket，自行拉起副本；`SECONDSCREEN_CLI` 为包内 `libexec/2ndscreen` |
 | 业务 Agent | 无。一个中性 echo 包（agent.json：mode task、executor process、protocol agent-jsonl/1、应用 com.apple.calculator、profile calc-800x600 `mainWindowMinWidth` 150），bin/agent.mjs 收到 task_start 后 observe 一次、提交一个 item、task_finished succeeded |
 | 模型 | 无 provider，无密钥 |
@@ -31,7 +31,14 @@ worker.log：`neutral.echo 0.1.0: runs tasks on request` → `task … started o
 
 ## 结论
 
-通用构建的 runtime 在没有 BOSS 代码、没有模型密钥、没有仓库开发环境、没有旧 2ndscreen.app 的情况下，经真实 worker、agent 宿主和 JSONL 子进程跑完一个中性任务并留下持久化结果。这验证的是装配与进程链路；审批、预算、产物采纳和恢复仍按 C03 至 C05 分别验收。
+通用构建的 runtime 在没有 BOSS 业务包与页面 workflow、没有模型密钥、没有仓库开发环境、没有旧 2ndscreen.app 的情况下，经真实 worker、agent 宿主和 JSONL 子进程跑完一个中性任务并留下持久化结果（`actions.total` 为 0：验证的是观察与结果提交，不含动作执行）。这验证的是装配与进程链路；审批、预算、产物采纳和恢复仍按 C03 至 C05 分别验收。
+
+| 项目 | 状态 |
+| --- | --- |
+| 零业务注册可以启动 | 已完成（#63） |
+| `src/boss` 页面 workflow 与默认 skills 不进入通用产物 | 已验证，构建守卫按复核意见修复（#65） |
+| 中性 JSONL 任务完成并持久化 | 已完成（本记录） |
+| 通用发行物不含 BOSS 生产实现 | 未完成：领域 runner、账号校验、简历导出仍需外置 |
 
 ## 过程中发现
 
