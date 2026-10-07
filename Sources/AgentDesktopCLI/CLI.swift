@@ -25,23 +25,58 @@ public struct CLI {
     public var readFile: (String) throws -> Data
     public var environment: [String: String]
     public var send: (Data, String) -> FrameReader.Result
+    public var readStdin: () -> Data
+    public var nowMs: () -> UInt64
+    public var sleepMs: (Int) -> Void
+    /// True once the user pressed Ctrl-C (main installs the handler).
+    public var interrupted: () -> Bool
 
     public init(stdout: @escaping (String) -> Void = { FileHandle.standardOutput.write(Data(($0 + "\n").utf8)) },
                 stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) },
                 readFile: @escaping (String) throws -> Data = { try Data(contentsOf: URL(fileURLWithPath: $0)) },
                 environment: [String: String] = ProcessInfo.processInfo.environment,
-                send: @escaping (Data, String) -> FrameReader.Result = SocketClient.exchange) {
+                send: @escaping (Data, String) -> FrameReader.Result = SocketClient.exchange,
+                readStdin: @escaping () -> Data = { FileHandle.standardInput.readDataToEndOfFile() },
+                nowMs: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1_000_000 },
+                sleepMs: @escaping (Int) -> Void = { usleep(useconds_t($0 * 1000)) },
+                interrupted: @escaping () -> Bool = { Interrupt.received }) {
         self.stdout = stdout
         self.stderr = stderr
         self.readFile = readFile
         self.environment = environment
         self.send = send
+        self.readStdin = readStdin
+        self.nowMs = nowMs
+        self.sleepMs = sleepMs
+        self.interrupted = interrupted
     }
 
     public static let usage = """
-    usage:
-      agentdesktop [--json] [--socket PATH] rpc --request-file FILE [--dry-run]
-      agentdesktop [--json] [--socket PATH] runtime capabilities [--dry-run]
+    usage: agentdesktop [--json] [--socket PATH] COMMAND [options]
+
+      rpc --request-file FILE                      a complete versioned envelope
+      runtime capabilities
+      ai connections list|get|create|update|disable|delete
+           create: --params-file F --credential-stdin; get/disable/delete: --id ID --expected-revision N;
+           update: --id ID --expected-revision N --params-file PATCH
+      ai credentials rotate --connection-id ID --expected-revision N --credential-stdin
+      ai models list --connection-id ID | refresh --connection-id ID --expected-revision N [--wait]
+      ai model-profiles list|get|create|update|disable|delete   (same flags as connections)
+      ai profiles list|get|create|update|disable|delete         (GUI profiles)
+      ai profiles default get | set (--id ID | --clear) --expected-default-revision N [--expected-profile-revision N]
+      ai tests start --profile-id ID --expected-revision N [--wait]
+      ai operations get|cancel --id ID
+      ai usage --from TIME --to TIME [--connection-id ID]
+      gui run --desktop ID [--session ID] [--profile-id ID --expected-profile-revision N]
+              --goal-file F --verification-file F --allowed-actions click,type,key [--wait]
+      gui status|cancel --run-id ID
+      gui events --run-id ID --after-sequence N [--follow]
+
+    Every command that changes state needs --idempotency-key K; reuse K when retrying.
+    Common: --dry-run (validate only, nothing sent), --wait-timeout-ms N, --deadline-at TIME.
+    Keys are read from stdin only; there is no --api-key.
+    Exit: 0 ok, 2 local validation, 3 runtime unreachable/incompatible, 4 rejected or failed,
+          5 cancelled, 6 stopped waiting, 130 interrupted.
     """
 
     /// The product endpoint, unless SECONDSCREEN_SOCKET names another.
@@ -87,18 +122,8 @@ public struct CLI {
             let data: Data
             do { data = try readFile(file) } catch { return usageError("cannot read \(file)") }
             return submit(data, socket: path, dryRun: dryRun)
-        case "runtime" where words.count >= 2 && words[1] == "capabilities":
-            let dryRun = words.dropFirst(2).contains("--dry-run")
-            guard words.dropFirst(2).allSatisfy({ $0 == "--dry-run" }) else { return usageError("unknown argument") }
-            let req = JSONValue.obj([
-                ("schemaVersion", .string(ContractBundle.schemaVersion)),
-                ("requestId", .string(UUID().uuidString.lowercased())),
-                ("command", .string("runtime.capabilities")),
-                ("params", .obj([])),
-            ])
-            return submit(req.encodedData(), socket: path, dryRun: dryRun)
         default:
-            return usageError(nil)
+            return runFriendly(words, socket: path) ?? usageError(nil)
         }
     }
 
@@ -208,5 +233,15 @@ public enum SocketClient {
             sent += n
         }
         return FrameReader.read(fd: fd)
+    }
+}
+
+/// Ctrl-C while waiting: remembered, so the wait loop can cancel the run
+/// it started before exiting with 130.
+public enum Interrupt {
+    nonisolated(unsafe) private static var flag: sig_atomic_t = 0
+    public static var received: Bool { flag != 0 }
+    public static func install() {
+        signal(SIGINT) { _ in Interrupt.flag = 1 }
     }
 }
