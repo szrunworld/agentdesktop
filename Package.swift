@@ -17,6 +17,7 @@ let package = Package(
         .library(name: "AgentDesktopContracts", targets: ["AgentDesktopContracts"]),
         .library(name: "AgentDesktopAI", targets: ["AgentDesktopAI"]),
         .library(name: "AgentDesktopGUI", targets: ["AgentDesktopGUI"]),
+        .library(name: "AgentDesktopService", targets: ["AgentDesktopService"]),
         .executable(name: "agentdesktop-cli", targets: ["AgentDesktopCLI"]),
     ],
     dependencies: [
@@ -81,6 +82,17 @@ let package = Package(
         .testTarget(
             name: "AgentDesktopCLITests",
             dependencies: ["AgentDesktopCLI", "AgentDesktopContracts"]
+        ),
+        // Composition of contract v1 (spec §03.1): wires AI and GUI into the
+        // 32 handlers. Takes input only through an injected backend.
+        .target(
+            name: "AgentDesktopService",
+            dependencies: ["AgentDesktopContracts", "AgentDesktopAI", "AgentDesktopGUI"]
+        ),
+        .testTarget(
+            name: "AgentDesktopServiceTests",
+            dependencies: ["AgentDesktopService", "AgentDesktopGUI", "AgentDesktopAI",
+                           "AgentDesktopContracts", "AgentDesktopCLI"]
         ),
     ]
 )
