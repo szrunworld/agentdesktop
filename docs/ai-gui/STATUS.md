@@ -10,7 +10,7 @@
 | T03 SQLite 配置存储 | PARTIAL | `AgentDesktopAI/Config`：ConfigStore actor（WAL、migrations v1、§10.3 全部表）、三类资源不可变修订、expectedRevision CAS、tombstone 与引用保护、默认指针独立 CAS、游标绑定过滤条件、fallback≤1 且无自引用/循环、能力证据按层按修订保存；幂等记录按 caller+command+key 存 HMAC 摘要，保留 24 h，崩溃后 pending 标为 failed。21 个配置命令作为 RpcHandler。migrations v2（分支 ai-wiring）：inference_attempts（purpose 互斥 CHECK）、model_catalog、ai_operations；`resolveGuiProfile` 按钉住的修订解析出 AiResolvedModel。尚缺：gui_runs/events/receipts 表（T07）、活跃 run 引用检查只有注入钩子 |
 | T04 凭据与端点 | PARTIAL | CredentialStore 协议、KeychainCredentialStore（com.agentdesktop.ai，不同步）、InMemoryCredentialStore；创建/轮换按 pending→写机密→激活→outbox，撤销后永不解析，outbox 失败重试，恢复清理孤立机密；端点规则与 chat/completions 拼接。尚缺：真实 Keychain 只写了默认跳过的测试；DPAPI（Windows）；StoreCredentialResolver 只解析 active identity；CredentialRevocationAdmission 由 outbox 撤销事件和持久状态共同判定，在途调用结果作废。尚缺：transport 连接时的 loopback 复核 |
 | T11 CLI | PARTIAL | 只有 rpc 入口与退出码；友好别名、--wait/--follow、--credential-stdin、退出码 5/6/130 待 T03/T07/T08 |
-| T07 Explorer | PARTIAL | RunLifecycle：§07.1 状态边、generation CAS、§07.2 取消协议、未知结果隔离与不可恢复、终态不变；Explorer 循环、GoalVerifier、Runtime 组装待 T01/T05/T06 |
+| T07 Provider、Explorer、验证、gui.runs | PARTIAL | RunLifecycle（§07 状态机）；GuiAiProvider（只依赖 AiService/codec/纯数据，版本化 prompt，当前图必保留的历史裁剪，经 StepInference 用冻结候选与共享预算）；GuiRunDriver（§06.3 有界循环：取消/generation/deadline/步数/attempt 先检查，finish 只触发新观察+验证，needs_user 与 unknown 进 waiting_user 且绝不重发，迟到结果记 discarded，审计写失败即 AUDIT_UNAVAILABLE）；GoalVerifier（element_text_equals/static_text 精确匹配，后端读不到元素时 CAPABILITY_MISMATCH）；GuiRunService（gui.runs.start/get/cancel/events、runtime.capabilities；按 caller 隔离，start 幂等，默认 profile 在 start 时解析后固定，省略 sessionId 仅限 owner）；ConfigBindingResolver（精确修订快照、禁用/过期/撤销/不兼容 fallback 在调用模型前拒绝）；InMemoryGuiRunRepository。尚缺：SQLite 版 GuiRunRepository 与审计端口、Runtime 侧真实观察/执行端口（T01，真实 GUI 输入保持关闭：无执行后端时 start 返回 CAPABILITY_MISMATCH）、崩溃重启恢复（§07.4）|
 | T06 UI-TARS codec、坐标、Proposal | PARTIAL | 分支 gui-codec：GUI 领域类型（Contracts/Domain/Gui*.swift）、`CoordinateMapper`（显式协议、crop/resize/letterbox、负原点、不夹紧）、`UITarsCodec`（uitars_v1 严格单动作文法）、`FixtureJsonCodec`（仅测试模式）、`GuiCodecRegistry`、`ProposalFactory`（身份字段只取自 Observation，输出过合同校验）。尚缺：GuiAiProvider（依赖 T05 AiService）、完整 prompt 组装与历史截图裁剪、C# 端 |
 | T05 AiService、OpenAIChatTransport、预算与用量 | PARTIAL | AgentDesktopAI/Inference：openai_chat 非流式传输（异步 URLSession、拒绝重定向、2 MiB 响应上限、错误分类不带上游 body）、DefaultAiService（§06.1 七步、单一单调 deadline、取消、账本先预留后请求、过期结果丢弃）、AttemptBudget/StepInference（每步 ≤2、每 run ≤30、429 Retry-After、只重试暂态错误、冻结候选）、UsageSummaryBuilder、内存账本。尚缺：SQLite 账本（T03 接 AiCallLedgerPort）、Keychain CredentialResolver（T04）、ai.models.list/refresh 模型目录、ai.usage.summary 的 RPC 处理器与调用者范围过滤；分支 ai-wiring 接上持久层：SQLiteAiCallLedger（同库预留→终态、按 attemptId 去重、记账失败阻断该预算范围、重启后 reserved→interrupted 并阻断直到核对）、ai.models.list/refresh（GET <base>/models，同一传输、失败保留旧缓存并标 stale、列表不改能力状态）、ai.usage.summary 处理器（按调用者范围、from/to/connectionId）、ai.operations.get/cancel、AiApplicationHandlers 汇总 |
 | T08 四层能力测试 | PARTIAL | 分支 ai-wiring，`AgentDesktopGUI/CapabilityTests`：ai.tests.start → operation，network（无凭据 GET base）→ auth_model → image_input（双色图）→ gui_contract（单按钮图，codec 解出点击且落在按钮内）；前置层失败后续 skipped；每 operation ≤3 次模型调用、无隐藏重试、单一 120 s deadline；证据按模型修订写入（gui_contract 带 adapter/prompt/parser 版本）；失败保留已完成层；取消不进下一层；服务不持有任何观察/输入端口。尚缺：W04 页面（T09）、真实模型上的测试素材效果 |
@@ -84,3 +84,23 @@
 | CAN-004 | operation 取消：受理与终态分开、终态后重复取消 accepted=false 且无新请求/尝试、已取消的重复取消幂等、他人 operation NOT_FOUND；重启后未完成 operation 结束 | |
 | UI-004（服务端部分） | 分层结果、pending/cancelled/failed 区分、performedDesktopInput=false、费用来自尝试记录 | 页面 |
 
+## GUI 运行层测试覆盖（swift test --filter AgentDesktopGUITests，执行器与观察为模拟中立表单的替身）
+| MAC-001（单元化） | 模型依次 click 姓名框 → type Ada → click 应用 → finish；页面结果晚一拍显示时由 finish 之后更新的观察验证通过；执行器恰好 3 个动作、提交次数 1、模型调用/步数/事件序号/回执与 Schema 一致；事件不含键入正文 | 真机、真实模型、原生输入隔离（G5） |
+| GUI-001 | Provider 构造参数（反射 3 层）不含任何端口；多 Action 回复 INVALID_ACTION、无提案无输入、推理回执仍入账 | |
+| GUI-003 | finish 但文本不符不能成功（预算耗尽 LIMIT_EXCEEDED，验证 failed）；每次 finish 后都有新观察；后端读不到元素 CAPABILITY_MISMATCH | 模型改写谓词：谓词只来自 binding，模型无任何写入路径 |
+| GUI-004 | 提案的 stamp/screenshotId 只取自观察，模型文本里的 desk/snapshot 字样无效；回执与 Schema 一致 | Runtime 输入前复核（T01） |
+| GUI-005 | 未授权动作 FORBIDDEN、执行器 0 次、表单未变 | 禁用提交目标（Runtime hold，T01） |
+| GUI-006 | 第 21 步不发生（20 次调用、20 步）；每步最多 2 次 attempt；全程 attempt 上限；wall deadline 到点后不再发模型 | |
+| GUI-007 | wait 0/5000 可用且消耗一步、之后重新观察；5001/-1 拒绝且无输入；等待中取消撤销计时器、不再观察 | |
+| GUI-008 | needs_user → waiting_user；unknown → waiting_user/ACTION_OUTCOME_UNKNOWN；resume 命令 UNSUPPORTED_COMMAND | Runtime 核对流程（T01） |
+| CAN-002 | 推理中取消：HTTP 任务取消、run cancelled、generation 2 而 binding 仍为 1、输入 0；迟到答案记 discarded、不入审计、不产生输入（变异检查：去掉丢弃判断后测试失败） | 真实 URLSession 取消回调（T05 已测） |
+| CAN-003 | 输入中取消：cancelling 且非终态，执行器回执后才 cancelled，不再调用模型 | |
+| CAN-004 | 结束后重复取消 3 次：accepted=false、状态与事件数不变、无新调用 | |
+| RET-003（GUI 侧） | 主候选 503 后在同一步内改用 binding 冻结的 fallback（candidateIndex 1），共 2 次 attempt | |
+| RET-004 | unknown 后不自动重点击：提交 1 次、执行 1 次、模型 1 次 | |
+| RPC-005（服务侧） | 非 owner 省略 sessionId FORBIDDEN；伪造 sessionId FORBIDDEN；合法显式 session 可启动 | 真实 session 授权（T01） |
+| RPC-006 | 10 个并发同 key start 只得一个 runId、模型只调用一次 | 断连后重试（传输层） |
+| RPC-007 | 同 key 不同内容 IDEMPOTENCY_CONFLICT；其他 caller get/cancel 得 NOT_FOUND | |
+| RPC-008 | 事件序号严格递增、after=2 只返回 >2、重复读取一致、after=last 为空、分页 nextAfterSequence/hasMore、过期游标 EVENTS_CURSOR_EXPIRED、未知 ID NOT_FOUND | 持久化保留策略（SQLite 版） |
+| TRN-005（GUI 侧） | 6 张历史 + 当前：发送 5 张、当前必在、保留最新历史；字节预算紧时只发当前图 | |
+| D07 / CFG-004（运行侧） | 改默认 profile 后已有 run 的 binding 不变、新 run 用新默认；禁用 profile RESOURCE_DISABLED、过期修订 CONFIG_CONFLICT，均不调用模型 | |
