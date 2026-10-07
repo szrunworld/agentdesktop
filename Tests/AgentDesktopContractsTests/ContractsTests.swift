@@ -226,7 +226,7 @@ struct EnvelopeTests {
             calls.bump()
             return .obj([("items", .array([goodConnection.setting("apiKey", .string("sk-canary"))])), ("nextCursor", .null)])
         }
-        let legacyHandler: (@Sendable (JSONValue) async -> Data)? = legacy ? { _ in Data("{\"ok\":true}\n".utf8) } : nil
+        let legacyHandler: (@Sendable (JSONValue) async -> Data)? = legacy ? { @Sendable _ in Data("{\"ok\":true}\n".utf8) } : nil
         return RpcRouter(handlers: ["ai.connections.list": list, "ai.modelProfiles.list": broken], legacy: legacyHandler)
     }
 
