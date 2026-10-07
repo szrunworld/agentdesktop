@@ -17,6 +17,8 @@ jobs:
           swift package resolve
           git diff --exit-code Package.resolved
           test ! -d Packages
+      - name: Build checks have their regression cases
+        run: ./scripts/test-check-engine-checkout.sh
       - name: Build
         run: swift build -c release
       - name: Unit tests
@@ -25,12 +27,22 @@ jobs:
         run: ./scripts/bundle-app.sh
       - name: Bundle contents
         run: |
-          find "build/Agent Desktop.app" -type f | sort
+          find "build/Agent Desktop.app" | sort
           cat "build/Agent Desktop.app/Contents/Resources/build.json"
           codesign --verify --strict "build/Agent Desktop.app"
-      - name: Keep the bundle
+      - name: The archive matches its manifest
+        run: ./scripts/verify-archive.sh build/Agent\ Desktop-*.zip build/Agent\ Desktop-*.manifest.json
+      - name: The bundled command line refuses tasks without the product's runtime
+        run: |
+          out="$("build/Agent Desktop.app/Contents/Resources/bin/agentdesktop" task status nope || true)"
+          echo "$out"
+          echo "$out" | grep -q '"capability_missing"'
+          echo "$out" | grep -q 'Agent Desktop.app/Contents/Resources/bin/../task-runtime'
+      - name: Keep the archive and manifest
         uses: actions/upload-artifact@v4
         with:
-          name: Agent-Desktop-app
-          path: build/Agent Desktop.app
+          name: Agent-Desktop-archive
+          path: |
+            build/Agent Desktop-*.zip
+            build/Agent Desktop-*.manifest.json
           if-no-files-found: error

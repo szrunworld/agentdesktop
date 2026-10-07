@@ -15,20 +15,23 @@ Agent Desktop 是面向用户的独立桌面产品：把支持范围内的桌面
 open "build/Agent Desktop.app"   # 菜单栏图标；首次启动会打开一个虚拟显示
 ```
 
-脚本做的事：以 release 构建宿主和引擎的 `2ndscreen` 命令行，装进 bundle，用一个专用 keychain 里的自签证书签名（`~/Library/Keychains/agentdesktop-signing.keychain-db`，首次运行创建），并把产物来源写进 `Contents/Resources/build.json`。macOS 把屏幕录制和辅助功能授权绑定到签名证书，所以授权在重新构建后仍然有效。正式发布改用 Developer ID 签名和公证（路线 A04）。
+脚本做的事：解析依赖并核对引擎 checkout 与锁定提交完全一致，以 release 构建宿主和引擎的 `2ndscreen` 命令行，装进 bundle，用一个专用 keychain 里的自签证书签名（`~/Library/Keychains/agentdesktop-signing.keychain-db`，首次运行创建）。签名后再在 `build/` 下生成保留完整 `.app` 结构的 zip 归档和分发清单 `Agent Desktop-<build>.manifest.json`，清单记录归档和包内每个文件的 SHA-256，可用 `scripts/verify-archive.sh` 校验。包内的 `Contents/Resources/build.json` 记录的是签名前的构建输入（引擎版本与提交、二进制的签名前哈希），用于追溯，不用于校验最终文件。macOS 把屏幕录制和辅助功能授权绑定到签名证书，所以授权在重新构建后仍然有效。正式发布改用 Developer ID 签名和公证（路线 A04）。
 
-脚本会拒绝本地覆盖的依赖：`Packages/` 目录、`swift package edit` 状态，或 `.build/checkouts/2ndscreen` 里有改动时都不打包。
+脚本会拒绝本地覆盖的依赖：`Packages/` 目录、`swift package edit` 状态，或 `.build/checkouts/2ndscreen` 不在锁定提交、有工作区改动、有暂存改动或有未跟踪文件时都不打包（`scripts/check-engine-checkout.sh`，回归用例在 `scripts/test-check-engine-checkout.sh`）。
 
-单元测试：`swift test`。本机只装 Command Line Tools 时没有 XCTest，测试由 CI（`.github/workflows/macos.yml`，macOS runner）运行。
+单元测试：`swift test`（swift-testing，只装 Command Line Tools 也能跑）。CI 见 `.github/workflows/macos.yml`。
 
 ## 命令行
 
-包内有两个入口：
+受支持的入口只有 `Contents/Resources/bin` 下的两个名字，它们是同一个脚本：
 
 | 路径 | 作用 |
 | --- | --- |
-| `Contents/Resources/bin/agentdesktop` | 产品的命令行：同一个 `2ndscreen` CLI，默认连到本产品的 endpoint |
-| `Contents/Resources/bin/2ndscreen` | 引擎的 CLI 本体，按 `SECONDSCREEN_SOCKET` 选择连接目标 |
+| `Contents/Resources/bin/agentdesktop` | 产品的命令行 |
+| `Contents/Resources/bin/2ndscreen` | 同一个命令，沿用引擎的命令名 |
+| `Contents/Resources/libexec/2ndscreen` | 引擎 CLI 的二进制本体，不作为入口使用 |
+
+入口脚本把 `SECONDSCREEN_SOCKET` 默认指到本产品的 endpoint（测试副本时可以自己指定），并把 `SECONDSCREEN_TASK_RUNTIME` 固定绑定到本产品包内的 `Contents/Resources/task-runtime`。这样 `task` 命令和 MCP 里派生 task 子进程的工具只会用产品自己的 runtime；目录还不存在时直接返回 `capability_missing`，不会退回到正在运行的 2ndscreen.app 里的 runtime。直接执行 `libexec` 里的二进制不在支持范围内，它会按引擎自己的规则去找 runtime。
 
 ```bash
 CLI="build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
@@ -38,7 +41,7 @@ CLI="build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
 "$CLI" screen destroy demo
 ```
 
-命令的完整说明在引擎仓 README。`2ndscreen task …` 在本阶段报「runtime 未安装」：task runtime 要等引擎发布不带业务 skills 的版本后再装进产品包（路线 C01）。`2ndscreen android …` 在产品里明确返回不支持。
+命令的完整说明在引擎仓 README。`agentdesktop task …` 在本阶段返回 `capability_missing`，消息里是产品包内尚不存在的 runtime 路径：task runtime 要等引擎发布不带业务 skills 的版本后再装进产品包（路线 C01）。`agentdesktop android …` 在产品里明确返回不支持。
 
 ## 角色、endpoint 与编号
 

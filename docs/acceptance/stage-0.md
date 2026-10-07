@@ -58,4 +58,16 @@ osascript quit                              → 进程退出，socket 文件被�
 
 - 没有用拟发布签名（Developer ID）和 helper 启动模式，没有公证试包。这是阶段 1 的内容。
 - 没有在目标机逐项回归菜单功能（预览、窗口搬移、热键）。
-- `swift test` 本机无 XCTest，单元测试只在 CI 跑。
+- 单元测试改用 swift-testing 后本机可跑；真机操作项仍需手工。
+
+## 补丁记录（2026-10-07 晚，评审后）
+
+评审指出三项问题，均已在本仓修正：
+
+| 问题 | 修正 | 验证 |
+| --- | --- | --- |
+| 产品 CLI 可能借用运行中 2ndscreen.app 的 runtime（引擎 `TaskRuntime.locate` 按旧 bundle id 兜底） | 引擎二进制移到 `libexec/`；`bin/2ndscreen` 与 `bin/agentdesktop` 是同一个入口脚本，固定 `SECONDSCREEN_TASK_RUNTIME` 为产品包内路径；MCP 子进程继承同一环境 | 在本机给 2ndscreen.app 测试副本临时挂上 `build/task-runtime` 并运行后：`bin/agentdesktop task status`、`bin/2ndscreen task status`、MCP `task_status` 均返回 `capability_missing` 且消息指向产品路径；裸 `libexec/2ndscreen` 则借用了旧 runtime（返回 `not_found`），所以它不是受支持入口。CI 固定检查入口在无 runtime 时拒绝 |
+| 依赖改动检查只看工作区 | `scripts/check-engine-checkout.sh` 在编译前核对提交并用 `git status --porcelain --untracked-files=all` | `scripts/test-check-engine-checkout.sh` 六个用例：干净、工作区改动、暂存改动、未跟踪文件、新目录内未跟踪文件、另一提交；CI 运行 |
+| `build.json` 的哈希是签名前的，与包内文件不符 | 字段改名为 `inputs` 并注明语义；签名后在包外生成 zip 归档与分发清单，含每个文件和归档的 SHA-256 以及符号链接 | `scripts/verify-archive.sh` 解包后逐文件比对；CI 运行并上传归档与清单 |
+
+未变：截图仍待新 App 的屏幕录制授权；单实例检查仍非原子（C02）。

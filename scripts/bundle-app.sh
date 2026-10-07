@@ -2,10 +2,17 @@
 # Build the product host and wrap it in "build/Agent Desktop.app".
 #
 # The bundle holds, with their provenance in Contents/Resources/build.json:
-#   Contents/MacOS/Agent Desktop          the host (Sources/AgentDesktop)
-#   Contents/Resources/bin/2ndscreen      the engine's CLI, built from the pinned
-#                                         2ndscreen release in the dependency graph
-#   Contents/Resources/bin/agentdesktop   the CLI pointed at this product's endpoint
+#   Contents/MacOS/Agent Desktop            the host (Sources/AgentDesktop)
+#   Contents/Resources/libexec/2ndscreen    the engine's CLI, built from the pinned
+#                                           2ndscreen release in the dependency graph
+#   Contents/Resources/bin/2ndscreen        the supported command line: the CLI bound
+#                                           to this product's endpoint and runtime
+#   Contents/Resources/bin/agentdesktop     the same command under the product's name
+#
+# Beside the bundle, after signing: "Agent Desktop-<build>.zip" (ditto, keeps
+# the .app) and "Agent Desktop-<build>.manifest.json" with the sha256 of every
+# file as shipped and of the archive. build.json inside the bundle records the
+# build inputs before signing; the manifest records what is distributed.
 #
 # Not in the bundle, by decision (docs/boundaries.md): Android tools (adb,
 # scrcpy) and the task runtime. The task runtime joins once a 2ndscreen
@@ -39,39 +46,41 @@ if [[ -f .build/workspace-state.json ]] && grep -q '"edited"' .build/workspace-s
     exit 1
 fi
 
+# The engine is compiled exactly as pinned: resolve first, then refuse a
+# checkout at another commit or with any change (work tree, index, untracked).
+swift package resolve
+ENGINE_REVISION="$(/usr/bin/python3 -c 'import json,sys; p=[x for x in json.load(open("Package.resolved"))["pins"] if x["identity"]=="2ndscreen"][0]; print(p["state"]["revision"])')"
+ENGINE_VERSION="$(/usr/bin/python3 -c 'import json,sys; p=[x for x in json.load(open("Package.resolved"))["pins"] if x["identity"]=="2ndscreen"][0]; print(p["state"].get("version","")) ')"
+"$ROOT/scripts/check-engine-checkout.sh" "$ROOT/.build/checkouts/2ndscreen" "$ENGINE_REVISION"
+
 swift build -c release
 swift build -c release --product 2ndscreen
 BIN_DIR="$(swift build -c release --show-bin-path)"
 BIN="$BIN_DIR/AgentDesktop"
 CLI="$BIN_DIR/2ndscreen"
 
-# The engine actually built: the resolved pin and the checkout must agree.
-ENGINE_REVISION="$(/usr/bin/python3 -c 'import json,sys; p=[x for x in json.load(open("Package.resolved"))["pins"] if x["identity"]=="2ndscreen"][0]; print(p["state"]["revision"])')"
-ENGINE_VERSION="$(/usr/bin/python3 -c 'import json,sys; p=[x for x in json.load(open("Package.resolved"))["pins"] if x["identity"]=="2ndscreen"][0]; print(p["state"].get("version","")) ')"
-CHECKOUT_REVISION="$(git -C .build/checkouts/2ndscreen rev-parse HEAD)"
-if [[ "$ENGINE_REVISION" != "$CHECKOUT_REVISION" ]]; then
-    echo "error: Package.resolved pins 2ndscreen at $ENGINE_REVISION but the checkout is at $CHECKOUT_REVISION" >&2
-    exit 1
-fi
-if ! git -C .build/checkouts/2ndscreen diff --quiet; then
-    echo "error: the 2ndscreen checkout has local changes; builds use the pinned release only" >&2
-    exit 1
-fi
-
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/bin"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/bin" "$APP/Contents/Resources/libexec"
 cp "$BIN" "$APP/Contents/MacOS/Agent Desktop"
-cp "$CLI" "$APP/Contents/Resources/bin/2ndscreen"
-# The product's command line: the same CLI, routed to this product's endpoint
-# (Sources/AgentDesktop/HostRole.swift) unless the caller chose a socket.
-cat > "$APP/Contents/Resources/bin/agentdesktop" <<'WRAPPER'
+cp "$CLI" "$APP/Contents/Resources/libexec/2ndscreen"
+# The supported command line is the CLI bound to this product: its endpoint
+# (Sources/AgentDesktop/HostRole.swift; a caller testing a side instance may
+# choose another socket) and its own task runtime directory, always. The
+# engine's CLI would otherwise fall back to the runtime inside a running
+# 2ndscreen.app, mixing that host's runtime with this product; bound to a
+# directory that does not exist yet, `task` and the MCP tools that spawn it
+# refuse instead. The MCP server runs the same executable with this
+# environment, so its task tools are bound the same way.
+cat > "$APP/Contents/Resources/bin/2ndscreen" <<'WRAPPER'
 #!/bin/bash
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 : "${SECONDSCREEN_SOCKET:=$HOME/Library/Application Support/AgentDesktop/control.sock}"
 export SECONDSCREEN_SOCKET
-exec "$here/2ndscreen" "$@"
+export SECONDSCREEN_TASK_RUNTIME="$here/../task-runtime"
+exec "$here/../libexec/2ndscreen" "$@"
 WRAPPER
-chmod 755 "$APP/Contents/Resources/bin/agentdesktop"
+chmod 755 "$APP/Contents/Resources/bin/2ndscreen"
+ln -s 2ndscreen "$APP/Contents/Resources/bin/agentdesktop"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -99,16 +108,17 @@ cat > "$APP/Contents/Resources/build.json" <<JSON
   "version": "$VERSION",
   "build": "$BUILD_LABEL",
   "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "source": "$(git rev-parse --verify -q HEAD || echo unknown)$(git diff --quiet 2>/dev/null || echo -dirty)",
+  "source": "$(git rev-parse --verify -q HEAD || echo unknown)$([[ -z "$(git status --porcelain --untracked-files=all 2>/dev/null)" ]] || echo -dirty)",
   "swift": "$(swift --version 2>&1 | head -1)",
   "engine": {
     "package": "https://github.com/szrunworld/2ndscreen.git",
     "version": "$ENGINE_VERSION",
     "revision": "$ENGINE_REVISION"
   },
-  "files": {
+  "inputs": {
+    "note": "sha256 of the build products before the bundle's signature; the files as shipped are listed in the distribution manifest beside the archive",
     "Contents/MacOS/Agent Desktop": "$(sha "$BIN")",
-    "Contents/Resources/bin/2ndscreen": "$(sha "$CLI")"
+    "Contents/Resources/libexec/2ndscreen": "$(sha "$CLI")"
   },
   "taskRuntime": null,
   "android": null
@@ -168,7 +178,7 @@ done < <(security list-keychains -d user)
 restore_keychains() { security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}"; }
 security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" "$KEYCHAIN"
 # Nested code is signed before the bundle that seals it.
-if ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.cli" "$APP/Contents/Resources/bin/2ndscreen" \
+if ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.cli" "$APP/Contents/Resources/libexec/2ndscreen" \
     || ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"; then
     restore_keychains
     exit 1
@@ -181,4 +191,41 @@ if find "$APP" \( -name adb -o -name scrcpy-server -o -path '*/Resources/android
     echo "error: the bundle carries Android tools or business skills" >&2
     exit 1
 fi
+
+# What is distributed: the signed bundle as an archive that keeps the .app,
+# and a manifest of every file as shipped plus the archive itself. Written
+# beside the bundle, never inside it: the seal covers Contents/Resources.
+ARCHIVE="$ROOT/build/Agent Desktop-$BUILD_LABEL.zip"
+MANIFEST="$ROOT/build/Agent Desktop-$BUILD_LABEL.manifest.json"
+rm -f "$ARCHIVE" "$MANIFEST"
+ditto -c -k --keepParent "$APP" "$ARCHIVE"
+{
+    echo "{"
+    echo "  \"product\": \"Agent Desktop\", \"build\": \"$BUILD_LABEL\", \"bundleId\": \"$BUNDLE_ID\","
+    echo "  \"engine\": { \"version\": \"$ENGINE_VERSION\", \"revision\": \"$ENGINE_REVISION\" },"
+    echo "  \"archive\": { \"name\": \"$(basename "$ARCHIVE")\", \"sha256\": \"$(sha "$ARCHIVE")\" },"
+    echo "  \"files\": {"
+    first=1
+    while IFS= read -r f; do
+        rel="${f#"$APP/"}"
+        [[ $first == 1 ]] || echo ","
+        first=0
+        printf '    "%s": "%s"' "$rel" "$(sha "$f")"
+    done < <(find "$APP" -type f | LC_ALL=C sort)
+    echo
+    echo "  },"
+    echo "  \"links\": {"
+    first=1
+    while IFS= read -r f; do
+        rel="${f#"$APP/"}"
+        [[ $first == 1 ]] || echo ","
+        first=0
+        printf '    "%s": "%s"' "$rel" "$(readlink "$f")"
+    done < <(find "$APP" -type l | LC_ALL=C sort)
+    echo
+    echo "  }"
+    echo "}"
+} > "$MANIFEST"
 echo "built $APP ($BUILD_LABEL on 2ndscreen $ENGINE_VERSION $ENGINE_REVISION)"
+echo "archive $ARCHIVE"
+echo "manifest $MANIFEST"

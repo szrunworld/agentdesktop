@@ -43,7 +43,7 @@
 
 ## 版本与依赖
 
-- `Package.swift` 用 `exact` 固定引擎版本，`Package.resolved` 一起提交；打包脚本核对解析到的提交和 checkout 一致，有本地改动就拒绝。
+- `Package.swift` 用 `exact` 固定引擎版本，`Package.resolved` 一起提交；打包脚本在编译前核对 checkout 在锁定提交上，且工作区、暂存区和未跟踪文件都干净，否则拒绝。
 - 引擎改动的路径：在 2ndscreen 合并 → 发布新 tag → 本仓改依赖版本 → 重新打包验收。
 - 不改旧 tag；不在 `.build/checkouts` 里改代码；`swift package edit` 只用于本机试验，CI 与发布构建拒绝。
 
@@ -51,7 +51,8 @@
 
 | 需要 | 对应路线工作项 | 本仓目前的处理 |
 | --- | --- | --- |
-| 不带业务 skills 的 task runtime 安装选项 | C01 | 产品包不装 task runtime，`2ndscreen task` 报未安装 |
+| 不带业务 skills 的 task runtime 安装选项 | C01 | 产品包不装 task runtime；入口脚本把 runtime 绑定到产品包内路径，`task` 与 MCP 的 task 工具返回 `capability_missing`，不借用运行中 2ndscreen.app 的 runtime |
+| CLI 的宿主绑定与 runtime 发现策略（不再按旧 bundle id 兜底） | 上游后续版本 | 产品只支持 `bin/` 下的入口脚本；`libexec` 二进制不作为入口 |
 | endpoint 所有权与版本握手、跨产品仲裁 | C02 | 单实例检查只看是否有人监听 |
 | 统一任务读模型与按任务控制 | C03 | 未开始任务界面 |
 | ControlServer 对无请求连接的 SIGPIPE 处理 | 已提 issue | 宿主进程忽略 SIGPIPE |
