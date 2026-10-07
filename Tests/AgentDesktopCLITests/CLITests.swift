@@ -155,7 +155,8 @@ final class Harness {
         windowId: 9, process: ProcessIdentity(pid: 5, startedAt: nil), appName: "微信", bundleId: nil, title: title,
         frame: Rect(x: 0, y: 0, width: 1, height: 1), onScreen: true).json]))]) }
     #expect(h.run("window", "list", "--format", "json") == 0)
-    #expect(!h.out[0].contains("\n"))
+    let holds = !(h.out[0].contains("\n"))
+    #expect(holds)
     #expect(h.err.isEmpty, "stderr stays clean")
     let v = try h.json()
     #expect(v["data"]?["windows"]?.arrayValue?.first?["title"]?.stringValue == title)
@@ -275,6 +276,7 @@ final class Harness {
     var cli = h.cli
     cli.runContract = { _ in delegated = true; return 0 }
     _ = cli.run(["runtime", "capabilities"])
-    #expect(!delegated, "runtime capabilities is agentdesktop.runtime/1")
+    let holds = !(delegated)
+    #expect(holds, "runtime capabilities is agentdesktop.runtime/1")
     #expect(h.requests == ["runtime.capabilities"])
 }

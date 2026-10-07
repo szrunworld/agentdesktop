@@ -40,7 +40,8 @@ func client(_ t: ScriptedTransport) -> SocketRuntimeClient {
     let env = ["HOME": "/Users/u", EndpointResolver.environmentKey: "~/side.sock"]
     #expect(EndpointResolver.resolve(option: "/a.sock", environment: env) == Endpoint(path: "/a.sock", source: .option))
     #expect(EndpointResolver.resolve(option: nil, environment: env).source == .environment)
-    #expect(!EndpointResolver.resolve(option: nil, environment: env).path.hasPrefix("~"))
+    let holds = !(EndpointResolver.resolve(option: nil, environment: env).path.hasPrefix("~"))
+    #expect(holds)
     #expect(EndpointResolver.resolve(option: nil, environment: ["HOME": "/Users/u"])
         == Endpoint(path: "/Users/u/Library/Application Support/AgentDesktop/runtime.sock", source: .product))
 }

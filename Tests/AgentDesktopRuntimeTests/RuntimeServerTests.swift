@@ -21,7 +21,8 @@ func startServer(_ path: String, backend: RuntimeBackend = FixedBackend()) throw
     #expect(st.st_mode & 0o777 == 0o600)
     #expect(st.st_uid == getuid())
     server.stop()
-    #expect(!FileManager.default.fileExists(atPath: path))
+    let holds = !(FileManager.default.fileExists(atPath: path))
+    #expect(holds)
 }
 
 @Test func aSecondServerOnTheSamePathIsRefusedAndTheFirstKeepsServing() throws {

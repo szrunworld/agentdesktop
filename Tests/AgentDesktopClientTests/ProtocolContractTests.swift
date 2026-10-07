@@ -33,7 +33,8 @@ let contract = RuntimeContract.shared
             #expect(violations.isEmpty, "\(f): \(violations)")
         } else {
             #expect(f.hasSuffix(".invalid.json"), "\(f) must end in .valid.json or .invalid.json")
-            #expect(!violations.isEmpty, "\(f) should be refused")
+            let holds = !(violations.isEmpty)
+            #expect(holds, "\(f) should be refused")
         }
     }
 }
@@ -41,7 +42,8 @@ let contract = RuntimeContract.shared
 @Test func methodCatalogMatchesTheImplementedMethods() {
     #expect(Set(contract.methods.map(\.method)) == Set(RuntimeMethod.allCases.map(\.rawValue)))
     for m in contract.methods {
-        #expect(!contract.validate(.obj([]), m.params).contains { $0.contains("$ref") }, "\(m.params) missing")
+        let holds = !(contract.validate(.obj([]), m.params).contains { $0.contains("$ref") })
+        #expect(holds, "\(m.params) missing")
         #expect(m.mutation == false, "PR1 exposes reads only: \(m.method)")
     }
 }
@@ -90,7 +92,8 @@ let contract = RuntimeContract.shared
     for resp in [ok, failed] {
         #expect(contract.validate(resp.json, "Response").isEmpty)
         #expect(RuntimeResponse(validated: resp.json) == resp)
-        #expect(!resp.json.encoded().contains("\n"), "one response is one line")
+        let holds = !(resp.json.encoded().contains("\n"))
+        #expect(holds, "one response is one line")
     }
 }
 
