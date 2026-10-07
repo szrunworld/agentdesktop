@@ -4,7 +4,7 @@ import SecondScreenCore
 // vdisplay — create a software-backed display that lives as long as this
 // process does.
 //
-//   swift run vdisplay [--width 1920] [--height 1080] [--hidpi] [--name "2ndscreen"]
+//   swift run vdisplay [--width 1920] [--height 1080] [--hidpi] [--name "AgentDesktop diagnostic"]
 //                      [--preview [--fps 15] [--float]] [--serial 2]
 //
 // --width/--height are in points. With --hidpi the display is backed by 2x
@@ -37,7 +37,7 @@ struct Options {
     var width = 1920
     var height = 1080
     var hiDPI = false
-    var name = "2ndscreen"
+    var name = "AgentDesktop diagnostic"
     var refreshRate = 60.0
     var preview = false
     var previewFPS: Int32 = 15

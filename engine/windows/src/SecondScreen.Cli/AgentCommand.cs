@@ -7,7 +7,7 @@ using SecondScreen.Tars;
 namespace SecondScreen.Cli;
 
 /// <summary>
-/// <c>2ndscreen agent</c>: run an instruction with a UI-TARS vision model on an agent screen,
+/// <c>agentdesktop agent</c>: run an instruction with a UI-TARS vision model on an agent screen,
 /// acting only on one program, through this command's own state, click, type and the rest.
 /// </summary>
 [SupportedOSPlatform("windows")]
@@ -18,7 +18,7 @@ public static class AgentCommand
         var instruction = string.Join(' ', args.Positional.Skip(1)).Trim();
         if (args.Value("--screen") is not { } screen || !int.TryParse(args.Value("--pid"), out var pid) || instruction.Length == 0)
         {
-            Console.Error.WriteLine("usage: 2ndscreen agent --screen NAME --pid PID [--window-id ID] [--allow-submit] [--foreground] [--no-learn] [--max-steps N] INSTRUCTION");
+            Console.Error.WriteLine("usage: agentdesktop agent --screen NAME --pid PID [--window-id ID] [--allow-submit] [--foreground] [--no-learn] [--max-steps N] INSTRUCTION");
             return 2;
         }
         long? windowId = long.TryParse(args.Value("--window-id"), out var id) ? id : null;
@@ -99,7 +99,7 @@ public static class AgentCommand
         /// <summary>The whole screen in its physical pixels, the space the model's boxes map onto.</summary>
         public byte[] Screenshot()
         {
-            var path = Path.Combine(Path.GetTempPath(), $"2ndscreen-agent-{Environment.ProcessId}.png");
+            var path = Path.Combine(Path.GetTempPath(), $"agentdesktop-agent-{Environment.ProcessId}.png");
             try
             {
                 var response = ControlPipe.Send(new ControlRequest { Command = ControlRequest.Screenshot, Screen = screen, Output = path });

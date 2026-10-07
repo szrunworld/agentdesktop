@@ -10,7 +10,7 @@ public interface IAgentScreen
     Rect Frame();
     /// <summary>The whole screen as a PNG, in the same pixels as <see cref="Frame"/>.</summary>
     byte[] Screenshot();
-    /// <summary>Run a 2ndscreen command and return its JSON.</summary>
+    /// <summary>Run a agentdesktop command and return its JSON.</summary>
     JsonObject Run(IReadOnlyList<string> words);
     /// <summary>The program window's elements, from <c>state</c>.</summary>
     IReadOnlyList<Element> Elements();
@@ -268,7 +268,7 @@ public sealed partial class Agent
                 // never activated has no focused control to take keys.
                 if (words[0] == "type" && lastClick is { } clicked && Field(clicked) is { } field)
                     words.AddRange(new[] { "--index", field.Index.ToString(System.Globalization.CultureInfo.InvariantCulture) });
-                log($"  $ 2ndscreen {string.Join(' ', words)}");
+                log($"  $ agentdesktop {string.Join(' ', words)}");
                 var learned = options.Procedures is null ? null : Learn(words, run.Point);
                 try
                 {

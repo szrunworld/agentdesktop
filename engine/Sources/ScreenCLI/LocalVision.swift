@@ -2,21 +2,21 @@ import Dispatch
 import Foundation
 import SecondScreenCore
 
-/// `2ndscreen vision`: the task runtime's on-device image helper. It reads
+/// `agentdesktop vision`: AgentDesktop's on-device image helper. It reads
 /// one JSON request line from stdin, writes one JSON reply line to stdout
 /// and exits 0 (done), 1 (failed) or 2 (invalid request). It only reads
 /// image files it is given and writes a compose output; it takes no
 /// screenshots, sends no input and calls no model or network.
 ///
-/// main.swift registers it before the help check (A7):
+/// main.swift registers it before the help check:
 ///   if words.first == "vision" { runLocalVision(Array(words.dropFirst())) }
 let localVisionUsage = """
-usage: 2ndscreen vision < request.json
+usage: agentdesktop vision < request.json
 
 One JSON request on stdin, one JSON reply on stdout. Rects are image pixels,
 origin top-left. Ops: ocr, compare, compose, metadata; see
 Sources/SecondScreenCore/LocalVision.swift for fields.
-  echo '{"v":1,"op":"ocr","image":"/abs/shot.png","languages":["zh-Hans","en-US"]}' | 2ndscreen vision
+  echo '{"v":1,"op":"ocr","image":"/abs/shot.png","languages":["zh-Hans","en-US"]}' | agentdesktop vision
 """
 
 /// The partial compose file this process created, to delete if the runtime

@@ -1,8 +1,8 @@
-# 2ndscreen for Windows
+# Agent Desktop for Windows
 
-The Windows port of 2ndscreen: virtual screens with no hardware behind them,
+The Windows backend of Agent Desktop: virtual screens with no hardware behind them,
 so an agent can run and test programs there while you keep your own screen,
-pointer and focus. It mirrors the macOS app and its `2ndscreen` command,
+pointer and focus. It mirrors the macOS app and its `agentdesktop` command,
 JSON output included.
 
 ## Requirements
@@ -18,7 +18,7 @@ As administrator:
 
 ```powershell
 .\scripts\install-driver.ps1        # or use the driver project's own installer
-.\SecondScreen.exe --setup          # once, if the driver's settings are not writable
+.\AgentDesktop.Host.exe --setup    # once, if the driver's settings are not writable
 ```
 
 ## Build
@@ -26,9 +26,9 @@ As administrator:
 ```bash
 dotnet test tests/SecondScreen.Tests
 dotnet publish src/SecondScreen.App -c Release -r win-x64 --self-contained true \
-  -p:PublishSingleFile=true -o artifacts/publish     # SecondScreen.exe
+  -p:PublishSingleFile=true -o artifacts/publish     # AgentDesktop.Host.exe
 dotnet publish src/SecondScreen.Cli -c Release -r win-x64 --self-contained true \
-  -p:PublishSingleFile=true -o artifacts/publish     # 2ndscreen.exe
+  -p:PublishSingleFile=true -o artifacts/publish     # agentdesktop.exe
 ```
 
 It also builds on macOS and Linux (`EnableWindowsTargeting`); only running
@@ -36,7 +36,7 @@ needs Windows.
 
 ## Using it
 
-Run `SecondScreen.exe`, which lives in the notification area. By default
+Run `AgentDesktop.Host.exe`, which lives in the notification area. By default
 there are two screens: your real one, and **your second screen**, a virtual
 display to its right that matches it pixel for pixel. Agents add **agent
 screens** of their own when they need them. The menu (in Chinese on a
@@ -49,33 +49,33 @@ Chinese Windows) has a section for each:
   its windows, and **Close This Screen**.
 
 **View** offers **Full Screen on Its Own Desktop**, the counterpart of a
-macOS full-screen Space: 2ndscreen adds a virtual desktop after yours with
+macOS full-screen Space: agentdesktop adds a virtual desktop after yours with
 the screen covering the main display, so a four-finger swipe (or
 Ctrl+Win+Right) shows it. The desktop goes away with the view. Windows
-desktops span every display, unlike macOS Spaces, so windows on 2ndscreen's
+desktops span every display, unlike macOS Spaces, so windows on agentdesktop's
 screens are set to show on all desktops while they are there; otherwise the
 preview's desktop would show the screen empty. Creating it
 uses an undocumented shell interface checked against Windows 11 24H2 and
 25H2; elsewhere the view falls back to a **Preview Window**.
 
-Agents use `2ndscreen.exe`, or `2ndscreen mcp` for the same commands as MCP
+Agents use `agentdesktop.exe`, or `agentdesktop mcp` for the same commands as MCP
 tools:
 
 ```powershell
-2ndscreen screen create --name test --size 1280x800 --ttl 30m
-2ndscreen app launch --screen test --path C:\path\to\App.exe
-2ndscreen state --screen test --pid 1234
-2ndscreen click --screen test --pid 1234 --text "Press me"
-2ndscreen click --screen test --pid 1234 --text "File" --right      # or --double
-2ndscreen scroll --screen test --pid 1234 --index 5 --direction down --amount 5
-2ndscreen drag --screen test --pid 1234 --from-x 2200 --from-y 500 --to-x 2500 --to-y 600
-2ndscreen screenshot --screen test --output shot.png
-2ndscreen screen destroy test
+agentdesktop screen create --name test --size 1280x800 --ttl 30m
+agentdesktop app launch --screen test --path C:\path\to\App.exe
+agentdesktop state --screen test --pid 1234
+agentdesktop click --screen test --pid 1234 --text "Press me"
+agentdesktop click --screen test --pid 1234 --text "File" --right      # or --double
+agentdesktop scroll --screen test --pid 1234 --index 5 --direction down --amount 5
+agentdesktop drag --screen test --pid 1234 --from-x 2200 --from-y 500 --to-x 2500 --to-y 600
+agentdesktop screenshot --screen test --output shot.png
+agentdesktop screen destroy test
 ```
 
 Output is JSON, in UTF-8 when piped; in Windows PowerShell set
 `[Console]::OutputEncoding = [Text.Encoding]::UTF8` first.
-`2ndscreen --help` lists everything; `2ndscreen doctor` reports the displays,
+`agentdesktop --help` lists everything; `agentdesktop doctor` reports the displays,
 and the driver's outputs and topology paths.
 
 Programs start without activation, and `state`, `click`, `type`, `key`,
@@ -96,7 +96,7 @@ names the `route` it took:
   window goes back in front.
 - **`post.key+state`**: for shortcuts such as ctrl+a, posted modifier keys
   are not enough, since programs read held keys from their input state; so
-  2ndscreen joins the program's input queue for the moment of the key and
+  agentdesktop joins the program's input queue for the moment of the key and
   marks the modifiers held there.
 
 WPF and Chromium (Chrome, Edge, Electron) draw their own controls and read
@@ -113,23 +113,23 @@ the real keyboard and mouse for some things, so the routes differ there:
 
 For anything else a program ignores in the background, `key`, `scroll` and
 `drag` take `--foreground`, which brings the program to the front and uses
-the real keyboard or pointer; 2ndscreen puts the pointer and your window
+the real keyboard or pointer; agentdesktop puts the pointer and your window
 back afterwards. The end-to-end test covers a WinForms, a WPF and an Edge
 window.
 
 ### Vision agent
 
-`2ndscreen agent` runs an instruction with a UI-TARS vision model, as on
+`agentdesktop agent` runs an instruction with a UI-TARS vision model, as on
 macOS: the model reads screenshots of the screen and acts by sight through
 the commands above, only in the program you name.
 
 ```powershell
-2ndscreen agent --screen test --pid 1234 "Open Settings and read the version"
+agentdesktop agent --screen test --pid 1234 "Open Settings and read the version"
 ```
 
 It needs a model behind an OpenAI-compatible API, by default Doubao Seed
-2.1 lite on Volcengine Ark: set `ARK_API_KEY` (and optionally `ARK_MODEL`,
-`ARK_BASE_URL`), or put them in `%USERPROFILE%\.config\2ndscreen\ark.env`.
+2.1 lite on Volcengine Ark: set `AGENT_MODEL_API_KEY` (and optionally `AGENT_MODEL`,
+`AGENT_MODEL_BASE_URL`), or put them in `%USERPROFILE%\.config\agentdesktop\model.env`.
 It stops before anything that would send unless given `--allow-submit`
 (Enter, typed text ending in a newline, a click on Send, or a click its
 reply describes as sending), and before shortcuts that close or switch
@@ -139,15 +139,15 @@ programs (alt+f4, alt+tab, Windows-key shortcuts).
 
 - **Monitors.** The driver builds its monitors from
   `C:\VirtualDisplayDriver\vdd_settings.xml`, and reloading it tears every
-  virtual monitor down. So 2ndscreen reserves a pool of three once (its own
+  virtual monitor down. So agentdesktop reserves a pool of three once (its own
   screen and two agent screens; `VirtualDisplayDriver.PoolSize`), with
   common resolutions, then attaches and detaches pool monitors through the
   display topology API (`SetDisplayConfig`), which leaves the others alone.
 - **Refresh rates.** The driver multiplies every resolution by every global
   refresh rate and creates no monitor once that passes about a hundred
-  modes. Its installer lists six rates, so 2ndscreen keeps only 60 Hz.
+  modes. Its installer lists six rates, so agentdesktop keeps only 60 Hz.
 - **Idle monitors.** Windows extends or clones the desktop onto every new
-  monitor by itself. After a reload 2ndscreen detaches the ones no screen
+  monitor by itself. After a reload agentdesktop detaches the ones no screen
   uses; a clone reports the other display's adapter, so they are matched by
   monitor device path.
 - **Scale.** A screen is a size in physical pixels plus a scale, set through

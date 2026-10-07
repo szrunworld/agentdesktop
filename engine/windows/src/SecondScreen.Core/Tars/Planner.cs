@@ -5,7 +5,7 @@ namespace SecondScreen.Tars;
 /// <summary>What to do for one model action.</summary>
 public abstract record Step
 {
-    /// <summary>Run a 2ndscreen command; <paramref name="Point"/> is where it acts, if anywhere.</summary>
+    /// <summary>Run a agentdesktop command; <paramref name="Point"/> is where it acts, if anywhere.</summary>
     public sealed record Run(IReadOnlyList<string> Words, (double X, double Y)? Point = null) : Step;
     public sealed record Wait(int Milliseconds) : Step;
     /// <summary>End the run: done when the model finished or stopped short of submitting, user when it needs a person.</summary>
@@ -16,7 +16,7 @@ public sealed record PlanContext(string Screen, int Pid, long? WindowId, Rect Fr
                                  bool AllowSubmit = false, bool Foreground = false, bool MenuOpen = false);
 
 /// <summary>
-/// Turns one parsed UI-TARS action into 2ndscreen commands. Pure, so the mapping and the
+/// Turns one parsed UI-TARS action into agentdesktop commands. Pure, so the mapping and the
 /// send policy are tested anywhere.
 /// </summary>
 public static class Planner

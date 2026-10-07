@@ -16,7 +16,7 @@ public struct AgentCursorEvent {
         case hide
     }
 
-    public static let notificationName = Notification.Name("io.github.szrunworld.2ndscreen.agent-cursor")
+    public static let notificationName = Notification.Name("com.agentdesktop.app.agent-cursor")
 
     public let action: Action
     /// Global point in CoreGraphics coordinates (top-left origin), the same

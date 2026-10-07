@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import SecondScreenCore
 
-/// Turns the agent's input actions into `2ndscreen android` commands for a
+/// Turns the agent's input actions into `agentdesktop android` commands for a
 /// phone, in device pixels.
 public enum AndroidPlan {
     public struct Failure: LocalizedError {
@@ -10,7 +10,7 @@ public enum AndroidPlan {
         init(_ message: String) { errorDescription = message }
     }
 
-    /// `2ndscreen android` words, without the serial, for one action. Pure,
+    /// `agentdesktop android` words, without the serial, for one action. Pure,
     /// so the mapping is tested without a phone.
     public static func commands(for action: InputAction, size: CGSize) throws -> [[String]] {
         func number(_ value: Double) -> String { String(Int(value.rounded())) }

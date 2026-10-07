@@ -3,25 +3,21 @@ using System.Text.Json;
 
 namespace SecondScreen.App;
 
-/// <summary>User choices, kept in %APPDATA%\2ndscreen\settings.json.</summary>
+/// <summary>User choices, kept in %APPDATA%\agentdesktop\settings.json.</summary>
 internal sealed class Preferences
 {
     public bool Enabled { get; set; } = true;
-    /// <summary>The 2ndscreen display's physical size and scale; unset matches the main display.</summary>
+    /// <summary>The Agent Desktop display's physical size and scale; unset matches the main display.</summary>
     public int? PixelWidth { get; set; }
     public int? PixelHeight { get; set; }
     public int? Scale { get; set; }
-    /// <summary>Older settings: a logical size, at 200% when HiDpi.</summary>
-    public int? Width { get; set; }
-    public int? Height { get; set; }
-    public bool? HiDpi { get; set; }
     public bool ShowPreview { get; set; }
     public bool PreviewOnTop { get; set; } = true;
     public bool PreviewOnOwnDesktop { get; set; }
     /// <summary>The desktop the preview is on, so one left by a crash can be removed.</summary>
     public Guid? PreviewDesktop { get; set; }
 
-    private static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "2ndscreen");
+    private static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "agentdesktop");
     private static string FilePath => Path.Combine(Folder, "settings.json");
     public static string ErrorLog => Path.Combine(Folder, "errors.log");
 
@@ -66,7 +62,7 @@ internal sealed class TrayApp : ApplicationContext
         tray = new NotifyIcon
         {
             Icon = SystemIcons.Application,
-            Text = "2ndscreen",
+            Text = "Agent Desktop",
             Visible = true,
             ContextMenuStrip = new ContextMenuStrip(),
         };
@@ -97,7 +93,6 @@ internal sealed class TrayApp : ApplicationContext
     private Screens.Mode PrimaryMode()
     {
         if (preferences is { PixelWidth: int w, PixelHeight: int h, Scale: int scale }) return new(w, h, scale);
-        if (preferences is { Width: int width, Height: int height }) return Screens.Mode.Logical(width, height, preferences.HiDpi ?? false);
         // By default match the main display, so the full-screen preview fills it pixel for pixel.
         return Screens.Mode.Of(Desktop.Primary());
     }
@@ -115,8 +110,6 @@ internal sealed class TrayApp : ApplicationContext
         preferences.PixelWidth = mode.PixelWidth;
         preferences.PixelHeight = mode.PixelHeight;
         preferences.Scale = mode.Scale;
-        preferences.Width = preferences.Height = null;
-        preferences.HiDpi = null;
         preferences.Save();
         if (screens.Primary is null) return;
         bool showing = previews.ContainsKey(Screens.PrimaryName);
@@ -247,7 +240,7 @@ internal sealed class TrayApp : ApplicationContext
 
     // MARK: Windows
 
-    /// <summary>Send the focused window to 2ndscreen, or back to the main display. Ctrl+Alt+Win+M.</summary>
+    /// <summary>Send the focused window to agentdesktop, or back to the main display. Ctrl+Alt+Win+M.</summary>
     private void MoveFrontWindowToOtherScreen()
     {
         if (screens.Primary is not { } primary) return;
@@ -260,7 +253,7 @@ internal sealed class TrayApp : ApplicationContext
     /// <summary>
     /// Windows desktops span every display, so switching to the preview's desktop would
     /// empty the screens it shows. Like macOS, where each display has its own Spaces, keep
-    /// windows on 2ndscreen's screens on every desktop, and undo that when they leave.
+    /// windows on agentdesktop's screens on every desktop, and undo that when they leave.
     /// Windows the user pinned themselves are left alone.
     /// </summary>
     private void PinWindowsOnScreens()
@@ -361,10 +354,10 @@ internal sealed class TrayApp : ApplicationContext
         }
         menu.Items.Add(new ToolStripSeparator());
 
-        // Agent screens: created and removed by agents through the 2ndscreen command or MCP.
+        // Agent screens: created and removed by agents through the agentdesktop command or MCP.
         var agents = screens.Agents.ToList();
         AddHeader(menu, L($"Agent Screens ({agents.Count}/{Screens.AgentLimit})", $"Agent 屏幕（{agents.Count}/{Screens.AgentLimit}）"),
-            L("Agents create these with the 2ndscreen command; they go away when done", "agent 通过 2ndscreen 命令临时创建，用完自动关闭"));
+            L("Agents create these with the agentdesktop command; they go away when done", "agent 通过 agentdesktop 命令临时创建，用完自动关闭"));
         if (agents.Count == 0) menu.Items.Add(new ToolStripMenuItem(L("None right now", "目前没有")) { Enabled = false });
         foreach (var agent in agents)
         {
@@ -382,7 +375,7 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
 
         menu.Items.Add(L("Open Display Settings…", "打开显示设置…"), null, (_, _) => Open("ms-settings:display"));
-        menu.Items.Add(L("Quit 2ndscreen", "退出 2ndscreen"), null, (_, _) => ExitThread());
+        menu.Items.Add(L("Quit Agent Desktop", "退出 Agent Desktop"), null, (_, _) => ExitThread());
     }
 
     /// <summary>A bold section title with a grey explanation under it.</summary>
@@ -423,9 +416,9 @@ internal sealed class TrayApp : ApplicationContext
 
     private static void Open(string target) => Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
 
-    private void Notify(string message) => tray.ShowBalloonTip(5000, "2ndscreen", message, ToolTipIcon.Warning);
+    private void Notify(string message) => tray.ShowBalloonTip(5000, "Agent Desktop", message, ToolTipIcon.Warning);
 
-    /// <summary>Show an unexpected failure and keep its details in %APPDATA%\2ndscreen\errors.log.</summary>
+    /// <summary>Show an unexpected failure and keep its details in %APPDATA%\agentdesktop\errors.log.</summary>
     private void Report(Exception error)
     {
         try

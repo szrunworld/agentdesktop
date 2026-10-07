@@ -35,7 +35,7 @@ public final class DisplayConfigurator: @unchecked Sendable {
     private var current: Pending?
     private var finished = 0
 
-    public init(queue: DispatchQueue = DispatchQueue(label: "2ndscreen.display-configuration", qos: .userInitiated),
+    public init(queue: DispatchQueue = DispatchQueue(label: "agentdesktop.display-configuration", qos: .userInitiated),
                 now: @escaping () -> Date = Date.init) {
         self.queue = queue
         self.now = now

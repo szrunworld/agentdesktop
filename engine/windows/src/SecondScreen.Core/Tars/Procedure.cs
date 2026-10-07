@@ -57,7 +57,7 @@ public sealed record ElementRef(string Role, string Label, double X, double Y)
     }
 }
 
-/// <summary>One command of a learned procedure, as the 2ndscreen command it ran less its target.</summary>
+/// <summary>One command of a learned procedure, as the agentdesktop command it ran less its target.</summary>
 public sealed record LearnedStep
 {
     /// <summary>The command, such as click, type, key or scroll; or "wait".</summary>
@@ -285,9 +285,9 @@ public sealed class FileProcedureStore : IProcedureStore
 
     public FileProcedureStore(string directory) => Directory = directory;
 
-    /// <summary>%APPDATA%\2ndscreen\procedures</summary>
+    /// <summary>%APPDATA%\agentdesktop\procedures</summary>
     public static FileProcedureStore Standard => new(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "2ndscreen", "procedures"));
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "agentdesktop", "procedures"));
 
     public string FileFor(string app)
     {

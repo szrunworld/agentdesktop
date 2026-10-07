@@ -8,7 +8,7 @@ using System.Text.Json.Nodes;
 namespace SecondScreen.Cli;
 
 /// <summary>
-/// <c>2ndscreen mcp</c>: the CLI as a Model Context Protocol server over stdio. Each
+/// <c>agentdesktop mcp</c>: the CLI as a Model Context Protocol server over stdio. Each
 /// tool call runs this executable with the matching arguments, so the tools behave
 /// exactly like the CLI, guards included. Screenshots come back as image content,
 /// downscaled for the model. Mirrors the macOS server.
@@ -47,7 +47,7 @@ public static class Mcp
                 {
                     ["protocolVersion"] = parameters["protocolVersion"]?.ToString() ?? "2025-06-18",
                     ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
-                    ["serverInfo"] = new JsonObject { ["name"] = "2ndscreen", ["version"] = "0.1.0" },
+                    ["serverInfo"] = new JsonObject { ["name"] = "agentdesktop", ["version"] = "0.1.0" },
                     ["instructions"] = "Private virtual screens for testing Windows programs without touching the user's screen, pointer, or focus. " +
                         "Create a screen, launch the program there, look with state or screenshot, act with click/type/key/scroll/drag, verify, " +
                         "then close the program and destroy the screen. Only act on programs you launched.",
@@ -296,12 +296,12 @@ public static class Mcp
         string? scratch = null;
         if (tool.Name == "screenshot" && arguments["output"] is null)
         {
-            scratch = Path.Combine(Path.GetTempPath(), $"2ndscreen-mcp-{Guid.NewGuid():N}.png");
+            scratch = Path.Combine(Path.GetTempPath(), $"agentdesktop-mcp-{Guid.NewGuid():N}.png");
             arguments["output"] = scratch;
         }
         if (tool.Name == "state" && B(arguments, "screenshot"))
         {
-            scratch = Path.Combine(Path.GetTempPath(), $"2ndscreen-mcp-{Guid.NewGuid():N}.png");
+            scratch = Path.Combine(Path.GetTempPath(), $"agentdesktop-mcp-{Guid.NewGuid():N}.png");
             arguments["screenshot_path"] = scratch;
         }
         try

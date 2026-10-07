@@ -51,7 +51,7 @@ public final class AXSnapshot {
     /// when the app does not expose the window.
     public static func capture(_ window: WindowInfo, query: String? = nil) throws -> AXSnapshot {
         guard AXIsProcessTrusted() else {
-            throw AccessibilityError("2ndscreen needs the Accessibility permission to read and drive apps")
+            throw AccessibilityError("Agent Desktop needs the Accessibility permission to read and drive apps")
         }
         guard let root = WindowMover.axWindow(for: window) else {
             throw AccessibilityError("\(window.appName) does not expose window \(window.windowID) to accessibility")

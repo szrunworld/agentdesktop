@@ -1,33 +1,21 @@
 import Foundation
 
-/// The request/response protocol between the `2ndscreen` command-line tool
-/// and the menu bar app, which owns every screen.
-///
-/// Each connection carries one JSON request line and one JSON response line
-/// over a Unix socket that only the current user can open.
+/// Native AgentDesktop requests over a user-owned local socket.
 public enum ControlProtocol {
-    /// `~/Library/Application Support/2ndscreen/control.sock`, or
-    /// `$SECONDSCREEN_SOCKET`, which lets a second build of the app run beside
-    /// the usual one, as when testing a change.
-    /// Whether this process uses `$SECONDSCREEN_SOCKET`. The app then runs
-    /// as a side instance for testing: beside the usual one, without the
-    /// primary screen or the global hot key.
     public static var isSideInstance: Bool {
-        !(ProcessInfo.processInfo.environment["SECONDSCREEN_SOCKET"] ?? "").isEmpty
+        !(ProcessInfo.processInfo.environment["AGENTDESKTOP_SOCKET"] ?? "").isEmpty
     }
-
-    public static var socketURL: URL {
-        if let path = ProcessInfo.processInfo.environment["SECONDSCREEN_SOCKET"], !path.isEmpty {
+    public static var socketURL: URL { cliSocketURL() }
+    public static var primarySocketURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AgentDesktop", isDirectory: true)
+            .appendingPathComponent("control.sock")
+    }
+    public static func cliSocketURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if let path = environment["AGENTDESKTOP_SOCKET"], !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
         return primarySocketURL
-    }
-
-    /// The usual app's socket, whichever this process uses.
-    public static var primarySocketURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("2ndscreen", isDirectory: true)
-            .appendingPathComponent("control.sock")
     }
 
     /// Whether an app is listening on `url`. A crashed one leaves its socket
@@ -314,7 +302,7 @@ public enum ControlClientError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .notRunning: return "2ndscreen is not running; open 2ndscreen.app first"
+        case .notRunning: return "Agent Desktop is not running; open Agent Desktop.app first"
         case .io(let message): return message
         }
     }

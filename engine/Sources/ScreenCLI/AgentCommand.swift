@@ -4,18 +4,18 @@ import Foundation
 import SecondScreenCore
 import TarsAgent
 
-/// `2ndscreen agent`: run an instruction with a UI-TARS vision model on an
+/// `agentdesktop agent`: run an instruction with a UI-TARS vision model on an
 /// agent screen, acting only on one app, or on an Android phone, through
-/// the running 2ndscreen app.
+/// the running Agent Desktop app.
 enum AgentCommand {
     static func run(_ args: Arguments) -> Never {
         let instruction = args.positional.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
         let android = args.has("--android")
         let iphone = args.has("--iphone")
-        let usage = "usage: 2ndscreen agent --screen NAME --pid PID [--window-id ID] [--allow-submit] "
+        let usage = "usage: agentdesktop agent --screen NAME --pid PID [--window-id ID] [--allow-submit] "
             + "[--foreground] [--no-elements] [--no-learn] [--max-steps N] INSTRUCTION\n"
-            + "       2ndscreen agent --android [--serial SERIAL] [--allow-submit] [--max-steps N] INSTRUCTION\n"
-            + "       2ndscreen agent --iphone [--screen phone] [--allow-submit] [--max-steps N] INSTRUCTION"
+            + "       agentdesktop agent --android [--serial SERIAL] [--allow-submit] [--max-steps N] INSTRUCTION\n"
+            + "       agentdesktop agent --iphone [--screen phone] [--allow-submit] [--max-steps N] INSTRUCTION"
         guard !instruction.isEmpty else { fail(usage) }
 
         var options = TarsAgent.Options()
@@ -60,7 +60,7 @@ enum AgentCommand {
                                      "modelCalls": result.modelCalls, "replayedSteps": result.replayed]
         if let learned = result.learned { output["learned"] = learned }
         if let held = result.held {
-            // What would run on confirmation, as 2ndscreen arguments.
+            // What would run on confirmation, as agentdesktop arguments.
             if let screen = target as? AndroidAgentScreen,
                let words = try? AndroidPlan.commands(for: held, size: .zero), words.count == 1 {
                 output["pending"] = ["android"] + words[0] + (screen.serial.map { ["--serial", $0] } ?? [])

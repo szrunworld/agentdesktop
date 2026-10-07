@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace SecondScreen.Cli;
 
-/// <summary><c>2ndscreen doctor</c>: what 2ndscreen can see, for setup and bug reports.</summary>
+/// <summary><c>agentdesktop doctor</c>: what agentdesktop can see, for setup and bug reports.</summary>
 public static class Doctor
 {
     public static int Run()

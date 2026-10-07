@@ -1,76 +1,50 @@
 # Agent Desktop
 
-Agent Desktop 是面向用户的独立桌面产品：把支持范围内的桌面任务交给 Agent，看见执行过程，控制权限与成本，随时暂停接管，并确认交付结果。
+AgentDesktop 是唯一维护桌面核心的项目。App、原生显示与输入、Runtime、视觉与学习、CLI/MCP、Windows 后端、测试和发布链都在同一仓库。核心不再依赖 `szrunworld/2ndscreen` 的 checkout、tag 或发布物。
 
-本仓库只放产品：App 宿主、品牌、界面、安装更新和发布材料。虚拟显示、窗口、输入、截图、Agent 屏幕和控制协议来自引擎仓 [szrunworld/2ndscreen](https://github.com/szrunworld/2ndscreen)，以固定版本依赖，不在这里复制或修改。边界见 [docs/boundaries.md](docs/boundaries.md)，路线见 [docs/roadmap](docs/roadmap/)。
+2026-10-08 并仓决定及实施边界见 [架构](docs/architecture.md)、[迁入记录](docs/migration/2026-10-08-core-consolidation.md) 和 [Agent 交接](docs/agent-handoff.md)。源码迁入与真机验收分别记录。
 
-当前状态：阶段 0「宿主骨架」已于 2026-10-07 在目标机验收关闭。首发方向以 [docs/product-baseline.md](docs/product-baseline.md) 为准：供外部 Agent 调用、多 desktop 真并发的桌面执行工具；下一里程碑是 M0 并发验证（[docs/acceptance/m0-concurrency-plan.md](docs/acceptance/m0-concurrency-plan.md)）。任务工作台等界面退出首发主界面，[docs/features.md](docs/features.md) 保留为旧矩阵。
+## 当前代码
+
+| 路径 | 职责 |
+| --- | --- |
+| `Sources/AgentDesktop` | 原生 App 身份、菜单、预览和宿主生命周期 |
+| `engine/Sources/SecondScreenCore` | 显示、窗口、截图、AX、输入和系统适配 |
+| `engine/Sources/SecondScreenRuntime` | 当前原生控制服务与 Desktop 资源 |
+| `engine/Sources/TarsAgent` | 可复用的原生视觉、解析、探索、Learning/Procedure |
+| `engine/Sources/ScreenCLI` | 原生 CLI 和 MCP 的现有工具 |
+| `engine/windows` | C# 原生桌面后端、CLI、视觉、学习及测试 |
+| `engine/optional/mobile` | 已保全的手机适配源码，未装配进默认 App |
+| `engine/Tests` | 与核心一起迁入的原生测试 |
+
+`engine/` 是本仓的本地 Swift package。内部模块名沿用现有代码标识，不代表第二产品或旧版本兼容承诺。完整源快照在本仓的导入提交中保全；旧 TS 宿主、Bridge、业务截图流和独立旧 App 已移出当前代码。以后复用历史语义时，从本仓导入提交提取算法和测试，不恢复旧入口。
 
 ## 构建
 
-要求 macOS 14 以上（在 macOS 15 Apple silicon 上开发）和 Xcode Command Line Tools。
+macOS 原生构建需要 Apple SDK；CI 使用 macOS 15。
 
 ```bash
-./scripts/bundle-app.sh          # 产出 "build/Agent Desktop.app"
-open "build/Agent Desktop.app"   # 菜单栏图标；首次启动会打开一个虚拟显示
+swift build -c release --product AgentDesktop
+swift build --package-path engine -c release --product agentdesktop-cli
+swift test
+swift test --package-path engine
+./scripts/bundle-app.sh
 ```
 
-脚本做的事：解析依赖并核对引擎 checkout 与锁定提交完全一致，以 release 构建宿主和引擎的 `2ndscreen` 命令行，装进 bundle，用一个专用 keychain 里的自签证书签名（`~/Library/Keychains/agentdesktop-signing.keychain-db`，首次运行创建）。签名后再在 `build/` 下生成保留完整 `.app` 结构的 zip 归档和分发清单 `Agent Desktop-<build>.manifest.json`，清单记录归档和包内每个文件的 SHA-256，可用 `scripts/verify-archive.sh` 校验。包内的 `Contents/Resources/build.json` 记录的是签名前的构建输入（引擎版本与提交、二进制的签名前哈希），用于追溯，不用于校验最终文件。macOS 把屏幕录制和辅助功能授权绑定到签名证书，所以授权在重新构建后仍然有效。正式发布改用 Developer ID 签名和公证（路线 A04）。
-
-脚本会拒绝本地覆盖的依赖：`Packages/` 目录、`swift package edit` 状态，或 `.build/checkouts/2ndscreen` 不在锁定提交、有工作区改动、有暂存改动或有未跟踪文件时都不打包（`scripts/check-engine-checkout.sh`，回归用例在 `scripts/test-check-engine-checkout.sh`）。
-
-单元测试：`swift test`（swift-testing，只装 Command Line Tools 也能跑）。CI 见 `.github/workflows/macos.yml`。
-
-## 命令行
-
-受支持的入口只有 `Contents/Resources/bin` 下的两个名字，它们是同一个脚本：
-
-| 路径 | 作用 |
-| --- | --- |
-| `Contents/Resources/bin/agentdesktop` | 产品的命令行 |
-| `Contents/Resources/bin/2ndscreen` | 同一个命令，沿用引擎的命令名 |
-| `Contents/Resources/libexec/2ndscreen` | 引擎 CLI 的二进制本体，不作为入口使用 |
-
-入口脚本把 `SECONDSCREEN_SOCKET` 默认指到本产品的 endpoint（测试副本时可以自己指定），并把 `SECONDSCREEN_TASK_RUNTIME` 固定绑定到本产品包内的 `Contents/Resources/task-runtime`。这样 `task` 命令和 MCP 里派生 task 子进程的工具只会用产品自己的 runtime；目录还不存在时直接返回 `capability_missing`，不会退回到正在运行的 2ndscreen.app 里的 runtime。直接执行 `libexec` 里的二进制不在支持范围内，它会按引擎自己的规则去找 runtime。
+公开命令只有 `Agent Desktop.app/Contents/Resources/bin/agentdesktop`，实际二进制为 `Resources/libexec/agentdesktop-cli`。默认 endpoint 是 `~/Library/Application Support/AgentDesktop/control.sock`；隔离测试实例显式设置 `AGENTDESKTOP_SOCKET`。不创建 `2ndscreen` 别名，不发现旧 App。
 
 ```bash
 CLI="build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
 "$CLI" screen create --name demo --size 1280x800
 "$CLI" screen list
-"$CLI" screenshot --screen demo --output demo.png    # 需要给 Agent Desktop 屏幕录制权限
+"$CLI" screenshot --screen demo --output demo.png
 "$CLI" screen destroy demo
 ```
 
-命令的完整说明在引擎仓 README。`agentdesktop task …` 在本阶段返回 `capability_missing`，消息里是产品包内尚不存在的 runtime 路径：task runtime 要等引擎发布不带业务 skills 的版本后再装进产品包（路线 C01）。`agentdesktop android …` 在产品里明确返回不支持。
+默认包包含原生 App 和 CLI；不安装 Node 宿主、旧 task Runtime、BOSS 业务包或 Android 工具。根工作流验证本仓 Swift、Windows 后端和新包的真实 CLI/MCP 表面。签名、公证、权限、真实输入与并发的发布承诺需要各自目标环境证据。
 
-## 角色、endpoint 与编号
+## 与正在开发的新 AI/GUI 的关系
 
-| 角色 | 启动方式 | endpoint | 行为 |
-| --- | --- | --- | --- |
-| 产品宿主 | `open "build/Agent Desktop.app"` | `~/Library/Application Support/AgentDesktop/control.sock` | 菜单栏、主虚拟显示、⌃⌥⌘M 热键 |
-| 测试副本 | `SECONDSCREEN_SOCKET=路径 open -n --env SECONDSCREEN_SOCKET=路径 "build/Agent Desktop.app"` | 环境变量指定 | 只在后台提供 Agent 屏幕，30 分钟空闲自动退出，产品宿主菜单的 Test Copies 可以退出它 |
+[PR #2](https://github.com/szrunworld/agentdesktop/pull/2) 在独立分支已有新的合同、配置、AiService、GuiAiProvider、GuiExplorer、运行库和 CLI。该分支的 T00 单仓迁移和 T01 原生执行边界尚未由其完成；本次保全这些新模块，后续在同一 Runtime 契约上接入当前核心。不要重新实现同名服务，也不要将桌面替身测试当作 G0 或真机通过。
 
-endpoint 由 `Sources/AgentDesktop/HostRole.swift` 决定并显式传给引擎的 `AgentRuntime.start(socketPath:)`，不是从环境变量猜的。产品宿主和引擎的开发宿主 2ndscreen.app 用不同的 endpoint 与显示序列号（主屏 5，Agent 屏从 500 起；测试副本从 950 起），可以同机共存。两者目前各管各的屏幕，没有仲裁；共享协调者是路线 C02 的内容。产品宿主启动时的单实例检查只是「有人在监听就退出」，不是原子的所有权获取。
-
-## 权限
-
-| 权限 | 用途 | 何时申请 |
-| --- | --- | --- |
-| 屏幕录制 | 预览、截图 | 菜单里选 Show Preview；CLI 截图不会弹窗，需要在系统设置里授予 |
-| 辅助功能 | 移动其他应用的窗口、`app launch` | 菜单里选 Grant Accessibility to Move Windows… |
-
-授权归属 Agent Desktop 自己的身份，和 2ndscreen.app 的授权互不通用。新的屏幕录制授权在重新启动 App 后生效。
-
-## 版本策略
-
-- 产品版本独立于引擎版本。内部构建从 0.1.0-dev 开始。
-- 引擎用 `exact` 固定在已发布 tag，`Package.resolved` 记录解析到的提交，一起提交。
-- 引擎的脚本或接口改动先在引擎仓合并、发布新 tag，再改这里的依赖版本。不改旧 tag，不改 `.build/checkouts`。
-- 本地试未发布的引擎改动只在开发时做，并且不进 CI 和发布构建。
-
-## 文档
-
-- [docs/boundaries.md](docs/boundaries.md)：组件边界、依赖方向、不进本仓的内容
-- [docs/features.md](docs/features.md)：首发功能矩阵 F01–F12 与各项状态
-- [docs/acceptance/](docs/acceptance/)：各阶段验收记录
-- [docs/roadmap/](docs/roadmap/)：产品规划与路线图
+BOSS 保留 Python 业务核心，Recruiting 保留服务端业务链。它们使用 AgentDesktop Runtime；招聘限额、去重、邮箱与简历入库不属于通用 GUI 核心。

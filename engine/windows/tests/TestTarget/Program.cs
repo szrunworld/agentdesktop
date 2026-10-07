@@ -1,5 +1,5 @@
-// The window 2ndscreen's end-to-end test drives in the background.
-var form = new Form { Text = "2ndscreen test target", Width = 520, Height = 520 };
+// The window agentdesktop's end-to-end test drives in the background.
+var form = new Form { Text = "agentdesktop test target", Width = 520, Height = 520 };
 var input = new TextBox { Left = 20, Top = 20, Width = 460, AccessibleName = "Input" };
 var button = new Button { Left = 20, Top = 70, Width = 160, Height = 40, Text = "Press me" };
 var label = new Label { Left = 200, Top = 80, Width = 280, Text = "Pressed 0" }; // no AccessibleName: UI Automation then exposes the text
@@ -32,7 +32,7 @@ if (args.Contains("--second-window"))
 {
     form.Shown += (_, _) => new Form
     {
-        Text = "2ndscreen test target, second window", Width = 300, Height = 200,
+        Text = "agentdesktop test target, second window", Width = 300, Height = 200,
         StartPosition = FormStartPosition.Manual, Location = new Point(form.Left + 40, form.Top + 40),
     }.Show();
 }

@@ -19,7 +19,7 @@ public enum DisplaySleep {
         /// hardware-mirroring secondary, is online but not active.
         public let active: Bool
         public let asleep: Bool
-        /// A 2ndscreen virtual display (any instance's, or one an exited process left), not a screen the user looks at.
+        /// A AgentDesktop virtual display (any instance's, or one an exited process left), not a screen the user looks at.
         public let virtual: Bool
 
         public init(id: CGDirectDisplayID, active: Bool, asleep: Bool, virtual: Bool) {
@@ -67,7 +67,7 @@ public enum DisplaySleep {
         var count: UInt32 = 0
         guard CGGetOnlineDisplayList(UInt32(ids.count), &ids, &count) == .success else { return nil }
         return ids.prefix(Int(count)).map { id in
-            // CGVirtualDisplay reports the descriptor's vendor and product, which mark 2ndscreen's own.
+            // CGVirtualDisplay reports the descriptor's vendor and product, which mark AgentDesktop's own.
             // Any other display, including other software displays, counts as physical.
             let virtual = CGDisplayVendorNumber(id) == 0x3256 && CGDisplayModelNumber(id) == 0x0002
             return Online(id: id, active: CGDisplayIsActive(id) != 0, asleep: CGDisplayIsAsleep(id) != 0, virtual: virtual)

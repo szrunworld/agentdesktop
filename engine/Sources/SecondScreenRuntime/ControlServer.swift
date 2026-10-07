@@ -13,7 +13,7 @@ public final class ControlServer {
     private let handler: Handler
     private var listener: Int32 = -1
     private var source: DispatchSourceRead?
-    private let clients = DispatchQueue(label: "2ndscreen.control.clients", attributes: .concurrent)
+    private let clients = DispatchQueue(label: "agentdesktop.control.clients", attributes: .concurrent)
 
     public init(path: String = ControlProtocol.socketURL.path, handler: @escaping Handler) {
         self.path = path

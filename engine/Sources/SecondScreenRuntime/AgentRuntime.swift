@@ -3,9 +3,9 @@ import SecondScreenCore
 
 /// Everything an app needs to give agents screens of their own: the agent
 /// screens, input into the apps on them, the agent cursor drawn over them,
-/// and the Unix socket the `2ndscreen` command reaches all of it on.
+/// and the Unix socket the `AgentDesktop` command reaches all of it on.
 ///
-/// The 2ndscreen menu bar app is one host; an app that embeds 2ndscreen as
+/// The AgentDesktop menu bar app is one host; an app that embeds AgentDesktop as
 /// its agent runtime is another. A host adds its own screens through
 /// `hostScreens` and answers the commands the runtime leaves to it (phones,
 /// its own screens) through `fallback`.
@@ -40,8 +40,8 @@ public final class AgentRuntime {
         screens.onChange = { [weak self] in self?.screensChanged() }
     }
 
-    /// Listen for agents on `socketPath`; the `2ndscreen` command finds it
-    /// through `$SECONDSCREEN_SOCKET` when it is not the usual one.
+    /// Listen for agents on `socketPath`; the `AgentDesktop` command finds it
+    /// through `$AGENTDESKTOP_SOCKET` when it is not the usual one.
     public func start(socketPath: String = ControlProtocol.socketURL.path) throws {
         let server = ControlServer(path: socketPath) { [weak self] request in
             await self?.handle(request) ?? .failure("the agent runtime is shutting down")

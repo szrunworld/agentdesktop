@@ -10,11 +10,11 @@ namespace SecondScreen;
 /// </summary>
 public static class ControlPipe
 {
-    public static string Name => $"2ndscreen-control-{Environment.UserName}";
+    public static string Name => $"agentdesktop-control-{Environment.UserName}";
 
     public sealed class NotRunningException : Exception
     {
-        public NotRunningException() : base("2ndscreen is not running; start SecondScreen.exe first") { }
+        public NotRunningException() : base("agentdesktop is not running; start AgentDesktop.Host.exe first") { }
     }
 
     /// <summary>Send one request to the running app and wait for its response.</summary>

@@ -1,14 +1,14 @@
 import AppKit
 import Foundation
 
-/// `2ndscreen app quit --pid PID --bundle BUNDLE_ID [--wait SECONDS]`: ask one app
+/// `agentdesktop app quit --pid PID --bundle BUNDLE_ID [--wait SECONDS]`: ask one app
 /// process to quit the way ⌘Q does, and wait for it to be gone.
 ///
 /// A runtime that launched an app for an agent ends it this way rather than with
 /// a signal: some apps (BOSS直聘) take SIGTERM for a crash and relaunch themselves
 /// onto the user's display. Only the process named is asked, and only when it is
 /// that bundle, so a pid reused by another program is left alone. Answered in this
-/// process; the 2ndscreen app is not involved.
+/// process; the Agent Desktop app is not involved.
 enum AppQuitCommand {
     static func run(_ args: Arguments) -> Never {
         guard let pidText = args.value("--pid"), let pid = pid_t(pidText), pid > 0,

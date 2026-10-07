@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Install the Virtual Display Driver that 2ndscreen uses, without its GUI installer.
+  Install the Virtual Display Driver that agentdesktop uses, without its GUI installer.
 
 .DESCRIPTION
   Downloads the signed driver from github.com/VirtualDrivers/Virtual-Display-Driver
@@ -30,7 +30,7 @@ $settings = Get-ChildItem $work -Recurse -Filter vdd_settings.xml | Select-Objec
 if (-not (Test-Path "C:\VirtualDisplayDriver\vdd_settings.xml")) {
     Copy-Item $settings.FullName "C:\VirtualDisplayDriver\vdd_settings.xml"
 }
-# Let the signed-in user's 2ndscreen edit the settings without elevation.
+# Let the signed-in user's agentdesktop edit the settings without elevation.
 icacls "C:\VirtualDisplayDriver" /grant "*S-1-5-11:(OI)(CI)M" | Out-Null
 
 # Trust the catalog's signer as a publisher so Windows installs without asking.

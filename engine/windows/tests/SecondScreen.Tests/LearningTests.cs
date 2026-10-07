@@ -288,7 +288,7 @@ public class LearningTests
     [Fact]
     public void ProceduresSurviveTheFile()
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"2ndscreen-procedures-{Guid.NewGuid()}");
+        var directory = Path.Combine(Path.GetTempPath(), $"agentdesktop-procedures-{Guid.NewGuid()}");
         try
         {
             var store = new FileProcedureStore(directory);

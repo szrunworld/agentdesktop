@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace SecondScreen;
 
-// The request/response protocol between the 2ndscreen CLI and the tray app,
+// The request/response protocol between the agentdesktop CLI and the tray app,
 // which owns every screen. It matches the macOS version field for field, so
 // agents see the same JSON on both platforms. Each connection carries one
 // JSON request line and one JSON response line.

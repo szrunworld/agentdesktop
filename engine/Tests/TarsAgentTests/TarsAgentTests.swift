@@ -395,7 +395,7 @@ func field(index: Int, x: Double, y: Double, width: Double, height: Double, labe
 }
 
 /// A phone: planned on its screenshot in device pixels, then turned into
-/// `2ndscreen android` commands.
+/// `agentdesktop android` commands.
 @Suite struct Phone {
     let phone = PlanContext(frame: CGRect(x: 0, y: 0, width: 1000, height: 2000), foreground: true)
 
@@ -819,7 +819,7 @@ func button(_ index: Int, _ label: String, x: Double, y: Double = 100, value: St
     }
 
     @Test func proceduresSurviveTheFile() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("2ndscreen-procedures-\(UUID().uuidString)")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agentdesktop-procedures-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = FileProcedureStore(directory: directory)
         _ = TarsAgent(screen: calculator(), model: ScriptedModel(script), options: options(store)).run("算 7 加 8")

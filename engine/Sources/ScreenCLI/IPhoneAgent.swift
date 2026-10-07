@@ -3,7 +3,7 @@ import Foundation
 import SecondScreenCore
 import TarsAgent
 
-/// `2ndscreen iphone ...`: iPhone Mirroring on an agent screen, used like an
+/// `agentdesktop iphone ...`: iPhone Mirroring on an agent screen, used like an
 /// Android phone's mirror. Nothing here moves the user's pointer: taps and
 /// keys go to the window in the background, and only pasting text brings
 /// Mirroring to the front, for about a second.
@@ -13,12 +13,12 @@ enum IPhoneCommands {
 
     static let usage = """
         usage:
-          2ndscreen iphone show [--screen NAME]
-          2ndscreen iphone hide
-          2ndscreen iphone screenshot [--screen NAME] --output FILE.png
-          2ndscreen iphone tap  [--screen NAME] --x X --y Y
-          2ndscreen iphone type [--screen NAME] --text TEXT
-          2ndscreen iphone key  [--screen NAME] --key home|switcher|spotlight|return|delete|KEY
+          agentdesktop iphone show [--screen NAME]
+          agentdesktop iphone hide
+          agentdesktop iphone screenshot [--screen NAME] --output FILE.png
+          agentdesktop iphone tap  [--screen NAME] --x X --y Y
+          agentdesktop iphone type [--screen NAME] --text TEXT
+          agentdesktop iphone key  [--screen NAME] --key home|switcher|spotlight|return|delete|KEY
 
         Points are the screenshot's pixels, two to a window point.
         """

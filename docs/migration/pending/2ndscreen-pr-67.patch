@@ -1,0 +1,148 @@
+diff --git a/packages/task-runtime/src/adapters/second-screen.ts b/packages/task-runtime/src/adapters/second-screen.ts
+index dcf9025..9601f6a 100644
+--- a/packages/task-runtime/src/adapters/second-screen.ts
++++ b/packages/task-runtime/src/adapters/second-screen.ts
+@@ -567,8 +567,16 @@ export function createSecondScreenAdapter(options: SecondScreenAdapterOptions):
+       try {
+         return await bindAppOnce(screenId, profile, bindOptions, signal, launchedApp);
+       } catch (error) {
+-        // An app waiting for a person to log in stays open on its screen for them; ending it would start the login over.
+-        if (!isRuntimeError(error, 'login_required')) await endLaunched(launchedApp, profile.bundleId).catch(() => undefined);
++        // An app waiting for a person to log in stays open on its screen for them; ending it would start the login
++        // over. The host is told what was launched, so it can end the app when it stops or when a later host finds
++        // it left behind; an app the runtime did not launch is never reported.
++        if (isRuntimeError(error, 'login_required')) {
++          const { pid, who } = launchedApp;
++          if (pid !== undefined && who?.startedAt && who.bundleId === profile.bundleId)
++            throw new RuntimeError(error.code, error.message, { ...error.details, launched: { screenId, pid, bundleId: profile.bundleId, startedAt: who.startedAt } });
++          throw error;
++        }
++        await endLaunched(launchedApp, profile.bundleId).catch(() => undefined);
+         throw error;
+       }
+     },
+diff --git a/packages/task-runtime/src/agent-daemon.ts b/packages/task-runtime/src/agent-daemon.ts
+index 8d06776..db75c27 100644
+--- a/packages/task-runtime/src/agent-daemon.ts
++++ b/packages/task-runtime/src/agent-daemon.ts
+@@ -21,7 +21,7 @@ import { agentDataPaths, appendJsonLine, createFileEffectLedger, createFileUsage
+ import { createProviderService } from './agent-providers.ts';
+ import type { UnitService } from './agent-units.ts';
+ import { createFileStatusPersister, createStatusBoard, type StatusBoard } from './agent-status.ts';
+-import { DEFAULT_BUDGET, RuntimeError, systemClock, type Clock, type LineProcessSpawner, type Session, type WindowBinding, type WindowProfile } from './contracts.ts';
++import { DEFAULT_BUDGET, RuntimeError, isRuntimeError, systemClock, type Clock, type LineProcessSpawner, type Session, type WindowBinding, type WindowProfile } from './contracts.ts';
+ 
+ export interface AgentSessionRequest {
+   agentId: string;
+@@ -124,6 +124,24 @@ export async function startAgentHostDaemon(options: AgentHostDaemonOptions): Pro
+     launched.set(`${binding.window.pid}@${binding.window.processStartedAt ?? '?'}`, binding);
+     writeLaunched(paths, [...launched.values()]);
+   };
++  /**
++   * An app the runtime launched for a session that then waited for a person
++   * (login_required) is kept open for them, with no session to remember it
++   * by; the adapter names it in the error. It is on the launched list, so
++   * stopping the host, or the next host after a crash, ends it.
++   */
++  const keepLaunchedFrom = (error: unknown) => {
++    if (!isRuntimeError(error, 'login_required')) return;
++    const l = error.details?.launched as { screenId?: unknown; pid?: unknown; bundleId?: unknown; startedAt?: unknown } | undefined;
++    if (!l || typeof l.pid !== 'number' || typeof l.bundleId !== 'string' || typeof l.startedAt !== 'string') return;
++    const empty = { x: 0, y: 0, width: 0, height: 0 };
++    keepLaunched({
++      screenId: typeof l.screenId === 'string' ? l.screenId : '',
++      socket: '',
++      window: { pid: l.pid, windowId: 0, processStartedAt: l.startedAt, bundleId: l.bundleId, title: '', frame: empty, contentFrame: empty, scale: 1, displayId: 0 },
++      launchedByRuntime: true,
++    });
++  };
+   /** What a running agent reads on every check; replaced in place when the config changes. */
+   interface Live {
+     entry: AgentEntryConfig;
+@@ -205,6 +223,7 @@ export async function startAgentHostDaemon(options: AgentHostDaemonOptions): Pro
+       }
+       return opened;
+     } catch (error) {
++      keepLaunchedFrom(error);
+       for (const s of opened.values()) await s.close({ keepWindow: true }).catch(() => undefined);
+       throw error;
+     }
+@@ -376,6 +395,7 @@ export async function startAgentHostDaemon(options: AgentHostDaemonOptions): Pro
+             }
+             return opened;
+           } catch (error) {
++            keepLaunchedFrom(error);
+             for (const s of opened.values()) await s.close({ keepWindow: true }).catch(() => undefined);
+             throw error;
+           }
+diff --git a/packages/task-runtime/tests/agent-hostd.test.ts b/packages/task-runtime/tests/agent-hostd.test.ts
+index 3af6d22..a266c8b 100644
+--- a/packages/task-runtime/tests/agent-hostd.test.ts
++++ b/packages/task-runtime/tests/agent-hostd.test.ts
+@@ -17,7 +17,7 @@ import { agentDataPaths } from '../src/agent-ledgers.ts';
+ import { createProviderService } from '../src/agent-providers.ts';
+ import { readStatusFile } from '../src/agent-status.ts';
+ import { AGENT_PROTOCOL } from '../src/agent-contracts.ts';
+-import { isRuntimeError, type ActionRequest, type Session, type WindowGeometry } from '../src/contracts.ts';
++import { RuntimeError, isRuntimeError, type ActionRequest, type Session, type WindowGeometry } from '../src/contracts.ts';
+ 
+ async function tmp(prefix: string): Promise<string> {
+   return mkdtemp(join(tmpdir(), prefix));
+@@ -823,3 +823,57 @@ test('a builtin skill\'s entry is left to the worker\'s skill runner: the host n
+     await rm(tasksDir, { recursive: true, force: true });
+   }
+ });
++
++test('an app launched for a session that then waits for a login is kept for the person, and ended when the host stops', async () => {
++  const tasksDir = await tmp('agent-login-kept-');
++  const paths = agentDataPaths(tasksDir);
++  const req = requestPaths(paths.dir);
++  let hostRef: { stop(): Promise<void> } | undefined;
++  const quit: Array<{ pid: number; startedAt?: string; launchedByRuntime: boolean }> = [];
++  try {
++    const taskPkg = await makePackage(join(tasksDir, 'task-pkg'), TASK_AGENT, { id: 'test.task', mode: 'task', schedule: undefined, effects: ['read'], approval: {} });
++    await mkdir(paths.dir, { recursive: true });
++    await writeFile(paths.config, JSON.stringify({ agents: [{ package: taskPkg, enabled: true, account: { platform: 'macos', accountKey: 'local' } }], providers: {} }));
++    let attempts = 0;
++    const host = await startAgentHostDaemon({
++      tasksDir,
++      openSession: async () => {
++        attempts += 1;
++        // First: the runtime launched the app, which then showed a login window. Second: a login window of an app
++        // the runtime did not launch (the adapter names nothing). Neither session opens.
++        if (attempts === 1)
++          throw new RuntimeError('login_required', 'a login window', { pid: 4343, launched: { screenId: 'calc-800x600', pid: 4343, bundleId: 'com.apple.calculator', startedAt: '2026-10-07T00:00:00Z' } });
++        throw new RuntimeError('login_required', 'a login window');
++      },
++      quitApp: async (binding) => void quit.push({ pid: binding.window.pid, startedAt: binding.window.processStartedAt, launchedByRuntime: binding.launchedByRuntime }),
++      spawn: createLineProcessSpawner({ inheritEnv: false }),
++      interpreters: { node: process.execPath },
++      requestPollMs: 30,
++      configPollMs: 60_000,
++    });
++    hostRef = host;
++    const at = () => new Date().toISOString();
++    submitTaskRequest(req, { taskId: 'login-1', agentId: 'test.task', taskType: 'press', input: {}, submittedAt: at() });
++    const ended = (id: string) => ['succeeded', 'partial', 'failed'].includes(readOutcome(req, id)?.state ?? '');
++    let deadline = Date.now() + 10_000;
++    while (!ended('login-1') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 30));
++    assert.equal(readOutcome(req, 'login-1')!.failure, 'login_required');
++    // Kept for the person: still running, and on the launched list so a later host can end it after a crash.
++    assert.deepEqual(quit, []);
++    const launched = JSON.parse(await readFile(join(paths.dir, 'launched.json'), 'utf8')) as { bindings: Array<{ window: { pid: number } }> };
++    assert.deepEqual(launched.bindings.map((b) => b.window.pid), [4343]);
++
++    submitTaskRequest(req, { taskId: 'login-2', agentId: 'test.task', taskType: 'press', input: {}, submittedAt: at() });
++    deadline = Date.now() + 10_000;
++    while (!ended('login-2') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 30));
++    assert.equal(readOutcome(req, 'login-2')!.failure, 'login_required');
++
++    await host.stop();
++    hostRef = undefined;
++    // The host ends only what the runtime launched: the person's own app is not on the list.
++    assert.deepEqual(quit, [{ pid: 4343, startedAt: '2026-10-07T00:00:00Z', launchedByRuntime: true }]);
++    assert.deepEqual(JSON.parse(await readFile(join(paths.dir, 'launched.json'), 'utf8')).bindings, []);
++  } finally {
++    await hostRef?.stop();
++  }
++});

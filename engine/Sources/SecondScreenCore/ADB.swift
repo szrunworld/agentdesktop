@@ -1,7 +1,7 @@
 import AppKit
 
-/// Runs the adb that ships inside 2ndscreen.app, which the app and the
-/// `2ndscreen` command share so they talk to the same adb server.
+/// Runs the optional adb configured for Agent Desktop. The app and the
+/// `agentdesktop` command share it so they talk to the same adb server.
 public enum ADB {
     public struct Result {
         public var status: Int32
@@ -38,25 +38,29 @@ public enum ADB {
         case notFound
 
         public var errorDescription: String? {
-            "adb not found; build 2ndscreen.app with scripts/bundle-app.sh, or set $ADB"
+            "adb not found; install the optional Android tools for Agent Desktop, or set $ADB"
         }
     }
 
-    /// `$ADB` if set, else the adb in this app's bundle, else the one in the
-    /// running 2ndscreen.app, else adb on the PATH.
-    public static func executable() -> URL? {
+    /// `$ADB` if executable, else the owning App's optional tool, else adb
+    /// on the PATH. An unbundled CLI can discover a running AgentDesktop.
+    /// Resource discovery never launches a process or installs tools.
+    public static func executable(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundle: URL? = Bundle.main.executableURL ?? Bundle.main.bundleURL,
+        runningApps: () -> [URL] = { HostBundle.runningAppBundles() }
+    ) -> URL? {
         let fileManager = FileManager.default
-        if let path = ProcessInfo.processInfo.environment["ADB"], fileManager.isExecutableFile(atPath: path) {
+        if let path = environment["ADB"], fileManager.isExecutableFile(atPath: path) {
             return URL(fileURLWithPath: path)
         }
-        var bundles = [Bundle.main.bundleURL]
-        bundles += NSRunningApplication.runningApplications(withBundleIdentifier: "io.github.szrunworld.2ndscreen")
-            .compactMap(\.bundleURL)
-        for bundle in bundles {
-            let adb = bundle.appendingPathComponent("Contents/Resources/android/adb")
+        let directories = HostBundle.resourceDirectories(
+            "Contents/Resources/android", containing: bundle, runningApps: runningApps)
+        for directory in directories {
+            let adb = directory.appendingPathComponent("adb")
             if fileManager.isExecutableFile(atPath: adb.path) { return adb }
         }
-        let path = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
+        let path = environment["PATH"] ?? "/usr/bin:/bin"
         for directory in path.split(separator: ":") {
             let adb = URL(fileURLWithPath: String(directory)).appendingPathComponent("adb")
             if fileManager.isExecutableFile(atPath: adb.path) { return adb }
@@ -200,12 +204,12 @@ public enum ADB {
         }
     }
 
-    /// Starts the adb server where it gets 2ndscreen's Local Network
+    /// Starts the adb server where it gets Agent Desktop's Local Network
     /// permission. The app's own process does; the command-line tool asks
     /// the app.
     public static var startServer: () -> Void = { _ = try? run(["start-server"], timeout: 15) }
 
-    /// macOS blocks the local network for an adb server that 2ndscreen did
+    /// macOS blocks the local network for an adb server that Agent Desktop did
     /// not start, such as one started from a terminal or by an earlier build
     /// of the app, and connections fail with "No route to host". Start a new
     /// server and try once more.
@@ -219,7 +223,7 @@ public enum ADB {
         return try attempt()
     }
 
-    /// An adb server started by an earlier build of 2ndscreen keeps running
+    /// An adb server started by an earlier build of Agent Desktop keeps running
     /// after the app is replaced, but macOS no longer counts it as the app's
     /// and blocks its local network: phones drop and mDNS finds nothing.
     /// Restart a server running from this adb's path that is older than the

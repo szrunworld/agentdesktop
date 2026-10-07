@@ -2,35 +2,35 @@ using System.Text.Json;
 using SecondScreen;
 using SecondScreen.Cli;
 
-// 2ndscreen — let agents create screens and run programs on them, through the
-// running SecondScreen tray app. Every command prints one JSON object and exits
+// agentdesktop — let agents create screens and run programs on them, through the
+// running AgentDesktop tray host. Every command prints one JSON object and exits
 // non-zero on failure. Mirrors the macOS command.
 
 const string Usage = """
 usage:
-  2ndscreen screen create [--name NAME] [--size WxH] [--hidpi | --no-hidpi]
+  agentdesktop screen create [--name NAME] [--size WxH] [--hidpi | --no-hidpi]
                           [--ttl DURATION] [--idle-timeout DURATION] [--owner-pid PID]
-  2ndscreen screen list
-  2ndscreen screen destroy NAME
-  2ndscreen app launch --screen NAME --path PROGRAM [--arg ARG]... [--new-instance] [--fill]
-  2ndscreen window move --screen NAME --pid PID [--window-id ID] [--fill]
-  2ndscreen screenshot --screen NAME --output FILE.png
+  agentdesktop screen list
+  agentdesktop screen destroy NAME
+  agentdesktop app launch --screen NAME --path PROGRAM [--arg ARG]... [--new-instance] [--fill]
+  agentdesktop window move --screen NAME --pid PID [--window-id ID] [--fill]
+  agentdesktop screenshot --screen NAME --output FILE.png
 
-  2ndscreen state --screen NAME --pid PID [--window-id ID] [--query TEXT] [--screenshot FILE.png]
-  2ndscreen click --screen NAME --pid PID (--index N | --text TEXT | --x X --y Y) [--right | --double]
-  2ndscreen type  --screen NAME --pid PID --value TEXT [--index N | --text TEXT]
-  2ndscreen key   --screen NAME --pid PID --key NAME [--modifiers ctrl,shift] [--index N | --text TEXT]
+  agentdesktop state --screen NAME --pid PID [--window-id ID] [--query TEXT] [--screenshot FILE.png]
+  agentdesktop click --screen NAME --pid PID (--index N | --text TEXT | --x X --y Y) [--right | --double]
+  agentdesktop type  --screen NAME --pid PID --value TEXT [--index N | --text TEXT]
+  agentdesktop key   --screen NAME --pid PID --key NAME [--modifiers ctrl,shift] [--index N | --text TEXT]
                   [--foreground]
-  2ndscreen scroll --screen NAME --pid PID --direction up|down|left|right [--amount N] [--by line|page]
+  agentdesktop scroll --screen NAME --pid PID --direction up|down|left|right [--amount N] [--by line|page]
                    [--index N | --text TEXT | --x X --y Y] [--foreground]
-  2ndscreen drag  --screen NAME --pid PID --from-x X --from-y Y --to-x X --to-y Y
+  agentdesktop drag  --screen NAME --pid PID --from-x X --from-y Y --to-x X --to-y Y
                   [--modifiers shift] [--duration-ms MS] [--foreground]
 
-  2ndscreen agent --screen NAME --pid PID [--window-id ID] [--allow-submit] [--foreground]
+  agentdesktop agent --screen NAME --pid PID [--window-id ID] [--allow-submit] [--foreground]
                   [--no-learn] [--max-steps N] INSTRUCTION
 
-  2ndscreen mcp      serve these commands as MCP tools over stdio
-  2ndscreen doctor   report displays and the virtual display driver
+  agentdesktop mcp      serve these commands as MCP tools over stdio
+  agentdesktop doctor   report displays and the virtual display driver
 
 Durations take s, m or h (90s, 30m, 2h). A screen is destroyed when its TTL
 passes, when no command has named it for its idle timeout (default 60m; 0
@@ -45,18 +45,18 @@ state, click, type, key, scroll and drag act in the background, through UI
 Automation patterns or input posted to the window, and only on a window that
 is on the named screen. For programs that ignore background input, key, scroll
 and drag take --foreground, which brings the program to the front for a moment
-and uses the real keyboard or pointer (2ndscreen puts both back afterwards);
+and uses the real keyboard or pointer (agentdesktop puts both back afterwards);
 shortcuts in WPF and Chromium programs need it. Indexes come from state;
 click and type re-read the window, so run state again after the UI changes.
 
 agent runs INSTRUCTION with a UI-TARS vision model, which reads screenshots of
 the screen and acts by sight through the commands above. Without
 --allow-submit it stops before anything that would send: Enter, typed text
-ending in a newline, or a click on Send. It reads ARK_API_KEY, ARK_MODEL and
-ARK_BASE_URL from the environment or %USERPROFILE%\.config\2ndscreen\ark.env.
+ending in a newline, or a click on Send. It reads AGENT_MODEL_API_KEY, AGENT_MODEL and
+AGENT_MODEL_BASE_URL from the environment or %USERPROFILE%\.config\agentdesktop\model.env.
 
 A run that worked is kept as a procedure for its program, under
-%APPDATA%\2ndscreen\procedures: the next run of the same instruction repeats
+%APPDATA%\agentdesktop\procedures: the next run of the same instruction repeats
 its commands by finding their controls again, without the model, and hands the
 rest to the model if a control is missing or the screen ends up elsewhere.
 The result's modelCalls says how many requests a run made. --no-learn neither

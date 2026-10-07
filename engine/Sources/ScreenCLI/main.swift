@@ -1,65 +1,60 @@
 import Foundation
 import SecondScreenCore
 
-// 2ndscreen — let agents create screens and run apps on them, through the
-// running 2ndscreen.app. Every command prints one JSON object and exits
+// agentdesktop — let agents create screens and run apps on them, through the
+// running Agent Desktop.app. Every command prints one JSON object and exits
 // non-zero on failure.
 
 let usage = """
 usage:
-  2ndscreen screen create [--name NAME] [--size WxH] [--hidpi | --no-hidpi]
+  agentdesktop screen create [--name NAME] [--size WxH] [--hidpi | --no-hidpi]
                           [--ttl DURATION] [--idle-timeout DURATION] [--owner-pid PID]
-  2ndscreen screen list
-  2ndscreen screen destroy NAME
-  2ndscreen screen resize NAME --size WxH
-  2ndscreen app launch --screen NAME (--bundle ID | --path APP) [--new-instance] [--fill | --fit-screen]
-  2ndscreen app quit --pid PID --bundle ID [--wait SECONDS]   ask that one app to quit, as ⌘Q would
-  2ndscreen window move --screen NAME --pid PID [--window-id ID] [--fill | --fit-screen]
-  2ndscreen window release --screen NAME --pid PID [--window-id ID]
-  2ndscreen screenshot --screen NAME --output FILE.png [--windows]
+  agentdesktop screen list
+  agentdesktop screen destroy NAME
+  agentdesktop screen resize NAME --size WxH
+  agentdesktop app launch --screen NAME (--bundle ID | --path APP) [--new-instance] [--fill | --fit-screen]
+  agentdesktop app quit --pid PID --bundle ID [--wait SECONDS]   ask that one app to quit, as ⌘Q would
+  agentdesktop window move --screen NAME --pid PID [--window-id ID] [--fill | --fit-screen]
+  agentdesktop window release --screen NAME --pid PID [--window-id ID]
+  agentdesktop screenshot --screen NAME --output FILE.png [--windows]
 
-  2ndscreen state --screen NAME --pid PID [--window-id ID] [--query TEXT] [--screenshot FILE.png]
-  2ndscreen click --screen NAME --pid PID (--index N | --text TEXT | --x X --y Y) [--right | --double]
-  2ndscreen hover --screen NAME --pid PID (--index N | --text TEXT | --x X --y Y)
-  2ndscreen ax-press --screen NAME --pid PID [--window-id ID] --index N
-  2ndscreen type  --screen NAME --pid PID --value TEXT [--index N | --text TEXT] [--replace]
-  2ndscreen key   --screen NAME --pid PID --key NAME [--modifiers cmd,shift]
-  2ndscreen scroll --screen NAME --pid PID --direction up|down|left|right [--amount N] [--by line|page]
+  agentdesktop state --screen NAME --pid PID [--window-id ID] [--query TEXT] [--screenshot FILE.png]
+  agentdesktop click --screen NAME --pid PID (--index N | --text TEXT | --x X --y Y) [--right | --double]
+  agentdesktop hover --screen NAME --pid PID (--index N | --text TEXT | --x X --y Y)
+  agentdesktop ax-press --screen NAME --pid PID [--window-id ID] --index N
+  agentdesktop type  --screen NAME --pid PID --value TEXT [--index N | --text TEXT] [--replace]
+  agentdesktop key   --screen NAME --pid PID --key NAME [--modifiers cmd,shift]
+  agentdesktop scroll --screen NAME --pid PID --direction up|down|left|right [--amount N] [--by line|page]
                    [--index N | --text TEXT | --x X --y Y]
-  2ndscreen drag  --screen NAME --pid PID --from-x X --from-y Y --to-x X --to-y Y --foreground
+  agentdesktop drag  --screen NAME --pid PID --from-x X --from-y Y --to-x X --to-y Y --foreground
                   [--modifiers shift] [--duration-ms MS]
 
-  2ndscreen agent --screen NAME --pid PID [--window-id ID] [--allow-submit] [--foreground] [--no-elements]
+  agentdesktop agent --screen NAME --pid PID [--window-id ID] [--allow-submit] [--foreground] [--no-elements]
                   [--no-learn] [--max-steps N] INSTRUCTION
-  2ndscreen agent --android [--serial SERIAL] [--allow-submit] [--max-steps N] INSTRUCTION
-  2ndscreen mcp      serve these commands as MCP tools over stdio
+  agentdesktop agent --android [--serial SERIAL] [--allow-submit] [--max-steps N] INSTRUCTION
+  agentdesktop mcp      serve these commands as MCP tools over stdio
 
-  2ndscreen task run SKILL_ID --job TEXT --limit N --output DIR [...]   see 2ndscreen task --help
-  2ndscreen task status|pause|resume|cancel|artifacts TASK_ID
-  2ndscreen task inspect-procedure PROCEDURE_ID
-  2ndscreen task bind-account TASK_ID ACCOUNT_KEY
-  2ndscreen vision          on-device OCR, compare and stitch: one JSON request on stdin
-  2ndscreen agent-bridge    one task-runtime unit with the UI-TARS agent, JSON lines (for the runtime)
+  agentdesktop vision          on-device OCR, compare and stitch: one JSON request on stdin
 
-  2ndscreen android devices
-  2ndscreen android pair HOST:PORT CODE
-  2ndscreen android connect HOST:PORT
-  2ndscreen android disconnect [HOST:PORT]
-  2ndscreen android show [--serial SERIAL] [--screen NAME] [--max-size PIXELS]
-  2ndscreen android hide [--serial SERIAL]
-  2ndscreen android screenshot [--serial SERIAL] --output FILE.png
-  2ndscreen android tap   [--serial SERIAL] --x X --y Y
-  2ndscreen android swipe [--serial SERIAL] --x X --y Y --to-x X --to-y Y [--duration SECONDS]
-  2ndscreen android type  [--serial SERIAL] --text TEXT
-  2ndscreen android key   [--serial SERIAL] --key back|home|recents|enter|delete|KEYCODE
-  2ndscreen android adb ARGS...   run the bundled adb with these arguments
+  agentdesktop android devices
+  agentdesktop android pair HOST:PORT CODE
+  agentdesktop android connect HOST:PORT
+  agentdesktop android disconnect [HOST:PORT]
+  agentdesktop android show [--serial SERIAL] [--screen NAME] [--max-size PIXELS]
+  agentdesktop android hide [--serial SERIAL]
+  agentdesktop android screenshot [--serial SERIAL] --output FILE.png
+  agentdesktop android tap   [--serial SERIAL] --x X --y Y
+  agentdesktop android swipe [--serial SERIAL] --x X --y Y --to-x X --to-y Y [--duration SECONDS]
+  agentdesktop android type  [--serial SERIAL] --text TEXT
+  agentdesktop android key   [--serial SERIAL] --key back|home|recents|enter|delete|KEYCODE
+  agentdesktop android adb ARGS...   run the bundled adb with these arguments
 
-  2ndscreen iphone show [--screen NAME]   iPhone Mirroring on an agent screen ("phone")
-  2ndscreen iphone hide
-  2ndscreen iphone screenshot [--screen NAME] --output FILE.png
-  2ndscreen iphone tap  [--screen NAME] --x X --y Y
-  2ndscreen iphone type [--screen NAME] --text TEXT
-  2ndscreen iphone key  [--screen NAME] --key home|switcher|spotlight|return|delete|KEY
+  agentdesktop iphone show [--screen NAME]   iPhone Mirroring on an agent screen ("phone")
+  agentdesktop iphone hide
+  agentdesktop iphone screenshot [--screen NAME] --output FILE.png
+  agentdesktop iphone tap  [--screen NAME] --x X --y Y
+  agentdesktop iphone type [--screen NAME] --text TEXT
+  agentdesktop iphone key  [--screen NAME] --key home|switcher|spotlight|return|delete|KEY
 
 Android points are device pixels, as in the screenshot. With the phone's
 mirror open, tap, swipe and key go through it at once; without it, through
@@ -88,11 +83,12 @@ and on anything else by sight; --no-elements leaves the controls out. Without --
 that would send: Enter, typed text ending in a newline, or a click on Send.
 With --android it works on a phone instead, by its screenshots, through the
 android commands. When it stops before sending, the result's "pending" holds
-the 2ndscreen arguments that would send. It reads ARK_API_KEY, ARK_MODEL and
-ARK_BASE_URL from the environment or ~/.config/2ndscreen/ark.env.
+the agentdesktop arguments that would send. It reads AGENT_MODEL_API_KEY,
+AGENT_MODEL and AGENT_MODEL_BASE_URL from the environment or
+~/.config/agentdesktop/model.env.
 
 A run that worked is kept as a procedure for its app, under
-~/.config/2ndscreen/procedures: the next run of the same instruction repeats
+~/.config/agentdesktop/procedures: the next run of the same instruction repeats
 its steps by finding their controls again, without the model, and hands the
 rest to the model if a control is missing or the screen ends up elsewhere.
 The result's modelCalls says how many requests a run made. --no-learn
@@ -163,6 +159,10 @@ func parseDuration(_ text: String) -> Double? {
     return Double(text)
 }
 
+// Bind the CLI and its MCP subprocesses to the product endpoint.
+// An explicit endpoint selects a separately launched AgentDesktop test instance.
+setenv("AGENTDESKTOP_SOCKET", ControlProtocol.cliSocketURL().path, 1)
+
 let words = Array(CommandLine.arguments.dropFirst())
 if words == ["mcp"] {
     MCPServer.run()
@@ -175,9 +175,6 @@ if words.first == "android", words.count > 1 {
 if words.first == "vision" {
     runLocalVision(Array(words.dropFirst()))
 }
-if words.first == "task" {
-    TaskCommand.run(Array(words.dropFirst()))
-}
 guard words.count >= 1, !words.contains("--help"), !words.contains("-h") else {
     print(usage)
     exit(words.isEmpty ? 2 : 0)
@@ -188,9 +185,6 @@ if let first = args.positional.first, DriverCommands.verbs.contains(first) {
 }
 if args.positional.first == "agent" {
     AgentCommand.run(args)
-}
-if args.positional.first == "agent-bridge" {
-    AgentBridgeCommand.run(args)
 }
 if args.positional.first == "iphone" {
     IPhoneCommands.run(args)

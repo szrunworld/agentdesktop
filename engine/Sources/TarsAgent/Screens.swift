@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import SecondScreenCore
 
-// The screens an agent works on, through the 2ndscreen app's socket: the
+// The screens an agent works on, through the agentdesktop app's socket: the
 // command line uses them, and the app can too.
 
 /// The agent's view of one app on one screen, through the app's socket.
@@ -35,7 +35,7 @@ public struct ControlScreen: AgentScreen {
     }
 
     public func screenshot(size: CGSize) throws -> Data {
-        let scratch = NSTemporaryDirectory() + "2ndscreen-agent-\(getpid()).png"
+        let scratch = NSTemporaryDirectory() + "agentdesktop-agent-\(getpid()).png"
         defer { try? FileManager.default.removeItem(atPath: scratch) }
         var request = ControlRequest(command: .screenshot)
         request.screen = screen
@@ -129,7 +129,7 @@ public final class AndroidAgentScreen: AgentScreen {
     }
 
     public func frame() throws -> CGRect {
-        let scratch = NSTemporaryDirectory() + "2ndscreen-android-agent-\(getpid()).png"
+        let scratch = NSTemporaryDirectory() + "agentdesktop-android-agent-\(getpid()).png"
         defer { try? FileManager.default.removeItem(atPath: scratch) }
         var request = ControlRequest(command: .androidScreenshot)
         request.serial = serial

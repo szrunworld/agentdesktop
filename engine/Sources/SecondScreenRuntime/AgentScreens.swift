@@ -62,7 +62,7 @@ public final class AgentScreens {
     public var onResize: ((String) -> Void)?
 
     /// `serialBase` numbers this instance's displays apart from any other
-    /// 2ndscreen instance on the Mac: the usual app starts at 100, a side
+    /// AgentDesktop instance on the Mac: the usual app starts at 100, a side
     /// instance at 900, and a host app embedding the runtime picks its own.
     public init(serialBase: UInt32 = ControlProtocol.isSideInstance ? 900 : 100) {
         firstSerial = serialBase
@@ -119,7 +119,7 @@ public final class AgentScreens {
         let hiDPI = requestedHiDPI ?? (defaultHiDPI && hiDPIAllowed)
         // Not while a configuration WindowServer has not finished is outstanding,
         // nor while the user's displays sleep; the displays are kept awake meanwhile.
-        return await displayWork.run("2ndscreen: creating agent screen \(name)", refused: { .failure($0.message()) }) {
+        return await displayWork.run("Agent Desktop: creating agent screen \(name)", refused: { .failure($0.message()) }) {
             await createDisplay(name: name, mode: mode, hiDPI: hiDPI, requestedHiDPI: requestedHiDPI,
                                 defaultHiDPI: defaultHiDPI, ttl: ttl, idleTimeout: idleTimeout, ownerPID: ownerPID)
         }
@@ -229,7 +229,7 @@ public final class AgentScreens {
     /// move that window onto `target`, any screen the app knows.
     public func launch(on target: ScreenInfo, bundleID: String?, path: String?, newInstance: Bool,
                 fill: Bool, fitScreen: Bool = false) async -> ControlResponse {
-        guard WindowMover.isTrusted else { return .failure("2ndscreen needs the Accessibility permission to place windows") }
+        guard WindowMover.isTrusted else { return .failure("Agent Desktop needs the Accessibility permission to place windows") }
 
         let url: URL
         if let path {
@@ -294,7 +294,7 @@ public final class AgentScreens {
 
     public func moveWindows(to target: ScreenInfo, pid: pid_t, windowID: CGWindowID?, fill: Bool,
                      fitScreen: Bool = false) async -> ControlResponse {
-        guard WindowMover.isTrusted else { return .failure("2ndscreen needs the Accessibility permission to move windows") }
+        guard WindowMover.isTrusted else { return .failure("Agent Desktop needs the Accessibility permission to move windows") }
         let windows = WindowMover.windows(ofPID: pid).filter { windowID == nil || $0.windowID == windowID }
         guard !windows.isEmpty else { return .failure("pid \(pid) has no matching on-screen window") }
         let failed = windows.filter { !WindowMover.move($0, to: target.displayID, fill: fill) }
@@ -345,7 +345,7 @@ public final class AgentScreens {
     /// pulling its windows back onto `source`. Without this, the only way to
     /// give a window back to the user is destroying the screen.
     public func releaseWindows(from source: ScreenInfo, pid: pid_t, windowID: CGWindowID?) async -> ControlResponse {
-        guard WindowMover.isTrusted else { return .failure("2ndscreen needs the Accessibility permission to move windows") }
+        guard WindowMover.isTrusted else { return .failure("Agent Desktop needs the Accessibility permission to move windows") }
         let bounds = CGDisplayBounds(source.displayID)
         let windows = WindowMover.windows(ofPID: pid).filter {
             (windowID == nil || $0.windowID == windowID)
@@ -374,7 +374,7 @@ public final class AgentScreens {
     /// Capture `display` to a PNG at its full pixel size.
     public func screenshot(displayID: CGDirectDisplayID, to output: String) async -> ControlResponse {
         guard CGPreflightScreenCaptureAccess() else {
-            return .failure("2ndscreen needs the Screen Recording permission to take screenshots")
+            return .failure("Agent Desktop needs the Screen Recording permission to take screenshots")
         }
         guard !VirtualDisplay.sharesUnitNumber(displayID) else {
             return .failure("macOS gave this screen the same unit number as another display, so a"
@@ -413,7 +413,7 @@ public final class AgentScreens {
     /// left out; anything not covered by a window is light gray.
     public func windowsScreenshot(of screen: ScreenInfo, to output: String) async -> ControlResponse {
         guard CGPreflightScreenCaptureAccess() else {
-            return .failure("2ndscreen needs the Screen Recording permission to take screenshots")
+            return .failure("Agent Desktop needs the Screen Recording permission to take screenshots")
         }
         let url = URL(fileURLWithPath: (output as NSString).expandingTildeInPath)
         let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
@@ -596,7 +596,7 @@ public final class AgentScreens {
             return .failure("this screen can be resized between 320x240 and \(largest.width)x\(largest.height)"
                 + " points; create a new one for a larger size")
         }
-        return await displayWork.run("2ndscreen: resizing agent screen \(name)", refused: { .failure($0.message()) }) {
+        return await displayWork.run("Agent Desktop: resizing agent screen \(name)", refused: { .failure($0.message()) }) {
             // The guard may have waited: act only on this very screen, not one recreated under its name.
             guard isRegistered(screen) else { return .failure(Self.goneWhileResizing(name)) }
             let wanted = VirtualDisplay.Mode(width: width, height: height)
@@ -662,7 +662,7 @@ public final class AgentScreens {
         }
         screen.resizing = true
         Task { @MainActor in
-            _ = await self.displayWork.run("2ndscreen: fitting agent screen \(screen.name)", refused: { _ in false }) {
+            _ = await self.displayWork.run("Agent Desktop: fitting agent screen \(screen.name)", refused: { _ in false }) {
                 self.isRegistered(screen) ? await self.apply(wanted, to: screen) : false
             }
             screen.resizing = false

@@ -120,7 +120,7 @@ struct AgentScreenAdmissionTests {
     @Test func admissionRules() {
         #expect(AgentScreenAdmission.failure(name: "a", existing: [], limit: 8, ownerPID: nil) == nil)
         #expect(AgentScreenAdmission.failure(name: "", existing: [], limit: 8, ownerPID: nil) != nil)
-        #expect(AgentScreenAdmission.failure(name: "2ndscreen", existing: [], limit: 8, ownerPID: nil) != nil)
+        #expect(AgentScreenAdmission.failure(name: "Agent Desktop", existing: [], limit: 8, ownerPID: nil) != nil)
         #expect(AgentScreenAdmission.failure(name: "a", existing: ["a"], limit: 8, ownerPID: nil) == "a screen named \"a\" already exists")
         #expect(AgentScreenAdmission.failure(name: "b", existing: ["a"], limit: 1, ownerPID: nil) == "at most 1 agent screens can exist at once")
         #expect(AgentScreenAdmission.failure(name: "b", existing: [], limit: 8, ownerPID: 7, ownerAlive: { _ in false }) == "owner pid 7 is not running")

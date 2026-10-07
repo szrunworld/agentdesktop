@@ -1,7 +1,7 @@
 import Foundation
 import SecondScreenCore
 
-/// `2ndscreen android ...`: connect Android phones over Wi-Fi, mirror them
+/// `agentdesktop android ...`: connect Android phones over Wi-Fi, mirror them
 /// in a window (on an agent screen if asked), and run the bundled adb.
 enum AndroidCommands {
     static func run(_ words: [String]) -> Never {
@@ -36,10 +36,10 @@ enum AndroidCommands {
                 fail(error.localizedDescription, code: 1)
             }
         case "pair":
-            guard args.positional.count == 2 else { fail("usage: 2ndscreen android pair HOST:PORT CODE") }
+            guard args.positional.count == 2 else { fail("usage: agentdesktop android pair HOST:PORT CODE") }
             finish(adbResponse { output(try ADB.pair(address: args.positional[0], code: args.positional[1])) })
         case "connect":
-            guard args.positional.count == 1 else { fail("usage: 2ndscreen android connect HOST:PORT") }
+            guard args.positional.count == 1 else { fail("usage: agentdesktop android connect HOST:PORT") }
             finish(adbResponse { output(try ADB.connect(address: args.positional[0])) })
         case "disconnect":
             finish(adbResponse { output(try ADB.run(["disconnect"] + args.positional)) })
@@ -67,7 +67,7 @@ enum AndroidCommands {
     /// macOS lets a process reach the local network only with the Local
     /// Network permission of the app responsible for it. Started from a
     /// terminal, the server would answer to the terminal's permission and
-    /// fail with "No route to host"; started by 2ndscreen.app, it has the
+    /// fail with "No route to host"; started by Agent Desktop.app, it has the
     /// app's. Ask the app to start it before running adb here.
     private static func startServerInApp() {
         _ = try? sendControlRequest(ControlRequest(command: .androidList), timeout: 15)

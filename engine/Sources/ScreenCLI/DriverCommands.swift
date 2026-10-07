@@ -158,7 +158,7 @@ enum DriverCommands {
             throw CommandError("window \(window.windowID) reaches \(overhang) of screen \"\(request.screen!)\", so its"
                 + " screenshot would be clipped; nothing was captured. Bring it back with window move --fill")
         }
-        let scratch = NSTemporaryDirectory() + "2ndscreen-state-\(getpid()).png"
+        let scratch = NSTemporaryDirectory() + "agentdesktop-state-\(getpid()).png"
         request.output = scratch
         request.windowsOnly = true
         defer { try? FileManager.default.removeItem(atPath: scratch) }

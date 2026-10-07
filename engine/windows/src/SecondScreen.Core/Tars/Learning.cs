@@ -269,7 +269,7 @@ public sealed partial class Agent
                 if (step.Verb == "key" && step.Option("--key") is "return" or "enter" && step.Option("--modifiers") is null) return Broke($"{what} would submit");
             }
 
-            log($"  $ 2ndscreen {string.Join(' ', words)}");
+            log($"  $ agentdesktop {string.Join(' ', words)}");
             try
             {
                 var output = screen.Run(words);

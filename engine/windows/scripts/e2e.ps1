@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  End-to-end acceptance test for 2ndscreen on Windows.
+  End-to-end acceptance test for agentdesktop on Windows.
 
 .DESCRIPTION
   Starts the tray app, creates an agent screen, launches TestTarget.exe (a tiny
@@ -9,7 +9,7 @@
   types, scrolls and drags in the background, checks the MCP server, and cleans
   up. Prints PASS/FAIL per check and exits non-zero if any check failed.
 
-  Run from the folder holding SecondScreen.exe, 2ndscreen.exe and TestTarget.exe:
+  Run from the folder holding AgentDesktop.Host.exe, agentdesktop.exe and TestTarget.exe:
     powershell -ExecutionPolicy Bypass -File e2e.ps1 [-Bin .\publish] [-Out .\e2e-out]
 #>
 [CmdletBinding()]
@@ -17,18 +17,18 @@ param(
     [string] $Bin = ".",
     [string] $Out = ".\e2e-out"
 )
-# 2ndscreen writes UTF-8 to pipes; Windows PowerShell would read the console code page.
+# agentdesktop writes UTF-8 to pipes; Windows PowerShell would read the console code page.
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-# Read monitor bounds and the pointer in physical pixels, as 2ndscreen reports them,
+# Read monitor bounds and the pointer in physical pixels, as agentdesktop reports them,
 # rather than scaled for the main display.
-Add-Type -Name Dpi -Namespace SecondScreenE2e -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);'
-[SecondScreenE2e.Dpi]::SetProcessDpiAwarenessContext([IntPtr]-4) | Out-Null
+Add-Type -Name Dpi -Namespace AgentDesktopE2e -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);'
+[AgentDesktopE2e.Dpi]::SetProcessDpiAwarenessContext([IntPtr]-4) | Out-Null
 $ErrorActionPreference = "Continue"
 $Bin = (Resolve-Path $Bin).Path
 New-Item -ItemType Directory -Force $Out | Out-Null
 $Out = (Resolve-Path $Out).Path
-$cli = Join-Path $Bin "2ndscreen.exe"
-$app = Join-Path $Bin "SecondScreen.exe"
+$cli = Join-Path $Bin "agentdesktop.exe"
+$app = Join-Path $Bin "AgentDesktop.Host.exe"
 $target = Join-Path $Bin "TestTarget.exe"
 $results = New-Object System.Collections.Generic.List[object]
 
@@ -44,7 +44,7 @@ function Skip([string] $name, [string] $why) {
     Write-Host "[SKIP] $name $why"
 }
 
-function Invoke-2ndscreen([string[]] $arguments) {
+function Invoke-agentdesktop([string[]] $arguments) {
     $text = & $cli @arguments 2>&1 | Out-String
     try { return $text | ConvertFrom-Json } catch { return [pscustomobject]@{ ok = $false; error = $text.Trim() } }
 }
@@ -59,21 +59,21 @@ public static class Fg {
 "@
 
 function Start-App {
-    Get-Process SecondScreen -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process "AgentDesktop.Host" -ErrorAction SilentlyContinue | Stop-Process -Force
     $process = Start-Process $app -PassThru
     for ($i = 0; $i -lt 40; $i++) {
         Start-Sleep -Milliseconds 250
-        if ((Invoke-2ndscreen @("screen", "list")).ok) { break }
+        if ((Invoke-agentdesktop @("screen", "list")).ok) { break }
     }
     return $process
 }
 
 # 1. App and control pipe.
 $appProcess = Start-App
-$list = Invoke-2ndscreen @("screen", "list")
+$list = Invoke-agentdesktop @("screen", "list")
 Check "app starts and serves the control pipe" ([bool]$list.ok) $list.error
 
-$doctor = Invoke-2ndscreen @("doctor")
+$doctor = Invoke-agentdesktop @("doctor")
 $outputs = @($doctor.virtualOutputs)
 Check "Virtual Display Driver provides outputs" ($outputs.Count -gt 0) "$($outputs.Count) outputs; $($doctor.driverSettings)"
 
@@ -87,14 +87,14 @@ if (-not $hosted) {
     $standIn = $true
     $primary = ($doctor.displays | Where-Object primary | Select-Object -First 1).device
     Write-Host "No virtual monitor can attach on this machine; standing in $primary for the agent screen."
-    $env:SECONDSCREEN_TEST_DISPLAY = $primary
+    $env:AGENTDESKTOP_TEST_DISPLAY = $primary
     $appProcess | Stop-Process -Force -ErrorAction SilentlyContinue
     $appProcess = Start-App
 }
 
 # 2. Create an agent screen.
 $width = 1280; $height = 800
-$created = Invoke-2ndscreen @("screen", "create", "--name", "e2e", "--size", "${width}x${height}", "--no-hidpi", "--ttl", "10m")
+$created = Invoke-agentdesktop @("screen", "create", "--name", "e2e", "--size", "${width}x${height}", "--no-hidpi", "--ttl", "10m")
 $frame = $created.screen.frame
 Check "screen create" ([bool]$created.ok) $(if ($created.ok) { "frame $($frame.x),$($frame.y) $($frame.width)x$($frame.height)" } else { $created.error })
 if (-not $created.ok) {
@@ -116,7 +116,7 @@ if (-not $standIn) { Check "Windows reports the new monitor" ([bool]($monitors |
 
 # 3. Launch the test window onto it without taking the foreground.
 $frontBefore = [Fg]::Pid()
-$launched = Invoke-2ndscreen @("app", "launch", "--screen", "e2e", "--path", $target)
+$launched = Invoke-agentdesktop @("app", "launch", "--screen", "e2e", "--path", $target)
 Start-Sleep -Seconds 1
 $frontAfter = [Fg]::Pid()
 $targetPid = $launched.pid
@@ -126,12 +126,12 @@ Check "app launch onto the screen" ([bool]$onScreen) $(if ($launched.ok) { "pid 
 Check "foreground left alone" ($frontAfter -ne $targetPid) "foreground pid before $frontBefore, after $frontAfter"
 
 # 4. Guards. Use this script's own pid, which certainly exists.
-$refused = Invoke-2ndscreen @("window", "move", "--screen", "nope", "--pid", "$PID")
+$refused = Invoke-agentdesktop @("window", "move", "--screen", "nope", "--pid", "$PID")
 Check "unknown screen is refused" ((-not $refused.ok) -and $refused.error -match "no screen named") $refused.error
 if ($launched.ok) {
-    $again = Invoke-2ndscreen @("app", "launch", "--screen", "e2e", "--path", $target)
+    $again = Invoke-agentdesktop @("app", "launch", "--screen", "e2e", "--path", $target)
     Check "already-running program is refused without --new-instance" ((-not $again.ok) -and $again.error -match "already running") $again.error
-    $foreign = Invoke-2ndscreen @("click", "--screen", "e2e", "--pid", "$PID", "--text", "x")
+    $foreign = Invoke-agentdesktop @("click", "--screen", "e2e", "--pid", "$PID", "--text", "x")
     Check "acting on a window off the screen is refused" ((-not $foreign.ok) -and $foreign.error -match "no window on screen") $foreign.error
 } else {
     Skip "already-running program is refused without --new-instance" "launch failed"
@@ -140,7 +140,7 @@ if ($launched.ok) {
 
 # 5. Screenshot.
 $shot = Join-Path $Out "e2e-screen.png"
-$taken = Invoke-2ndscreen @("screenshot", "--screen", "e2e", "--output", $shot)
+$taken = Invoke-agentdesktop @("screenshot", "--screen", "e2e", "--output", $shot)
 $size = if (Test-Path $shot) { Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile($shot); "$($img.Width)x$($img.Height)"; $img.Dispose() } else { "missing" }
 if ($created.ok) {
     Check "screenshot" ($taken.ok -and $size -eq "${width}x${height}") "$size $($taken.error)"
@@ -156,32 +156,32 @@ if (-not $launched.ok) {
         Skip $name "launch failed"
     }
 } else {
-    $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$targetPid")
+    $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$targetPid")
     Check "state reads the window" ([bool]($state.ok -and $state.elements.Count -gt 0)) "$($state.elements.Count) elements $($state.error)"
-    $clicked = Invoke-2ndscreen @("click", "--screen", "e2e", "--pid", "$targetPid", "--text", "Press me")
+    $clicked = Invoke-agentdesktop @("click", "--screen", "e2e", "--pid", "$targetPid", "--text", "Press me")
     Start-Sleep -Milliseconds 500
-    $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$targetPid")
+    $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$targetPid")
     Check "click in the background" ([bool]($clicked.ok -and $state.tree -match "Pressed 1")) "$($clicked.route) $($clicked.error)"
-    $typed = Invoke-2ndscreen @("type", "--screen", "e2e", "--pid", "$targetPid", "--text", "Input", "--value", "hello from 2ndscreen")
+    $typed = Invoke-agentdesktop @("type", "--screen", "e2e", "--pid", "$targetPid", "--text", "Input", "--value", "hello from agentdesktop")
     Start-Sleep -Milliseconds 500
-    $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$targetPid")
-    Check "type in the background" ([bool]($typed.ok -and $state.tree -match "hello from 2ndscreen")) "$($typed.route) $($typed.error)"
+    $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$targetPid")
+    Check "type in the background" ([bool]($typed.ok -and $state.tree -match "hello from agentdesktop")) "$($typed.route) $($typed.error)"
     # A shortcut in the background: ctrl+a selects the box's text, which typing then replaces.
-    $selected = Invoke-2ndscreen @("key", "--screen", "e2e", "--pid", "$targetPid", "--text", "Input", "--key", "a", "--modifiers", "ctrl")
-    $replaced = Invoke-2ndscreen @("type", "--screen", "e2e", "--pid", "$targetPid", "--text", "Input", "--value", "z")
+    $selected = Invoke-agentdesktop @("key", "--screen", "e2e", "--pid", "$targetPid", "--text", "Input", "--key", "a", "--modifiers", "ctrl")
+    $replaced = Invoke-agentdesktop @("type", "--screen", "e2e", "--pid", "$targetPid", "--text", "Input", "--value", "z")
     Start-Sleep -Milliseconds 500
-    $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$targetPid")
+    $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$targetPid")
     $value = ($state.elements | Where-Object label -eq "Input" | Select-Object -First 1).value
     Check "ctrl+a in the background" ([bool]($selected.ok -and $replaced.ok -and $value -eq "z")) "value '$value' $($selected.route) $($selected.error) $($replaced.error)"
     Check "foreground still left alone" ([Fg]::Pid() -ne $targetPid)
-    Invoke-2ndscreen @("screenshot", "--screen", "e2e", "--output", (Join-Path $Out "e2e-typed.png")) | Out-Null
+    Invoke-agentdesktop @("screenshot", "--screen", "e2e", "--output", (Join-Path $Out "e2e-typed.png")) | Out-Null
 
     # Scrolling, double- and right-clicks, and drags. TestTarget reports the list's top
     # row as "Top N" and what reached its pad as "Pad idle double right drag".
     $onTarget = @("--screen", "e2e", "--pid", "$targetPid")
-    $scrolled = Invoke-2ndscreen (@("scroll") + $onTarget + @("--text", "Rows", "--direction", "down", "--amount", "10"))
+    $scrolled = Invoke-agentdesktop (@("scroll") + $onTarget + @("--text", "Rows", "--direction", "down", "--amount", "10"))
     Start-Sleep -Milliseconds 500
-    $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$targetPid")
+    $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$targetPid")
     Check "scroll a list in the background" ([bool]($scrolled.ok -and $state.tree -match "Top [1-9]")) "$($scrolled.route) $($scrolled.error)"
     Check "foreground left alone after scroll" ([Fg]::Pid() -ne $targetPid)
 
@@ -191,11 +191,11 @@ if (-not $launched.ok) {
     if (-not $rows) { Write-Host "elements: $(($state.elements | ForEach-Object { "$($_.role)/$($_.label)" }) -join ', ')" }
     $scale = $rows.width / 200
     $cx = $rows.x + [int]((360 - 20) * $scale); $cy = $rows.y + [int]((270 - 130) * $scale)
-    $double = Invoke-2ndscreen (@("click") + $onTarget + @("--x", "$cx", "--y", "$cy", "--double"))
-    $right = Invoke-2ndscreen (@("click") + $onTarget + @("--x", "$cx", "--y", "$cy", "--right"))
-    $drag = Invoke-2ndscreen (@("drag") + $onTarget + @("--from-x", "$($cx - 80)", "--from-y", "$cy", "--to-x", "$($cx + 80)", "--to-y", "$cy"))
+    $double = Invoke-agentdesktop (@("click") + $onTarget + @("--x", "$cx", "--y", "$cy", "--double"))
+    $right = Invoke-agentdesktop (@("click") + $onTarget + @("--x", "$cx", "--y", "$cy", "--right"))
+    $drag = Invoke-agentdesktop (@("drag") + $onTarget + @("--from-x", "$($cx - 80)", "--from-y", "$cy", "--to-x", "$($cx + 80)", "--to-y", "$cy"))
     Start-Sleep -Milliseconds 500
-    $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$targetPid")
+    $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$targetPid")
     Check "double-click" ([bool]($double.ok -and $state.tree -match "Pad idle.* double")) "$($double.route) $($double.error)"
     Check "right-click" ([bool]($right.ok -and $state.tree -match "Pad idle.* right")) "$($right.route) $($right.error)"
     Check "drag" ([bool]($drag.ok -and $state.tree -match "Pad idle.* drag")) "$($drag.route) $($drag.error)"
@@ -206,9 +206,9 @@ if (-not $launched.ok) {
     $lx = $listFrame.x + [int]($listFrame.width / 2); $ly = $listFrame.y + [int]($listFrame.height / 2)
     Add-Type -AssemblyName System.Windows.Forms
     $topBefore = [int]([regex]::Match($state.tree, "Top (\d+)").Groups[1].Value)
-    $wheel = Invoke-2ndscreen (@("scroll") + $onTarget + @("--x", "$lx", "--y", "$ly", "--direction", "up", "--amount", "5"))
+    $wheel = Invoke-agentdesktop (@("scroll") + $onTarget + @("--x", "$lx", "--y", "$ly", "--direction", "up", "--amount", "5"))
     Start-Sleep -Milliseconds 500
-    $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$targetPid")
+    $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$targetPid")
     $topAfter = [int]([regex]::Match($state.tree, "Top (\d+)").Groups[1].Value)
     Check "wheel at a point in the background" ([bool]($wheel.ok -and $topAfter -lt $topBefore)) "Top $topBefore -> $topAfter $($wheel.route) $($wheel.error)"
     Check "foreground left alone after the wheel" ([Fg]::Pid() -ne $targetPid)
@@ -216,14 +216,14 @@ if (-not $launched.ok) {
     # With --foreground the wheel goes through the real pointer, which is put back afterwards.
     $before = [System.Windows.Forms.Cursor]::Position
     $topBefore = $topAfter
-    $wheel = Invoke-2ndscreen (@("scroll") + $onTarget + @("--x", "$lx", "--y", "$ly", "--direction", "down", "--amount", "5", "--foreground"))
+    $wheel = Invoke-agentdesktop (@("scroll") + $onTarget + @("--x", "$lx", "--y", "$ly", "--direction", "down", "--amount", "5", "--foreground"))
     $after = [System.Windows.Forms.Cursor]::Position
     Start-Sleep -Milliseconds 500
-    $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$targetPid")
+    $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$targetPid")
     $topAfter = [int]([regex]::Match($state.tree, "Top (\d+)").Groups[1].Value)
     Check "wheel at a point with --foreground" ([bool]($wheel.ok -and $topAfter -gt $topBefore)) "Top $topBefore -> $topAfter $($wheel.error)"
     Check "pointer put back after --foreground" ($before -eq $after) "$before -> $after"
-    Invoke-2ndscreen @("screenshot", "--screen", "e2e", "--output", (Join-Path $Out "e2e-input.png")) | Out-Null
+    Invoke-agentdesktop @("screenshot", "--screen", "e2e", "--output", (Join-Path $Out "e2e-input.png")) | Out-Null
 }
 
 # 6b. The same checks on other kinds of program: WPF, which draws its controls in one
@@ -239,7 +239,7 @@ function Test-Program([string] $kind, $launched) {
     $on = @("--screen", "e2e", "--pid", "$($launched.pid)")
     $window = $launched.windows | Select-Object -First 1
     if ($window) { $on += @("--window-id", "$($window.windowID)") }
-    function Read-State { Start-Sleep -Milliseconds 700; Invoke-2ndscreen (@("state") + $on) }
+    function Read-State { Start-Sleep -Milliseconds 700; Invoke-agentdesktop (@("state") + $on) }
     function Value-Of($state, [string] $label) { ($state.elements | Where-Object label -eq $label | Select-Object -First 1).value }
     function Top-Of($state) { [int]([regex]::Match($state.tree, "Top (\d+)").Groups[1].Value) }
 
@@ -247,13 +247,13 @@ function Test-Program([string] $kind, $launched) {
     if (-not ($state.ok -and $state.tree -match "Press me")) {
         Write-Host "${kind} tree: $($state.error) $($state.tree)"
     }
-    $clicked = Invoke-2ndscreen (@("click") + $on + @("--text", "Press me"))
+    $clicked = Invoke-agentdesktop (@("click") + $on + @("--text", "Press me"))
     $state = Read-State
     Check "${kind}: click" ([bool]($clicked.ok -and $state.tree -match "Pressed 1")) "$($clicked.route) $($clicked.error)"
 
-    $typed = Invoke-2ndscreen (@("type") + $on + @("--text", "Input", "--value", "你好 2ndscreen"))
+    $typed = Invoke-agentdesktop (@("type") + $on + @("--text", "Input", "--value", "你好 agentdesktop"))
     $state = Read-State
-    Check "${kind}: type" ([bool]($typed.ok -and (Value-Of $state "Input") -eq "你好 2ndscreen")) "value '$(Value-Of $state "Input")' $($typed.route) $($typed.error)"
+    Check "${kind}: type" ([bool]($typed.ok -and (Value-Of $state "Input") -eq "你好 agentdesktop")) "value '$(Value-Of $state "Input")' $($typed.route) $($typed.error)"
 
     # ctrl+a then backspace empties the box only if the shortcut selected everything.
     if (-not (Value-Of $state "Input")) {
@@ -263,24 +263,24 @@ function Test-Program([string] $kind, $launched) {
     } else {
     # WPF and Chromium read held modifiers from the real keyboard: a background shortcut
     # is refused, and --foreground brings the program forward for the moment of the keys.
-    $refused = Invoke-2ndscreen (@("key") + $on + @("--text", "Input", "--key", "a", "--modifiers", "ctrl"))
+    $refused = Invoke-agentdesktop (@("key") + $on + @("--text", "Input", "--key", "a", "--modifiers", "ctrl"))
     Check "${kind}: background shortcut refused" ([bool](-not $refused.ok -and $refused.error -match "--foreground")) "$($refused.route) $($refused.error)"
     $frontBefore = [Fg]::Pid()
-    $selected = Invoke-2ndscreen (@("key") + $on + @("--text", "Input", "--key", "a", "--modifiers", "ctrl", "--foreground"))
-    $erased = Invoke-2ndscreen (@("key") + $on + @("--text", "Input", "--key", "backspace", "--foreground"))
+    $selected = Invoke-agentdesktop (@("key") + $on + @("--text", "Input", "--key", "a", "--modifiers", "ctrl", "--foreground"))
+    $erased = Invoke-agentdesktop (@("key") + $on + @("--text", "Input", "--key", "backspace", "--foreground"))
     $state = Read-State
     Check "${kind}: ctrl+a with --foreground" ([bool]($selected.ok -and $erased.ok -and -not (Value-Of $state "Input"))) "value '$(Value-Of $state "Input")' $($selected.route) $($selected.error) $($erased.error)"
     Check "${kind}: foreground put back after --foreground" ([Fg]::Pid() -eq $frontBefore) "before $frontBefore, after $([Fg]::Pid())"
     }
 
-    $scrolled = Invoke-2ndscreen (@("scroll") + $on + @("--text", "Rows", "--direction", "down", "--amount", "5"))
+    $scrolled = Invoke-agentdesktop (@("scroll") + $on + @("--text", "Rows", "--direction", "down", "--amount", "5"))
     $state = Read-State
     $top = Top-Of $state
     Check "${kind}: scroll an element" ([bool]($scrolled.ok -and $top -gt 0)) "Top $top $($scrolled.route) $($scrolled.error)"
 
     $rows = ($state.elements | Where-Object label -eq "Rows" | Select-Object -First 1).frame
     if ($rows) {
-        $wheel = Invoke-2ndscreen (@("scroll") + $on + @("--x", "$($rows.x + [int]($rows.width / 2))", "--y", "$($rows.y + [int]($rows.height / 2))", "--direction", "up", "--amount", "10"))
+        $wheel = Invoke-agentdesktop (@("scroll") + $on + @("--x", "$($rows.x + [int]($rows.width / 2))", "--y", "$($rows.y + [int]($rows.height / 2))", "--direction", "up", "--amount", "10"))
         $state = Read-State
         $after = Top-Of $state
         Check "${kind}: wheel at a point" ([bool]($wheel.ok -and $after -lt $top)) "Top $top -> $after $($wheel.route) $($wheel.error)"
@@ -288,18 +288,18 @@ function Test-Program([string] $kind, $launched) {
         Check "${kind}: wheel at a point" $false "no element named Rows"
     }
     Check "${kind}: foreground left alone" ([Fg]::Pid() -ne $launched.pid) "foreground pid $([Fg]::Pid())"
-    Invoke-2ndscreen @("screenshot", "--screen", "e2e", "--output", (Join-Path $Out "e2e-$($kind -replace '\W', '').png")) | Out-Null
+    Invoke-agentdesktop @("screenshot", "--screen", "e2e", "--output", (Join-Path $Out "e2e-$($kind -replace '\W', '').png")) | Out-Null
     Stop-Process -Id $launched.pid -Force -ErrorAction SilentlyContinue
 }
 
 if ($launched.ok) {
     Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
-    Test-Program "wpf" (Invoke-2ndscreen @("app", "launch", "--screen", "e2e", "--path", (Join-Path $Bin "TestTargetWpf.exe"), "--fill"))
+    Test-Program "wpf" (Invoke-agentdesktop @("app", "launch", "--screen", "e2e", "--path", (Join-Path $Bin "TestTargetWpf.exe"), "--fill"))
 
     $page = Join-Path $Out "e2e-page.html"
     @"
-<!doctype html><meta charset="utf-8"><title>2ndscreen web test target</title>
+<!doctype html><meta charset="utf-8"><title>agentdesktop web test target</title>
 <input aria-label="Input" style="width:400px;font-size:18px">
 <p><button onclick="n.textContent='Pressed '+(++c)" style="font-size:18px">Press me</button> <span id="n">Pressed 0</span></p>
 <div role="list" aria-label="Rows" id="rows" style="height:300px;width:240px;overflow:auto;border:1px solid #888"></div>
@@ -313,7 +313,7 @@ rows.onscroll = () => topRow.textContent = 'Top ' + Math.round(rows.scrollTop / 
     $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
     if ($edge) {
         $profile = Join-Path $Out "edge-profile"
-        Test-Program "edge" (Invoke-2ndscreen @("app", "launch", "--screen", "e2e", "--path", $edge, "--new-instance", "--fill",
+        Test-Program "edge" (Invoke-agentdesktop @("app", "launch", "--screen", "e2e", "--path", $edge, "--new-instance", "--fill",
             "--arg", "--user-data-dir=$profile", "--arg", "--no-first-run", "--arg", "--no-default-browser-check",
             "--arg", "--force-renderer-accessibility", "--arg", "--new-window", "--arg", "file:///$($page -replace '\\', '/')"))
     } else {
@@ -330,17 +330,17 @@ function Invoke-Agent([string] $name, [string[]] $arguments) {
     try { return $text | ConvertFrom-Json } catch { return [pscustomobject]@{ ok = $false; reason = $text.Trim() } }
 }
 $agentChecks = "agent: types and clicks in TestTarget", "agent: foreground left alone", "agent: stops before sending", "agent: nothing sent"
-if (-not $env:ARK_API_KEY) {
-    foreach ($name in $agentChecks) { Skip $name "ARK_API_KEY is not set" }
+if (-not $env:AGENT_MODEL_API_KEY) {
+    foreach ($name in $agentChecks) { Skip $name "AGENT_MODEL_API_KEY is not set" }
 } elseif (-not $created.ok) {
     foreach ($name in $agentChecks) { Skip $name "screen create failed" }
 } else {
-    $task = Invoke-2ndscreen @("app", "launch", "--screen", "e2e", "--path", $target, "--new-instance")
+    $task = Invoke-agentdesktop @("app", "launch", "--screen", "e2e", "--path", $target, "--new-instance")
     if ($task.ok) {
         $result = Invoke-Agent "testtarget" @("--screen", "e2e", "--pid", "$($task.pid)", "--max-steps", "12",
             "Type hello agent into the Input box, then click the Press me button once, then finish.")
         Start-Sleep -Milliseconds 500
-        $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$($task.pid)")
+        $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$($task.pid)")
         $value = ($state.elements | Where-Object label -eq "Input" | Select-Object -First 1).value
         Check "agent: types and clicks in TestTarget" ([bool]($result.ok -and $value -eq "hello agent" -and $state.tree -match "Pressed 1")) "value '$value' $($result.outcome): $($result.reason) ($($result.steps) steps)"
         Check "agent: foreground left alone" ([Fg]::Pid() -ne $task.pid) "foreground pid $([Fg]::Pid())"
@@ -352,7 +352,7 @@ if (-not $env:ARK_API_KEY) {
 
     $chat = Join-Path $Out "e2e-chat.html"
     @"
-<!doctype html><meta charset="utf-8"><title>2ndscreen chat test</title>
+<!doctype html><meta charset="utf-8"><title>agentdesktop chat test</title>
 <div style="font:18px system-ui;padding:20px;background:#f5f5f5;height:300px" id="log"><p>张三：明天下午三点开会可以吗？</p></div>
 <p id="sent">已发送：0 条</p>
 <div style="display:flex;gap:10px"><textarea aria-label="消息" id="box" rows="2" style="flex:1;font-size:18px"></textarea><button id="send" style="font-size:18px">发送</button></div>
@@ -365,7 +365,7 @@ box.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e
 "@ | Set-Content -Encoding UTF8 $chat
     $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
     $browser = if ($edge) {
-        Invoke-2ndscreen @("app", "launch", "--screen", "e2e", "--path", $edge, "--new-instance", "--fill",
+        Invoke-agentdesktop @("app", "launch", "--screen", "e2e", "--path", $edge, "--new-instance", "--fill",
             "--arg", "--user-data-dir=$(Join-Path $Out 'edge-chat-profile')", "--arg", "--no-first-run", "--arg", "--no-default-browser-check",
             "--arg", "--force-renderer-accessibility", "--arg", "--new-window", "--arg", "file:///$($chat -replace '\\', '/')")
     }
@@ -375,7 +375,7 @@ box.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e
         $result = Invoke-Agent "chat" @("--screen", "e2e", "--pid", "$($browser.pid)", "--window-id", "$($window.windowID)", "--max-steps", "10",
             "回复张三：好的，明天三点见。然后把消息发送出去。")
         Start-Sleep -Milliseconds 500
-        $state = Invoke-2ndscreen @("state", "--screen", "e2e", "--pid", "$($browser.pid)", "--window-id", "$($window.windowID)")
+        $state = Invoke-agentdesktop @("state", "--screen", "e2e", "--pid", "$($browser.pid)", "--window-id", "$($window.windowID)")
         $draft = ($state.elements | Where-Object label -eq "消息" | Select-Object -First 1).value
         Check "agent: stops before sending" ([bool]($result.ok -and $result.reason -match "stopped before")) "$($result.outcome): $($result.reason); draft '$draft'"
         Check "agent: nothing sent" ([bool]($state.tree -match "已发送：0 条")) "draft '$draft'"
@@ -413,7 +413,7 @@ public static class Win {
 $user = Start-Process $target -ArgumentList "--second-window" -PassThru
 Start-Sleep -Seconds 2
 $user.Refresh()
-$taken = Invoke-2ndscreen @("window", "move", "--screen", "e2e", "--pid", "$($user.Id)", "--window-id", "$([long]$user.MainWindowHandle)")
+$taken = Invoke-agentdesktop @("window", "move", "--screen", "e2e", "--pid", "$($user.Id)", "--window-id", "$([long]$user.MainWindowHandle)")
 $other = $taken.windows | Where-Object { $_.windowID -ne [long]$user.MainWindowHandle } | Select-Object -First 1
 if ($taken.ok -and $other) {
     Start-Sleep -Milliseconds 1500
@@ -426,9 +426,9 @@ $user | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # 8. Cleanup: destroying the screen moves the test window back to a real display.
 if ($created.ok) {
-    $destroyed = Invoke-2ndscreen @("screen", "destroy", "e2e")
+    $destroyed = Invoke-agentdesktop @("screen", "destroy", "e2e")
     Start-Sleep -Seconds 1
-    $after = Invoke-2ndscreen @("screen", "list")
+    $after = Invoke-agentdesktop @("screen", "list")
     Check "screen destroy" ([bool]($destroyed.ok -and -not ($after.screens | Where-Object name -eq "e2e")))
 } else {
     Skip "screen destroy" "screen create failed"

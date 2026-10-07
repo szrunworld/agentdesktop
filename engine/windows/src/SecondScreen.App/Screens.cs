@@ -40,7 +40,7 @@ internal sealed class Screens
         public TimeSpan? IdleTimeout { get; init; }
         public int? OwnerPid { get; init; }
         public DateTime LastUsed { get; set; } = DateTime.UtcNow;
-        /// <summary>An existing display standing in for a virtual one (SECONDSCREEN_TEST_DISPLAY).</summary>
+        /// <summary>An existing display standing in for a virtual one (AGENTDESKTOP_TEST_DISPLAY).</summary>
         public bool TestStandIn { get; init; }
 
         public DisplayInfo? Display => Desktop.Display(Device);
@@ -48,7 +48,7 @@ internal sealed class Screens
         public Rect WorkArea => Display?.WorkArea ?? default;
     }
 
-    public const string PrimaryName = "2ndscreen";
+    public const string PrimaryName = "Agent Desktop";
     public const int AgentLimit = VirtualDisplayDriver.PoolSize - 1;
     public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromHours(1);
 
@@ -109,7 +109,7 @@ internal sealed class Screens
 
         // Test only: machines whose GPU cannot host virtual monitors (such as CI virtual
         // machines) can still exercise everything else against an existing display.
-        if (Environment.GetEnvironmentVariable("SECONDSCREEN_TEST_DISPLAY") is { Length: > 0 } testDevice)
+        if (Environment.GetEnvironmentVariable("AGENTDESKTOP_TEST_DISPLAY") is { Length: > 0 } testDevice)
         {
             if (Desktop.Display(testDevice) is not { } existing) return ControlResponse.Failure($"no display {testDevice}");
             var standIn = new Screen

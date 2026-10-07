@@ -6,7 +6,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Version>0.1.0</Version>
     <Authors>szrunworld</Authors>
-    <Product>2ndscreen</Product>
+    <Product>Agent Desktop</Product>
     <!-- Lets the Windows projects build on macOS and Linux, e.g. for local checks. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>

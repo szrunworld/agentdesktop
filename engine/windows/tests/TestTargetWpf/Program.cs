@@ -32,7 +32,7 @@ panel.Children.Add(button);
 panel.Children.Add(label);
 panel.Children.Add(list);
 panel.Children.Add(top);
-var window = new Window { Title = "2ndscreen WPF test target", Width = 520, Height = 520, Content = panel };
+var window = new Window { Title = "agentdesktop WPF test target", Width = 520, Height = 520, Content = panel };
 app.Run(window);
 }
 

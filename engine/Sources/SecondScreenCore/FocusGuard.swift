@@ -31,7 +31,7 @@ public final class FocusGuard {
     private let queue: OperationQueue = {
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
-        queue.name = "2ndscreen.focus-guard"
+        queue.name = "agentdesktop.focus-guard"
         return queue
     }()
 

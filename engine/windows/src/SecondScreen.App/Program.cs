@@ -14,7 +14,7 @@ internal static class Program
         if (args.Contains("--setup")) return Setup();
 
         // One instance only: a second would compete for the same virtual outputs.
-        using var mutex = new Mutex(true, $@"Local\2ndscreen-app-{Environment.UserName}", out bool first);
+        using var mutex = new Mutex(true, $@"Local\agentdesktop-app-{Environment.UserName}", out bool first);
         if (!first) return 0;
 
         // A failure in a menu action or a timer is reported (see TrayApp) instead of

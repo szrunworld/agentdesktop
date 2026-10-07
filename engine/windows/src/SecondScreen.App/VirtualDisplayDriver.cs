@@ -8,7 +8,7 @@ namespace SecondScreen.App;
 /// Drives the Virtual Display Driver (github.com/VirtualDrivers/Virtual-Display-Driver).
 ///
 /// The driver builds its monitors from vdd_settings.xml whenever it reloads, and a
-/// reload tears every virtual monitor down. So 2ndscreen reserves a fixed pool once
+/// reload tears every virtual monitor down. So agentdesktop reserves a fixed pool once
 /// (<see cref="PoolSize"/> monitors with the common resolutions) and then attaches and
 /// detaches pool monitors through the ordinary display settings API, which leaves the
 /// other screens alone. Only a resolution missing from the list needs another reload.
@@ -43,7 +43,7 @@ internal sealed class VirtualDisplayDriver
     /// </summary>
     public string? Prepare(IEnumerable<VddSettings.Resolution> needed, bool allowReload)
     {
-        if (!File.Exists(settingsPath)) return "the Virtual Display Driver is not installed; see the 2ndscreen README";
+        if (!File.Exists(settingsPath)) return "the Virtual Display Driver is not installed; see the agentdesktop README";
         XDocument document;
         try
         {
@@ -68,7 +68,7 @@ internal sealed class VirtualDisplayDriver
         }
         catch (UnauthorizedAccessException)
         {
-            return $"cannot write {settingsPath}; run 'SecondScreen.exe --setup' once as administrator";
+            return $"cannot write {settingsPath}; run 'AgentDesktop.Host.exe --setup' once as administrator";
         }
         Send("RELOAD_DRIVER");
 

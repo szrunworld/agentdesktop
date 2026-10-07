@@ -132,11 +132,11 @@ internal static class VirtualDesktops
             var manager = (IVirtualDesktopManagerInternal)shell.QueryService(ref service, ref iid);
             int count = manager.GetCount(), expected = Math.Max(1, Ids().Count);
             if (count == expected) return manager;
-            problem = $"this Windows version's desktop interface is not the one 2ndscreen knows ({count} desktops, expected {expected})";
+            problem = $"this Windows version's desktop interface is not the one agentdesktop knows ({count} desktops, expected {expected})";
         }
         catch (Exception error)
         {
-            problem = $"this Windows version does not offer the desktop interface 2ndscreen knows: {error.Message}";
+            problem = $"this Windows version does not offer the desktop interface agentdesktop knows: {error.Message}";
         }
         return null;
     }

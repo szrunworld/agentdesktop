@@ -2,14 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "SecondScreen",
+    name: "AgentDesktopEngine",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "2ndscreen", targets: ["ScreenCLI"]),
+        .executable(name: "agentdesktop-cli", targets: ["ScreenCLI"]),
         .executable(name: "vdisplay", targets: ["vdisplay"]),
-        .executable(name: "SecondScreen", targets: ["SecondScreen"]),
-        // For apps that embed 2ndscreen as their agent runtime instead of
-        // shipping 2ndscreen.app beside themselves.
+        // Native modules embedded by the AgentDesktop product in this repository.
         .library(name: "SecondScreenCore", targets: ["SecondScreenCore"]),
         .library(name: "SecondScreenRuntime", targets: ["SecondScreenRuntime"]),
         .library(name: "TarsAgent", targets: ["TarsAgent"]),
@@ -23,7 +21,7 @@ let package = Package(
             dependencies: ["CGVirtualDisplayPrivate"]
         ),
         // The UI-TARS agent loop: prompt, model client, reply parser, and the
-        // mapping from model actions to 2ndscreen input.
+        // mapping from model actions to AgentDesktop input.
         .target(
             name: "TarsAgent",
             dependencies: ["SecondScreenCore"]
@@ -42,11 +40,6 @@ let package = Package(
         .executableTarget(
             name: "ScreenCLI",
             dependencies: ["SecondScreenCore", "TarsAgent"]
-        ),
-        // Menu bar app; scripts/bundle-app.sh wraps it in 2ndscreen.app.
-        .executableTarget(
-            name: "SecondScreen",
-            dependencies: ["SecondScreenCore", "SecondScreenRuntime", "TarsAgent"]
         ),
         .testTarget(
             name: "TarsAgentTests",

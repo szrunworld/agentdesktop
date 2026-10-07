@@ -332,9 +332,9 @@ public struct FileProcedureStore: ProcedureStore {
         self.directory = directory
     }
 
-    /// ~/.config/2ndscreen/procedures
+    /// ~/.config/agentdesktop/procedures
     public static var standard: FileProcedureStore {
-        FileProcedureStore(directory: URL(fileURLWithPath: NSHomeDirectory() + "/.config/2ndscreen/procedures"))
+        FileProcedureStore(directory: URL(fileURLWithPath: NSHomeDirectory() + "/.config/agentdesktop/procedures"))
     }
 
     public func file(app: String) -> URL {

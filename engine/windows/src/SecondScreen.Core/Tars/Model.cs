@@ -53,21 +53,20 @@ public sealed class ChatCompletionsModel : IVisionModel
     }
 
     /// <summary>
-    /// From the environment, falling back to <c>%USERPROFILE%\.config\2ndscreen\model.env</c>,
-    /// then the older ark.env, for any value unset. AGENT_MODEL_BASE_URL, AGENT_MODEL_API_KEY
-    /// and AGENT_MODEL name any OpenAI-compatible server, such as Nebula's GUI agent endpoint;
-    /// the ARK_ names are read too, for Volcengine Ark.
+    /// From the environment, with <c>%USERPROFILE%\.config\agentdesktop\model.env</c>
+    /// supplying unset values. AGENT_MODEL_BASE_URL, AGENT_MODEL_API_KEY and
+    /// AGENT_MODEL name any OpenAI-compatible server, such as Nebula's GUI agent endpoint.
     /// </summary>
     public static ChatCompletionsModel FromEnvironment()
     {
-        var names = new[] { "AGENT_MODEL_API_KEY", "AGENT_MODEL_BASE_URL", "AGENT_MODEL", "ARK_API_KEY", "ARK_MODEL", "ARK_BASE_URL" };
+        var names = new[] { "AGENT_MODEL_API_KEY", "AGENT_MODEL_BASE_URL", "AGENT_MODEL" };
         var values = new Dictionary<string, string>();
         foreach (var name in names)
         {
             if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value) values[name] = value;
         }
-        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "2ndscreen");
-        foreach (var file in new[] { "model.env", "ark.env" }.Select(f => Path.Combine(directory, f)).Where(File.Exists))
+        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "agentdesktop");
+        foreach (var file in new[] { "model.env" }.Select(f => Path.Combine(directory, f)).Where(File.Exists))
         {
             foreach (var line in File.ReadAllLines(file))
             {
@@ -80,10 +79,10 @@ public sealed class ChatCompletionsModel : IVisionModel
             }
         }
         string? Value(params string[] keys) => keys.Select(values.GetValueOrDefault).FirstOrDefault(v => !string.IsNullOrEmpty(v));
-        var apiKey = Value("AGENT_MODEL_API_KEY", "ARK_API_KEY")
-            ?? throw new InvalidOperationException($"set AGENT_MODEL_API_KEY (or ARK_API_KEY), or put it in {Path.Combine(directory, "model.env")}");
-        var baseUrl = Value("AGENT_MODEL_BASE_URL", "ARK_BASE_URL") ?? "https://ark.cn-beijing.volces.com/api/v3";
-        return new ChatCompletionsModel(new Uri(baseUrl.TrimEnd('/') + "/"), apiKey, Value("AGENT_MODEL", "ARK_MODEL") ?? "doubao-seed-2-1-lite-260915");
+        var apiKey = Value("AGENT_MODEL_API_KEY")
+            ?? throw new InvalidOperationException($"set AGENT_MODEL_API_KEY, or put it in {Path.Combine(directory, "model.env")}");
+        var baseUrl = Value("AGENT_MODEL_BASE_URL") ?? "https://ark.cn-beijing.volces.com/api/v3";
+        return new ChatCompletionsModel(new Uri(baseUrl.TrimEnd('/') + "/"), apiKey, Value("AGENT_MODEL") ?? "doubao-seed-2-1-lite-260915");
     }
 
     /// <summary>

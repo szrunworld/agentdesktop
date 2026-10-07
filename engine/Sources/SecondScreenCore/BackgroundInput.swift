@@ -414,7 +414,7 @@ public enum BackgroundInput {
 
     private static func requireTrust() throws {
         guard AXIsProcessTrusted() else {
-            throw AccessibilityError("2ndscreen needs the Accessibility permission to drive apps; "
+            throw AccessibilityError("Agent Desktop needs the Accessibility permission to drive apps; "
                 + "choose Grant Accessibility in its menu")
         }
     }

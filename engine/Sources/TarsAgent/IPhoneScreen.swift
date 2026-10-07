@@ -8,7 +8,7 @@ import Vision
 /// screen. What was found running it by hand:
 ///
 /// - Background clicks reach the phone, and so do plain keys (Delete,
-///   Return) and ⌘1 / ⌘2, which 2ndscreen sends with the app made front for
+///   Return) and ⌘1 / ⌘2, which agentdesktop sends with the app made front for
 ///   the instant the key is queued.
 /// - Nothing scrolls or swipes: wheel events, trackpad phases and drags,
 ///   in the background or with the real pointer and the app in front, are
@@ -36,7 +36,7 @@ public final class IPhoneAgentScreen: AgentScreen {
 
     public static func pid() throws -> pid_t {
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
-            throw AgentError("iPhone Mirroring is not running; run `2ndscreen iphone show`")
+            throw AgentError("iPhone Mirroring is not running; run `agentdesktop iphone show`")
         }
         return app.processIdentifier
     }
@@ -46,7 +46,7 @@ public final class IPhoneAgentScreen: AgentScreen {
         request.screen = screen
         let response = try sendControlRequest(request)
         guard let info = response.screens?.first(where: { $0.name == screen }) else {
-            throw AgentError("no screen named \"\(screen)\"; run `2ndscreen iphone show`")
+            throw AgentError("no screen named \"\(screen)\"; run `agentdesktop iphone show`")
         }
         screenFrame = CGRect(info.frame)
         let pid = try Self.pid()
@@ -54,7 +54,7 @@ public final class IPhoneAgentScreen: AgentScreen {
             .filter({ screenFrame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) })
             .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
         else {
-            throw AgentError("iPhone Mirroring has no window on screen \"\(screen)\"; run `2ndscreen iphone show`")
+            throw AgentError("iPhone Mirroring has no window on screen \"\(screen)\"; run `agentdesktop iphone show`")
         }
         try Self.reconnectIfAsked(pid: pid)
         windowFrame = window.frame
@@ -71,7 +71,7 @@ public final class IPhoneAgentScreen: AgentScreen {
 
     /// The mirroring window alone, at the screen's pixels.
     private func windowImage() throws -> CGImage {
-        let scratch = NSTemporaryDirectory() + "2ndscreen-iphone-agent-\(getpid()).png"
+        let scratch = NSTemporaryDirectory() + "agentdesktop-iphone-agent-\(getpid()).png"
         let cropped = scratch + ".window.png"
         defer {
             try? FileManager.default.removeItem(atPath: scratch)
