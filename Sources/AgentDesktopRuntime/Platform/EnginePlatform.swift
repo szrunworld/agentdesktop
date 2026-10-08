@@ -112,6 +112,45 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         return (w, h)
     }
 
+    public func screenshot(_ screen: ScreenHandle, cropTo frame: Rect, to path: String) throws -> (width: Int, height: Int) {
+        let full = path + ".screen.png"
+        defer { try? FileManager.default.removeItem(atPath: full) }
+        let size = try screenshot(screen, to: full)
+        let scale = Double(size.width) / max(1, screen.frame.width)
+        let x0 = max(0, ((frame.x - screen.frame.x) * scale).rounded(.down))
+        let y0 = max(0, ((frame.y - screen.frame.y) * scale).rounded(.down))
+        let x1 = min(Double(size.width), ((frame.x + frame.width - screen.frame.x) * scale).rounded(.up))
+        let y1 = min(Double(size.height), ((frame.y + frame.height - screen.frame.y) * scale).rounded(.up))
+        guard x1 > x0, y1 > y0,
+              let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: full) as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(src, 0, nil),
+              let cropped = image.cropping(to: CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)),
+              let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, "public.png" as CFString, 1, nil)
+        else { throw PlatformError(.refused, "cannot cut the window out of the screenshot") }
+        CGImageDestinationAddImage(dest, cropped, nil)
+        guard CGImageDestinationFinalize(dest) else { throw PlatformError(.refused, "cannot write \(path)") }
+        return (cropped.width, cropped.height)
+    }
+
+    public func stack(on screen: ScreenHandle) -> [PlatformWindow] {
+        let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return list.compactMap { entry in
+            // Normal windows only; a fully transparent one shows nothing.
+            guard (entry[kCGWindowLayer as String] as? Int) == 0,
+                  (entry[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let pid = entry[kCGWindowOwnerPID as String] as? Int32,
+                  let number = entry[kCGWindowNumber as String] as? UInt32,
+                  let b = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let f = CGRect(dictionaryRepresentation: b), f.intersects(bounds)
+            else { return nil }
+            return PlatformWindow(windowId: number, pid: pid, appName: entry[kCGWindowOwnerName as String] as? String ?? "",
+                                  title: entry[kCGWindowName as String] as? String ?? "",
+                                  frame: Rect(x: f.minX, y: f.minY, width: f.width, height: f.height))
+        }
+    }
+
     public func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?) throws
         -> (window: PlatformWindow, elements: [PlatformElement]) {
         var r = ControlRequest(command: .windowState)
