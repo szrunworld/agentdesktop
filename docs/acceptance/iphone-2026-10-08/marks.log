@@ -1,0 +1,20 @@
+=== user unlock done 16:42:21
+=== window released for unlock (2nd) 16:42:36
+=== Mirroring brought front at Kevin's request 16:42:50
+=== connected; moving back 16:44:06
+=== F1: Kevin unlocked phone ~16:45 during t1 paste; reconnect 16:54:33
+=== window released + activated for Kevin (3rd) 16:55:41
+=== connected again; moving back 16:57:37
+=== F1 confirmed: t1 delivered but note empty 16:57:59
+=== harness restarted with F3 fix 17:00:11
+=== I09/I05 rerun with F3 fix 17:02:18
+=== F4: image clipboard -> paste lost (h2) ; I08 start 17:03:25
+=== F5: I08 failed, pressed page text twice 17:04:19
+=== I07 verified on device 17:05:20
+=== harness restarted with F1+F5 fixes 17:06:53
+=== I02 pass; I03 start 17:08:14
+=== I03 refusal pass; F6 status misread from Settings window 17:08:40
+=== I04 done; I06 start 17:09:30
+=== I06 concurrency pass; F7 user copy during paste got pasted 17:10:12
+=== Cancel on Pasting sheet stopped the user's copy from landing 17:11:43
+=== F7 cancel lost the race (fast fetch); detection worked 17:13:33

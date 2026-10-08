@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SecondScreenCore
 
@@ -12,10 +13,10 @@ import SecondScreenCore
 /// product hosts started at once could both pass. Real ownership, with a
 /// version handshake, comes with the shared coordinator (roadmap C02).
 enum HostRole {
-    /// The user's Agent Desktop: menu bar, primary virtual display, hot key.
+    /// The user's Agent Desktop: main window, Dock icon and menu bar entry.
     case product
-    /// A copy run on its own socket to test a build: background only, no
-    /// primary display, quits when idle.
+    /// A copy run on its own socket to test a build: background only (no
+    /// Dock icon, no menu bar entry), quits when idle.
     case sideInstance(socket: URL)
 
     static var current: HostRole {
@@ -41,6 +42,79 @@ enum HostRole {
         case .sideInstance(let socket): return socket
         }
     }
+
+    /// Where the Runtime API (agentdesktop.runtime/1) listens: beside the
+    /// engine endpoint, `runtime.sock` for the product and
+    /// `<socket>.runtime.sock` for a side instance. The `agentdesktop` CLI
+    /// finds the product's on its own (AgentDesktopClient.EndpointResolver)
+    /// and a side instance's through `--endpoint` or AGENTDESKTOP_ENDPOINT.
+    var runtimeEndpoint: URL {
+        switch self {
+        case .product:
+            return Self.productEndpoint.deletingLastPathComponent().appendingPathComponent("runtime.sock")
+        case .sideInstance(let socket):
+            return socket.deletingPathExtension().appendingPathExtension("runtime.sock")
+        }
+    }
+
+    /// Real GUI input by model-driven runs is off until switched on:
+    /// `defaults write com.agentdesktop.app guiExecution -bool true`, or
+    /// AGENTDESKTOP_GUI_EXECUTION=1 for a side instance under test.
+    var guiExecutionEnabled: Bool {
+        switch self {
+        case .product: return UserDefaults.standard.bool(forKey: "guiExecution")
+        case .sideInstance: return ProcessInfo.processInfo.environment["AGENTDESKTOP_GUI_EXECUTION"] == "1"
+        }
+    }
+
+    /// The Runtime's request ledger and artifacts.
+    var runtimeRecordsDirectory: URL {
+        switch self {
+        case .product:
+            return Self.productEndpoint.deletingLastPathComponent().appendingPathComponent("runtime", isDirectory: true)
+        case .sideInstance(let socket):
+            return socket.deletingPathExtension().appendingPathExtension("runtime")
+        }
+    }
+
+    /// Where the AI service keeps API keys. The product uses the login
+    /// Keychain. A test copy never does: it would share (and could
+    /// overwrite) the product's items, and a rebuilt, re-signed copy would
+    /// stop on a Keychain prompt for items an earlier build created. Its
+    /// keys live as 0600 files in its own records directory instead.
+    enum CredentialBackend: Equatable {
+        case keychain
+        case files(directory: URL)
+    }
+
+    var credentialBackend: CredentialBackend {
+        switch self {
+        case .product: return .keychain
+        case .sideInstance: return .files(directory: runtimeRecordsDirectory.appendingPathComponent("test-credentials"))
+        }
+    }
+
+    /// A test copy normally shows no window. For acceptance screenshots it
+    /// can be asked to show the main window without activating, on one of
+    /// its own virtual displays: AGENTDESKTOP_MAIN_WINDOW=1 and optionally
+    /// AGENTDESKTOP_MAIN_WINDOW_DISPLAY=<CGDirectDisplayID>. The product
+    /// ignores both.
+    struct TestWindowRequest: Equatable {
+        var displayID: CGDirectDisplayID?
+    }
+
+    var mainWindowForTest: TestWindowRequest? {
+        mainWindowForTest(environment: ProcessInfo.processInfo.environment)
+    }
+
+    func mainWindowForTest(environment env: [String: String]) -> TestWindowRequest? {
+        guard isSideInstance, env["AGENTDESKTOP_MAIN_WINDOW"] == "1" else { return nil }
+        return TestWindowRequest(displayID: env["AGENTDESKTOP_MAIN_WINDOW_DISPLAY"].flatMap { UInt32($0) })
+    }
+
+    /// Regular (Dock icon, main window) for the product; accessory for a
+    /// test copy.
+    var activationPolicy: NSApplication.ActivationPolicy { isSideInstance ? .accessory : .regular }
 
     var isSideInstance: Bool {
         if case .sideInstance = self { return true }

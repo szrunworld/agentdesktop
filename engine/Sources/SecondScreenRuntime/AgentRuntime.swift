@@ -12,7 +12,9 @@ import SecondScreenCore
 @MainActor
 public final class AgentRuntime {
     public let screens: AgentScreens
-    public let input = InputEngine()
+    /// Thread-safe; the host's Runtime reads windows through it from its
+    /// own bounded threads, off the main actor and the cooperative pool.
+    public nonisolated let input = InputEngine()
 
     /// Screens the host owns besides the agent screens, such as the user's
     /// own second screen; agents see them in `screen list` and can place
@@ -48,6 +50,14 @@ public final class AgentRuntime {
         }
         try server.start()
         self.server = server
+        startInProcess()
+    }
+
+    /// Serve only the host process: callers use `handle` directly and no
+    /// control socket is opened, so the host's own Runtime stays the one
+    /// way in (AgentDesktop A0).
+    public func startInProcess() {
+        guard cursorObserver == nil else { return }
         cursorObserver = DistributedNotificationCenter.default().addObserver(
             forName: AgentCursorEvent.notificationName, object: nil, queue: .main
         ) { [weak self] notification in
@@ -139,6 +149,9 @@ public final class AgentRuntime {
         case .screenshot:
             guard let screen = target() else { return missingScreen }
             guard let output = request.output else { return .failure("give a PNG path with --output") }
+            if request.windowsOnly == true, let windowID = request.windowID {
+                return await screens.windowScreenshot(windowID: windowID, pid: request.pid, of: screen, to: output)
+            }
             if request.windowsOnly == true {
                 return await screens.windowsScreenshot(of: screen, to: output)
             }

@@ -21,4 +21,15 @@ struct HostRoleTests {
         #expect(role.endpoint.path == "/tmp/test.sock")
         #expect(!HostRole.product.isSideInstance)
     }
+
+    // A test copy never touches the login Keychain; the product always does.
+    @Test func testCopiesKeepKeysOutOfTheKeychain() {
+        let side = HostRole.sideInstance(socket: URL(fileURLWithPath: "/tmp/adt-x/side.sock"))
+        guard case let .files(directory) = side.credentialBackend else {
+            Issue.record("a test copy must not use the Keychain")
+            return
+        }
+        #expect(directory.path.hasPrefix(side.runtimeRecordsDirectory.path))
+        #expect(HostRole.product.credentialBackend == .keychain)
+    }
 }

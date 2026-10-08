@@ -1,0 +1,21 @@
+name: windows contracts
+
+on:
+  push:
+    paths: ["windows/**", "contracts/**", "Tests/AgentDesktopContractsTests/Fixtures/**", "Tests/AgentDesktopGUITests/Fixtures/**", ".github/workflows/windows-contracts.yml"]
+  pull_request:
+    paths: ["windows/**", "contracts/**", "Tests/AgentDesktopContractsTests/Fixtures/**", "Tests/AgentDesktopGUITests/Fixtures/**", ".github/workflows/windows-contracts.yml"]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: windows/global.json
+      - name: Test
+        run: dotnet test windows/AgentDesktop.sln --configuration Release

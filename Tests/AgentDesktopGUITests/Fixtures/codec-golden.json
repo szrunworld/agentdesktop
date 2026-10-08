@@ -1,0 +1,1844 @@
+{
+  "description": "Codec and coordinate golden shared by Swift (Tests/AgentDesktopGUITests/CodecGoldenExportTests.swift) and C# (windows/tests/AgentDesktop.GUI.Tests). Each case holds its inputs and the expected outcome: {\"ok\": value} or {\"code\": ERROR_CODE}. Non-finite numbers are written as the strings NaN, Infinity, -Infinity. Numbers compare within the tolerance; everything else exactly. Regenerate only from Swift with AGENTDESKTOP_REGEN_GOLDEN=1, and review the diff.",
+  "version": 1,
+  "tolerance": 1e-06,
+  "coordinates": [
+    {
+      "name": "COO-001 pipeline is identity",
+      "op": "pipeline",
+      "pipeline": {"sourceSize":[1600,1000]},
+      "expect": {
+        "ok": {"modelInputSize":[1600,1000],"modelToSource":[1,0,0,1,0,0],"sourceToModel":[1,0,0,1,0,0]}
+      }
+    },
+    {
+      "name": "COO-001 normalized (625,400)",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,1000]},
+      "protocol": "normalized_1000",
+      "point": [625,400],
+      "expect": {"ok":[1000,400]}
+    },
+    {
+      "name": "COO-002 retina to negative origin",
+      "op": "desktopFromSource",
+      "sourceSize": [2880,1800],
+      "sourceToDesktop": [0.5,0,0,0.5,-1440,120],
+      "point": [1440,900],
+      "expect": {"ok":[-720,570]}
+    },
+    {
+      "name": "COO-003 crop and resize",
+      "op": "pipeline",
+      "pipeline": {"sourceSize":[1600,1000],"crop":[200,100,1000,600],"resized":[500,300]},
+      "expect": {
+        "ok": {"modelInputSize":[500,300],"modelToSource":[2,0,0,2,200,100],"sourceToModel":[0.5,0,0,0.5,-100,-50]}
+      }
+    },
+    {
+      "name": "COO-003 model (250,150)",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,1000],"crop":[200,100,1000,600],"resized":[500,300]},
+      "protocol": "image_pixels",
+      "point": [250,150],
+      "expect": {"ok":[700,400]}
+    },
+    {
+      "name": "COO-004 letterbox",
+      "op": "pipeline",
+      "pipeline": {"sourceSize":[1600,900],"resized":[800,450],"letterbox":[0,175,0,175]},
+      "expect": {
+        "ok": {"modelInputSize":[800,800],"modelToSource":[2,0,0,2,0,-350],"sourceToModel":[0.5,0,0,0.5,0,175]}
+      }
+    },
+    {
+      "name": "COO-004 centre",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,900],"resized":[800,450],"letterbox":[0,175,0,175]},
+      "protocol": "image_pixels",
+      "point": [400,400],
+      "expect": {"ok":[800,450]}
+    },
+    {
+      "name": "COO-004 padding maps to y=-150",
+      "op": "applyModelToSource",
+      "pipeline": {"sourceSize":[1600,900],"resized":[800,450],"letterbox":[0,175,0,175]},
+      "point": [400,100],
+      "expect": {"ok":[800,-150]}
+    },
+    {
+      "name": "COO-004 padding refused",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,900],"resized":[800,450],"letterbox":[0,175,0,175]},
+      "protocol": "image_pixels",
+      "point": [400,100],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-004 bottom edge maps to y=900",
+      "op": "applyModelToSource",
+      "pipeline": {"sourceSize":[1600,900],"resized":[800,450],"letterbox":[0,175,0,175]},
+      "point": [400,625],
+      "expect": {"ok":[800,900]}
+    },
+    {
+      "name": "COO-004 bottom edge refused",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,900],"resized":[800,450],"letterbox":[0,175,0,175]},
+      "protocol": "image_pixels",
+      "point": [400,625],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-005 full chain",
+      "op": "pipeline",
+      "pipeline": {
+        "sourceSize": [2400,1600],
+        "crop": [200,300,1200,800],
+        "resized": [600,400],
+        "letterbox": [20,40,20,40]
+      },
+      "expect": {
+        "ok": {"modelInputSize":[640,480],"modelToSource":[2,0,0,2,160,220],"sourceToModel":[0.5,0,0,0.5,-80,-110]}
+      }
+    },
+    {
+      "name": "COO-005 canvas point",
+      "op": "modelCanvas",
+      "protocol": "normalized_1000",
+      "canvas": [640,480],
+      "point": [500,500],
+      "expect": {"ok":[320,240]}
+    },
+    {
+      "name": "COO-005 normalized (500,500)",
+      "op": "sourceFromModel",
+      "pipeline": {
+        "sourceSize": [2400,1600],
+        "crop": [200,300,1200,800],
+        "resized": [600,400],
+        "letterbox": [20,40,20,40]
+      },
+      "protocol": "normalized_1000",
+      "point": [500,500],
+      "expect": {"ok":[800,700]}
+    },
+    {
+      "name": "GUI-004 crop to desktop",
+      "op": "desktopFromSource",
+      "sourceSize": [1600,1000],
+      "sourceToDesktop": [0.5,0,0,0.5,-1440,120],
+      "point": [700,400],
+      "expect": {"ok":[-1090,320]}
+    },
+    {
+      "name": "COO-006 domain (0.0,0.0)",
+      "op": "checkDomain",
+      "size": [1600,1000],
+      "point": [0,0],
+      "expect": {"ok":true}
+    },
+    {
+      "name": "COO-006 domain (1599.999999,999.999999)",
+      "op": "checkDomain",
+      "size": [1600,1000],
+      "point": [1599.999999,999.999999],
+      "expect": {"ok":true}
+    },
+    {
+      "name": "COO-006 domain (1600.0,0.0)",
+      "op": "checkDomain",
+      "size": [1600,1000],
+      "point": [1600,0],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-006 domain (-1e-06,1.0)",
+      "op": "checkDomain",
+      "size": [1600,1000],
+      "point": [-1e-06,1],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-006 domain (nan,1.0)",
+      "op": "checkDomain",
+      "size": [1600,1000],
+      "point": ["NaN",1],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-006 domain (1.0,inf)",
+      "op": "checkDomain",
+      "size": [1600,1000],
+      "point": [1,"Infinity"],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-006 domain (-inf,0.0)",
+      "op": "checkDomain",
+      "size": [1600,1000],
+      "point": ["-Infinity",0],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-006 normalized 1000 is refused",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,1000]},
+      "protocol": "normalized_1000",
+      "point": [1000,10],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-006 NaN is refused",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,1000]},
+      "protocol": "image_pixels",
+      "point": ["NaN",10],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-006 normalized negative",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,1000]},
+      "protocol": "normalized_1000",
+      "point": [-5,10],
+      "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+    },
+    {
+      "name": "COO-007 hand convention",
+      "op": "apply",
+      "affine": [1.2,0.3,-0.4,0.9,15,-7],
+      "point": [10,20],
+      "expect": {"ok":[19,14]}
+    },
+    {
+      "name": "COO-007 compose",
+      "op": "then",
+      "first": [1.2,0.3,-0.4,0.9,15,-7],
+      "next": [0.5,-0.2,0.1,1.5,-300,42],
+      "expect": {"ok":[0.63,0.20999999999999996,-0.11,1.4300000000000002,-293.2,28.5]}
+    },
+    {
+      "name": "COO-007 singular",
+      "op": "invert",
+      "affine": [1,2,2,4,0,0],
+      "expect": {"code":"VALIDATION_ERROR"}
+    },
+    {
+      "name": "COO-007 zero matrix",
+      "op": "invert",
+      "affine": [0,0,0,0,1,1],
+      "expect": {"code":"VALIDATION_ERROR"}
+    },
+    {
+      "name": "COO-007 non-finite array",
+      "op": "affineFromArray",
+      "array": [1,0,0,1,"NaN",0],
+      "expect": {"code":"VALIDATION_ERROR"}
+    },
+    {
+      "name": "COO-007 five numbers",
+      "op": "affineFromArray",
+      "array": [1,0,0,1,0],
+      "expect": {"code":"VALIDATION_ERROR"}
+    },
+    {
+      "name": "COO-007 pair that is not inverse",
+      "op": "explicitTransform",
+      "sourceSize": [100,100],
+      "sourceToModel": [1,0,0,1,0,0],
+      "modelToSource": [2,0,0,2,0,0],
+      "expect": {"code":"VALIDATION_ERROR"}
+    },
+    {
+      "name": "COO-008 normalized 0.5",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,1000]},
+      "protocol": "normalized_1000",
+      "point": [0.5,0],
+      "expect": {"ok":[0.8,0]}
+    },
+    {
+      "name": "COO-008 image pixels 0.5",
+      "op": "sourceFromModel",
+      "pipeline": {"sourceSize":[1600,1000]},
+      "protocol": "image_pixels",
+      "point": [0.5,0],
+      "expect": {"ok":[0.5,0]}
+    },
+    {
+      "name": "COO-008 missing protocol",
+      "op": "coordinateProtocol",
+      "expect": {"code":"VALIDATION_ERROR"}
+    },
+    {
+      "name": "COO-008 auto protocol",
+      "op": "coordinateProtocol",
+      "protocolName": "auto",
+      "expect": {"code":"VALIDATION_ERROR"}
+    },
+    {
+      "name": "COO-008 near-miss protocol",
+      "op": "coordinateProtocol",
+      "protocolName": "normalized_1",
+      "expect": {"code":"VALIDATION_ERROR"}
+    },
+    {
+      "name": "COO-008 known protocol",
+      "op": "coordinateProtocol",
+      "protocolName": "image_pixels",
+      "expect": {"ok":"image_pixels"}
+    }
+  ],
+  "affineProperty": {
+    "first": [1.2,0.3,-0.4,0.9,15,-7],
+    "next": [0.5,-0.2,0.1,1.5,-300,42],
+    "points": [
+      [1270.42654720769,1014.0906276547096],
+      [1266.1545549785685,781.4978951881526],
+      [1485.6486061211585,1340.208613468265],
+      [2093.5831940829435,309.46267280476667],
+      [1395.8342239606777,1251.3478809827068],
+      [514.1175319948318,1267.6735524211808],
+      [442.6740883641739,745.4494775827584],
+      [1586.2471787083111,119.98915776450315],
+      [671.4657413259933,947.6892409387084],
+      [1925.5628527123192,1082.8524614615515],
+      [103.68737057089504,1184.7857817195506],
+      [2149.252309716853,117.22279255819785],
+      [2035.3236022047695,966.613563155258],
+      [2464.474110986475,1280.0759623987303],
+      [2475.9949700986967,178.14378669985925],
+      [652.7210549260976,995.4352808038044],
+      [29.09336638456182,1391.4399113002203],
+      [1382.4138794604485,422.58145943416156],
+      [640.2173719472853,872.5556652768167],
+      [432.07344054442416,253.08891124321207],
+      [784.4152342952734,1116.3263577076477],
+      [2531.5827435190786,1437.2664579032091],
+      [1558.2714050593863,297.3082350612332],
+      [2477.2314582034537,567.5799531748451],
+      [1131.4990983794464,618.2768194565087],
+      [1213.7928674870702,1131.4789700157785],
+      [1213.4977182600235,570.2009662680282],
+      [876.9005246852876,381.99834058115346],
+      [592.423255736077,531.7276586320052],
+      [621.259474818134,1365.1393669994081],
+      [345.4885952108364,885.1908326226035],
+      [1155.6495142247882,383.53968979550183],
+      [499.3621979432652,1246.108408588179],
+      [2046.8702195793082,1085.261104799719],
+      [243.792345852427,774.8380347175002],
+      [1511.498137246976,141.08412602510077],
+      [2493.499915941081,797.8810266489008],
+      [2264.061785458068,118.23046127939314],
+      [1943.8203665644537,199.5836239004781],
+      [1329.5141859797823,310.57610707761717],
+      [947.8486059793183,169.46090730274824],
+      [2310.3453469636597,515.5165579644122],
+      [2549.6272687656055,1210.7306731025496],
+      [722.0793744806642,1185.6666564875154],
+      [78.81560916550143,845.8845599373587],
+      [1772.769702948066,281.4462475429568],
+      [1239.976644316412,997.9578602792079],
+      [323.00172815150233,1389.5883488986183],
+      [2289.7463935944243,727.2103081389102],
+      [910.791002056151,1547.2487942810692],
+      [2116.276272252204,1210.3617622851996],
+      [2112.490009858784,857.5340318133619],
+      [1557.323510520607,941.0927248702203],
+      [2460.951451357395,310.3351707346235],
+      [1101.6058941511874,396.6782494621793],
+      [201.93996666572275,994.1351698109855],
+      [336.9174763607572,133.13039876774832],
+      [2352.4948513145005,298.09444142433694],
+      [1208.3140197271225,1156.8589404628055],
+      [2526.0894977609614,281.1265191300306],
+      [1315.9773746874585,1316.55350843885],
+      [123.34803062852274,1407.4740419804639],
+      [833.2862990576763,165.81491524016894],
+      [507.4000767140288,1327.961332116403],
+      [2091.2738933006635,1331.7747309242566],
+      [1750.0770896063505,43.86237712635683],
+      [1352.049473843574,853.5870216860789],
+      [430.3866640996233,882.9571419294243],
+      [973.4097610915865,69.41393883933706],
+      [743.3009120222124,1087.1861996657797],
+      [1732.9880188158845,1153.5552714905646],
+      [290.9101079485498,1140.7477688778142],
+      [1625.1032658782042,313.7633198415145],
+      [2195.4559766854513,765.8022094015457],
+      [1309.283805075943,395.7639686575071],
+      [1550.8637456896358,816.5454125277323],
+      [413.6278601535875,677.6309081163301],
+      [1684.705846444804,295.1333007167076],
+      [1047.7393866814864,1297.632595188536],
+      [1667.7684349496362,700.2946378277923],
+      [225.01614191812422,1035.4984139702133],
+      [1015.5127316971215,1575.6973347566923],
+      [918.9531160120712,778.2171703280877],
+      [93.61522895454186,241.3619545397191],
+      [470.4675216302414,827.0941606931406],
+      [1208.583536391095,0.503131397985257],
+      [477.0856147580014,541.381643308978],
+      [757.2426993962483,805.6130142716303],
+      [1495.0070731718017,1089.4066361181403],
+      [1238.9533750502683,969.9353798410546],
+      [1372.324148526425,1560.7702034971044],
+      [1059.0538349523404,1155.985046524033],
+      [1288.1220299358163,1206.7582198514044],
+      [266.3434449547276,1426.9758261615195],
+      [2246.720245930647,790.0100478801426],
+      [738.7235356209962,311.66083519960443],
+      [2205.832534252211,753.8435338637287],
+      [1852.163076643652,1274.4178859503502],
+      [2158.4001970842305,732.9456096352017],
+      [2268.727119209948,1452.9764470540879]
+    ],
+    "expect": {
+      "ok": {
+        "composed": [0.63,0.20999999999999996,-0.11,1.4300000000000002,-293.2,28.5],
+        "inverse": [1.5476190476190474,-0.2272727272727272,0.11904761904761903,0.6818181818181817,450.36904761904754,-86.06818181818178],
+        "points": [
+          {"composed":[395.61875569882665,1745.4391724598497],"back":[1270.4265472076897,1014.0906276547096]},
+          {"composed":[418.5126011658014,1411.9344466645575],"back":[1266.1545549785683,781.4978951881524]},
+          {"composed":[495.3356743748207,2256.9845245450624],"back":[1485.6486061211583,1340.208613468265]},
+          {"composed":[991.7165182637302,910.6840928682344],"back":[2093.5831940829435,309.4626728047666]},
+          {"composed":[448.52729418712926,2111.0526568370133],"back":[1395.8342239606775,1251.3478809827068]},
+          {"composed":[-108.75004560958584,1949.2378616812034],"back":[514.1175319948318,1267.6735524211808]},
+          {"composed":[-96.31476686467386,1187.4543114998212],"back":[442.6740883641738,745.4494775827584]},
+          {"composed":[692.9369152321406,533.1964031319849],"back":[1586.2471787083107,119.9891577645032]},
+          {"composed":[25.577600532117913,1524.703420220812],"back":[671.4657413259933,947.6892409387085]},
+          {"composed":[800.7908264479904,1981.3472189596057],"back":[1925.5628527123188,1082.8524614615512]},
+          {"composed":[-358.2033925294867,1744.5180156788456],"back":[103.68737057089498,1184.7857817195506]},
+          {"composed":[1047.9344479402155,647.471578398762],"back":[2149.2523097168523,117.22279255819782]},
+          {"composed":[882.7263774419264,1838.1753517750205],"back":[2035.3236022047693,966.6135631552579]},
+          {"composed":[1118.610334057619,2376.548189537344],"back":[2464.474110986475,1280.07596239873]},
+          {"composed":[1247.0810146251943,803.204558701525],"back":[2475.9949700986963,178.14378669985925]},
+          {"composed":[8.51638371502304,1589.043873083921],"back":[652.7210549260976,995.4352808038043]},
+          {"composed":[-427.9295694207503,2024.368680100073],"back":[29.09336638456176,1391.43991130022]},
+          {"composed":[531.2367835223249,923.0984016775453],"back":[1382.4138794604485,422.5814594341616]},
+          {"composed":[14.155821146339918,1410.700249454778],"back":[640.2173719472852,872.5556652768166]},
+          {"composed":[-48.83351269376607,481.15256559212236],"back":[432.07344054442416,253.08891124321198]},
+          {"composed":[78.18569825818099,1789.5738907239438],"back":[784.4152342952732,1116.3263577076477]},
+          {"composed":[1143.5978180476666,2615.4234109405957],"back":[2531.5827435190786,1437.266457903209]},
+          {"composed":[655.8070793306777,780.8877712000345],"back":[1558.2714050593859,297.3082350612332]},
+          {"composed":[1205.022023818943,1360.3579392627537],"back":[2477.2314582034533,567.579953174845]},
+          {"composed":[351.63398183883527,1150.2506624824914],"back":[1131.4990983794462,618.2768194565087]},
+          {"composed":[347.0268198151187,1901.4114292948482],"back":[1213.7928674870702,1131.4789700157785]},
+          {"composed":[408.5814562143317,1098.7219025978852],"back":[1213.4977182600232,570.2009662680281]},
+          {"composed":[217.2275130878043,758.9067372149599],"back":[876.9005246852876,381.99834058115346]},
+          {"composed":[21.53660866420796,913.2794355483436],"back":[592.423255736077,531.7276586320052]},
+          {"composed":[-51.97186123451047,2111.113784520962],"back":[621.2594748181339,1365.139366999408]},
+          {"composed":[-172.91317660565943,1366.875495644599],"back":[345.48859521083637,885.1908326226036]},
+          {"composed":[392.6698280841113,819.6481543947732],"back":[1155.649514224788,383.5396897955019]},
+          {"composed":[-115.67374024044261,1915.3010858491816],"back":[499.3621979432651,1246.1084085881787]},
+          {"composed":[876.949516806995,2010.266125975253],"back":[2046.8702195793078,1085.2611047997189]},
+          {"composed":[-224.84300593189602,1187.714782275035],"back":[243.7923458524269,774.8380347175001]},
+          {"composed":[643.5245726028338,547.6649090377591],"back":[1511.4981372469758,141.0841260251008]},
+          {"composed":[1189.9380341115018,1693.1048504555552],"back":[2493.4999159410804,797.8810266489006]},
+          {"composed":[1120.1535740978493,673.0225345757264],"back":[2264.0617854580673,118.23046127939313]},
+          {"composed":[909.4526323065531,722.1068591562189],"back":[1943.8203665644533,199.58362390047805]},
+          {"composed":[510.230565388725,751.8218121767468],"back":[1329.5141859797823,310.57610707761705]},
+          {"composed":[285.3039219636683,469.87730469858684],"back":[947.8486059793183,169.4609073027482]},
+          {"composed":[1105.6107472110202,1250.861200751478],"back":[2310.3453469636597,515.5165579644122]},
+          {"composed":[1179.884805281051,2295.2665889774235],"back":[2549.6272687656055,1210.7306731025496]},
+          {"composed":[31.286673709191803,1875.6399874180865],"back":[722.0793744806642,1185.6666564875152]},
+          {"composed":[-336.5934678188436,1254.6661986351785],"back":[78.81560916550137,845.8845599373587]},
+          {"composed":[792.6858256275561,803.249771605522],"back":[1772.7697029480653,281.4462475429568]},
+          {"composed":[378.20992128862673,1715.974835505714],"back":[1239.976644316412,997.9578602792078]},
+          {"composed":[-242.56362964340153,2083.44170183684],"back":[323.0017281515023,1389.5883488986183]},
+          {"composed":[1069.347094069207,1549.2574832934708],"back":[2289.746393594424,727.2103081389102]},
+          {"composed":[110.40096392445747,2432.3318862537208],"back":[910.7910020561508,1547.248794281069]},
+          {"composed":[906.9142576675165,2203.7353372407983],"back":[2116.276272252204,1210.3617622851996]},
+          {"composed":[943.3399627115641,1698.3965675634522],"back":[2112.4900098587837,857.5340318133618]},
+          {"composed":[584.3936118922581,1701.3005337737427],"back":[1557.3235105206068,941.0927248702203]},
+          {"composed":[1223.0625455743502,989.0790989355645],"back":[2460.951451357395,310.3351707346235]},
+          {"composed":[357.17710587440826,827.0871345026658],"back":[1101.6058941511872,396.67824946217934]},
+          {"composed":[-275.3326896798031,1492.5206858295112],"back":[201.93996666572272,994.1351698109854]},
+          {"composed":[-95.58633375717528,289.6291402736391],"back":[336.9174763607571,133.1303987677483]},
+          {"composed":[1156.0813677714582,948.7989700128469],"back":[2352.4948513145005,298.0944414243369]},
+          {"composed":[340.7833489771786,1936.5542290045078],"back":[1208.3140197271223,1156.8589404628053]},
+          {"composed":[1267.3124664851023,960.9897168857456],"back":[2526.089497760961,281.1265191300305]},
+          {"composed":[391.04486012482533,2187.526765751922],"back":[1315.9773746874582,1316.55350843885]},
+          {"composed":[-370.3128853218817,2067.090966464053],"back":[123.34803062852274,1407.4740419804637]},
+          {"composed":[213.53072772991754,440.60545159555363],"back":[833.2862990576762,165.81491524016894]},
+          {"composed":[-119.61369820296619,2034.0387210364024],"back":[507.4000767140287,1327.961332116403]},
+          {"composed":[877.8073323777496,2372.1053828148265],"back":[2091.273893300663,1331.7747309242566]},
+          {"composed":[804.5237049681016,458.73938810802383],"back":[1750.0770896063502,43.86237712635679]},
+          {"composed":[464.69659613598304,1533.0598305182434],"back":[1352.0494738435739,853.5870216860787]},
+          {"composed":[-119.18168722947394,1381.5099124199978],"back":[430.3866640996233,882.9571419294242]},
+          {"composed":[312.41261621537245,332.1779823694851],"back":[973.4097610915865,69.41393883933702]},
+          {"composed":[55.489092610758064,1739.2694570467297],"back":[743.3009120222123,1087.1861996657794]},
+          {"composed":[671.6913719900451,2042.0115221828432],"back":[1732.9880188158843,1153.5552714905646]},
+          {"composed":[-235.40888656897317,1720.86043216447],"back":[290.91010794854975,1140.7477688778142]},
+          {"composed":[696.101092320702,818.4532332077886],"back":[1625.103265878204,313.76331984151443]},
+          {"composed":[1005.6990222776644,1584.6429145481552],"back":[2195.4559766854513,765.8022094015456]},
+          {"composed":[488.1147606455184,869.3920742461833],"back":[1309.283805075943,395.7639686575071]},
+          {"composed":[594.0241644064201,1521.841326509481],"back":[1550.8637456896358,816.5454125277322]},
+          {"composed":[-107.15384799603618,1084.3740492386055],"back":[413.62786015358745,677.63090811633]},
+          {"composed":[735.7000201813885,804.3288477783007],"back":[1684.7058464448035,295.1333007167076]},
+          {"composed":[224.13622813859757,2104.1398823227187],"back":[1047.7393866814864,1297.6325951885358]},
+          {"composed":[680.4617038572137,1380.1527034331666],"back":[1667.768434949636,700.2946378277921]},
+          {"composed":[-265.3446561283052,1556.5161217802113],"back":[225.0161419181242,1035.4984139702133]},
+          {"composed":[173.2463141459504,2495.0048623584657],"back":[1015.5127316971214,1575.697334756692]},
+          {"composed":[200.1365743515152,1334.3307079317005],"back":[918.9531160120712,778.2171703280877]},
+          {"composed":[-260.77222075800773,393.30679307225216],"back":[93.6152289545418,241.3619545397191]},
+          {"composed":[-87.7858190491934,1310.042829333542],"back":[470.4675216302413,827.0941606931407]},
+          {"composed":[468.1522834726115,283.0220205412488],"back":[1208.5835363910949,0.5031313979852428]},
+          {"composed":[-52.188043466446715,902.8637290310189],"back":[477.08561475800127,541.3816433089779]},
+          {"composed":[95.2454690497571,1339.5475772816435],"back":[757.2426993962481,805.6130142716302]},
+          {"composed":[528.8197261252396,1900.3029750150192],"back":[1495.0070731718015,1089.40663611814]},
+          {"composed":[380.64773449915305,1675.6878019332644],"back":[1238.9533750502683,969.9353798410543]},
+          {"composed":[399.67949118696635,2548.5894621914085],"back":[1372.3241485264248,1560.770203497104]},
+          {"composed":[246.84556090233087,1903.9599218693588],"back":[1059.0538349523404,1155.985046524033]},
+          {"composed":[385.5734746759097,2024.6698806740299],"back":[1288.122029935816,1206.7582198514044]},
+          {"composed":[-282.37097055628874,2125.007554851466],"back":[266.3434449547276,1426.9758261615193]},
+          {"composed":[1035.3326496694917,1630.0256201140398],"back":[2246.7202459306463,790.0100478801426]},
+          {"composed":[137.91313556927116,629.3069368158435],"back":[738.7235356209961,311.6608351996043]},
+          {"composed":[1013.5517078538828,1569.7210856180964],"back":[2205.8325342522107,753.8435338637286]},
+          {"composed":[733.4767708309621,2239.8718230041677],"back":[1852.1630766436515,1274.41788595035]},
+          {"composed":[985.968107103193,1529.876263166027],"back":[2158.4001970842305,732.9456096352017]},
+          {"composed":[976.2706759263174,2582.689014321435],"back":[2268.7271192099474,1452.9764470540879]}
+        ]
+      }
+    }
+  },
+  "codec": {
+    "context": {
+      "pipeline": {"sourceSize":[1600,1000]},
+      "maxWaitMs": 2000
+    },
+    "suggestions": [
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Thought: 点击姓名输入框\nAction: click(start_box='(500,500)')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 800,
+              "y": 500,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='[100, 200, 300, 400]')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 320,
+              "y": 300,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(point='<point>383 117</point>')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 612.8,
+              "y": 117,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='<bbox>100 200 300 400</bbox>')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 320,
+              "y": 300,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: type(content='Ada')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {"type":"type","text":"Ada"}
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: type(content='第二行\\n')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {"type":"type","text":"第二行\n"}
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: type(content='it\\'s \\\"quoted\\\"\\ttab')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {"type":"type","text":"it's \"quoted\"\ttab"}
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hotkey(key='ctrl c')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {"type":"key","keys":["Control","C"]}
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hotkey(key='cmd+shift+page down')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {"type":"key","keys":["Meta","Shift","PageDown"]}
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hotkey(key='Enter')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {"type":"key","keys":["Enter"]}
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: scroll(start_box='(500,500)', direction='down')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "scroll",
+              "x": 800,
+              "y": 500,
+              "direction": "down",
+              "amountPixels": 300
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action：wait()",
+        "expect": {
+          "ok": {"kind":"wait","waitMs":2000}
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Thought: 已保存\nAction: finished(content='saved')",
+        "expect": {
+          "ok": {"kind":"finish","reason":"saved"}
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: finished()",
+        "expect": {
+          "ok": {"kind":"finish","reason":"finished"}
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: call_user(content='请先登录')",
+        "expect": {
+          "ok": {"kind":"needs_user","reasonCode":"model_requested_user","message":"请先登录"}
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Thought: 点击文件传输助手。\nAction: click(start_box='[100, 200, 300, 400]')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 320,
+              "y": 300,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(500,250)')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 800,
+              "y": 250,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='[383 117]')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 612.8,
+              "y": 117,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='<|box_start|>(10,20)<|box_end|>')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 16,
+              "y": 20,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: type(content='你好，世界\\n')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {"type":"type","text":"你好，世界\n"}
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: finished(content='done, really')",
+        "expect": {
+          "ok": {"kind":"finish","reason":"done, really"}
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(0.5,0.25)')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 0.8,
+              "y": 0.25,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Thought: Action items: click(start_box='(9,9)') later\nAction: finished(content='ok')",
+        "expect": {
+          "ok": {"kind":"finish","reason":"ok"}
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action_Summary: 提交\nAction: click(start_box='(10,10)')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 16,
+              "y": 10,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "hover(start_box='(1,1)')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hover(start_box='(1,1)')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: drag(start_box='(1,1)', end_box='(5,5)')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: left_double(start_box='(1,1)')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: right_single(start_box='(1,1)')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(element='3')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1)')\n\nclick(start_box='(2,2)')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1)')\nAction: type(content='x')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1)'); type(content='x')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1)', start_box='(2,2)')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box=(1,1))",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click()",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: type(content='a\u0007b')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: type(content='bad \\q escape')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hotkey(key='ctrl fn')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hotkey(key='ctrl ctrl')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hotkey(key='ctrl shift alt cmd c')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hotkey(key='')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: scroll(start_box='(1,1)', direction='sideways')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: scroll(start_box='(1,1)', direction='down', amount='99999')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: finished(content='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: finished(content='')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='[383]')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='[300, 400, 100, 200]')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(abc,1)')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1]')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='<point>1 1')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1000,10)')",
+        "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(-5,10)')",
+        "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(inf,10)')",
+        "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "data: {\"choices\":[{\"delta\":{\"content\":\"Action: click\"}}]}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: type(content='line\nbreak')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "   ",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "not an action at all",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1)', execute='rm -rf ~')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1)', approval='true')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: type(content='x', shell='open -a Terminal')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: screenshot(path='/etc/passwd')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: eval(code='1+1')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1)', snapshotId='snap-evil')",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hotkey(key='ctrl c')\n\nfinished()",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "image_pixels",
+        "reply": "Action: click(start_box='(0.5,0.5)')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 0.5,
+              "y": 0.5,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "image_pixels",
+        "reply": "Action: click(start_box='(1599.5,999)')",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 1599.5,
+              "y": 999,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "image_pixels",
+        "reply": "Action: click(start_box='(1600,10)')",
+        "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+      },
+      {
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: wait()",
+        "maxWaitMs": 0,
+        "expect": {
+          "ok": {"kind":"wait","waitMs":0}
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"click\",\"x\":500,\"y\":500,\"button\":\"left\"}}",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "click",
+              "x": 800,
+              "y": 500,
+              "button": "left"
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"type\",\"text\":\"Ada\"}}",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {"type":"type","text":"Ada"}
+          }
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"key\",\"keys\":[\"Meta\",\"A\"]}}",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {"type":"key","keys":["Meta","A"]}
+          }
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"scroll\",\"x\":10,\"y\":10,\"direction\":\"up\",\"amountPixels\":120}}",
+        "expect": {
+          "ok": {
+            "kind": "action",
+            "action": {
+              "type": "scroll",
+              "x": 16,
+              "y": 10,
+              "direction": "up",
+              "amountPixels": 120
+            }
+          }
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"wait\",\"waitMs\":0}",
+        "expect": {
+          "ok": {"kind":"wait","waitMs":0}
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"wait\",\"waitMs\":2000}",
+        "expect": {
+          "ok": {"kind":"wait","waitMs":2000}
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"finish\",\"reason\":\"done\"}",
+        "expect": {
+          "ok": {"kind":"finish","reason":"done"}
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"needs_user\",\"reasonCode\":\"login_required\",\"message\":\"log in\"}",
+        "expect": {
+          "ok": {"kind":"needs_user","reasonCode":"login_required","message":"log in"}
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"click\",\"x\":1,\"y\":1,\"button\":\"left\"},\"approval\":true}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"click\",\"x\":1,\"y\":1,\"button\":\"left\",\"execute\":\"rm -rf ~\"}}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"execute\",\"shell\":\"open -a Terminal\"}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"screenshot\",\"path\":\"/etc\"}}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"raw_event\",\"cgEvent\":1}}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"drag\",\"x\":1,\"y\":1}}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"click\",\"x\":1,\"y\":1,\"button\":\"right\"}}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"click\",\"x\":1000,\"y\":1,\"button\":\"left\"}}",
+        "expect": {"code":"COORDINATE_OUT_OF_BOUNDS"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"wait\",\"waitMs\":-1}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"wait\",\"waitMs\":1.5}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"wait\",\"waitMs\":2001}",
+        "expect": {"code":"LIMIT_EXCEEDED"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"finish\",\"reason\":\"ok\",\"snapshotId\":\"snap-other\"}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"finish\",\"reason\":\"ok\",\"kind\":\"wait\"}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "[{\"kind\":\"finish\",\"reason\":\"a\"},{\"kind\":\"finish\",\"reason\":\"b\"}]",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"key\",\"keys\":[\"Control\",\"Control\"]}}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"key\",\"keys\":[\"F13\"]}}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"finish\",\"reason\":\"ok\",\"desktopId\":\"desktopB\"}",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "not json",
+        "expect": {"code":"INVALID_ACTION"}
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"wait\",\"waitMs\":5000}",
+        "maxWaitMs": 5000,
+        "expect": {
+          "ok": {"kind":"wait","waitMs":5000}
+        }
+      },
+      {
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"wait\",\"waitMs\":5001}",
+        "maxWaitMs": 5000,
+        "expect": {"code":"LIMIT_EXCEEDED"}
+      }
+    ]
+  },
+  "registry": [
+    {
+      "adapterId": "uitars_v1",
+      "fixtureEnabled": false,
+      "protocol": "image_pixels",
+      "expect": {
+        "ok": {
+          "adapterId": "uitars_v1",
+          "adapterVersion": "1.0.0",
+          "promptVersion": "uitars-prompt-1",
+          "parserVersion": "uitars-parser-1",
+          "coordinateProtocol": "image_pixels"
+        }
+      }
+    },
+    {
+      "adapterId": "uitars_v1",
+      "fixtureEnabled": false,
+      "protocol": "normalized_1000",
+      "expect": {
+        "ok": {
+          "adapterId": "uitars_v1",
+          "adapterVersion": "1.0.0",
+          "promptVersion": "uitars-prompt-1",
+          "parserVersion": "uitars-parser-1",
+          "coordinateProtocol": "normalized_1000"
+        }
+      }
+    },
+    {
+      "adapterId": "fixture_json_v1",
+      "fixtureEnabled": false,
+      "protocol": "normalized_1000",
+      "expect": {"code":"CAPABILITY_MISMATCH"}
+    },
+    {
+      "adapterId": "fixture_json_v1",
+      "fixtureEnabled": true,
+      "protocol": "normalized_1000",
+      "expect": {
+        "ok": {
+          "adapterId": "fixture_json_v1",
+          "adapterVersion": "1.0.0",
+          "promptVersion": "fixture-prompt-1",
+          "parserVersion": "fixture-parser-1",
+          "coordinateProtocol": "normalized_1000"
+        }
+      }
+    },
+    {
+      "adapterId": "openai_cua",
+      "fixtureEnabled": false,
+      "protocol": "normalized_1000",
+      "expect": {"code":"CAPABILITY_MISMATCH"}
+    },
+    {
+      "adapterId": "uitars_v1",
+      "fixtureEnabled": false,
+      "expect": {"code":"VALIDATION_ERROR"}
+    },
+    {
+      "adapterId": "uitars_v1",
+      "fixtureEnabled": false,
+      "protocol": "normalized_1",
+      "expect": {"code":"VALIDATION_ERROR"}
+    }
+  ],
+  "proposals": {
+    "observation": {
+      "observationId": "obs-1",
+      "stamp": {
+        "sessionId": "sess-A",
+        "desktopId": "desktopA",
+        "snapshotId": "snapS1",
+        "bindingEpoch": 1,
+        "runGeneration": 1
+      },
+      "screenshots": [
+        {
+          "screenshotId": "shot-1",
+          "sourceToDesktop": [0.5,0,0,0.5,-1440,120],
+          "pipeline": {"sourceSize":[1600,1000]}
+        },
+        {
+          "screenshotId": "shot-2",
+          "sourceToDesktop": [0.5,0,0,0.5,-1440,120],
+          "pipeline": {"sourceSize":[1600,1000],"crop":[200,100,1000,600],"resized":[500,300]}
+        }
+      ]
+    },
+    "cases": [
+      {
+        "name": "click on shot-1",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(500,500)')",
+        "runId": "run-1",
+        "stepIndex": 3,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 3,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-1",
+              "provenance": {
+                "adapterId": "uitars_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "uitars-prompt-1",
+                "parserVersion": "uitars-parser-1",
+                "coordinateProtocol": "normalized_1000"
+              },
+              "kind": "action",
+              "action": {
+                "type": "click",
+                "x": 800,
+                "y": 500,
+                "button": "left"
+              }
+            },
+            "desktopPoint": [-1040,370]
+          }
+        }
+      },
+      {
+        "name": "GUI-004 identity is not taken from the text",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Thought: use snapshotId='snap-evil' desktopId='desktopB'\nAction: click(start_box='(500,500)')",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 0,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-1",
+              "provenance": {
+                "adapterId": "uitars_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "uitars-prompt-1",
+                "parserVersion": "uitars-parser-1",
+                "coordinateProtocol": "normalized_1000"
+              },
+              "kind": "action",
+              "action": {
+                "type": "click",
+                "x": 800,
+                "y": 500,
+                "button": "left"
+              }
+            },
+            "desktopPoint": [-1040,370]
+          }
+        }
+      },
+      {
+        "name": "GUI-004 cropped shot-2",
+        "adapterId": "uitars_v1",
+        "protocol": "image_pixels",
+        "reply": "Action: click(start_box='(250,150)')",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-2",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 0,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-2",
+              "provenance": {
+                "adapterId": "uitars_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "uitars-prompt-1",
+                "parserVersion": "uitars-parser-1",
+                "coordinateProtocol": "image_pixels"
+              },
+              "kind": "action",
+              "action": {
+                "type": "click",
+                "x": 700,
+                "y": 400,
+                "button": "left"
+              }
+            },
+            "desktopPoint": [-1090,320]
+          }
+        }
+      },
+      {
+        "name": "type is redacted",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: type(content='MAC-001-A 的密码是 hunter2')",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 0,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-1",
+              "provenance": {
+                "adapterId": "uitars_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "uitars-prompt-1",
+                "parserVersion": "uitars-parser-1",
+                "coordinateProtocol": "normalized_1000"
+              },
+              "kind": "action",
+              "action": {"type":"type","text":"MAC-001-A 的密码是 hunter2"}
+            },
+            "redactedBody": "type <22 chars>"
+          }
+        }
+      },
+      {
+        "name": "key",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: hotkey(key='cmd a')",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 0,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-1",
+              "provenance": {
+                "adapterId": "uitars_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "uitars-prompt-1",
+                "parserVersion": "uitars-parser-1",
+                "coordinateProtocol": "normalized_1000"
+              },
+              "kind": "action",
+              "action": {"type":"key","keys":["Meta","A"]}
+            }
+          }
+        }
+      },
+      {
+        "name": "scroll",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: scroll(start_box='(10,10)', direction='left')",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 0,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-1",
+              "provenance": {
+                "adapterId": "uitars_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "uitars-prompt-1",
+                "parserVersion": "uitars-parser-1",
+                "coordinateProtocol": "normalized_1000"
+              },
+              "kind": "action",
+              "action": {
+                "type": "scroll",
+                "x": 16,
+                "y": 10,
+                "direction": "left",
+                "amountPixels": 300
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "wait",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: wait()",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 0,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-1",
+              "provenance": {
+                "adapterId": "uitars_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "uitars-prompt-1",
+                "parserVersion": "uitars-parser-1",
+                "coordinateProtocol": "normalized_1000"
+              },
+              "kind": "wait",
+              "waitMs": 2000
+            }
+          }
+        }
+      },
+      {
+        "name": "finish",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: finished(content='saved')",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 0,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-1",
+              "provenance": {
+                "adapterId": "uitars_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "uitars-prompt-1",
+                "parserVersion": "uitars-parser-1",
+                "coordinateProtocol": "normalized_1000"
+              },
+              "kind": "finish",
+              "reason": "saved"
+            }
+          }
+        }
+      },
+      {
+        "name": "needs user",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: call_user(content='请先登录')",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 0,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-1",
+              "provenance": {
+                "adapterId": "uitars_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "uitars-prompt-1",
+                "parserVersion": "uitars-parser-1",
+                "coordinateProtocol": "normalized_1000"
+              },
+              "kind": "needs_user",
+              "reasonCode": "model_requested_user",
+              "message": "请先登录"
+            }
+          }
+        }
+      },
+      {
+        "name": "fixture click",
+        "adapterId": "fixture_json_v1",
+        "protocol": "normalized_1000",
+        "reply": "{\"kind\":\"action\",\"action\":{\"type\":\"click\",\"x\":500,\"y\":500,\"button\":\"left\"}}",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {
+          "ok": {
+            "proposal": {
+              "proposalId": "prop-golden-1",
+              "runId": "run-1",
+              "stepIndex": 0,
+              "inferenceAttemptId": "att-1",
+              "desktopId": "desktopA",
+              "snapshotId": "snapS1",
+              "bindingEpoch": 1,
+              "runGeneration": 1,
+              "screenshotId": "shot-1",
+              "provenance": {
+                "adapterId": "fixture_json_v1",
+                "adapterVersion": "1.0.0",
+                "promptVersion": "fixture-prompt-1",
+                "parserVersion": "fixture-parser-1",
+                "coordinateProtocol": "normalized_1000"
+              },
+              "kind": "action",
+              "action": {
+                "type": "click",
+                "x": 800,
+                "y": 500,
+                "button": "left"
+              }
+            },
+            "desktopPoint": [-1040,370]
+          }
+        }
+      },
+      {
+        "name": "stale screenshot",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: finished()",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-other",
+        "maxWaitMs": 2000,
+        "expect": {"code":"STALE_OBSERVATION"}
+      },
+      {
+        "name": "step out of range",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: finished()",
+        "runId": "run-1",
+        "stepIndex": 20,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {"code":"VALIDATION_ERROR"}
+      },
+      {
+        "name": "smuggled authority",
+        "adapterId": "uitars_v1",
+        "protocol": "normalized_1000",
+        "reply": "Action: click(start_box='(1,1)', approval='true')",
+        "runId": "run-1",
+        "stepIndex": 0,
+        "inferenceAttemptId": "att-1",
+        "screenshotId": "shot-1",
+        "maxWaitMs": 2000,
+        "expect": {"code":"INVALID_ACTION"}
+      }
+    ]
+  }
+}

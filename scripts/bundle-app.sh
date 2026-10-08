@@ -1,6 +1,28 @@
 #!/bin/bash
-# Build Agent Desktop and its native CLI from this repository.
-# Public command: bin/agentdesktop; internal binary: libexec/agentdesktop-cli.
+# Build the product host and wrap it in "build/Agent Desktop.app".
+#
+# The bundle holds, with their provenance in Contents/Resources/build.json:
+#   Contents/MacOS/Agent Desktop            the host (Sources/AgentDesktop), linking the
+#                                           local engine package (engine/)
+#   Contents/Resources/bin/agentdesktop     the product's only command line
+#                                           (Sources/AgentDesktopCLI), speaking
+#                                           agentdesktop.runtime/1 to the host
+#
+# Beside the bundle, after signing: "Agent Desktop-<build>.zip" (ditto, keeps
+# the .app) and "Agent Desktop-<build>.manifest.json" with the sha256 of every
+# file as shipped and of the archive. build.json inside the bundle records the
+# build inputs before signing; the manifest records what is distributed.
+#
+# Not in the bundle, by decision (docs/boundaries.md): Android tools (adb,
+# scrcpy), the task runtime, and the engine's own command line
+# (engine/ ScreenCLI, product agentdesktop-cli): only agentdesktop ships.
+#
+# The bundle gives the app a stable identity, so macOS attributes the Screen
+# Recording and Accessibility grants to Agent Desktop. It is signed with a
+# self-signed certificate kept in a dedicated keychain
+# (~/Library/Keychains/agentdesktop-signing.keychain-db, created on first
+# run); macOS ties grants to the certificate, so they survive rebuilds. The
+# release pipeline replaces this with the Developer ID identity (roadmap A04).
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,7 +33,8 @@ BUILD_LABEL="0.1.0-dev"  # what the product calls this build
 
 cd "$ROOT"
 
-# Product and core share one checkout and one source revision.
+# Product and engine share one checkout and one source revision: the engine
+# is the local package engine/, never a remote or partial checkout.
 "$ROOT/scripts/check-local-engine.sh"
 swift package resolve
 "$ROOT/scripts/check-local-engine.sh"
@@ -19,26 +42,17 @@ SOURCE_REVISION="$(git rev-parse --verify -q HEAD || echo unknown)"
 if [[ -n "$(git status --porcelain --untracked-files=all 2>/dev/null)" ]]; then
     SOURCE_REVISION="$SOURCE_REVISION-dirty"
 fi
-swift build -c release --product AgentDesktop
-swift build --package-path "$ROOT/engine" -c release --product agentdesktop-cli
+
+swift build -c release --product AgentDesktopApp
+swift build -c release --product agentdesktop
 BIN_DIR="$(swift build -c release --show-bin-path)"
-CLI_BIN_DIR="$(swift build --package-path "$ROOT/engine" -c release --show-bin-path)"
-BIN="$BIN_DIR/AgentDesktop"
-CLI="$CLI_BIN_DIR/agentdesktop-cli"
+BIN="$BIN_DIR/AgentDesktopApp"
+PRODUCT_CLI="$BIN_DIR/agentdesktop"
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/bin" "$APP/Contents/Resources/libexec"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/bin"
 cp "$BIN" "$APP/Contents/MacOS/Agent Desktop"
-cp "$CLI" "$APP/Contents/Resources/libexec/agentdesktop-cli"
-# A test instance may explicitly select another current-product endpoint.
-cat > "$APP/Contents/Resources/bin/agentdesktop" <<'WRAPPER'
-#!/bin/bash
-here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-: "${AGENTDESKTOP_SOCKET:=$HOME/Library/Application Support/AgentDesktop/control.sock}"
-export AGENTDESKTOP_SOCKET
-exec "$here/../libexec/agentdesktop-cli" "$@"
-WRAPPER
-chmod 755 "$APP/Contents/Resources/bin/agentdesktop"
+cp "$PRODUCT_CLI" "$APP/Contents/Resources/bin/agentdesktop"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -77,9 +91,9 @@ cat > "$APP/Contents/Resources/build.json" <<JSON
   "inputs": {
     "note": "sha256 of the build products before the bundle's signature; the files as shipped are listed in the distribution manifest beside the archive",
     "Contents/MacOS/Agent Desktop": "$(sha "$BIN")",
-    "Contents/Resources/libexec/agentdesktop-cli": "$(sha "$CLI")"
+    "Contents/Resources/bin/agentdesktop": "$(sha "$PRODUCT_CLI")"
   },
-  "nativeHub": false,
+  "taskRuntime": null,
   "android": null
 }
 JSON
@@ -137,7 +151,7 @@ done < <(security list-keychains -d user)
 restore_keychains() { security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}"; }
 security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" "$KEYCHAIN"
 # Nested code is signed before the bundle that seals it.
-if ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.cli" "$APP/Contents/Resources/libexec/agentdesktop-cli" \
+if ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.agentdesktop" "$APP/Contents/Resources/bin/agentdesktop" \
     || ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"; then
     restore_keychains
     exit 1
@@ -146,8 +160,8 @@ restore_keychains
 codesign --verify --strict "$APP"
 
 # What must not be in a product bundle (docs/boundaries.md).
-if find "$APP" \( -name adb -o -name scrcpy-server -o -path '*/Resources/android*' -o -path '*/task-runtime/skills/boss*' \) | grep -q .; then
-    echo "error: the bundle carries Android tools or business skills" >&2
+if find "$APP" \( -name adb -o -name scrcpy-server -o -name 2ndscreen -o -name agentdesktop-cli -o -path '*/Resources/android*' -o -path '*/task-runtime/skills/boss*' \) | grep -q .; then
+    echo "error: the bundle carries Android tools, business skills or the engine's own command line" >&2
     exit 1
 fi
 

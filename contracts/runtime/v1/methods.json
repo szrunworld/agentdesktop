@@ -1,0 +1,1014 @@
+{
+  "apiVersion": "agentdesktop.runtime/1",
+  "status": "FROZEN_2026_10_08",
+  "transport": {
+    "macOS": "owner-only Unix domain socket: the product host serves runtime/1 on one endpoint (runtime.sock today; renamed control.sock when nothing else uses that name); ai.sock is gone (A2)",
+    "windows": "current-user named pipe (W1)",
+    "framing": "UTF-8 JSON, one message per LF-terminated line; requests on one connection are answered in order",
+    "maxFrameBytes": 1048576,
+    "countIncludesNewline": true,
+    "firstMethod": "runtime.handshake",
+    "requestLedger": {
+      "key": "caller uid + requestId",
+      "digest": "sha256 of canonical {method, context, params}",
+      "retentionDays": 7,
+      "onRestart": "accepted → unknown"
+    },
+    "artifacts": {
+      "location": "<endpoint dir>/runtime/artifacts, never sent to clients",
+      "access": "artifact.show / artifact.read by id; visible to the producing principal and the owner",
+      "retentionHours": 24
+    },
+    "control": {
+      "runs": "ADR v2.2: Delegated = external_client/connection_scoped (client connections; control-connection loss stops it); Durable = platform/platform_durable (created inside the Runtime only; no connection ends it)",
+      "lease": "one per Desktop, held by one live Run",
+      "admission": "runtime.stopAll closes input for all Runs; runtime.enableInput reopens for new Runs only"
+    }
+  },
+  "schema": "runtime.schema.json",
+  "methods": [
+    {
+      "method": "runtime.handshake",
+      "stage": "P0",
+      "mutation": false,
+      "params": "runtime_handshake_params",
+      "result": "RuntimeIdentity",
+      "status": "implemented"
+    },
+    {
+      "method": "runtime.status",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "RuntimeStatus",
+      "status": "implemented"
+    },
+    {
+      "method": "runtime.capabilities",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "Capabilities",
+      "status": "implemented"
+    },
+    {
+      "method": "desktop.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "DesktopList",
+      "status": "implemented"
+    },
+    {
+      "method": "desktop.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "desktop_show_params",
+      "result": "Desktop",
+      "status": "implemented"
+    },
+    {
+      "method": "app.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "app_list_params",
+      "result": "AppList",
+      "status": "implemented"
+    },
+    {
+      "method": "window.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "window_list_params",
+      "result": "WindowList",
+      "status": "implemented"
+    },
+    {
+      "method": "desktop.create",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_create_params",
+      "result": "Desktop",
+      "status": "implemented"
+    },
+    {
+      "method": "desktop.destroy",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_destroy_params",
+      "result": "DestroyResult",
+      "status": "implemented"
+    },
+    {
+      "method": "app.launch",
+      "stage": "P0",
+      "mutation": true,
+      "params": "app_launch_params",
+      "result": "LaunchResult",
+      "status": "implemented"
+    },
+    {
+      "method": "window.bind",
+      "stage": "P0",
+      "mutation": true,
+      "params": "window_bind_params",
+      "result": "Desktop",
+      "status": "implemented"
+    },
+    {
+      "method": "window.unbind",
+      "stage": "P0",
+      "mutation": true,
+      "params": "window_unbind_params",
+      "result": "Desktop",
+      "status": "implemented"
+    },
+    {
+      "method": "session.open",
+      "stage": "P0",
+      "mutation": true,
+      "params": "session_open_params",
+      "result": "Session",
+      "status": "implemented"
+    },
+    {
+      "method": "session.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "session_ref_params",
+      "result": "Session",
+      "status": "implemented"
+    },
+    {
+      "method": "session.close",
+      "stage": "P0",
+      "mutation": true,
+      "params": "session_ref_params",
+      "result": "Session",
+      "status": "implemented"
+    },
+    {
+      "method": "observe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_params",
+      "result": "Observation",
+      "status": "implemented"
+    },
+    {
+      "method": "request.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "request_show_params",
+      "result": "RequestRecord",
+      "status": "implemented"
+    },
+    {
+      "method": "act",
+      "stage": "P0",
+      "mutation": true,
+      "params": "act_params",
+      "result": "ActionReceipt",
+      "status": "implemented"
+    },
+    {
+      "method": "wait",
+      "stage": "P0",
+      "mutation": false,
+      "params": "wait_params",
+      "result": "WaitResult",
+      "status": "implemented"
+    },
+    {
+      "method": "run.start",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_start_params",
+      "result": "RunStart",
+      "note": "not ledgered: the attach token it returns is a credential and must not be stored; a retry starts another Run, which ends with its connection",
+      "status": "implemented"
+    },
+    {
+      "method": "run.attach",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_attach_params",
+      "result": "Run",
+      "status": "implemented"
+    },
+    {
+      "method": "run.finish",
+      "stage": "P0",
+      "mutation": true,
+      "params": "run_finish_params",
+      "result": "Run",
+      "status": "implemented"
+    },
+    {
+      "method": "run.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_ref_params",
+      "result": "Run",
+      "status": "implemented"
+    },
+    {
+      "method": "run.events",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_events_params",
+      "result": "RunEvents",
+      "status": "implemented"
+    },
+    {
+      "method": "run.wait",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_wait_params",
+      "result": "Run",
+      "status": "implemented"
+    },
+    {
+      "method": "run.cancel",
+      "stage": "P0",
+      "mutation": true,
+      "params": "run_ref_params",
+      "result": "CancelReceipt",
+      "status": "implemented"
+    },
+    {
+      "method": "run.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_list_params",
+      "result": "RunList",
+      "status": "implemented"
+    },
+    {
+      "method": "runtime.stopAll",
+      "stage": "P0",
+      "mutation": true,
+      "params": "stop_all_params",
+      "result": "StopAllResult",
+      "status": "implemented"
+    },
+    {
+      "method": "runtime.enableInput",
+      "stage": "P0",
+      "mutation": true,
+      "params": "empty_params",
+      "result": "EnableInputResult",
+      "status": "implemented"
+    },
+    {
+      "method": "artifact.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "artifact_ref_params",
+      "result": "Artifact",
+      "status": "implemented"
+    },
+    {
+      "method": "artifact.read",
+      "stage": "P0",
+      "mutation": false,
+      "params": "artifact_read_params",
+      "result": "ArtifactChunk",
+      "status": "implemented"
+    },
+    {
+      "method": "events.subscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "events_subscribe_params",
+      "result": "EventSubscription",
+      "status": "implemented",
+      "note": "after the reply the server pushes EventFrame lines on this connection; other methods are refused there until events.unsubscribe. With runId: that Run from sequence `after` (default 0), and the server closes the connection once the Run has ended and every event was sent. Without: every visible Run, global cursor `after` (default: now). Closing never affects a Run."
+    },
+    {
+      "method": "events.unsubscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "EventSubscription",
+      "status": "implemented"
+    },
+    {
+      "method": "ai.connections.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_connections_list_params",
+      "result": "service.schema.json#/$defs/ai_connections_list_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "ai.connections.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_connections_get_params",
+      "result": "service.schema.json#/$defs/ai_connections_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "ai.connections.create",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_connections_create_params",
+      "result": "service.schema.json#/$defs/ai_connections_create_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.connections.update",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_connections_update_params",
+      "result": "service.schema.json#/$defs/ai_connections_update_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.connections.disable",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_connections_disable_params",
+      "result": "service.schema.json#/$defs/ai_connections_disable_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.connections.delete",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_connections_delete_params",
+      "result": "service.schema.json#/$defs/ai_connections_delete_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.credentials.rotate",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_credentials_rotate_params",
+      "result": "service.schema.json#/$defs/ai_credentials_rotate_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.models.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_models_list_params",
+      "result": "service.schema.json#/$defs/ai_models_list_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "ai.models.refresh",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_models_refresh_params",
+      "result": "service.schema.json#/$defs/ai_models_refresh_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": true,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.modelProfiles.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_modelProfiles_list_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_list_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "ai.modelProfiles.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_modelProfiles_get_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "ai.modelProfiles.create",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_modelProfiles_create_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_create_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.modelProfiles.update",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_modelProfiles_update_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_update_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.modelProfiles.disable",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_modelProfiles_disable_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_disable_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.modelProfiles.delete",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_modelProfiles_delete_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_delete_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.profiles.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_profiles_list_params",
+      "result": "service.schema.json#/$defs/ai_profiles_list_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "ai.profiles.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_profiles_get_params",
+      "result": "service.schema.json#/$defs/ai_profiles_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "ai.profiles.create",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_profiles_create_params",
+      "result": "service.schema.json#/$defs/ai_profiles_create_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.profiles.update",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_profiles_update_params",
+      "result": "service.schema.json#/$defs/ai_profiles_update_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.profiles.disable",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_profiles_disable_params",
+      "result": "service.schema.json#/$defs/ai_profiles_disable_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.profiles.delete",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_profiles_delete_params",
+      "result": "service.schema.json#/$defs/ai_profiles_delete_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.profiles.default.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_profiles_default_get_params",
+      "result": "service.schema.json#/$defs/ai_profiles_default_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "ai.profiles.setDefault",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_profiles_setDefault_params",
+      "result": "service.schema.json#/$defs/ai_profiles_setDefault_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.tests.start",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_tests_start_params",
+      "result": "service.schema.json#/$defs/ai_tests_start_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": true,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.operations.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_operations_get_params",
+      "result": "service.schema.json#/$defs/ai_operations_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "ai.operations.cancel",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/ai_operations_cancel_params",
+      "result": "service.schema.json#/$defs/ai_operations_cancel_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "ai.usage.summary",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/ai_usage_summary_params",
+      "result": "service.schema.json#/$defs/ai_usage_summary_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "gui.runs.start",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/gui_runs_start_params",
+      "result": "service.schema.json#/$defs/gui_runs_start_result",
+      "status": "transitional",
+      "servedBy": "ai-service",
+      "removedBy": "A6 (unit.run + run.*)",
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
+      "asynchronous": true,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "gui.runs.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/gui_runs_get_params",
+      "result": "service.schema.json#/$defs/gui_runs_get_result",
+      "status": "transitional",
+      "servedBy": "ai-service",
+      "removedBy": "A6 (unit.run + run.*)",
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    },
+    {
+      "method": "gui.runs.cancel",
+      "stage": "P0",
+      "mutation": true,
+      "params": "service.schema.json#/$defs/gui_runs_cancel_params",
+      "result": "service.schema.json#/$defs/gui_runs_cancel_result",
+      "status": "transitional",
+      "servedBy": "ai-service",
+      "removedBy": "A6 (unit.run + run.*)",
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
+    },
+    {
+      "method": "gui.runs.events",
+      "stage": "P0",
+      "mutation": false,
+      "params": "service.schema.json#/$defs/gui_runs_events_params",
+      "result": "service.schema.json#/$defs/gui_runs_events_result",
+      "status": "transitional",
+      "servedBy": "ai-service",
+      "removedBy": "A6 (unit.run + run.*)",
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
+    }
+  ],
+  "freeze": "docs/architecture/runtime-api-v1-freeze.md",
+  "catalog": [
+    {
+      "method": "unit.run",
+      "status": "frozen",
+      "pr": "PR2d",
+      "mutation": true,
+      "params": "unit_run_params",
+      "result": "Run",
+      "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process, never over the wire"
+    },
+    {
+      "method": "hub.pairing.start",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.pairing.status",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.pairing.approve",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.pairing.deny",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.clients.list",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.clients.show",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.clients.revoke",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.grants.list",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.grants.set",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.grants.revoke",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.connections.list",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "inbox.list",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "inbox.show",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "inbox.resolve",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "run.reconcile",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "diagnostics.export",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.knowledge.get",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.knowledge.events",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.list",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.get",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.propose",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.revise",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.lifecycle",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.validations.start",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.validations.get",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.validations.cancel",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.demonstrations.start",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    },
+    {
+      "method": "gui.demonstrations.get",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    },
+    {
+      "method": "gui.demonstrations.stop",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    },
+    {
+      "method": "gui.learning.settings.get",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    },
+    {
+      "method": "gui.learning.settings.update",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    },
+    {
+      "method": "desktop.stop",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "stop input on one Desktop; receipt separates accepted from quiescent"
+    },
+    {
+      "method": "desktop.takeover",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "manual takeover: a platform lease Run with origin user"
+    },
+    {
+      "method": "desktop.handback",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "end the takeover Run and observe again; nothing is replayed"
+    },
+    {
+      "method": "desktop.closePlan",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "what closing a Desktop would end and what it keeps"
+    },
+    {
+      "method": "desktop.resize",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "change a Desktop's size"
+    },
+    {
+      "method": "app.quit",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "quit only a process this Desktop launched"
+    },
+    {
+      "method": "request.list",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "action records: filter and page"
+    },
+    {
+      "method": "request.export",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "action records: export"
+    }
+  ],
+  "withdrawn": [
+    {
+      "method": "gui.runs.start",
+      "replacedBy": "unit.run + run.*",
+      "until": "A6: served as transitional on the single endpoint until unit.run lands"
+    },
+    {
+      "method": "gui.runs.get",
+      "replacedBy": "unit.run + run.*",
+      "until": "A6: served as transitional on the single endpoint until unit.run lands"
+    },
+    {
+      "method": "gui.runs.cancel",
+      "replacedBy": "unit.run + run.*",
+      "until": "A6: served as transitional on the single endpoint until unit.run lands"
+    },
+    {
+      "method": "gui.runs.events",
+      "replacedBy": "unit.run + run.*",
+      "until": "A6: served as transitional on the single endpoint until unit.run lands"
+    },
+    {
+      "method": "ai/1 runtime.capabilities",
+      "replacedBy": "runtime.capabilities"
+    }
+  ],
+  "plannedFields": {
+    "note": "optional additions agreed in docs/plan/03 §3.2–3.3; each lands with its schema, fixtures and goldens in the named PR (freeze rule 1: optional fields only)",
+    "Action.kind": {
+      "add": [
+        "hover",
+        "drag",
+        "press"
+      ],
+      "pr": "A5"
+    },
+    "observe/act context": {
+      "add": "desktopId alone opens an implicit session",
+      "pr": "A5"
+    },
+    "ActionReceipt": {
+      "add": [
+        "businessResult (always \"not_evaluated\")",
+        "elapsedMs",
+        "clientId",
+        "origin",
+        "geometryRevision",
+        "dispatchSequence",
+        "proposalId",
+        "inferenceAttemptId",
+        "reconciliations"
+      ],
+      "pr": "A3/A5"
+    },
+    "Observation": {
+      "add": [
+        "targetKind",
+        "geometryRevision",
+        "captureSequence",
+        "coverage{ax,screenshot,ocr}"
+      ],
+      "pr": "A3"
+    },
+    "Desktop": {
+      "add": [
+        "control{state,controllerRunId,clientId,clientName,transport,since,actionCount,lastActionAt}",
+        "targetKind (window|device)"
+      ],
+      "pr": "A5"
+    },
+    "desktop.create params": {
+      "add": [
+        "launch",
+        "bind"
+      ],
+      "pr": "A5"
+    },
+    "Run": {
+      "add": [
+        "unit{mode,goalHash,guiProfileRevision,inferenceAttempts,steps}",
+        "episodeEligible",
+        "excludedReason"
+      ],
+      "pr": "A6/L1"
+    }
+  },
+  "serviceSchema": "service.schema.json"
+}

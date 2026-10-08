@@ -2,8 +2,14 @@ name: macOS
 
 on:
   push:
+    branches: [ai-gui-foundation, main]
   pull_request:
   workflow_dispatch:
+
+# One run per PR or branch: a new commit cancels the run of the commit it replaced.
+concurrency:
+  group: macos-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -19,11 +25,14 @@ jobs:
           swift package resolve
           ./scripts/check-local-engine.sh
           test ! -d .build/checkouts/2ndscreen
+          test ! -e Package.resolved || ! grep -q 2ndscreen Package.resolved
       - name: Build
         run: swift build -c release
       - name: Product unit tests
+        timeout-minutes: 8
         run: swift test
       - name: Native core unit tests
+        timeout-minutes: 8
         run: swift test --package-path engine
       - name: Bundle the app
         run: ./scripts/bundle-app.sh
@@ -34,7 +43,17 @@ jobs:
           codesign --verify --strict "build/Agent Desktop.app"
       - name: The archive matches its manifest
         run: ./scripts/verify-archive.sh build/Agent\ Desktop-*.zip build/Agent\ Desktop-*.manifest.json
-      - name: CLI and MCP expose only current native commands
+      - name: The product CLI is the native agentdesktop and needs no Runtime for help and version
+        run: |
+          CLI="build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
+          codesign --verify --strict "$CLI"
+          "$CLI" help | grep -q 'usage: agentdesktop'
+          "$CLI" version --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["build"]["source"] != "unknown", d'
+          set +e; "$CLI" runtime status --endpoint /nonexistent/runtime.sock --format json > status.json; code=$?; set -e
+          cat status.json
+          test "$code" = 3
+          python3 -c 'import json; d=json.load(open("status.json")); assert d["error"]["code"] == "runtime_offline", d'
+      - name: The packaged CLI exposes only the current command surface
         run: python3 scripts/verify-command-surface.py "build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
       - name: Keep the archive and manifest
         uses: actions/upload-artifact@v4

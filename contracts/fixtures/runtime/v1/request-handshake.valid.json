@@ -1,0 +1,1 @@
+{"def":"Request","instance":{"apiVersion":"agentdesktop.runtime/1","requestId":"req_001","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"agentdesktop-cli","version":"0.1.0-dev"}}}}

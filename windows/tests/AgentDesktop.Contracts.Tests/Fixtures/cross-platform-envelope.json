@@ -1,0 +1,316 @@
+{
+ "description": "Frames both the Swift and the C# contract layer must judge the same way. padToBodyBytes: insert spaces before the final '}' until the body has that many bytes. frameBase64 carries bytes that are not valid UTF-8. Rejections must themselves be valid ErrorResponse envelopes: parse failures carry details.reasonCode, schema violations details.fieldErrors[{path,code}].",
+ "version": 1,
+ "envelope": [
+  {
+   "name": "valid list",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{\"limit\":20}}",
+   "expect": {
+    "kind": "request",
+    "command": "ai.connections.list"
+   }
+  },
+  {
+   "name": "valid capabilities",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"runtime.capabilities\",\"params\":{}}",
+   "expect": {
+    "kind": "request",
+    "command": "runtime.capabilities"
+   }
+  },
+  {
+   "name": "valid run start",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"gui.runs.start\",\"params\":{\"desktopId\":\"desk-a\",\"goal\":\"在指定中立表单的姓名中输入 Ada，然后点击应用\",\"verification\":{\"kind\":\"element_text_equals\",\"role\":\"static_text\",\"text\":\"已保存：Ada / MAC-001-A / 提交次数 1\"},\"allowedActions\":[\"click\",\"type\"]},\"context\":{\"idempotencyKey\":\"xplat-key-0001\"}}",
+   "expect": {
+    "kind": "request",
+    "command": "gui.runs.start",
+    "idempotencyKey": "xplat-key-0001"
+   }
+  },
+  {
+   "name": "valid create with secret",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.create\",\"params\":{\"name\":\"Ark\",\"protocol\":\"openai_chat\",\"baseUrl\":\"https://ark.example.com/api/v3\",\"timeoutMs\":30000,\"credential\":{\"apiKey\":\"sk-canary-xplat\"}},\"context\":{\"idempotencyKey\":\"xplat-key-0001\"}}",
+   "expect": {
+    "kind": "request",
+    "command": "ai.connections.create"
+   }
+  },
+  {
+   "name": "legacy control request",
+   "frame": "{\"command\":\"screen.list\"}",
+   "expect": {
+    "kind": "legacy"
+   }
+  },
+  {
+   "name": "malformed json",
+   "frame": "{\"schemaVersion\":",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": null,
+    "reasonCode": "syntax"
+   }
+  },
+  {
+   "name": "duplicate command key",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"command\":\"gui.runs.cancel\",\"params\":{}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": null,
+    "reasonCode": "duplicateKey"
+   }
+  },
+  {
+   "name": "trailing data",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{}} {}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": null,
+    "reasonCode": "trailingData"
+   }
+  },
+  {
+   "name": "lone surrogate",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{\"cursor\":\"\\ud800\"}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": null,
+    "reasonCode": "syntax"
+   }
+  },
+  {
+   "name": "number overflow",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{\"limit\":1e999}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": null,
+    "reasonCode": "nonFiniteNumber"
+   }
+  },
+  {
+   "name": "too deep",
+   "frame": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": null,
+    "reasonCode": "tooDeep"
+   }
+  },
+  {
+   "name": "array frame",
+   "frame": "[]",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": null
+   }
+  },
+  {
+   "name": "unknown version echoes id",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/2\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "UNSUPPORTED_SCHEMA",
+    "requestId": "11111111-1111-4111-8111-111111111111"
+   }
+  },
+  {
+   "name": "unknown version, bad id",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/2\",\"requestId\":\"x\",\"command\":\"ai.connections.list\",\"params\":{}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "UNSUPPORTED_SCHEMA",
+    "requestId": null
+   }
+  },
+  {
+   "name": "bad request id",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"not-a-uuid\",\"command\":\"ai.connections.list\",\"params\":{}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": null
+   }
+  },
+  {
+   "name": "op instead of command",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"op\":\"ai.connections.list\",\"params\":{}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": "11111111-1111-4111-8111-111111111111"
+   }
+  },
+  {
+   "name": "unknown command",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"gui.runs.resume\",\"params\":{}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "UNSUPPORTED_COMMAND",
+    "requestId": "11111111-1111-4111-8111-111111111111"
+   }
+  },
+  {
+   "name": "extra control field",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{},\"lease\":\"forged\"}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "fieldErrorPaths": [
+     "/lease"
+    ]
+   }
+  },
+  {
+   "name": "start without verification",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"gui.runs.start\",\"params\":{\"desktopId\":\"desk-a\",\"goal\":\"在指定中立表单的姓名中输入 Ada，然后点击应用\",\"allowedActions\":[\"click\",\"type\"]},\"context\":{\"idempotencyKey\":\"xplat-key-0001\"}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": "11111111-1111-4111-8111-111111111111"
+   }
+  },
+  {
+   "name": "mutation without idempotency key",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.disable\",\"params\":{\"connectionId\":\"c1\",\"expectedRevision\":1}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "fieldErrorPaths": [
+     "/"
+    ]
+   }
+  },
+  {
+   "name": "remote http endpoint",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.create\",\"params\":{\"name\":\"Ark\",\"protocol\":\"openai_chat\",\"baseUrl\":\"http://evil.example.com\",\"timeoutMs\":30000,\"credential\":{\"apiKey\":\"sk-canary-xplat\"}},\"context\":{\"idempotencyKey\":\"xplat-key-0001\"}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "mustNotContain": [
+     "sk-canary-xplat",
+     "evil.example.com"
+    ],
+    "fieldErrorPaths": [
+     "/params/baseUrl"
+    ]
+   }
+  },
+  {
+   "name": "inline screenshot",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{\"screenshot\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "fieldErrorPaths": [
+     "/params/screenshot"
+    ]
+   }
+  },
+  {
+   "name": "limit above ceiling",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{\"limit\":101}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "fieldErrorPaths": [
+     "/params/limit"
+    ]
+   }
+  },
+  {
+   "name": "drag action",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"gui.runs.start\",\"params\":{\"desktopId\":\"desk-a\",\"goal\":\"在指定中立表单的姓名中输入 Ada，然后点击应用\",\"verification\":{\"kind\":\"element_text_equals\",\"role\":\"static_text\",\"text\":\"已保存：Ada / MAC-001-A / 提交次数 1\"},\"allowedActions\":[\"drag\"]},\"context\":{\"idempotencyKey\":\"xplat-key-0001\"}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": "11111111-1111-4111-8111-111111111111"
+   }
+  },
+  {
+   "name": "half profile pin",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"gui.runs.start\",\"params\":{\"desktopId\":\"desk-a\",\"goal\":\"在指定中立表单的姓名中输入 Ada，然后点击应用\",\"verification\":{\"kind\":\"element_text_equals\",\"role\":\"static_text\",\"text\":\"已保存：Ada / MAC-001-A / 提交次数 1\"},\"allowedActions\":[\"click\",\"type\"],\"guiProfileId\":\"gp-1\"},\"context\":{\"idempotencyKey\":\"xplat-key-0001\"}}",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": "11111111-1111-4111-8111-111111111111"
+   }
+  },
+  {
+   "name": "invalid utf-8",
+   "frameBase64": "eyJzY2hlbWFWZXJzaW9uIjoiYWdlbnRkZXNrdG9wLmFpLzEiLCJyZXF1ZXN0SWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJjb21tYW5kIjoiYWkuY29ubmVjdGlvbnMubGlzdCIsInBhcmFtcyI6eyJjdXJzb3IiOiLDKCJ9fQ==",
+   "expect": {
+    "kind": "rejected",
+    "code": "VALIDATION_ERROR",
+    "requestId": null,
+    "reasonCode": "invalidUTF8"
+   }
+  },
+  {
+   "name": "body at the limit (frame = 1 MiB with LF)",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{\"cursor\":\"c\"}}",
+   "padToBodyBytes": 1048575,
+   "expect": {
+    "kind": "request",
+    "command": "ai.connections.list"
+   }
+  },
+  {
+   "name": "body one byte over",
+   "frame": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{\"cursor\":\"c\"}}",
+   "padToBodyBytes": 1048576,
+   "expect": {
+    "kind": "rejected",
+    "code": "IPC_FRAME_TOO_LARGE",
+    "requestId": null
+   }
+  }
+ ],
+ "frames": [
+  {
+   "name": "one frame",
+   "data": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{}}\n",
+   "expect": "frame"
+  },
+  {
+   "name": "no LF",
+   "data": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{}}",
+   "expect": "truncated"
+  },
+  {
+   "name": "two requests",
+   "data": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{}}\n{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{}}\n",
+   "expect": "trailingData"
+  },
+  {
+   "name": "empty",
+   "data": "",
+   "expect": "truncated"
+  },
+  {
+   "name": "exactly at the limit",
+   "data": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{\"cursor\":\"c\"}}",
+   "padToBodyBytes": 1048575,
+   "appendLF": true,
+   "expect": "frame"
+  },
+  {
+   "name": "one over the limit",
+   "data": "{\"schemaVersion\":\"agentdesktop.ai/1\",\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"command\":\"ai.connections.list\",\"params\":{\"cursor\":\"c\"}}",
+   "padToBodyBytes": 1048576,
+   "appendLF": true,
+   "expect": "tooLarge"
+  }
+ ]
+}

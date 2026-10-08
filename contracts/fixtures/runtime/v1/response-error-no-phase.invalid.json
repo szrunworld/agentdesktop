@@ -1,0 +1,1 @@
+{"def":"Response","instance":{"apiVersion":"agentdesktop.runtime/1","requestId":"req_001","ok":false,"error":{"code":"not_found","message":"no desktop d_9","retryable":false}}}

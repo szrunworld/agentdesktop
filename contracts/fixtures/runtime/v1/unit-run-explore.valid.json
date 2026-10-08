@@ -1,0 +1,26 @@
+{
+  "def": "unit_run_params",
+  "instance": {
+    "desktopId": "desk_A",
+    "mode": "explore",
+    "goal": {
+      "description": "打开草稿编辑页并填写名称",
+      "params": {
+        "name": "Ada"
+      }
+    },
+    "verification": {
+      "all": []
+    },
+    "allowedActions": [
+      "click",
+      "type",
+      "wait"
+    ],
+    "guiProfileId": "gp_gui_v1",
+    "expectedProfileRevision": 3,
+    "limits": {
+      "maxSteps": 30
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"def":"Request","note":"identity is bound to the connection; a self-declared callerId is refused","instance":{"apiVersion":"agentdesktop.runtime/1","requestId":"req_002","method":"runtime.status","callerId":"root","params":{}}}
