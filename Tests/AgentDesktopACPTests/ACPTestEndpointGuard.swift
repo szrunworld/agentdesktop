@@ -1,3 +1,5 @@
+import AgentDesktopClient
+import AgentDesktopProtocol
 import Foundation
 
 /// The one allowlist for every ACP Real-Runtime test: the endpoint must be a
@@ -46,4 +48,48 @@ enum ACPTestEndpointGuard {
         }
         return out
     }
+}
+
+// MARK: Post-connect identity check (Kevin's TOCTOU requirement on #141)
+
+extension ACPTestEndpointGuard {
+    /// The path checks above can race with a swap between check and connect.
+    /// After the handshake the Runtime states the endpoint it listens on; a
+    /// product Runtime states its product path. Refuse unless that stated
+    /// endpoint is itself inside an existing /tmp/adt-* directory.
+    static func verify(statedEndpoint: String?) throws {
+        guard let stated = statedEndpoint, stated.hasPrefix("/") else { throw NotATestCopy(path: statedEndpoint ?? "(no endpoint in handshake)") }
+        let dir = (stated as NSString).deletingLastPathComponent
+        guard let real = realpath(dir, nil) else { throw NotATestCopy(path: stated) }
+        defer { free(real) }
+        let resolved = String(cString: real) + "/"
+        guard resolved.hasPrefix("/private/tmp/adt-") || resolved.hasPrefix("/tmp/adt-") else { throw NotATestCopy(path: stated) }
+        for product in productSockets() where (product as NSString).deletingLastPathComponent == String(cString: real) {
+            throw NotATestCopy(path: stated)
+        }
+    }
+}
+
+/// A RuntimeClient for Real tests that refuses to send anything except the
+/// handshake until the Runtime's stated endpoint passed `verify`. On a failed
+/// check the connection is closed and every later call throws.
+final class ACPTestVerifiedClient: RuntimeClient, @unchecked Sendable {
+    private let inner: RuntimeClient
+    private var verified = false
+    private var refused: Error?
+    init(_ inner: RuntimeClient) { self.inner = inner }
+    var endpoint: Endpoint { inner.endpoint }
+
+    func handshake() throws -> RuntimeIdentity {
+        if let refused { throw refused }
+        let id = try inner.handshake()
+        do { try ACPTestEndpointGuard.verify(statedEndpoint: id.endpoint) } catch { refused = error; inner.close(); throw error }
+        verified = true
+        return id
+    }
+    private func ensure() throws { if !verified { _ = try handshake() } }
+    func call(_ request: RuntimeRequest) throws -> JSONValue { try ensure(); return try inner.call(request) }
+    func subscribe(runId: String?, after: Int?) throws -> JSONValue { try ensure(); return try inner.subscribe(runId: runId, after: after) }
+    func nextEvent() throws -> PushedEvent { try ensure(); return try inner.nextEvent() }
+    func close() { inner.close() }
 }

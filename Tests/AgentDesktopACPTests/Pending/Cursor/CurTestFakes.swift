@@ -421,7 +421,10 @@ enum CurTestReal {
 
     static func factory() throws -> ACPBridgeClientFactory {
         let path = try checkedEndpoint(try #require(endpoint))
-        return ACPBridgeConfiguration.socketFactory(endpoint: Endpoint(path: path, source: .environment))
+        let raw = ACPBridgeConfiguration.socketFactory(endpoint: Endpoint(path: path, source: .environment))
+        // Post-connect check: nothing but the handshake is sent before the
+        // Runtime's own stated endpoint is verified (TOCTOU, Kevin on #141).
+        return { role in ACPTestVerifiedClient(raw(role)) }
     }
 
     static func port() throws -> ACPBridgeRuntimePort {

@@ -52,7 +52,11 @@ final class A4TestLiveConnection {
         ]
         if let auth { params.append(("auth", auth)) }
         let r = try send("runtime.handshake", .obj(params))
-        if case let .success(id) = r { principal = id["principal"] }
+        if case let .success(id) = r {
+            // Post-connect check before any other request (TOCTOU, Kevin on #141).
+            try ACPTestEndpointGuard.verify(statedEndpoint: id["endpoint"]?.stringValue)
+            principal = id["principal"]
+        }
         return r
     }
 
