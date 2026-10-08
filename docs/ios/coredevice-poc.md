@@ -11,13 +11,19 @@
 - iPhone Mirroring 的配对（Continuity）没有让该 iPhone 出现在 CoreDevice 的 `remotepairingd` 里；要走 CoreDevice 路线，至少需要 Kevin 做一次 USB 连接 + 信任（见第 6 节）。
 - 源码层面的关键发现：pymobiledevice3 的触摸注入**依赖一个打开中的屏幕媒体流作为授权闸门**（见 3.3）。这正是 go-ios #835 版本分歧所在的那一步，所以“隧道能连上”与“触摸能生效”之间隔着一个必须单独实测的条件。
 
-## 2. 本次探测结果原文摘要（2026-10-08 13:53 +08:00）
+## 2. 本次探测结果原文摘要（2026-10-08 20:50 +08:00，PR #55 审查意见修复后重跑）
 
 运行：`experiments/ios-coredevice/.venv/bin/python probe.py -o results/probe-2026-10-08.json`（默认模式：不发 mDNS、不借用 remoted 隧道）。
 
+矩阵规则：
+
+- **按设备出矩阵，不跨设备合并**：探测到的每台设备（usbmux 序列号 / remotepairingd / RSD 的 UDID）各有一张矩阵，放在 `capabilities_by_device`；顶层 `capabilities` 只是其中一个 UDID 的矩阵（`--udid` 指定；未指定时取唯一 / 第一台，并在 `target_selection` 写明）。lockdown 事实、tunneld 隧道、RSD 服务列表都按该 UDID 过滤，RSD 证据里带隧道接口名，便于按传输方式区分。
+- **服务被公布 ≠ 操作可用**：RSD 服务是否被公布单独上报为 `service_advertised_*`；截图、屏幕流、HID、剪贴板这些操作探测脚本从不执行，所以无论服务是否被公布都保持 `unverified`，证据写 `NOT_RUN` 和公布情况。
+
 | 项目 | 状态 | 证据 / 原因 |
 |---|---|---|
-| 宿主 | — | pymobiledevice3 11.24.0，Python 3.13.15，macOS 15.1，非 root，无 Xcode（无 devicectl），有 CLT |
+| 宿主 | — | pymobiledevice3 11.24.0，Python 3.14.7，macOS 15.1，非 root，无 Xcode（无 devicectl），有 CLT |
+| 设备 | — | `devices: []`，`target_udid: null`（no device seen），`capabilities_by_device: {}` |
 | discovery_usbmux_usb | unverified | usbmuxd 可达，0 台 USB 设备 |
 | discovery_usbmux_network | unverified | usbmuxd 未列出任何 Wi-Fi 设备（需要先 USB 配对再开 Wi-Fi 连接） |
 | discovery_remotepairingd | unverified | remotepairingd 应答，0 台设备 |
@@ -27,13 +33,14 @@
 | tunnel_tunneld | unverified | 127.0.0.1:49151 未运行（只检测；启动需要 sudo） |
 | tunnel_userspace_no_root | unverified | `pmd_pytcp 0.3.7` 可导入，但未建隧道（需已配对的 iOS 17.4+ 设备，且建隧道会自动配对、在手机上弹“信任”） |
 | tunnel_native_remoted | unverified | remotepairingd 中无设备 |
-| screenshot_coredevice / screenshot_dvt / screen_stream_displayservice / hid_universal_tap_drag / hid_indigo_buttons / pasteboard_service | unverified | 没有 RSD 服务列表（没有通往设备的隧道） |
+| service_advertised_screencapture / _dvt / _displayservice / _hid_universal / _hid_indigo / _pasteboard | unverified | 没有该设备的 RSD 服务列表（没有通往设备的隧道） |
+| screenshot_coredevice / screenshot_dvt / screen_stream_displayservice / hid_universal_tap_drag / hid_indigo_buttons / pasteboard_service | unverified | NOT_RUN：只读探测从不执行这些操作；即使服务被公布也保持 unverified |
 | hid_type_ascii | unverified | 从未执行 |
 | hid_type_direct_cjk | **unsupported** | 源码 `ASCII_TO_HID` 只覆盖可打印 US-ASCII，`type` 遇到其他字符直接报错 |
 | text_chinese | unverified | 候选路径（拼音 IME / 剪贴板 + 粘贴 / WDA）均未执行 |
 | hid_input_exercised | unverified | NOT_RUN：探测脚本按设计不发送 HID |
 
-汇总：unverified 20，unsupported 1，supported 0。`i13_acceptance: NOT_RUN`。
+汇总：unverified 26，unsupported 1，supported 0。`i13_acceptance: NOT_RUN`。
 
 探测的副作用核对：未创建 `~/.pymobiledevice3`，未写钥匙串，未调用 `xcrun`（无 Xcode 时可能弹安装对话框），未启动 iPhone Mirroring / Agent Desktop 实例，未出现任何系统授权弹窗。
 
@@ -142,7 +149,7 @@ CoreDevice 与 WDA（以及现有 Mirroring 后端）使用同一组用例、同
 前置：第 6 节第 1、4、5、6 步完成，第 9 步获得书面同意。
 
 1. 运行 `probe.py`，记录组合：设备型号 / iOS / DDI 版本 / 传输（USB+userspace、USB+native、USB+tunneld，若授权则 Wi-Fi）/ pymobiledevice3 版本。
-2. 对每个组合：读 RSD 服务列表，确认 `screencaptureservice`、`displayservice`、`hid.universalhidservice`、`hid.indigo` 是否存在。
+2. 对每个组合：读 RSD 服务列表，确认 `screencaptureservice`、`displayservice`、`hid.universalhidservice`、`hid.indigo` 是否存在（对应 `service_advertised_*`；这只是前提，不是操作可用的证据）。
 3. 截图 1 张，记录截图年龄。
 4. 开屏幕流 5 秒，记录是否成功；若失败，原样记录错误码（特别是 9021 / 9022）。
 5. 在 Kevin 指定界面：tap 1 次、drag 1 次、`type "abc"` 1 次，每次以前后截图的画面变化判定成功，**不以 RPC 返回成功判定**。
