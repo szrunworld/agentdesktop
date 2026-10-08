@@ -110,3 +110,20 @@ f1 对 ACP 契约需求的审核结论记在 [07](07-runtime-requests.md) 与 [0
 **下一阶段优先级**：真实编辑器 → ACP → AgentDesktop Runtime → GUI 执行 → 结果返回编辑器，至少覆盖正常完成、取消、断连、审批拒绝、结果未知五类情况。
 
 **架构原则**：ACP 是 AgentDesktop 的通用协议入口，不是第二套 Runtime。所有 Agent、编辑器与模型适配器都经统一的 RuntimeClient、授权机制、运行生命周期与审计；不为 ACP 另建 Session Execution Engine，不为 Codex 特殊处理而破坏通用协议。
+
+## 八、第三次裁决：以 main 为唯一基线（2026-10-08 晚）
+
+Kevin 批准把 #53 的目标分支从 `ai-gui-foundation` 改为 `main`（已改），**不批准合并**；ACP 以 AgentDesktop `main` 为唯一集成基线。核对结果：#53 相对 main 只含 ACP 自身改动（`Sources/AgentDesktopACP`、`agentdesktop-acp-dev`、`Tests/AgentDesktopACPTests`、`docs/acp`、`scripts/acp`、`spikes/acp-outbound`，以及 `Package.swift` 里仅新增的三个 ACP 目标），没有重复带入 foundation 已合入 main 的内容。
+
+PR #2 于 2026-10-08 11:15:34Z 由 `szrunworld` 账号合并（134b451）。该账号由 Kevin 与本机各会话共用，GitHub 记录不能区分操作者；PR 上 09:09 的评论写明「合并仍需 Kevin 明确批准」。Kevin 要求核实；他的决定是现阶段不回滚。
+
+**CI 稳定性待修复项**：在 GitHub 的 macOS runner 上，`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` 一步超时（例：run 37763484340，正常一步 685/685 通过后，严格一步 5 分钟超时，残留 `swift-package` 进程）；#109 因此从 CI 删掉了这一步。本机同样命令全包 685/685、约 20 秒通过。删掉这一步不代表同步阻塞风险已经解决。在 CI 恢复这一步之前，ACP 的每次合入前必须在本机执行并记录退出码：
+
+```bash
+LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter AgentDesktopACPTests   # Runtime 桥同步阻塞回归
+LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test                                 # 全包
+```
+
+Runtime 桥对阻塞调用的隔离由 `RuntimeBridge` 的闸门测试覆盖（`ACPBridgeExecutor`，见 07 文档与 #72），这些测试保留，不得为通过 CI 而删除或放宽。
+
+**下一阶段**：先与 f1 对齐三项契约增量（调用方身份、Run 最新游标、事件目录）对应的 PR 与交付顺序，40 的 `unit.run` 同为 P0；契约落地后立即做 R、E 集成，优先打通 Zed → ACP → Runtime → GUI 执行 → 事件回传 → Zed 的最小真实链路；真实端到端由 Q 在隔离测试副本上执行，不得影响其他会话的 WindowServer 环境。ACP 不新增第二套 Runtime、执行调度或 GUI 控制入口，所有 GUI 操作经 runtime/1。
