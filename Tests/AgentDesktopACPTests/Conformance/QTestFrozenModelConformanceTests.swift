@@ -246,6 +246,22 @@ struct QTestConnectionEventConformanceTests {
     }
 }
 
+@Suite("Q · identity (T07, README §4 rule 3)")
+struct QTestIdentityConformanceTests {
+    /// Until A4 the bridge only has a local-owner placeholder; a caller is
+    /// unverified unless the Runtime says otherwise.
+    @Test func aCallerIsUnverifiedByDefault() {
+        let c = ACPCaller(principalId: "p", clientId: "c", connectionId: "k")
+        #expect(c.verified == false)
+        #expect(c != ACPCaller(principalId: "p", clientId: "c", connectionId: "k", verified: true))
+    }
+
+    @Test func aSnapshotDoesNotInventACursor() {
+        let s = ACPRunSnapshot(runId: "r", phase: "running", outcome: nil, quiescence: "not_confirmed", lifetime: "connection_scoped")
+        #expect(s.lastCursor == nil)
+    }
+}
+
 @Suite("Q · request ids")
 struct QTestRequestIdConformanceTests {
     @Test func stringAndNumberIdsNeverCollide() {

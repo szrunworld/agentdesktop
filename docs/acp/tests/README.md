@@ -127,6 +127,7 @@ node dist/fake-editor.js --profile profiles/<p>.json \
 | `echo.json` | `src/echo-agent.ts`（本线写的最小回声 agent） | 自检；可以注入已知缺陷（`QTEST_ECHO_MUTANT`） |
 | `sdk-example.json` | 官方 SDK 1.7.0 自带的示例 agent | 自检：与第三方实现互通 |
 | `agentdesktop-dev.json` | `.build/debug/agentdesktop-acp-dev`（S 线的 dev 入口） | L1 真目标；端点 `/tmp/adt-acp/side.runtime.sock` |
+| `agentdesktop-dev-demo.json` | dev 入口加 `--demo`（S 线自带的脚本化端口，无 Runtime、无 GUI 输入） | 只做 L1；要等 T 线的 stdio 传输进入分支（2026-10-08 合入 acp-skeleton 41fdcfe 后 dev 入口仍报「stdio transport (lane T) is not on this build yet」） |
 | `agentdesktop-acp.json` | 测试副本包里的 `agentdesktop acp` | 发布形态；要等 CLI `acp` 子命令 |
 
 两个 AgentDesktop profile 的 `features` 目前为空，提示词变量是占位：随着 A6（任务入口与中立样本任务）、PR4（审批）、A4（第二身份）合入逐项打开。
@@ -169,7 +170,7 @@ node dist/fake-editor.js --profile profiles/<p>.json \
 
 ## 五、冻结接口一致性测试
 
-`Tests/AgentDesktopACPTests/Conformance/QTestFrozenModelConformanceTests.swift`：8 个 suite、20 个测试，只依赖 `Model/ACPModel.swift` 与 `Ports.swift`，在 `acp-skeleton` 上单独可编译。
+`Tests/AgentDesktopACPTests/Conformance/QTestFrozenModelConformanceTests.swift`：9 个 suite、22 个测试，只依赖 `Model/ACPModel.swift` 与 `Ports.swift`，在 `acp-skeleton` 上单独可编译。
 
 | suite | 钉住的不变量 |
 | --- | --- |
@@ -180,11 +181,12 @@ node dist/fake-editor.js --profile profiles/<p>.json \
 | 拼写 | 工具类型、状态、stopReason、计划状态与 ACP schema（SDK 1.7.0）一致；不存在 edit / delete / move / switch_mode 类型 |
 | 提交回执 | unconfirmed 的下一步是查询，没有任何回执导向重发；duplicate ≠ accepted |
 | 连接事件 | 连接丢失是独立事件；入站请求 8 种 |
+| 身份 | `ACPCaller` 默认 `verified=false`（A4 前只有本机 owner 占位）；快照不自造游标 |
 | 请求 id | 字符串 "7" 与数字 7 不相等、不去重 |
 
 枚举都用不带 `default` 的 switch：任何线往冻结枚举里加 case，这个文件就编译不过，提示先找协调者并更新用例。
 
-执行（2026-10-08，本分支合入 acp-skeleton 1d5ec34 之后）：`swift build` 退出码 0；`swift test --filter AgentDesktopACPTests` 退出码 0，23 个测试（骨架 3 + 本线 20）通过，其中 1 个**已知问题**。全量 `swift test` 的结果写在 PR 正文。
+执行（2026-10-08，本分支合入 acp-skeleton 41fdcfe 之后）：`swift build` 与全量 `swift test` 的退出码与测试数写在 PR 正文；本线 22 个测试全部通过，其中 1 个**已知问题**。
 
 **接口请求（转协调者）**：`ACPRequestId` 的 `==` 用 `JSONValue` 的数值比较（`1` 与 `1.0` 相等），`hash` 却用 `String(describing:)`，两者哈希不同，违反 Hashable 约定；作为字典键时同一请求可能找不到回复对象。测试 `equalNumericIdsHashEqually` 用 `withKnownIssue` 记录，修好后去掉包装即可。建议哈希改为按类型加规范化数值（或直接规定 id 只接受字符串与整数）。
 
