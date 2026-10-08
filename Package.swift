@@ -159,5 +159,14 @@ let package = Package(
             dependencies: ["AgentDesktopAIUI", "AgentDesktopContracts", "AgentDesktopService",
                            "AgentDesktopAI", "AgentDesktopGUI"]
         ),
+        // iPhone backends (review 2026-10-08 §6.1). WDA/: HTTP client for a
+        // WebDriverAgent runner on a real iPhone; Foundation only, no engine.
+        .target(
+            name: "AgentDesktopIOS"
+        ),
+        .testTarget(
+            name: "AgentDesktopIOSTests",
+            dependencies: ["AgentDesktopIOS"]
+        ),
     ]
 )
