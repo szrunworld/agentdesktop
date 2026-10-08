@@ -325,21 +325,18 @@ struct A4B6LeakMockTests {
         #expect(A4TestSecrets.leaked(in: h.storedText()).isEmpty)
     }
 
-    /// Finding F-1 (10-a4-identity.md §一.3): ACPSubmissionLog writes the
-    /// Runtime's refusal message to disk verbatim. If an A4 auth error ever
-    /// echoed a credential it would land in submissions.json. The fix
-    /// belongs to lane R (redact or drop refusalMessage); until then this is
-    /// a known issue, not a pass.
-    @Test("[Mock] bridge: the submission log must not store a credential from an auth refusal (known issue F-1)")
+    /// Finding F-1 (10-a4-identity.md §一.3), fixed in lane R (#132): the
+    /// submission log never writes a Runtime refusal message, so a credential
+    /// echoed by an auth error cannot reach submissions.json.
+    @Test("[Mock] bridge: the submission log must not store a credential from an auth refusal (F-1)")
     func bridgeLogDoesNotStoreCredential() async throws {
         let rt = A4TestRuntime()
         rt.credential = .unpaired
         rt.refusalMessage = A4TestSecrets.leakyMessage
         let (port, path) = try A4Test.port(rt)
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
         _ = try await port.submit(A4Test.submission())
         let onDisk = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-        withKnownIssue("F-1: ACPSubmissionLog stores refusalMessage verbatim (lane R fix)") {
-            #expect(A4TestSecrets.leaked(in: onDisk).isEmpty)
-        }
+        #expect(A4TestSecrets.leaked(in: onDisk).isEmpty)
     }
 }
