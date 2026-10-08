@@ -276,7 +276,21 @@ public enum BackgroundInput {
         guard let code = keyCode(name) else { throw AccessibilityError("unknown key \"\(name)\"") }
         let flags = try flags(modifiers)
         if holdModifiers, !flags.isEmpty {
-            FocusGuard.shared.protect(target: window.pid) { chord(code, modifiers: modifiers, pid: window.pid) }
+            // Keys reach only the app's key window: a click elsewhere in
+            // between (a tap on a phone, which hands focus back after) leaves
+            // it without one, and the chord then lands nowhere. Lend it focus
+            // the way a click does, without raising it, and hand it back.
+            let user = NSWorkspace.shared.frontmostApplication
+            FocusGuard.shared.protect(target: nil, allowing: window.pid) {
+                let focused = SkyLight.focusWithoutRaise(windowID: window.windowID, pid: window.pid)
+                Thread.sleep(forTimeInterval: 0.05)
+                chord(code, modifiers: modifiers, pid: window.pid)
+                Thread.sleep(forTimeInterval: 0.05)
+                if focused, let user, user.processIdentifier != window.pid,
+                   NSWorkspace.shared.frontmostApplication?.processIdentifier == user.processIdentifier {
+                    SkyLight.restoreFocus(after: window.windowID, pid: window.pid, user: user)
+                }
+            }
             return "event.key.held"
         }
         let viaMenu = flags.contains(.maskCommand)

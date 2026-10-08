@@ -14,6 +14,7 @@ final class ScriptedPhone: PhonePasteDriver {
     var tapResponse = ControlResponse()
     var pauseSeconds: TimeInterval = 0
     var pasteboard: NSPasteboard?
+    var onPause: (() -> Void)?
 
     private(set) var looks = 0
     private(set) var taps: [CGPoint] = []
@@ -52,6 +53,7 @@ final class ScriptedPhone: PhonePasteDriver {
     }
 
     func pause(_ seconds: TimeInterval) {
+        onPause?()
         if pauseSeconds > 0 { Thread.sleep(forTimeInterval: pauseSeconds) }
         if let pasteboard { log.append("hold:\(pasteboard.string(forType: .string) ?? "")") }
     }
@@ -88,14 +90,33 @@ func fast() -> PasteWatcher {
         #expect(isAllow(prompt))
     }
 
-    @Test func chineseAlertWithItsDenyButton() {
-        let screen = [line("不允许粘贴", y: 0.5), line("允许粘贴", y: 0.56)]
+    @Test func chineseSystemAlert() {
+        let screen = [line("“备忘录”想要粘贴来自“Mac”的内容", x: 0.2, y: 0.42, width: 0.6),
+                      line("不允许粘贴", y: 0.5), line("允许粘贴", y: 0.56)]
         #expect(isAllow(PastePrompt.read(screen, baseline: [])))
     }
 
-    @Test func chineseAlertWithItsMessage() {
-        let screen = [line("“备忘录”想要粘贴来自“Mac”的内容", x: 0.2, y: 0.45, width: 0.6), line("允许粘贴", y: 0.56)]
-        #expect(isAllow(PastePrompt.read(screen, baseline: [])))
+    /// Half an alert is not the alert: both buttons without the message,
+    /// or one button with it, could be page content.
+    @Test func halfAnAlertIsNotPressed() {
+        let buttons = [line("不允许粘贴", y: 0.5), line("允许粘贴", y: 0.56)]
+        #expect(PastePrompt.read(buttons, baseline: []) == .unverifiedAllow)
+        let messageAndAllow = [line("“备忘录”想要粘贴来自“Mac”的内容", x: 0.2, y: 0.45, width: 0.6),
+                               line("允许粘贴", y: 0.56)]
+        #expect(PastePrompt.read(messageAndAllow, baseline: []) == .unverifiedAllow)
+    }
+
+    /// I08 as it failed on a device (2026-10-08): pasted note text holding
+    /// the alert's words, left-aligned mid-screen, was pressed twice.
+    @Test func leftAlignedPageTextIsNotPressed() {
+        let note = [
+            line("Notes would like to paste from Mac", x: 0.04, y: 0.40, width: 0.5),
+            line("Allow Paste", x: 0.04, y: 0.44, width: 0.15),
+            line("Don't Allow Paste", x: 0.04, y: 0.47, width: 0.22),
+            line("允许粘贴", x: 0.04, y: 0.50, width: 0.12),
+            line("不允许粘贴", x: 0.04, y: 0.53, width: 0.15),
+        ]
+        #expect(PastePrompt.read(note, baseline: []) == .unverifiedAllow)
     }
 
     /// I08: page content that says "Allow Paste" is never pressed.
@@ -478,6 +499,53 @@ func fast() -> PasteWatcher {
         #expect(flag.reason() == "y")
         flag.lower()
         #expect(flag.reason() == nil)
+    }
+
+    /// F7 (device, 2026-10-08): a copy made while the phone fetches may be
+    /// what it pastes; unless our text is seen, the outcome is unknown.
+    @Test func aCopyDuringThePasteMakesItUnknown() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("before", forType: .string)
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard + pasting, keyboard])
+        phone.pasteboard = pasteboard
+        phone.onPause = {
+            if phone.looks == 1 {
+                pasteboard.clearContents()
+                pasteboard.setString("USER-SECRET", forType: .string)
+            }
+        }
+        let result = transaction(pasteboard, lock).paste("hello", verify: true, driver: phone)
+        guard case .unknown(let why) = result.outcome else {
+            Issue.record("expected unknown, got \(result.outcome)")
+            return
+        }
+        #expect(why.hasPrefix("user_copied_during_paste"))
+        #expect(pasteboard.string(forType: .string) == "USER-SECRET")
+    }
+
+    /// The device fix: with the phone still fetching, its Cancel is pressed.
+    @Test func aCopyDuringThePasteCancelsThePhonesFetch() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("before", forType: .string)
+        let sheet = [line("Pasting from \u{201C}MacBook Pro\u{201D}…", x: 0.2, y: 0.47, width: 0.6),
+                     line("Cancel", x: 0.4, y: 0.58, width: 0.2)]
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard + sheet])
+        phone.pasteboard = pasteboard
+        phone.onPause = {
+            if phone.looks == 1 {
+                pasteboard.clearContents()
+                pasteboard.setString("USER-SECRET", forType: .string)
+            }
+        }
+        let result = transaction(pasteboard, lock).paste("hello", verify: true, driver: phone)
+        #expect(result.outcome == .unknown("user_copied_during_paste: something else was copied to the Mac's "
+            + "clipboard while the phone was fetching it; the phone's paste was cancelled"))
+        #expect(phone.taps.count == 1)
+        if let tap = phone.taps.first { #expect(abs(tap.x - 0.5) < 1e-9 && abs(tap.y - 0.595) < 1e-9) }
     }
 }
 
