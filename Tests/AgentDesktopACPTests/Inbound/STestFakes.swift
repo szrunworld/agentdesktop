@@ -1,11 +1,16 @@
 import AgentDesktopContracts
 import Foundation
+import Testing
 @testable import AgentDesktopACP
 
 // Lane S's own fakes of the other lanes' ports (docs/acp/03-lanes.md).
 
-/// Polls `cond` until true or the timeout passes.
-func sEventually(_ timeout: Duration = .seconds(3), _ cond: @Sendable () -> Bool) async -> Bool {
+/// Polls `cond` until true or the timeout passes. The timeout is generous
+/// on purpose: under the full parallel suite other tests block threads of
+/// the cooperative pool, and a 3 s budget once ran out before a reply
+/// (concurrentSessionsDoNotCrossStream). Polling returns as soon as `cond`
+/// holds, so the budget costs nothing when things are fast.
+func sEventually(_ timeout: Duration = .seconds(20), _ cond: @Sendable () -> Bool) async -> Bool {
     let clock = ContinuousClock()
     let deadline = clock.now + timeout
     while clock.now < deadline {
@@ -35,6 +40,8 @@ final class STestConnection: ACPConnection, @unchecked Sendable {
     let updates = STestLocked<[(String, ACPSessionUpdate)]>([])
     let permissionRequests = STestLocked<[ACPPermissionRequest]>([])
     let questions = STestLocked<[ACPQuestion]>([])
+    /// Replies and updates in the order they were sent ("reply:<id>", "update").
+    let order = STestLocked<[String]>([])
     let permissionAnswer = STestLocked<@Sendable (ACPPermissionRequest) async -> ACPPermissionOutcome>({ _ in .unavailable })
     let askAnswer = STestLocked<@Sendable (ACPQuestion) async -> ACPAnswer>({ _ in .unavailable })
 
@@ -44,8 +51,22 @@ final class STestConnection: ACPConnection, @unchecked Sendable {
         (events, continuation) = AsyncStream.makeStream(of: ACPConnectionEvent.self)
     }
 
-    func reply(to id: ACPRequestId, _ reply: ACPReply) async { replies.with { $0.append((id, reply)) } }
-    func send(sessionId: String, _ update: ACPSessionUpdate) async { updates.with { $0.append((sessionId, update)) } }
+    func reply(to id: ACPRequestId, _ reply: ACPReply) async {
+        order.with { $0.append("reply:\(id.raw.intValue ?? -1)") }
+        replies.with { $0.append((id, reply)) }
+    }
+    func send(sessionId: String, _ update: ACPSessionUpdate) async {
+        order.with { $0.append("update") }
+        updates.with { $0.append((sessionId, update)) }
+    }
+
+    /// Updates of `sid` sent before the answer to request `id`.
+    func updatesBeforeReply(_ id: Int, _ sid: String) -> [ACPSessionUpdate] {
+        let o = order.get()
+        guard let cut = o.firstIndex(of: "reply:\(id)") else { return [] }
+        let n = o[..<cut].filter { $0 == "update" }.count
+        return Array(updates.get().prefix(n)).filter { $0.0 == sid }.map(\.1)
+    }
     func requestPermission(_ request: ACPPermissionRequest) async -> ACPPermissionOutcome {
         permissionRequests.with { $0.append(request) }
         return await permissionAnswer.get()(request)
@@ -64,7 +85,7 @@ final class STestConnection: ACPConnection, @unchecked Sendable {
         replies.get().first(where: { $0.0 == ACPRequestId(.int(id)) })?.1
     }
 
-    func waitReply(_ id: Int, _ timeout: Duration = .seconds(3)) async -> ACPReply? {
+    func waitReply(_ id: Int, _ timeout: Duration = .seconds(20)) async -> ACPReply? {
         _ = await sEventually(timeout) { self.replyFor(id) != nil }
         return replyFor(id)
     }
@@ -100,6 +121,10 @@ final class STestRuntime: ACPRuntimePort, @unchecked Sendable {
     let cancels = STestLocked<[(String, String)]>([])
     let pendingByRun = STestLocked<[String: [ACPPendingDecision]]>([:])
     let pendingFails = STestLocked(false)
+    let pendingError = STestLocked<ACPError?>(nil)
+    let submitError = STestLocked<Error?>(nil)
+    let declines = STestLocked<[String]>([])
+    let declineSupported = STestLocked(false)
     let decisions = STestLocked<[(String, Bool)]>([])
     let answers = STestLocked<[(String, String)]>([])
     let connectionLostCount = STestLocked(0)
@@ -115,6 +140,7 @@ final class STestRuntime: ACPRuntimePort, @unchecked Sendable {
 
     func submit(_ s: ACPSubmission) async throws -> ACPSubmissionReceipt {
         submissions.with { $0.append(s) }
+        if let e = submitError.get() { throw e }
         if let o = submitOverride.get() { return o(s) }
         if let existing = keyToRun.get()[s.submissionKey], let run = runs.get()[existing] {
             return .duplicate(run.snapshot)
@@ -126,8 +152,10 @@ final class STestRuntime: ACPRuntimePort, @unchecked Sendable {
     }
 
     func snapshot(runId: String) async throws -> ACPRunSnapshot {
-        guard let r = runs.get()[runId] else { throw STestError() }
-        return r.snapshot
+        guard let r = runs.get()[runId] else { throw ACPError(code: -32000, reason: "not_found", message: "no run") }
+        var snap = r.snapshot
+        snap.lastCursor = r.events.last?.cursor
+        return snap
     }
 
     func cancel(runId: String, requestId: String) async throws -> ACPRunSnapshot {
@@ -155,7 +183,8 @@ final class STestRuntime: ACPRuntimePort, @unchecked Sendable {
     }
 
     func pending(runId: String) async throws -> [ACPPendingDecision] {
-        if pendingFails.get() { throw STestError() }
+        if pendingFails.get() { throw ACPError(code: -32000, reason: "capability_missing", message: "no approvals yet") }
+        if let e = pendingError.get() { throw e }
         return pendingByRun.get()[runId] ?? []
     }
 
@@ -166,6 +195,13 @@ final class STestRuntime: ACPRuntimePort, @unchecked Sendable {
 
     func answer(questionId: String, text: String) async throws {
         answers.with { $0.append((questionId, text)) }
+    }
+
+    func decline(questionId: String) async throws {
+        guard declineSupported.get() else {
+            throw ACPError(code: -32000, reason: "capability_missing", message: "no decline yet")
+        }
+        declines.with { $0.append(questionId) }
     }
 
     func connectionLost() async { connectionLostCount.with { $0 += 1 } }
@@ -249,7 +285,7 @@ final class STestHarness: @unchecked Sendable {
     private let nextId = STestLocked(100)
 
     init(version: ACPVersion = .v1, runtime: STestRuntime = STestRuntime(), dir: URL? = nil,
-         holdTime: Duration = .seconds(5)) {
+         holdTime: Duration = .seconds(5), realProjector: (any ACPEventProjector)? = nil) {
         self.dir = dir ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("acp-s-tests-\(UUID().uuidString)", isDirectory: true)
         connection = STestConnection(version: version)
@@ -259,7 +295,7 @@ final class STestHarness: @unchecked Sendable {
         config.pollInterval = .milliseconds(5)
         config.holdTime = holdTime
         config.drainTimeout = .milliseconds(500)
-        server = ACPAgentServer(connection: connection, runtime: runtime, projector: projector, store: store,
+        server = ACPAgentServer(connection: connection, runtime: runtime, projector: realProjector ?? projector, store: store,
                                 config: config)
         let s = server
         runTask = Task { await s.run() }
@@ -270,7 +306,11 @@ final class STestHarness: @unchecked Sendable {
     func newSession() async -> String {
         let i = id()
         connection.request(i, .newSession(cwd: "/tmp/project"))
-        guard case let .sessionCreated(sid, _)? = await connection.waitReply(i) else { return "" }
+        let r = await connection.waitReply(i)
+        guard case let .sessionCreated(sid, _)? = r else {
+            Issue.record("session/new got \(String(describing: r))")
+            return "acps_missing"
+        }
         return sid
     }
 

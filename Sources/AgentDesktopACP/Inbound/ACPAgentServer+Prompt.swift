@@ -127,20 +127,37 @@ extension ACPAgentServer {
         let material = "\(task.taskType)\n\(input.encoded())"
         let key = await submissionKey(sid, material: material, taskType: task.taskType, input: input)
         live[sid]?.lastSubmission = (material, key, nil)
+        // Write-ahead: the key is on disk before the request leaves, so a
+        // retry after a restart still finds it (and, unconfirmed, reuses it:
+        // the same prompt at the same position derives the same key).
+        do {
+            try persist(sid) { $0.pendingSubmissionKey = key }
+        } catch {
+            await say(sid, "会话绑定无法保存，未提交任务。")
+            return .endTurn
+        }
 
         let receipt: ACPSubmissionReceipt
         do {
             receipt = try await runtime.submit(ACPSubmission(submissionKey: key, acpSessionId: sid, taskType: task.taskType,
                                                              input: input, desktopId: nil))
+        } catch let e as ACPError where !Self.stateUnknown(e) {
+            // A definite runtime/1 error (e.g. capability_missing before
+            // unit.run exists): nothing was started.
+            receipt = .refused(code: e.reason, message: e.message)
         } catch {
-            // Whether it reached the Runtime is not known: same as unconfirmed.
+            // timeout / connection_lost / anything else: whether it reached
+            // the Runtime is not known, same as unconfirmed.
             receipt = .unconfirmed
         }
 
         switch receipt {
         case let .accepted(snap), let .duplicate(snap):
             let runId = snap.runId
-            try? persist(sid) { b in if !b.runIds.contains(runId) { b.runIds.append(runId) } }
+            try? persist(sid) { b in
+                if !b.runIds.contains(runId) { b.runIds.append(runId) }
+                if b.pendingSubmissionKey == key { b.pendingSubmissionKey = nil }
+            }
             if live[sid]?.lastSubmission?.key == key { live[sid]?.lastSubmission?.runId = runId }
             turn.runId = runId
             if case .duplicate = receipt {
@@ -158,6 +175,7 @@ extension ACPAgentServer {
             return await monitor(sid, runId, turn)
         case let .refused(code, message):
             live[sid]?.lastSubmission = nil
+            try? persist(sid) { b in if b.pendingSubmissionKey == key { b.pendingSubmissionKey = nil } }
             await say(sid, "Runtime 拒绝了这个任务（\(redact(sid, code))）：\(redact(sid, message))")
             return .refusal
         case .unconfirmed:
@@ -166,6 +184,16 @@ extension ACPAgentServer {
             await say(sid, "提交结果待核实：没有收到 Runtime 的确认，也不会自动重发。可以用 /status 查看；原样重发这条 prompt 会使用同一个提交键，只会查询原请求，不会重复执行。")
             return .endTurn
         }
+    }
+
+    /// `ACPRuntimePort` error rule: these reasons (and any non-ACPError)
+    /// mean the state is unknown — query again, never treat as definite.
+    static func stateUnknown(_ e: ACPError) -> Bool {
+        ["timeout", "connection_lost", "internal_error"].contains(e.reason)
+    }
+
+    static func isCapabilityMissing(_ error: Error) -> Bool {
+        (error as? ACPError)?.reason == "capability_missing"
     }
 
     /// Same prompt again while the last one is unconfirmed or its Run is
@@ -225,9 +253,16 @@ extension ACPAgentServer {
         let decisions: [ACPPendingDecision]
         do {
             decisions = try await runtime.pending(runId: runId)
+        } catch let e as ACPError where Self.stateUnknown(e) {
+            // Unknown, not absent: ask again on the next poll.
+            if !turn.pendingUnknownSaid {
+                turn.pendingUnknownSaid = true
+                await say(sid, "暂时读不到任务 \(runId) 的待处理事项，继续查询。")
+            }
+            return false
         } catch {
-            // e.g. capability_missing (docs/acp/README.md §2.5): no approval
-            // channel. Never an allow; the Run keeps waiting.
+            // capability_missing (docs/acp/README.md §2.5) or another definite
+            // error: no approval channel. Never an allow; the Run keeps waiting.
             await say(sid, "任务 \(runId) 在等待审批或输入，但当前 Runtime 没有可用的审批通道（不会当作批准）。请在 AgentDesktop 主窗口处理，或用 /cancel 停止。")
             return true
         }
@@ -264,11 +299,23 @@ extension ACPAgentServer {
                 let shown = redact(sid, message)
                 let answer = await connection.ask(ACPQuestion(sessionId: sid, message: shown,
                                                               choices: choices.map { redact(sid, $0) }))
-                if case let .answered(text) = answer {
+                switch answer {
+                case let .answered(text):
                     do {
                         try await runtime.answer(questionId: id, text: text)
                         continue
                     } catch {}
+                case .declined:
+                    do {
+                        try await runtime.decline(questionId: id)
+                        await say(sid, "已告知 Runtime：不回答这个问题。")
+                        continue
+                    } catch {
+                        // capability_missing: the Runtime cannot record a
+                        // decline yet; the question stays open for a prompt.
+                    }
+                case .unavailable:
+                    break
                 }
                 live[sid]?.pendingQuestion = (id, runId)
                 await say(sid, "任务 \(runId) 需要你的回答：\(shown)\n请在下一条 prompt 里直接回答。")
