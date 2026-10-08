@@ -54,8 +54,12 @@ public struct ACPCaller: Equatable, Sendable {
     public var principalId: String
     public var clientId: String
     public var connectionId: String
-    public init(principalId: String, clientId: String, connectionId: String) {
+    /// True only when the Runtime authenticated the principal (A4). Until
+    /// then the bridge reports a local-owner placeholder with `false`.
+    public var verified: Bool
+    public init(principalId: String, clientId: String, connectionId: String, verified: Bool = false) {
         self.principalId = principalId; self.clientId = clientId; self.connectionId = connectionId
+        self.verified = verified
     }
 }
 
@@ -102,9 +106,14 @@ public struct ACPRunSnapshot: Equatable, Sendable {
     public var quiescence: String
     /// connection_scoped / platform_durable — read only, never requested.
     public var lifetime: String
-    public init(runId: String, phase: String, outcome: String?, quiescence: String, lifetime: String) {
+    /// The newest event cursor of the Run when the snapshot was taken, so a
+    /// resumed session can tell replayed history from live events. Nil when
+    /// the Runtime does not report it.
+    public var lastCursor: Int?
+    public init(runId: String, phase: String, outcome: String?, quiescence: String, lifetime: String,
+                lastCursor: Int? = nil) {
         self.runId = runId; self.phase = phase; self.outcome = outcome
-        self.quiescence = quiescence; self.lifetime = lifetime
+        self.quiescence = quiescence; self.lifetime = lifetime; self.lastCursor = lastCursor
     }
 }
 
@@ -134,6 +143,11 @@ public enum ACPPendingDecision: Equatable, Sendable {
     case question(id: String, runId: String, message: String, choices: [String])
 }
 
+/// Error rule for `ACPRuntimePort`: methods throw `ACPError` whose `reason`
+/// is the runtime/1 error code (contracts/runtime/v1/errors.json), e.g.
+/// `capability_missing` (the Runtime does not offer it yet: degrade, never
+/// treat as allow), `not_found`, or `timeout` / `connection_lost` (state
+/// unknown: query again). Any other thrown error counts as `timeout`.
 /// Lane R implements this over `RuntimeClient` (runtime/1) only. It owns no
 /// run state of its own beyond the submission records needed for retries.
 public protocol ACPRuntimePort: AnyObject, Sendable {
@@ -149,8 +163,16 @@ public protocol ACPRuntimePort: AnyObject, Sendable {
     /// An editor decision; the Runtime rechecks the target before acting.
     func decide(approvalId: String, allow: Bool) async throws
     func answer(questionId: String, text: String) async throws
+    /// The person declined to answer a question.
+    func decline(questionId: String) async throws
     /// The editor's control connection is gone (ADR v2.2 Delegated runs).
     func connectionLost() async
+}
+
+extension ACPRuntimePort {
+    public func decline(questionId: String) async throws {
+        throw ACPError(code: -32000, reason: "capability_missing", message: "the Runtime cannot record a declined question yet")
+    }
 }
 
 // MARK: Lane E — projection and privacy
@@ -190,12 +212,16 @@ public struct ACPSessionBinding: Equatable, Sendable {
     public var createdAt: String
     public var updatedAt: String
     public var revision: Int
+    /// The submissionKey of a prompt whose answer was not yet seen, so a
+    /// retry after a process restart reuses it instead of creating a new Run.
+    public var pendingSubmissionKey: String?
     public init(acpSessionId: String, principalId: String, clientId: String, cwd: String, title: String,
                 runIds: [String], lastCursor: [String: Int], options: [ACPConfigOption],
-                createdAt: String, updatedAt: String, revision: Int) {
+                createdAt: String, updatedAt: String, revision: Int, pendingSubmissionKey: String? = nil) {
         self.acpSessionId = acpSessionId; self.principalId = principalId; self.clientId = clientId
         self.cwd = cwd; self.title = title; self.runIds = runIds; self.lastCursor = lastCursor
         self.options = options; self.createdAt = createdAt; self.updatedAt = updatedAt; self.revision = revision
+        self.pendingSubmissionKey = pendingSubmissionKey
     }
 }
 

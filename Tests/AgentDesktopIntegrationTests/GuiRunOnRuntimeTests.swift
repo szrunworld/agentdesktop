@@ -43,6 +43,18 @@ final class FormPlatform: DesktopPlatform, @unchecked Sendable {
     func window(on screen: ScreenHandle, pid: Int32, windowId: UInt32) -> PlatformWindow? {
         lock.withLock { placed } && windowId == 11 ? window : nil
     }
+    func stack(on screen: ScreenHandle) -> [PlatformWindow] { lock.withLock { placed } ? [window] : [] }
+    func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
+        let w = Int(frame.width) * 2, h = Int(frame.height) * 2
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
+        CGImageDestinationFinalize(dest)
+        return (w, h)
+    }
     func screenshot(_ screen: ScreenHandle, to path: String) throws -> (width: Int, height: Int) {
         let ctx = CGContext(data: nil, width: 2560, height: 1600, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
