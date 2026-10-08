@@ -21,14 +21,14 @@ ACP（Agent Client Protocol）是 AgentDesktop 的第三种接入方式，和 CL
 | 09-outbound-isolation.md | 出站执行体隔离评估 | 工作线 O |
 | tests/ | T01～T28 细化用例与 E2E 手册 | 工作线 Q |
 
-## 二、核对结论（以代码为准，2026-10-08 ai-gui-foundation fab099f）
+## 二、核对结论（以代码为准，2026-10-08 ai-gui-foundation b2831ca，含 #47 A0 与 #51 G0）
 
 方案原文写于未逐项核对代码之前。下面六条是协调者核对后的事实，各工作线以此为准；与原文冲突处已标出，需要 Kevin 确认的单列在第五节。
 
-1. **新 MCP 不绕过 Runtime。** `agentdesktop mcp`（PR #29，草案，未合入）的每个工具都经 `RuntimeClient` 发 runtime/1 请求。真正的旁路是**宿主仍在监听引擎旧的 `control.sock`**（PR #47 A0 的「未完成」第一条：`AppController` 仍调用 `runtime.start(socketPath:)`），任何能连上它的进程都可以不经 Runtime 策略直接操作窗口；`engine/` 里的旧 `ScreenCLI` 和 `MCPServer.swift` 也还在，只是退出了发布路径。原文 A0-05「修复 MCP 绕过」因此落在 **A2 单一端点**（f1 负责）：宿主只监听一个 endpoint。ACP 不另开安全修复 PR，G0 以 A2 合入且 T18 通过为准。
+1. **新 MCP 不绕过 Runtime。** `agentdesktop mcp`（PR #29，草案，未合入）的每个工具都经 `RuntimeClient` 发 runtime/1 请求。旧引擎的 `control.sock` 已随 #47（f187ec7）停止监听。宿主现存的第二个入口是 AI/GUI 服务的 `ai.sock`（`AppController.swift` 约 157–178 行的 `RpcSocketServer`），同 uid 的连接一律当作可信 owner，不经 runtime/1 的身份与策略。`engine/` 里的旧 CLI 与 `AgentRuntime.start(socketPath:)` 仍在源码中，不在发布包内，但本机自行编译就能开出一个不经 Runtime 的 socket。原文 A0-05「修复 MCP 绕过」因此落在 **A2 单一端点**（f1 负责）：宿主只监听一个 endpoint，`ai.*` 全部经 runtime/1。ACP 不另开安全修复 PR，G0 以 A2 合入且 T18 通过为准。A2 之后 Runtime 端点将改名为 `control.sock`，与旧引擎 socket 同名，G0 检查要按监听进程判定，不能按文件名（04-gap-analysis C-19）。
 2. **线协议上的 Run 一律是 Delegated。** ADR v2.2 与 docs/plan/02 A6 规定：任何经线协议的请求（CLI、MCP、SDK、外部 App，含本机 owner 的线连接）创建的都是 `external_client / connection_scoped`，参数里的 `origin`、`lifetime`、`ownership` 一律拒绝。`agentdesktop acp` 是一个线客户端，所以 **ACP 发起的 Run 都是 connection_scoped**，编辑器断开即停止输入。原文 P2「场景 A：从编辑器启动 Durable Run」在现行 ADR 下不成立；可行的替代是「主窗口发起的 Durable Run，在 ACP 里只读观察」。见第五节决策 K1。
 3. **runtime/1 还没有任务入口。** 冻结目录（methods.json，33 个方法）里没有 `unit.run`；它在 A6（40 负责，PR #50 草案）。没有它，编辑器无法「交出一件任务」。在 A6 之前，ACP 只能暴露只读与控制命令（Desktop 列表、本身份 Run 的查看与取消）。P1 的真实端到端依赖 A6。
-4. **身份与授权未实现。** Hub Core（A4，f1 负责）未开始。在它之前，ACP 拿到的调用方只能是握手返回的本机身份，T07（无权恢复他人会话）无法真正验证。
+4. **身份与授权未实现。** Hub Core（A4，f1 负责）未开始。握手返回的是 Runtime 自己的身份，不返回调用方 principal（`RuntimeService.swift` handshake 分支）；每个本机连接都是 owner，能看见并控制所有 Run。请求去重键是 uid + requestId，同一用户的 CLI、MCP、ACP 共用一个 requestId 空间。在 A4 之前，T07、T15 无法真正验证。
 5. **没有审批与提问的 Runtime 方法。** runtime/1 没有 approval / question 方法；Inbox 是 U9（P1）。原文 P2-04 审批需要 f1 的契约增量。在它之前，ACP 端只实现编辑器侧流程，Runtime 侧返回 `capability_missing`，并且绝不当作批准。
 6. **事件类型目录未冻结。** `events.subscribe`（#41）已有游标与续传；事件类型目录（F1-01：run.started、action.accepted/dispatched/completed/failed/unknown、run.finishing、stop.accepted、run.quiescent、run.ended）计划在 A0 之后的契约 PR 里冻结。工作线 E 按这份目录写映射，目录冻结后对齐。
 
