@@ -379,3 +379,52 @@ func moreLocalesAreRecognised(_ text: String) throws {
     platform.hitAt = { _, _ in PlatformHit(role: "AXMenuItem", texts: [text], windowId: nil, inMenu: true) }
     expectRefusal(act(sc, clickAt(100, 100)), path: "menu_item")
 }
+
+// b9's sixth review (a45e29c): typing goes to the focused element, so text
+// without a target (or aimed at a point) typed into a focused "Copy code"
+// button presses it; and a key given as " " or "\n" is Space or Return.
+@Test func typingWithoutATargetChecksTheFocusedControl() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.focusedHit = PlatformHit(role: "AXButton", texts: ["Copy code"], windowId: 11, focused: true)
+    expectRefusal(act(sc, #"{"kind":"type","text":" "}"#), path: "focused_control")
+    expectRefusal(act(sc, #"{"kind":"type","text":"hello"}"#), path: "focused_control")
+    // A target named fine does not help while focus is on the button.
+    platform.hitAt = { _, _ in PlatformHit(role: "AXTextField", texts: [], windowId: 11, editable: true) }
+    expectRefusal(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#), path: "focused_control")
+    platform.focusedHit = nil
+    expectRefusal(act(sc, #"{"kind":"type","text":"x"}"#), path: "focused_unverified")
+    // Focus in a text field: typing goes there.
+    platform.focusedHit = PlatformHit(role: "AXTextArea", texts: [], windowId: 11, focused: true, editable: true)
+    sent(act(sc, #"{"kind":"type","text":"x\n"}"#))
+    #expect(platform.performed.count == 1)
+}
+
+@Test func typingAtAPointIsJudgedByWhatIsThere() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.hitAt = { _, _ in PlatformHit(role: "AXButton", texts: ["Copy"], windowId: 11) }
+    expectRefusal(act(sc, #"{"kind":"type","text":"x","target":{"imagePoint":{"x":60,"y":60}}}"#), path: "type_target_not_text")
+    platform.hitAt = { _, _ in PlatformHit(role: "AXTextField", texts: [], windowId: 11) }
+    sent(act(sc, #"{"kind":"type","text":"x","target":{"imagePoint":{"x":60,"y":60}}}"#))
+}
+
+@Test(arguments: [" ", "\n", "\r", "\t", "\r\n"])
+func aBlankCharacterKeyPressesTheFocusedControl(_ k: String) throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.focusedHit = PlatformHit(role: "AXButton", texts: ["Copy code"], windowId: 11, focused: true)
+    let escaped = k.replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\r", with: "\\r")
+        .replacingOccurrences(of: "\t", with: "\\t")
+    expectRefusal(act(sc, #"{"kind":"key","key":"\#(escaped)"}"#), path: "focused_control")
+    #expect(platform.performed.isEmpty)
+}
+
+@Test func aFocusReadThatFailsOnceIsTriedAgain() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.focusFailures = 1
+    sent(act(sc, key("return", [])))
+    platform.focusFailures = 2
+    expectRefusal(act(sc, key("return", [])), path: "focused_unverified")
+}

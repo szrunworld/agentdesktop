@@ -27,10 +27,13 @@ import Foundation
 ///   control whose name says paste, copy or cut (in the languages macOS
 ///   ships) is refused.
 /// - Typing never uses the clipboard (accessibility value writes or unicode
-///   key events; a test keeps it so). Scrolling neither.
-///
-/// Return and Space press the focused control: read now, a control named
-/// paste, copy or cut is refused, and an unreadable focus refuses.
+///   key events; a test keeps it so). Scrolling neither. But typed text goes
+///   to the focused element, and its target may be clicked first: both are
+///   checked like a click.
+/// - Return and Space (by name or as a blank character) press the focused
+///   control. Before them and before any typing the focused element is read
+///   now: a control named paste, copy or cut is refused, and an unreadable
+///   focus refuses.
 ///
 /// Not covered, by its nature: an app that reads the clipboard by itself
 /// after an ordinary input (a terminal running `pbpaste`, a web page reading
@@ -52,10 +55,17 @@ enum ClipboardPolicy {
         case .scroll:
             return nil
         case .type:
+            // The text goes to whatever has focus (directly, or when writing
+            // a field's value fails): a space or newline typed into a focused
+            // "Copy" button presses it.
+            if let refused = focusRefusal(pid: pid, platform: platform) { return refused }
             // Typing into a field the engine must first click (a web field
             // without focus) is a click: the element must be a text field.
-            guard let target = snapshotElement else { return nil }
-            return typeRefusal(target, pid: pid, windowId: windowId, platform: platform)
+            let point = action.point ?? snapshotElement?.frame.map { ($0.x + $0.width / 2, $0.y + $0.height / 2) }
+            guard snapshotElement != nil || action.point != nil else { return nil }
+            guard let point else { return "hit_unavailable" }
+            return typeRefusal(at: point, label: snapshotElement.map { [$0.label, $0.value].compactMap { $0 } } ?? [],
+                               pid: pid, windowId: windowId, platform: platform)
         case .key:
             return keyRefusal(action, pid: pid, menu: menu?.pid == pid ? menu?.items : nil, platform: platform)
         case .click:
@@ -81,36 +91,48 @@ enum ClipboardPolicy {
 
     static let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXSecureTextField"]
 
-    static func typeRefusal(_ target: PlatformElement, pid: Int32, windowId: UInt32, platform: DesktopPlatform) -> String? {
-        guard let frame = target.frame else { return "hit_unavailable" }
-        let center = (frame.x + frame.width / 2, frame.y + frame.height / 2)
-        guard let hit = platform.clipboardHit(at: center, pid: pid) else { return "hit_unavailable" }
+    static func typeRefusal(at point: (x: Double, y: Double), label: [String], pid: Int32, windowId: UInt32,
+                            platform: DesktopPlatform) -> String? {
+        guard let hit = platform.clipboardHit(at: point, pid: pid) else { return "hit_unavailable" }
         guard hit.windowId == windowId, !hit.inMenu else { return "outside_bound_window" }
         let role = String(hit.role.split(separator: "/").first ?? "")
         // The engine may click the element first (a web field without focus,
         // judged on its side): only a text field or editable text, never a
         // control, and nothing named paste, copy or cut.
         guard hit.editable || textRoles.contains(role) else { return "type_target_not_text" }
-        if (hit.texts + hit.ancestorTexts).contains(where: names) { return "control" }
+        if (hit.texts + hit.ancestorTexts + label).contains(where: names) { return "control" }
         return nil
     }
 
-    /// Keys that press the focused control.
+    /// Keys that press the focused control. A key given as a blank character
+    /// (" ", "\n", "\r", "\t") counts too.
     static let pressingKeys: Set<String> = ["return", "enter", "space"]
+
+    static func presses(_ key: String) -> Bool {
+        pressingKeys.contains(key) || (!key.isEmpty && key.allSatisfy { $0.isWhitespace || $0.isNewline })
+    }
+
+    /// The app's focused element, read now (once more if the first read
+    /// fails: a page may be busy for a moment). A control named paste, copy
+    /// or cut, or carrying a clipboard shortcut, is refused; an unreadable
+    /// focus refuses. A text field or editable text with focus is fine.
+    static func focusRefusal(pid: Int32, platform: DesktopPlatform) -> String? {
+        guard let focused = platform.focusedControl(pid: pid) ?? platform.focusedControl(pid: pid) else {
+            return "focused_unverified"
+        }
+        let role = String(focused.role.split(separator: "/").first ?? "")
+        if focused.editable || textRoles.contains(role) { return nil }
+        if let s = focused.shortcut, isClipboardShortcut(s) { return "focused_control" }
+        if (focused.texts + focused.ancestorTexts).contains(where: names) { return "focused_control" }
+        return nil
+    }
 
     static func keyRefusal(_ action: PlatformAction, pid: Int32, menu: [PlatformMenuItem]?, platform: DesktopPlatform) -> String? {
         let key = (action.key ?? "").lowercased()
         if functionKeys.contains(key) { return "function_key" }
         // Return or Space presses whatever has focus: a "Copy" button reached
         // with Tab is a click on it.
-        if pressingKeys.contains(key) {
-            guard let focused = platform.focusedControl(pid: pid) else { return "focused_unverified" }
-            let role = String(focused.role.split(separator: "/").first ?? "")
-            if !focused.editable && !textRoles.contains(role) {
-                if let s = focused.shortcut, isClipboardShortcut(s) { return "focused_control" }
-                if (focused.texts + focused.ancestorTexts).contains(where: names) { return "focused_control" }
-            }
-        }
+        if presses(key), let refused = focusRefusal(pid: pid, platform: platform) { return refused }
         let mods = action.modifiers.map { $0.lowercased() }
         // Shift+Delete is cut in Windows guests (virtual machines, remote desktops).
         if key == "forwarddelete" && mods.contains("shift") { return "shortcut" }

@@ -108,7 +108,14 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { menu }
     /// What has focus; by default nothing.
     var focusedHit: PlatformHit? = PlatformHit(role: "AXNone", texts: [], windowId: nil)
-    func focusedControl(pid: Int32) -> PlatformHit? { focusedHit }
+    /// Reads of the focus that fail before `focusedHit` is answered.
+    var focusFailures = 0
+    var focusReads = 0
+    func focusedControl(pid: Int32) -> PlatformHit? {
+        focusReads += 1
+        if focusFailures > 0 { focusFailures -= 1; return nil }
+        return focusedHit
+    }
     func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter {
         guard layoutKnown else { return .unknown }
         return key.count == 1 ? .character(layout[key] ?? key) : .named
