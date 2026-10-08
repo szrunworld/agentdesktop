@@ -91,10 +91,11 @@ struct QTestActionLevelConformanceTests {
         case .contradicted: return "contradicted"
         case .unknown: return "待核实"
         case .refused(let code): return "refused:\(code)"
+        case .failed(let code): return "failed:\(code)"
         }
     }
 
-    static let all: [ACPActionLevel] = [.accepted, .dispatched, .executed, .verified, .contradicted, .unknown, .refused(code: "x")]
+    static let all: [ACPActionLevel] = [.accepted, .dispatched, .executed, .verified, .contradicted, .unknown, .refused(code: "x"), .failed(code: "x")]
 
     @Test func unknownExistsAndIsDistinctFromEveryOtherLevel() {
         for l in Self.all where l != .unknown {
