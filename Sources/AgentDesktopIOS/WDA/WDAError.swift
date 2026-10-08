@@ -31,6 +31,9 @@ public enum WDAErrorKind: String, Sendable, Codable, Equatable {
     /// The WDA session is gone; the client drops it and creates a new one
     /// on the next call.
     case sessionInvalid
+    /// There is no session and the call may not create one (the read-only
+    /// probe never sends `POST /session`).
+    case noSession
     /// The locator matched nothing, or the element went stale.
     case elementNotFound
     /// The request or the caller's deadline ran out.
