@@ -65,6 +65,8 @@ public struct MacBackend: RuntimeBackend {
         return out
     }
 
+    public func processIdentity(_ pid: Int32) -> ProcessIdentity { Self.identity(pid) }
+
     /// pid plus the kernel's start time, so a reused pid is told apart.
     static func identity(_ pid: Int32) -> ProcessIdentity {
         var info = kinfo_proc()

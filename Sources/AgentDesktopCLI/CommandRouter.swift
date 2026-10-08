@@ -1,3 +1,4 @@
+import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 
@@ -20,11 +21,27 @@ struct RuntimeInvocation: Equatable {
         case desktopShow(id: String)
         case appList(includeBackground: Bool)
         case windowList(pid: Int32?, bundleId: String?, includeOffscreen: Bool)
+        /// Any other Runtime method, already mapped to its params.
+        case call(RuntimeCall)
     }
 
     var command: Command
     var format: OutputFormat = .text
     var endpoint: String?
+}
+
+/// One Runtime request a command line maps to.
+struct RuntimeCall: Equatable {
+    var method: RuntimeMethod
+    var params: JSONValue = .obj([])
+    var context = RequestContext()
+    /// A write: goes through the ledger, carries a requestId the CLI
+    /// records before sending.
+    var mutation = false
+    /// --request-id; generated when absent.
+    var requestId: String?
+    /// observe --image-output: copy the screenshot here.
+    var imageOutput: String?
 }
 
 /// The command table. A command is listed here only once it is implemented.
@@ -88,6 +105,81 @@ enum CommandRouter {
                 pid = v
             }
             return .windowList(pid: pid, bundleId: o["--bundle-id"], includeOffscreen: o["--all"] != nil)
+        },
+        Spec(words: ["desktop", "create"], summary: "create a Desktop (its own virtual screen)",
+             options: ["--name": true, "--size": true, "--request-id": true], positionals: []) { o, _ in
+            var p: [(String, JSONValue)] = []
+            if let n = o["--name"] { p.append(("name", .string(n))) }
+            if let size = o["--size"] {
+                let parts = size.lowercased().split(separator: "x")
+                guard parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]) else {
+                    throw RuntimeError.invalidArgument("--size is WIDTHxHEIGHT in points, got \(size)")
+                }
+                p += [("width", .int(w)), ("height", .int(h))]
+            }
+            return try write(.desktopCreate, .obj(p), o)
+        },
+        Spec(words: ["desktop", "destroy"], summary: "destroy a Desktop that has no open session",
+             options: ["--request-id": true], positionals: ["desktopId"]) { o, p in
+            try write(.desktopDestroy, .obj([("desktopId", .string(p[0]))]), o)
+        },
+        Spec(words: ["app", "launch"], summary: "launch an app onto a Desktop",
+             options: ["--desktop": true, "--bundle-id": true, "--path": true, "--new-instance": false, "--request-id": true],
+             positionals: []) { o, _ in
+            let d = try required(o, "--desktop")
+            guard (o["--bundle-id"] == nil) != (o["--path"] == nil) else {
+                throw RuntimeError.invalidArgument("give exactly one of --bundle-id and --path")
+            }
+            var p: [(String, JSONValue)] = [("desktopId", .string(d))]
+            if let b = o["--bundle-id"] { p.append(("bundleId", .string(b))) }
+            if let path = o["--path"] { p.append(("path", .string(path))) }
+            if o["--new-instance"] != nil { p.append(("newInstance", .bool(true))) }
+            return try write(.appLaunch, .obj(p), o)
+        },
+        Spec(words: ["window", "bind"], summary: "move a window onto a Desktop and make it the target",
+             options: ["--desktop": true, "--pid": true, "--window": true, "--request-id": true], positionals: []) { o, _ in
+            var p: [(String, JSONValue)] = [("desktopId", .string(try required(o, "--desktop"))),
+                                            ("pid", .int(try positive(o, "--pid", required: true)!))]
+            if let w = try positive(o, "--window", required: false) { p.append(("windowId", .int(w))) }
+            return try write(.windowBind, .obj(p), o)
+        },
+        Spec(words: ["window", "unbind"], summary: "clear a Desktop's target window",
+             options: ["--desktop": true, "--request-id": true], positionals: []) { o, _ in
+            try write(.windowUnbind, .obj([("desktopId", .string(try required(o, "--desktop")))]), o)
+        },
+        Spec(words: ["session", "open"], summary: "open a calling context on a Desktop",
+             options: ["--desktop": true, "--request-id": true], positionals: []) { o, _ in
+            try write(.sessionOpen, .obj([("desktopId", .string(try required(o, "--desktop")))]), o)
+        },
+        Spec(words: ["session", "show"], summary: "one Session",
+             options: [:], positionals: ["sessionId"]) { _, p in
+            .call(RuntimeCall(method: .sessionShow, params: .obj([("sessionId", .string(p[0]))])))
+        },
+        Spec(words: ["session", "close"], summary: "close a Session",
+             options: ["--request-id": true], positionals: ["sessionId"]) { o, p in
+            try write(.sessionClose, .obj([("sessionId", .string(p[0]))]), o)
+        },
+        Spec(words: ["observe"], summary: "screenshot and elements of a Desktop's target, as a new snapshot",
+             options: ["--session": true, "--desktop": true, "--query": true, "--no-screenshot": false,
+                       "--no-elements": false, "--image-output": true], positionals: []) { o, _ in
+            var call = RuntimeCall(method: .observe)
+            call.context = try target(o)
+            var p: [(String, JSONValue)] = []
+            if let q = o["--query"] { p.append(("query", .string(q))) }
+            if o["--no-screenshot"] != nil {
+                guard o["--image-output"] == nil else {
+                    throw RuntimeError.invalidArgument("--image-output needs the screenshot; drop --no-screenshot")
+                }
+                p.append(("screenshot", .bool(false)))
+            }
+            if o["--no-elements"] != nil { p.append(("elements", .bool(false))) }
+            call.params = .obj(p)
+            call.imageOutput = o["--image-output"]
+            return .call(call)
+        },
+        Spec(words: ["request", "show"], summary: "the recorded outcome of an earlier write, by requestId",
+             options: [:], positionals: ["requestId"]) { _, p in
+            .call(RuntimeCall(method: .requestShow, params: .obj([("requestId", .string(p[0]))])))
         },
     ]
 
@@ -170,6 +262,43 @@ enum CommandRouter {
             invocation.endpoint = e
         }
         return invocation
+    }
+
+    static func write(_ m: RuntimeMethod, _ params: JSONValue, _ o: [String: String]) throws -> RuntimeInvocation.Command {
+        var call = RuntimeCall(method: m, params: params, mutation: true)
+        if let id = o["--request-id"] {
+            guard RuntimeContract.shared.validate(.string(id), "Id").isEmpty else {
+                throw RuntimeError.invalidArgument("--request-id must be 1-128 of A-Z a-z 0-9 . _ : - and start with a letter or digit")
+            }
+            call.requestId = id
+        }
+        return .call(call)
+    }
+
+    static func required(_ o: [String: String], _ name: String) throws -> String {
+        guard let v = o[name] else { throw RuntimeError.invalidArgument("\(name) is required") }
+        return v
+    }
+
+    static func positive(_ o: [String: String], _ name: String, required: Bool) throws -> Int? {
+        guard let s = o[name] else {
+            if required { throw RuntimeError.invalidArgument("\(name) is required") }
+            return nil
+        }
+        guard let v = Int(s), v > 0, v <= Int(UInt32.max) else {
+            throw RuntimeError.invalidArgument("\(name) needs a positive integer, got \(s)")
+        }
+        return v
+    }
+
+    /// --session or --desktop, not both.
+    static func target(_ o: [String: String]) throws -> RequestContext {
+        switch (o["--session"], o["--desktop"]) {
+        case let (s?, nil): return RequestContext(sessionId: s)
+        case let (nil, d?): return RequestContext(desktopId: d)
+        case (.some, .some): throw RuntimeError.invalidArgument("--session and --desktop name the target twice; give one")
+        case (nil, nil): throw RuntimeError.invalidArgument("give the target with --session or --desktop")
+        }
     }
 
     /// The format asked for, read leniently so a refused command line can

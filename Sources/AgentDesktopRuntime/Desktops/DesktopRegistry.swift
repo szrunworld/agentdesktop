@@ -1,23 +1,85 @@
+import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 
-/// Desktops this Runtime manages. Creation and destruction come with the
-/// write path (CLI plan PR2); until then the registry is read through
-/// desktop.list/show and stays empty in the product.
+/// The window a Desktop acts on, fixed by process launch and window ID.
+/// `generation` grows with every bind and unbind of the Desktop, so a
+/// snapshot taken under an older binding is recognisably stale.
+public struct TargetBinding: Equatable, Sendable {
+    public var generation: Int
+    public var process: ProcessIdentity
+    public var windowId: UInt32
+    public var appName: String
+    public var boundAt: String
+
+    public var json: JSONValue {
+        .obj([("generation", .int(generation)), ("process", process.json), ("windowId", .int(Int(windowId))),
+              ("appName", .string(appName)), ("boundAt", .string(boundAt))])
+    }
+}
+
+/// One logical working environment. Its lock orders every write and
+/// observation of this Desktop; other Desktops proceed in parallel.
+public final class DesktopRecord: @unchecked Sendable {
+    public let desktopId: String
+    public let name: String
+    public let createdAt: String
+    public let screen: ScreenHandle
+    /// Held while the Desktop's state or its surface is read or changed.
+    public let lock = NSLock()
+    public internal(set) var binding: TargetBinding?
+    public internal(set) var generation = 0
+    public internal(set) var state = "ready"
+
+    init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle) {
+        self.desktopId = desktopId
+        self.name = name
+        self.createdAt = createdAt
+        self.screen = screen
+    }
+
+    public static func screenJSON(_ s: ScreenHandle) -> JSONValue {
+        .obj([("displayId", .int(Int(s.displayId))), ("frame", s.frame.json), ("hiDPI", .bool(s.hiDPI))])
+    }
+
+    func json(openSessions: Int) -> JSONValue {
+        .obj([
+            ("desktopId", .string(desktopId)), ("name", .string(name)), ("state", .string(state)),
+            ("createdAt", .string(createdAt)), ("screen", Self.screenJSON(screen)),
+            ("binding", binding?.json ?? .null), ("openSessions", .int(openSessions)),
+        ])
+    }
+}
+
+/// Desktops this Runtime created. They live as long as the host process:
+/// the surfaces behind them do not survive it.
 public final class DesktopRegistry: @unchecked Sendable {
     private let lock = NSLock()
-    private var desktops: [Desktop] = []
+    private var desktops: [DesktopRecord] = []
 
     public init() {}
 
     public var count: Int { lock.withLock { desktops.count } }
 
-    public func list() -> [Desktop] { lock.withLock { desktops } }
+    public func list() -> [DesktopRecord] { lock.withLock { desktops } }
 
-    public func show(_ id: String) -> Desktop? { lock.withLock { desktops.first { $0.desktopId == id } } }
+    public func find(_ id: String) -> DesktopRecord? { lock.withLock { desktops.first { $0.desktopId == id } } }
 
-    /// Record a desktop the Runtime created.
-    public func add(_ desktop: Desktop) {
-        lock.withLock { desktops.append(desktop) }
+    public func names() -> [String] { lock.withLock { desktops.map(\.name) } }
+
+    @discardableResult
+    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String) -> DesktopRecord {
+        let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen)
+        lock.withLock { desktops.append(r) }
+        return r
+    }
+
+    func remove(_ id: String) {
+        lock.withLock { desktops.removeAll { $0.desktopId == id } }
+    }
+
+    /// A new ID nobody used in this or an earlier run.
+    static func newId(prefix: String) -> String {
+        "\(prefix)_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(12)
     }
 }

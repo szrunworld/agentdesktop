@@ -15,6 +15,7 @@ struct StubBackend: RuntimeBackend {
     func permissions() -> BackendPermissions { perms }
     func features() -> [String] { ["apps.list", "windows.list"] }
     func applications(includeBackground: Bool) -> [AppSummary] { [] }
+    func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: "2026-10-08T01:00:00.000Z") }
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
         [WindowSummary(windowId: 3, process: ProcessIdentity(pid: 4, startedAt: nil), appName: "备忘录",
                        bundleId: "com.apple.Notes", title: "购物清单", frame: Rect(x: 0, y: 0, width: 500, height: 400),

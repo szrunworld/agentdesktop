@@ -99,9 +99,16 @@ let package = Package(
             dependencies: ["AgentDesktopProtocol", "AgentDesktopContracts"]
         ),
         // The only execution authority. PR1 serves the read-only surface.
+        // EnginePlatform drives the 2ndscreen engine in the host process
+        // until its code moves into this repository (AgentDesktopCore).
         .target(
             name: "AgentDesktopRuntime",
-            dependencies: ["AgentDesktopProtocol", "AgentDesktopContracts"]
+            dependencies: [
+                "AgentDesktopProtocol", "AgentDesktopContracts",
+                .product(name: "SecondScreenCore", package: "2ndscreen"),
+                .product(name: "SecondScreenRuntime", package: "2ndscreen"),
+            ],
+            linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .executableTarget(
             name: "AgentDesktopCLI",
