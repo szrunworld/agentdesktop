@@ -31,6 +31,12 @@ jobs:
       - name: Product unit tests
         timeout-minutes: 8
         run: swift test
+      - name: Product unit tests on a one-thread cooperative pool
+        # A test that blocks a cooperative thread waiting for async work
+        # deadlocks a small runner; with the pool held to one thread it
+        # deadlocks everywhere, so the hang shows here instead of at 30 min.
+        timeout-minutes: 5
+        run: LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build
       - name: Native core unit tests
         timeout-minutes: 8
         run: swift test --package-path engine
