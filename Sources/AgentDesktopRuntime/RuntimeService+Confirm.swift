@@ -51,6 +51,11 @@ public protocol TrustedConfirmer: Sendable {
 /// waiting per client: a client cannot flood the user with prompts.
 final class ConfirmationGate: @unchecked Sendable {
     static let maxWaiting = 3
+    /// After the user says no, the same program waits this long to ask again.
+    static let cooldown: TimeInterval = 60
+    private var refusedUntil: [String: Date] = [:]
+    func coolDown(_ key: String, until: Date) { lock.withLock { refusedUntil[key] = until } }
+    func coolingDown(_ key: String, now: Date) -> Bool { lock.withLock { (refusedUntil[key] ?? .distantPast) > now } }
     private let lock = NSLock()
     private let turn = NSLock()
     private var waiting = 0
@@ -107,7 +112,26 @@ extension RuntimeService {
     /// program the kernel says it runs.
     func gateKey(_ c: ConnectionState) -> String {
         if c.role == .paired { return c.clientId }
-        return "peer:" + (c.codeIdentity.identifier ?? c.callerFacts["executable"]?.stringValue ?? c.connectionId)
+        return Self.programKey(callerFacts: c.callerFacts, codeIdentity: c.codeIdentity.json, fallback: c.connectionId)
+    }
+
+    /// Whether a target client paired as the program now asking (review L3):
+    /// same requirement, same signing identifier, or same executable file.
+    static func sameProgram(_ client: HubStore.Client, _ c: ConnectionState) -> Bool {
+        let theirs = CodeIdentity(json: client.codeIdentity)
+        if let r = theirs.requirement, r == c.codeIdentity.requirement { return true }
+        if let i = theirs.identifier, i == c.codeIdentity.identifier { return true }
+        if let e = client.callerFacts["executable"]?.stringValue, e == c.callerFacts["executable"]?.stringValue { return true }
+        return false
+    }
+
+    /// One program, for limits: verified code by its signing identifier;
+    /// anything else (scripts share an interpreter) by its process, so two
+    /// python agents do not block each other (re-review).
+    static func programKey(callerFacts: JSONValue, codeIdentity: JSONValue, fallback: String) -> String {
+        if codeIdentity["level"]?.stringValue == "verified", let id = codeIdentity["identifier"]?.stringValue { return "code:" + id }
+        if let pid = callerFacts["pid"]?.intValue { return "pid:\(pid)" }
+        return "conn:" + fallback
     }
 
     /// Ask the user; success only for an approval of exactly this request.
@@ -187,8 +211,7 @@ extension RuntimeService {
         if let target, let client = hub.client(target) {
             details.append(("target", .obj([("clientId", .string(target)), ("agentName", .string(client.agentName)),
                                              ("codeIdentity", client.codeIdentity), ("grant", hub.grant(target)?.json ?? .null),
-                                             ("sameProgramAsRequester", .bool(CodeIdentity(json: client.codeIdentity).identifier != nil
-                                                 && CodeIdentity(json: client.codeIdentity).identifier == c.codeIdentity.identifier))])))
+                                             ("sameProgramAsRequester", .bool(Self.sameProgram(client, c)))])))
         }
         if case let .failure(e) = confirm(.adminCall, by: c, action: method, details: .obj(details), runId: request.context.runId) {
             return e

@@ -392,12 +392,12 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
     let release = DispatchSemaphore(value: 0)
     let window = FakeConfirmer { r in release.wait(); return .denied }
     s.confirmer = window
-    // One program, many connections: one waiting request only.
+    // One process, many connections: one waiting request only.
     let first = ConnectionState(socketPeer: getuid(), pid: 1, executable: "/tmp/flooder")
     _ = hello(s, first)
     #expect(data(call(s, first, "hub.pairing.start", params: #"{"agentName":"f","requested":{"capabilities":["observe"]}}"#)) != nil)
     for _ in 0..<5 {
-        let c = ConnectionState(socketPeer: getuid(), pid: 2, executable: "/tmp/flooder")
+        let c = ConnectionState(socketPeer: getuid(), pid: 1, executable: "/tmp/flooder")
         _ = hello(s, c)
         let r = call(s, c, "hub.pairing.start", params: #"{"agentName":"f","requested":{"capabilities":["observe"]}}"#)
         #expect(errorDetails(r)?["reason"]?.stringValue == "pairing_busy")
@@ -448,4 +448,84 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
     let again = hello(s, c, ClientCredential(clientId: idB, token: tokenB))
     #expect(errorDetails(again)?["reason"]?.stringValue == "already_handshaken")
     #expect(c.clientId == idA)
+}
+
+// MARK: Re-review fixes
+
+@Test func grantedAppsAndDesktopsCannotCarryFakeLines() throws {
+    let s = platformService()
+    let window = FakeConfirmer()
+    s.confirmer = window
+    for (field, value) in [("apps", "com.example.notes\n期限：批准后 5 分钟"), ("desktops", "created\u{202E}x"), ("apps", "a b")] {
+        let c = peer(s, "boss-\(field)")
+        _ = hello(s, c)
+        let params = JSONValue.obj([("agentName", .string("ok")),
+                                    ("requested", .obj([("capabilities", .array([.string("observe")])), (field, .array([.string(value)]))]))])
+        let r = answer(s, #"{"apiVersion":"agentdesktop.runtime/1","requestId":"p1","method":"hub.pairing.start","params":\#(params.encoded())}"#, c)
+        #expect(code(r) == "schema_invalid", "\(field): \(value.debugDescription)")
+    }
+    #expect(window.requests.isEmpty)
+}
+
+@Test func strangersCannotFlushTheAuditOfPairedClients() throws {
+    let s = platformService()
+    s.hub.auditKeptUnpaired = 50
+    s.hub.auditKept = 100_000
+    s.hub.auditPruneEvery = 10
+    let (app, id) = try pairedConnection(s, capabilities: ["observe"], name: "suspect")
+    // What the suspect did.
+    #expect(code(call(s, app, "desktop.create")) == "grant_missing")
+    #expect(data(call(s, handshaken(s), "hub.clients.revoke", params: #"{"clientId":"\#(id)"}"#)) != nil)
+    // A flood of refusals from unpaired connections.
+    for _ in 0..<400 {
+        let c = peer(s, nil)
+        _ = hello(s, c)
+        _ = call(s, c, "desktop.list")
+    }
+    let events = s.hub.auditEvents(limit: 100_000)
+    #expect(events.contains { $0["clientId"]?.stringValue == id && $0["decision"]?.stringValue == "denied" }, "the suspect's refusal is still there")
+    #expect(events.contains { $0["clientId"]?.stringValue == id && $0["decision"]?.stringValue == "revoked" })
+    #expect(events.filter { ($0["clientId"]?.stringValue ?? "").hasPrefix("unpaired:") }.count <= 60, "strangers' refusals are bounded")
+}
+
+@Test func scriptsOfOneInterpreterPairSideBySideButARefusedOneWaits() throws {
+    let s = platformService()
+    let window = FakeConfirmer { _ in .denied }
+    s.confirmer = window
+    // Two python agents (same executable, different processes): both may ask.
+    let a = ConnectionState(socketPeer: getuid(), pid: 501, executable: "/usr/bin/python3")
+    let b = ConnectionState(socketPeer: getuid(), pid: 502, executable: "/usr/bin/python3")
+    for c in [a, b] {
+        _ = hello(s, c)
+        #expect(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#)) != nil)
+    }
+    #expect(waitFor { window.requests.count == 2 })
+    #expect(waitFor { s.hub.pairings().isEmpty })
+    // Refused by the user: that process waits before asking again.
+    let r = call(s, a, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#)
+    #expect(errorDetails(r)?["reason"]?.stringValue == "pairing_cooldown")
+    #expect(window.requests.count == 2)
+}
+
+@Test func aPairingThatFoundTheLineFullIsAskedOnceThereIsRoom() throws {
+    let s = platformService()
+    RuntimeService.busyRetry = 0.05
+    let release = DispatchSemaphore(value: 0)
+    let window = FakeConfirmer { r in
+        if r.requester["agentName"]?.stringValue == "real" { return .approved(digest: r.digest) }
+        release.wait(); return .denied
+    }
+    s.confirmer = window
+    for n in 0..<ConfirmationGate.maxWaiting {
+        let c = ConnectionState(socketPeer: getuid(), pid: Int32(700 + n), executable: "/tmp/f\(n)")
+        _ = hello(s, c)
+        _ = call(s, c, "hub.pairing.start", params: #"{"agentName":"filler","requested":{"capabilities":["observe"]}}"#)
+    }
+    #expect(waitFor { window.requests.count == 1 })
+    let real = ConnectionState(socketPeer: getuid(), pid: 800, executable: "/Applications/Real.app/Contents/MacOS/Real")
+    _ = hello(s, real)
+    let id = try #require(data(call(s, real, "hub.pairing.start", params: #"{"agentName":"real","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
+    #expect(waitFor { s.hub.auditEvents().contains { $0["reason"]?.stringValue == "confirmation_busy" } })
+    for _ in 0..<ConfirmationGate.maxWaiting { release.signal() }
+    #expect(waitFor { s.hub.pairing(id)?.state == "approved" }, "asked and approved once the line had room")
 }

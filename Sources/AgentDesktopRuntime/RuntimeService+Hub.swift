@@ -8,6 +8,7 @@ import Foundation
 extension RuntimeService {
     static let defaultGrantDuration: TimeInterval = 3600
     static let maxOpenPairings = 20
+    static var busyRetry: TimeInterval = 2
 
     func strings(_ v: JSONValue?) -> [String] { (v?.arrayValue ?? []).compactMap(\.stringValue) }
 
@@ -36,8 +37,14 @@ extension RuntimeService {
         }
         // Bounded waiting: one open request per program, a few in all (review M3).
         let open = hub.pairings()
-        let program = c.callerFacts["executable"]?.stringValue
-        if open.count >= Self.maxOpenPairings || (program != nil && open.contains { $0.callerFacts["executable"]?.stringValue == program }) {
+        let program = gateKey(c)
+        if confirmationGate.coolingDown(program, now: now()) {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.pairing.start", decision: "denied", reason: "pairing_cooldown")
+            return .failure(RuntimeError("permission_denied", "the user just refused this program; try again in a minute",
+                                         phase: .request, notSent: true, details: .obj([("reason", .string("pairing_cooldown"))])))
+        }
+        if open.count >= Self.maxOpenPairings
+            || open.contains(where: { Self.programKey(callerFacts: $0.callerFacts, codeIdentity: $0.codeIdentity, fallback: $0.connectionId) == program }) {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.pairing.start", decision: "denied", reason: "pairing_busy")
             return .failure(RuntimeError("permission_denied", "a pairing request from this program is already waiting; answer it first",
                                          phase: .request, notSent: true, details: .obj([("reason", .string("pairing_busy"))])))
@@ -78,8 +85,16 @@ extension RuntimeService {
                                      ("desktops", .array(proposed.desktops.map(JSONValue.string))),
                                      ("apps", .array(proposed.apps.map(JSONValue.string))),
                                      ("durationSeconds", .int(max(seconds, 1)))])
-        let decision = confirm(.pairing, by: c, action: "hub.pairing.start", details: details, agentName: pairing.agentName,
+        // Asked again while the line is full (re-review): it is not denied
+        // for that, and not left waiting unseen either.
+        var decision: Result<Void, RuntimeError>
+        while true {
+            decision = confirm(.pairing, by: c, action: "hub.pairing.start", details: details, agentName: pairing.agentName,
                                publisher: pairing.publisher, shortCode: pairing.shortCode)
+            guard case let .failure(e) = decision, e.details?["reason"]?.stringValue == "confirmation_busy",
+                  hub.pairing(pairing.pairingId)?.state == "requested" else { break }
+            Thread.sleep(forTimeInterval: Self.busyRetry)
+        }
         guard let current = hub.pairing(pairing.pairingId), current.state == "requested" else { return }
         switch decision {
         case .success:
@@ -89,12 +104,11 @@ extension RuntimeService {
                 hub.audit(connectionId: c.connectionId, clientId: client.clientId, method: "hub.pairing.start", decision: "approved",
                           reason: pairing.pairingId)
             }
-        case let .failure(e) where e.details?["reason"]?.stringValue == "confirmation_busy":
-            // Not the user's no: it stays requested (and expires) rather
-            // than letting a flood deny real pairings (review M3).
-            _ = e
-        case .failure:
+        case let .failure(e):
             try? hub.deny(current)
+            if ["user_denied", "user_cancelled", "confirmation_timeout"].contains(e.details?["reason"]?.stringValue ?? "") {
+                confirmationGate.coolDown(gateKey(c), until: now().addingTimeInterval(ConfirmationGate.cooldown))
+            }
         }
     }
 

@@ -3,7 +3,7 @@
 // (scope, leases, snapshot checks, the request ledger, stopping) is the
 // Runtime's. Contract: contracts/runtime/v1 in the repository.
 import { randomUUID } from "node:crypto";
-import { closeSync, constants, fchmodSync, lstatSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
+import { closeSync, constants, fchmodSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 
@@ -142,15 +142,20 @@ export function loadCredential(path: string): Credential {
  * symlink, never readable by others even for a moment.
  */
 export function saveCredential(credential: Credential, path: string): void {
-  const tmp = `${path}.${process.pid}.tmp`;
+  const tmp = `${path}.${randomUUID()}.tmp`;
   const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   try {
-    fchmodSync(fd, 0o600);
-    writeSync(fd, JSON.stringify({ clientId: credential.clientId, token: credential.token }));
-  } finally {
-    closeSync(fd);
+    try {
+      fchmodSync(fd, 0o600);
+      writeSync(fd, JSON.stringify({ clientId: credential.clientId, token: credential.token }));
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmp, path);
+  } catch (e) {
+    try { unlinkSync(tmp); } catch { /* already gone */ }
+    throw e;
   }
-  renameSync(tmp, path);
 }
 
 export interface PairOptions {

@@ -399,7 +399,7 @@ def save_credential(credential: dict, path: str) -> None:
     """Write a credential owner-only (0600): a fresh file, never through a
     symlink, never readable by others even for a moment. A file is only as
     private as the user account; a signed app should use the keychain."""
-    tmp = f"{path}.{os.getpid()}.tmp"
+    tmp = f"{path}.{uuid.uuid4().hex}.tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         os.fchmod(fd, 0o600)

@@ -314,15 +314,27 @@ public final class HubStore: @unchecked Sendable {
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """, [.text(nowString), .text(connectionId), .text(clientId), .text(method), .text(decision), .text(reason),
                   runId.map { .text($0) } ?? .null])
-        // Bounded: anyone may cause entries (review M3).
-        if lock.withLock({ auditWrites += 1; return auditWrites % 500 == 0 }) {
-            try? db.execute("DELETE FROM auth_events WHERE rowid <= (SELECT MAX(rowid) FROM auth_events) - ?", [.int(Int64(Self.auditKept))])
+        // Bounded, but not flushable (re-review): anyone may cause refusals of
+        // unpaired connections, so only those are pruned, oldest first, to
+        // their own cap; what paired clients did and every decision about
+        // access (asked, confirmed, approved, granted, revoked, cut) stays,
+        // up to a much larger cap no stranger can fill.
+        if lock.withLock({ auditWrites += 1; return auditWrites % auditPruneEvery == 0 }) {
+            try? db.execute("""
+                DELETE FROM auth_events WHERE rowid IN (SELECT rowid FROM auth_events
+                  WHERE client_id LIKE 'unpaired:%' AND decision IN ('denied', 'requested')
+                  ORDER BY rowid DESC LIMIT -1 OFFSET ?)
+                """, [.int(Int64(auditKeptUnpaired))])
+            try? db.execute("DELETE FROM auth_events WHERE rowid <= (SELECT MAX(rowid) FROM auth_events) - ?", [.int(Int64(auditKept))])
             try? db.execute("DELETE FROM pairings WHERE state != 'requested' AND client_id IS NULL AND expires_at < ?",
                             [.text(Timestamp.string(now().addingTimeInterval(-86_400)))])
         }
     }
 
-    static let auditKept = 50_000
+    /// Retention (tests shrink them).
+    var auditKept = 500_000
+    var auditKeptUnpaired = 20_000
+    var auditPruneEvery = 500
     private var auditWrites = 0
 
     public func auditEvents(limit: Int = 200) -> [JSONValue] {

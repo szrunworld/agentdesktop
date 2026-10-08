@@ -75,7 +75,8 @@ public func peerAuditToken(_ fd: Int32) -> Data? {
 }
 
 public struct SecurityCodeIdentityVerifier: CodeIdentityVerifier {
-    static let interpreters = ["python", "node", "ruby", "perl", "bash", "zsh", "sh", "osascript", "java", "deno", "bun", "php", "lua", "tclsh"]
+    static let interpreters = ["python", "node", "ruby", "perl", "bash", "zsh", "sh", "fish", "ksh", "tcsh", "csh", "pwsh", "osascript",
+                               "java", "deno", "bun", "php", "lua", "tclsh", "swift", "dotnet", "rscript", "julia", "nw", "qjs"]
 
     public init() {}
 

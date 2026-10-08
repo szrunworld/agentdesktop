@@ -65,7 +65,7 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
     }
 
     static func reason(_ r: ConfirmationRequest) -> String {
-        let who = r.requester["agentName"]?.stringValue ?? r.requester["clientId"]?.stringValue ?? "?"
+        let who = inert(r.requester["agentName"]?.stringValue ?? r.requester["clientId"]?.stringValue ?? "?", max: 64)
         return r.kind == .pairing ? "允许「\(who)」使用 Agent Desktop" : "允许「\(who)」执行 \(r.action)"
     }
 
@@ -74,7 +74,7 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         NSApp.activate()
         let alert = NSAlert()
         alert.alertStyle = .warning
-        let who = r.requester["agentName"]?.stringValue ?? r.requester["clientId"]?.stringValue ?? "?"
+        let who = inert(r.requester["agentName"]?.stringValue ?? r.requester["clientId"]?.stringValue ?? "?", max: 64)
         alert.messageText = r.kind == .pairing ? "一个程序请求使用 Agent Desktop（自报名称「\(who)」）"
             : "一个已配对的程序请求执行管理操作（自报名称「\(who)」）"
         alert.informativeText = describe(r)
@@ -103,9 +103,27 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         }
     }
 
+    /// Anything that did not come from the Runtime's own checks is shown
+    /// inert (review M2): control, format (bidi), line and paragraph
+    /// separator characters become visible \u{…} escapes, so no field can
+    /// start a new line, reorder text, or pose as another line.
+    static func inert(_ s: String?, max: Int = 300) -> String {
+        guard let s else { return "—" }
+        var out = ""
+        for u in s.unicodeScalars {
+            switch u.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator, .surrogate, .privateUse, .unassigned:
+                out += String(format: "\\u{%04X}", u.value)
+            default:
+                out.unicodeScalars.append(u)
+            }
+        }
+        return out.count > max ? String(out.prefix(max)) + "…（已截断显示）" : out
+    }
+
     static func identityText(_ ci: JSONValue?) -> String {
-        let id = ci?["identifier"]?.stringValue ?? "未知"
-        let team = ci?["teamId"]?.stringValue
+        let id = inert(ci?["identifier"]?.stringValue ?? "未知", max: 120)
+        let team = ci?["teamId"]?.stringValue.map { inert($0, max: 20) }
         switch ci?["level"]?.stringValue {
         case "verified": return "已验证签名：\(id)（Team \(team ?? "?")）。凭据绑定到这份签名的代码；但任何能让它替自己办事的程序，仍可借它的身份"
         case "shared_interpreter": return "解释器 \(id)（Team \(team ?? "?")）：这个解释器运行的任何脚本都共享此身份"
@@ -123,32 +141,32 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         // What the Runtime itself verified first; what the app says about
         // itself after, marked as such.
         lines.append("代码身份（系统核实）：" + identityText(q["codeIdentity"]))
-        if let exe = q["callerFacts"]?["executable"]?.stringValue { lines.append("程序：\(exe)（pid \(q["callerFacts"]?["pid"]?.intValue ?? 0)）") }
-        lines.append("客户端：\(q["clientId"]?.stringValue ?? "")")
-        lines.append("自报名称：\(q["agentName"]?.stringValue ?? "—")")
-        if let p = q["publisher"]?.stringValue { lines.append("自报发布者：\(p)") }
+        if let exe = q["callerFacts"]?["executable"]?.stringValue { lines.append("程序：\(inert(exe))（pid \(q["callerFacts"]?["pid"]?.intValue ?? 0)）") }
+        lines.append("客户端：\(inert(q["clientId"]?.stringValue, max: 80))")
+        lines.append("自报名称：\(inert(q["agentName"]?.stringValue, max: 64))")
+        if let p = q["publisher"]?.stringValue { lines.append("自报发布者：\(inert(p, max: 128))") }
         lines.append("")
         switch r.kind {
         case .pairing:
             if let code = r.shortCode { lines.append("配对码：\(code)（请与申请方显示的配对码核对）") }
             let caps = (r.details["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue)
-            lines.append("权限：" + (caps.isEmpty ? "无" : caps.map { capabilityNames[$0] ?? $0 }.joined(separator: "、")))
+            lines.append("权限：" + (caps.isEmpty ? "无" : caps.map { capabilityNames[$0] ?? inert($0, max: 40) }.joined(separator: "、")))
             let desks = (r.details["desktops"]?.arrayValue ?? []).compactMap(\.stringValue)
-            lines.append("Desktop：" + (desks.isEmpty ? "无" : desks.map { $0 == "created" ? "它自己创建的 Desktop" : $0 }.joined(separator: "、")))
+            lines.append("Desktop：" + (desks.isEmpty ? "无" : desks.map { $0 == "created" ? "它自己创建的 Desktop" : inert($0, max: 128) }.joined(separator: "、")))
             let apps = (r.details["apps"]?.arrayValue ?? []).compactMap(\.stringValue)
-            lines.append("App：" + (apps.isEmpty ? "无" : apps.joined(separator: "、")))
+            lines.append("App：" + (apps.isEmpty ? "无" : apps.map { inert($0, max: 200) }.joined(separator: "、")))
             let seconds = r.details["durationSeconds"]?.intValue ?? 0
             lines.append("期限：批准后 " + (seconds >= 3600 ? "\(seconds / 3600) 小时\(seconds % 3600 / 60 > 0 ? " \(seconds % 3600 / 60) 分钟" : "")" : "\(max(1, seconds / 60)) 分钟"))
         case .adminCall:
-            lines.append("操作：\(r.action)")
+            lines.append("操作：\(inert(r.action, max: 80))")
             if let t = r.details["target"] {
-                lines.append("作用对象：\(t["agentName"]?.stringValue ?? "?")（\(t["clientId"]?.stringValue ?? "")）")
+                lines.append("作用对象：\(inert(t["agentName"]?.stringValue, max: 64))（\(inert(t["clientId"]?.stringValue, max: 80))）")
                 lines.append("对象的代码身份：" + identityText(t["codeIdentity"]))
-                if let g = t["grant"], g != .null { lines.append("对象当前授权：\(g.encoded())") }
+                if let g = t["grant"], g != .null { lines.append("对象当前授权：\(inert(g.encoded(), max: 2000))") }
                 if t["sameProgramAsRequester"]?.boolValue == true { lines.append("⚠️ 作用对象与请求方是同一个程序：这可能是在给自己扩权") }
             }
             // Shown in full: the Runtime refuses anything too large to show.
-            lines.append("完整参数：" + (r.details["params"] ?? r.details).encoded())
+            lines.append("完整参数：" + inert((r.details["params"] ?? r.details).encoded(), max: 4000))
         }
         lines.append("")
         lines.append("批准需要验证你的身份（Touch ID 或登录密码）。不回答将在 \(max(1, Int(r.deadline.timeIntervalSinceNow))) 秒后自动拒绝。")
