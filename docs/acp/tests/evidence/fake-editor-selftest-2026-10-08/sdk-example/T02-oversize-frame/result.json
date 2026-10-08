@@ -5,7 +5,7 @@
   ],
   "title": "超过上限的帧被安全拒绝：返回错误（profile 允许时可关闭连接），进程不崩溃",
   "status": "PASS",
-  "durationMs": 78,
+  "durationMs": 89,
   "failures": [],
   "steps": [
     {

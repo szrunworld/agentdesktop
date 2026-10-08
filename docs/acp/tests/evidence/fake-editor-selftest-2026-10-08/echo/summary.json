@@ -2,10 +2,10 @@
   "profile": "qtest-echo",
   "agent": [
     "node",
-    "/Users/kevinshi/orca/agentdesktop-acp-q3/scripts/acp/fake-editor/dist/echo-agent.js"
+    "/Users/kevinshi/orca/agentdesktop-acp-q5/scripts/acp/fake-editor/dist/echo-agent.js"
   ],
   "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
-  "startedAt": "2026-10-08T08:07:24.976Z",
+  "startedAt": "2026-10-08T09:16:35.984Z",
   "node": "v22.23.2",
   "scenarios": [
     {
@@ -22,6 +22,27 @@
         "blocked: profile qtest-echo lacks runtime.real"
       ],
       "transcript": "L2-readonly/transcript.jsonl"
+    },
+    {
+      "id": "RULE-P1-window-title",
+      "cases": [
+        "ACP-RULE-P1-01",
+        "ACP-RULE-P1-02"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "RULE-P1-window-title/transcript.jsonl"
+    },
+    {
+      "id": "RULE-P2-unknown-terminal",
+      "cases": [
+        "ACP-RULE-P2-01",
+        "ACP-RULE-P2-02",
+        "ACP-RULE-P2-03"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "RULE-P2-unknown-terminal/transcript.jsonl"
     },
     {
       "id": "SceneB-scoped-disconnect",
@@ -200,9 +221,9 @@
       "transcript": "T16-approval/transcript.jsonl"
     }
   ],
-  "finishedAt": "2026-10-08T08:07:39.111Z",
+  "finishedAt": "2026-10-08T09:16:55.206Z",
   "counts": {
-    "PASS": 16,
+    "PASS": 18,
     "FAIL": 0,
     "BLOCKED": 2
   }

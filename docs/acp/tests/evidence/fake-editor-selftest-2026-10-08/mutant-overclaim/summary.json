@@ -2,10 +2,10 @@
   "profile": "qtest-echo",
   "agent": [
     "node",
-    "/Users/kevinshi/orca/agentdesktop-acp-q3/scripts/acp/fake-editor/dist/echo-agent.js"
+    "/Users/kevinshi/orca/agentdesktop-acp-q5/scripts/acp/fake-editor/dist/echo-agent.js"
   ],
   "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
-  "startedAt": "2026-10-08T08:08:39.204Z",
+  "startedAt": "2026-10-08T09:17:55.745Z",
   "node": "v22.23.2",
   "scenarios": [
     {
@@ -21,7 +21,7 @@
       "transcript": "T05-capabilities/transcript.jsonl"
     }
   ],
-  "finishedAt": "2026-10-08T08:08:39.270Z",
+  "finishedAt": "2026-10-08T09:17:55.891Z",
   "counts": {
     "PASS": 0,
     "FAIL": 1,

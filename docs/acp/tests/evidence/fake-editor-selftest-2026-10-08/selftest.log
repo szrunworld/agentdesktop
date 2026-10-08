@@ -1,5 +1,7 @@
 == 1. echo agent, all scenarios
 BLOCKED L2-readonly  ACP-L2-01,ACP-L2-02,ACP-L2-03,ACP-L2-04,ACP-L2-05  — blocked: profile qtest-echo lacks runtime.real
+PASS    RULE-P1-window-title  ACP-RULE-P1-01,ACP-RULE-P1-02
+PASS    RULE-P2-unknown-terminal  ACP-RULE-P2-01,ACP-RULE-P2-02,ACP-RULE-P2-03
 PASS    SceneB-scoped-disconnect  ACP-P2B-01,ACP-P2B-02
 PASS    SceneD-approval-unavailable  ACP-P2D-01,ACP-P2D-02
 PASS    T01-valid-requests  ACP-T01-01,ACP-T01-02,ACP-T01-03
@@ -47,5 +49,7 @@ caught   overclaim by t05-capabilities
 caught   continue-after-reconnect by t14-scoped-disconnect
 caught   stdout-noise by t01-valid-requests
 caught   replay-user-as-agent by t06b-load-ordering
-evidence: /tmp/adt-q3-st
+caught   leak-title by p1-window-title
+caught   unknown-as-completed by p2-unknown-terminal
+evidence: /tmp/adt-q5-st
 SELFTEST_EXIT=0

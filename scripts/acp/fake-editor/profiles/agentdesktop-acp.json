@@ -26,6 +26,11 @@
     "SCOPED_ENDED_TEXT": "编辑器连接已断开",
     "REFUSAL_EXPLAINED_RE": "不会当作批准",
     "PROMPT_TASK": "run the neutral sample task",
-    "NO_TASK_RE": "未创建任何任务"
+    "NO_TASK_RE": "未创建任何任务",
+    "PROMPT_P1": "TBD-after-A6",
+    "P1_NAME": "王小明",
+    "P1_TITLE_FRAGMENT": "候选人",
+    "PROMPT_P2": "TBD-after-A6",
+    "P2_TEXT": "结果未知 · 需要核实"
   }
 }

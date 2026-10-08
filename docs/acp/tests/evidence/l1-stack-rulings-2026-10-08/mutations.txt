@@ -1,0 +1,8 @@
+Mutation checks for QTestStackRulingTests (2026-10-08, acp-skeleton f150e0b; source edits reverted with git checkout right after each run)
+
+1. ACPWireV1.terminalUnknownStatus = .completed
+   swift test --filter QTestStackP2 -> exit 1; both P2 tests fail ("completed" seen; last status "completed" != "failed").  CAUGHT
+2. ACPProjector.widened: element line uses target["windowTitle"] before "label"
+   swift test --filter QTestStackP1 -> exit 1; the name / title / "Preview" found in live frames.  CAUGHT
+3. ACPDataClassifier: window-title keys classified as .pageText instead of .windowTitle
+   swift test --filter QTestStackP1 -> exit 0.  NOT CAUGHT: no projected field reads these keys, so the classifier is defence in depth on this path; the leak in (2) is what the test guards.

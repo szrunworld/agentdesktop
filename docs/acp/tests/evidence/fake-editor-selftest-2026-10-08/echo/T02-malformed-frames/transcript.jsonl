@@ -1,26 +1,26 @@
 {"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
-{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
-{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":58,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
-{"ms":58,"dir":"step","step":"raw","at":{"op":"raw","line":"{not json","expect":{"errorCode":-32700}}}
-{"ms":58,"conn":1,"dir":"out-raw","raw":"{not json"}
-{"ms":59,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}}
-{"ms":59,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-1","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}","expect":{"errorCode":-32601}}}
-{"ms":59,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}"}
-{"ms":59,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-1","error":{"code":-32601,"message":"\"Method not found\": qtest/no_such_method","data":{"method":"qtest/no_such_method"}}}}
-{"ms":59,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-2","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}","expect":{"errorCodeIn":[-32602,-32600]}}}
-{"ms":59,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}"}
-{"ms":60,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-2","error":{"code":-32602,"message":"Invalid params","data":{"_errors":[],"sessionId":{"_errors":["Invalid input: expected string, received number"]},"prompt":{"_errors":["Invalid input: expected array, received undefined"]}}}}}
-{"ms":60,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":300}}
-{"ms":362,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
-{"ms":362,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q3-st/echo/T02-malformed-frames/run","mcpServers":[]}}}
-{"ms":364,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-59702-1"}}}
-{"ms":364,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"echo hello-from-fake-editor","expect":{"stopReason":"end_turn"}}}
-{"ms":364,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-59702-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
-{"ms":365,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-59702-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo hello-from-fake-editor"}}}}}
-{"ms":365,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-59702-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello-from-fake-editor"}}}}}
-{"ms":365,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
-{"ms":365,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
-{"ms":365,"conn":1,"dir":"disconnect","mode":"close-stdin"}
-{"ms":365,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
-{"ms":369,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":0,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":0,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":66,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":66,"dir":"step","step":"raw","at":{"op":"raw","line":"{not json","expect":{"errorCode":-32700}}}
+{"ms":66,"conn":1,"dir":"out-raw","raw":"{not json"}
+{"ms":67,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}}
+{"ms":67,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-1","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}","expect":{"errorCode":-32601}}}
+{"ms":67,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}"}
+{"ms":67,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-1","error":{"code":-32601,"message":"\"Method not found\": qtest/no_such_method","data":{"method":"qtest/no_such_method"}}}}
+{"ms":67,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-2","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}","expect":{"errorCodeIn":[-32602,-32600]}}}
+{"ms":67,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}"}
+{"ms":68,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-2","error":{"code":-32602,"message":"Invalid params","data":{"_errors":[],"sessionId":{"_errors":["Invalid input: expected string, received number"]},"prompt":{"_errors":["Invalid input: expected array, received undefined"]}}}}}
+{"ms":68,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":300}}
+{"ms":369,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":369,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q5-st/echo/T02-malformed-frames/run","mcpServers":[]}}}
+{"ms":371,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-65750-1"}}}
+{"ms":371,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"echo hello-from-fake-editor","expect":{"stopReason":"end_turn"}}}
+{"ms":371,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-65750-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
+{"ms":373,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65750-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo hello-from-fake-editor"}}}}}
+{"ms":374,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65750-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello-from-fake-editor"}}}}}
+{"ms":374,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":374,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":375,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":375,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":378,"conn":1,"dir":"exit","code":0,"signal":null}

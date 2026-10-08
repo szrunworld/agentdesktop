@@ -22,6 +22,11 @@
     "OVERSIZE_ALLOW_CLOSE": "false",
     "REFUSAL_EXPLAINED_RE": ".*",
     "PROMPT_TASK": "forbidden",
-    "NO_TASK_RE": ".*"
+    "NO_TASK_RE": ".*",
+    "PROMPT_P1": "hello",
+    "P1_NAME": "王小明",
+    "P1_TITLE_FRAGMENT": "候选人",
+    "PROMPT_P2": "hello",
+    "P2_TEXT": "结果未知 · 需要核实"
   }
 }

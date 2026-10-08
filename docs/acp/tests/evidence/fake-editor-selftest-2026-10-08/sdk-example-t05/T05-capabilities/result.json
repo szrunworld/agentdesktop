@@ -6,7 +6,7 @@
   ],
   "title": "宣告与实现一致：宣告的会话能力能调用，未宣告的被拒；未宣告图片时图片 prompt 被拒",
   "status": "FAIL",
-  "durationMs": 5085,
+  "durationMs": 5118,
   "failures": [
     "image prompt not claimed but accepted ({\"ok\":true,\"result\":{\"stopReason\":\"end_turn\"}})"
   ],

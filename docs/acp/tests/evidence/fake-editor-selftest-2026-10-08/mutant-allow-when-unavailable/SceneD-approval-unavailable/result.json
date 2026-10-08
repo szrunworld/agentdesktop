@@ -6,7 +6,7 @@
   ],
   "title": "场景 D：编辑器不能回答审批（方法不存在）时动作保持未执行，并给出可解释的拒绝",
   "status": "FAIL",
-  "durationMs": 69,
+  "durationMs": 110,
   "failures": [
     "turn: text \"executed\" does not match /not_executed:approval_(unavailable|cancelled)/"
   ],

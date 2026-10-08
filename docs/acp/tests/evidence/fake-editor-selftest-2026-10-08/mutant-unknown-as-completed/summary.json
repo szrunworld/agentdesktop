@@ -1,0 +1,31 @@
+{
+  "profile": "qtest-echo",
+  "agent": [
+    "node",
+    "/Users/kevinshi/orca/agentdesktop-acp-q5/scripts/acp/fake-editor/dist/echo-agent.js"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T09:18:01.683Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "RULE-P2-unknown-terminal",
+      "cases": [
+        "ACP-RULE-P2-01",
+        "ACP-RULE-P2-02",
+        "ACP-RULE-P2-03"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "unknown tool call act-70329-2 shown as completed"
+      ],
+      "transcript": "RULE-P2-unknown-terminal/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T09:18:05.648Z",
+  "counts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 0
+  }
+}

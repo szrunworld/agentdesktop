@@ -510,6 +510,15 @@ class QTestScenarioRun {
         }
         return;
       }
+      case "setConfig": {
+        const r = await this.call(
+          this.conn().sdk.setSessionConfigOption({ sessionId: this.sid(s.session), configId: s.configId, value: s.value } as any),
+          ms,
+          "session/set_config_option",
+        );
+        this.expectResponse(s.expect, r, "session/set_config_option");
+        return;
+      }
       case "closeSession": {
         const r = await this.call(this.conn().sdk.closeSession({ sessionId: this.sid(s.session) }), ms, "session/close");
         this.expectResponse(s.expect, r, "session/close");
@@ -623,6 +632,35 @@ class QTestScenarioRun {
           const seen = new Set(this.updates.slice(0, m.updates).map((u) => u.update.toolCallId).filter(Boolean));
           const fresh = this.updates.slice(m.updates).filter((u) => u.update.toolCallId && !seen.has(u.update.toolCallId));
           this.check(fresh.length === 0, `${fresh.length} new tool calls after mark ${s.noNewToolCallsSince}: ${fresh.map((u) => u.update.toolCallId).slice(0, 5)}`);
+        }
+        if (s.noFrameContains) {
+          // Nothing the agent wrote, live or replayed, may contain these.
+          const lines = readFileSync(join(this.outDir, "transcript.jsonl"), "utf8").split("\n").filter(Boolean)
+            .map((l) => JSON.parse(l)).filter((e) => e.dir === "in" || e.dir === "in-unparseable" || e.dir === "stderr");
+          for (const needle of s.noFrameContains as string[]) {
+            const hits = lines.filter((e) => JSON.stringify(e.msg ?? e.raw ?? e.text).includes(needle));
+            this.check(hits.length === 0, `"${needle}" appears in ${hits.length} agent frames (first at ${hits[0]?.ms} ms)`);
+          }
+          this.check(lines.length > 0, "noFrameContains: no agent frames recorded");
+        }
+        if (s.unknownTerminal) {
+          // Ruling P2: a tool call whose outcome is unknown never shows
+          // completed, and ends failed with rawOutput terminated/unknown.
+          const byId = new Map<string, any[]>();
+          for (const u of this.updates) {
+            const id = u.update.toolCallId;
+            if (id) byId.set(id, [...(byId.get(id) ?? []), u.update]);
+          }
+          const unknownIds = [...byId].filter(([, us]) => us.some((x) => x.rawOutput?.outcome === "unknown" || x._meta?.agentdesktop?.actionLevel === "unknown")).map(([id]) => id);
+          this.check(unknownIds.length > 0, "unknownTerminal: no tool call with an unknown outcome was seen");
+          for (const id of unknownIds) {
+            const us = byId.get(id)!;
+            this.check(!us.some((x) => x.status === "completed"), `unknown tool call ${id} shown as completed`);
+            const last = [...us].reverse().find((x) => x.status);
+            this.check(last?.status === "failed" && last?.rawOutput?.execution === "terminated" && last?.rawOutput?.outcome === "unknown",
+              `unknown tool call ${id} did not end terminal: ${JSON.stringify(last)}`);
+            if (s.unknownTitle) this.check(String([...us].reverse().find((x) => x.title)?.title ?? "").includes(s.unknownTitle), `unknown tool call ${id} title lacks "${s.unknownTitle}"`);
+          }
         }
         if (s.toolCallsNotCompletedSince) {
           // A tool call that was not completed at the mark (pending approval,

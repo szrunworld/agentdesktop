@@ -7,7 +7,7 @@
   ],
   "title": "身份 B 看不到、加载不了、也不能向身份 A 的会话发 prompt",
   "status": "PASS",
-  "durationMs": 133,
+  "durationMs": 191,
   "failures": [],
   "steps": [
     {
@@ -26,7 +26,7 @@
       "outcome": "error",
       "error": {
         "code": -32002,
-        "message": "Resource not found: qs-59779-1"
+        "message": "Resource not found: qs-65908-1"
       }
     }
   ]

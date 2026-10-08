@@ -21,7 +21,9 @@
     "identity.second",
     "echo.marker",
     "task.slow",
-    "approval"
+    "approval",
+    "runtime.events.windowTitle",
+    "runtime.events.unknown"
   ],
   "vars": {
     "SUPPORTED_VERSIONS": "[1]",
@@ -38,6 +40,11 @@
     "SCOPED_ENDED_TEXT": "ended:connection_lost",
     "REFUSAL_EXPLAINED_RE": "not_executed:approval_(unavailable|cancelled)",
     "PROMPT_TASK": "forbidden",
-    "NO_TASK_RE": ".*"
+    "NO_TASK_RE": ".*",
+    "PROMPT_P1": "titled",
+    "P1_NAME": "王小明",
+    "P1_TITLE_FRAGMENT": "候选人",
+    "PROMPT_P2": "unknown",
+    "P2_TEXT": "结果未知 · 需要核实"
   }
 }
