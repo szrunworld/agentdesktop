@@ -1,5 +1,28 @@
 import Foundation
 
+/// One line of a session's visible conversation, kept so `session/load`
+/// can replay it. Text is redacted (`ACPRedactor`) before it is stored.
+public struct ACPSessionManagerHistoryEntry: Equatable, Sendable {
+    public enum Kind: String, Sendable { case user, agent }
+    public var kind: Kind
+    public var text: String
+    /// The Run this line announced, so a replay can put the Run's events
+    /// right after it.
+    public var runId: String?
+    public var at: String
+    public init(kind: Kind, text: String, runId: String? = nil, at: String) {
+        self.kind = kind; self.text = text; self.runId = runId; self.at = at
+    }
+}
+
+/// Conversation history beside the binding (lane S; not part of the frozen
+/// `ACPSessionStore`). A store without it simply has no text to replay.
+public protocol ACPSessionManagerHistoryStore: AnyObject, Sendable {
+    /// Append in order. Fails when the session has no binding.
+    func appendHistory(sessionId: String, _ entries: [ACPSessionManagerHistoryEntry]) throws
+    func history(sessionId: String) throws -> [ACPSessionManagerHistoryEntry]
+}
+
 public enum ACPFileSessionStoreError: Error, Equatable, Sendable {
     /// `binding.revision` was not the stored revision + 1.
     case conflict(sessionId: String, stored: Int, attempted: Int)
@@ -11,7 +34,10 @@ public enum ACPFileSessionStoreError: Error, Equatable, Sendable {
 /// §3, lane S). Directory 0700, files 0600, atomic replace, a revision
 /// check on every save. It stores what the server hands it: ids, cursors,
 /// options and a title the projector already redacted. Never Run state.
-public final class ACPFileSessionStore: ACPSessionStore, @unchecked Sendable {
+public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistoryStore, @unchecked Sendable {
+    /// Oldest entries are dropped beyond this many.
+    public static let historyLimit = 1000
+
     public let directory: URL
     private let lock = NSLock()
 
@@ -40,7 +66,7 @@ public final class ACPFileSessionStore: ACPSessionStore, @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         var out: [ACPSessionBinding] = []
-        for name in names where name.hasSuffix(".json") && !name.hasPrefix(".") {
+        for name in names where name.hasSuffix(".json") && !name.hasSuffix(".history.json") && !name.hasPrefix(".") {
             // A damaged file must not hide the others.
             guard let b = try? read(directory.appendingPathComponent(name)) else { continue }
             if b.principalId == principalId, name == "\(b.acpSessionId).json" { out.append(b) }
@@ -81,8 +107,75 @@ public final class ACPFileSessionStore: ACPSessionStore, @unchecked Sendable {
         defer { close(lockFd) }
         guard flock(lockFd, LOCK_EX) == 0 else { throw ACPFileSessionStoreError.io("flock errno \(errno)") }
         defer { flock(lockFd, LOCK_UN) }
-        if unlink(fileURL(sessionId).path) != 0, errno != ENOENT {
+        for url in [fileURL(sessionId), historyURL(sessionId)] where unlink(url.path) != 0 && errno != ENOENT {
             throw ACPFileSessionStoreError.io("unlink errno \(errno)")
+        }
+    }
+
+    // MARK: History
+
+    /// Read-modify-write under the directory lock, atomic replace, 0600.
+    /// Every text passes `ACPRedactor` here as well, so nothing unredacted
+    /// reaches the disk whatever the caller did.
+    public func appendHistory(sessionId: String, _ entries: [ACPSessionManagerHistoryEntry]) throws {
+        try Self.checkId(sessionId)
+        guard !entries.isEmpty else { return }
+        lock.lock(); defer { lock.unlock() }
+        try ensureDirectory()
+        let lockFd = open(directory.appendingPathComponent(".lock").path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
+        guard lockFd >= 0 else { throw ACPFileSessionStoreError.io("lock open errno \(errno)") }
+        defer { close(lockFd) }
+        guard flock(lockFd, LOCK_EX) == 0 else { throw ACPFileSessionStoreError.io("flock errno \(errno)") }
+        defer { flock(lockFd, LOCK_UN) }
+        guard try read(fileURL(sessionId))?.acpSessionId == sessionId else {
+            throw ACPFileSessionStoreError.io("no binding for history")
+        }
+        var record = try readHistory(sessionId) ?? HistoryRecord(acpSessionId: sessionId, revision: 0, entries: [])
+        record.entries += entries.map {
+            HistoryRecord.Entry(kind: $0.kind.rawValue, text: ACPRedactor.redact($0.text),
+                                runId: $0.runId, at: $0.at)
+        }
+        if record.entries.count > Self.historyLimit { record.entries.removeFirst(record.entries.count - Self.historyLimit) }
+        record.revision += 1
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data: Data
+        do { data = try encoder.encode(record) } catch { throw ACPFileSessionStoreError.io("encode") }
+        try writeAtomically(data, to: historyURL(sessionId))
+    }
+
+    public func history(sessionId: String) throws -> [ACPSessionManagerHistoryEntry] {
+        try Self.checkId(sessionId)
+        lock.lock(); defer { lock.unlock() }
+        return (try readHistory(sessionId)?.entries ?? []).compactMap { e in
+            guard let kind = ACPSessionManagerHistoryEntry.Kind(rawValue: e.kind) else { return nil }
+            return ACPSessionManagerHistoryEntry(kind: kind, text: e.text, runId: e.runId, at: e.at)
+        }
+    }
+
+    private func historyURL(_ id: String) -> URL { directory.appendingPathComponent("\(id).history.json") }
+
+    private func readHistory(_ id: String) throws -> HistoryRecord? {
+        let fd = open(historyURL(id).path, O_RDONLY | O_NOFOLLOW)
+        if fd < 0 {
+            if errno == ENOENT { return nil }
+            throw ACPFileSessionStoreError.io("open errno \(errno)")
+        }
+        let data = FileHandle(fileDescriptor: fd, closeOnDealloc: true).readDataToEndOfFile()
+        guard let r = try? JSONDecoder().decode(HistoryRecord.self, from: data), r.acpSessionId == id else {
+            throw ACPFileSessionStoreError.io("decode history")
+        }
+        return r
+    }
+
+    private struct HistoryRecord: Codable {
+        struct Entry: Codable { var kind: String; var text: String; var runId: String?; var at: String }
+        var format = 1
+        var acpSessionId: String
+        var revision: Int
+        var entries: [Entry]
+        init(acpSessionId: String, revision: Int, entries: [Entry]) {
+            self.acpSessionId = acpSessionId; self.revision = revision; self.entries = entries
         }
     }
 

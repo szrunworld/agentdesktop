@@ -40,7 +40,7 @@ import Testing
         h2.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
         guard case .resumed? = await h2.connection.waitReply(1) else { Issue.record("not resumed"); return }
         let before = h2.connection.updatesBeforeReply(1, sid).compactMap { u -> String? in
-            if case let .agentMessage(t) = u { return t }; return nil
+            if case let .agentMessage(t) = u, t.hasPrefix("[") { return t }; return nil
         }
         // History of both Runs, up to the open Run's lastCursor, came first.
         #expect(before == ["[old#1] old-1", "[old#2] old-2", "[open#1] open-1", "[open#2] open-2"])

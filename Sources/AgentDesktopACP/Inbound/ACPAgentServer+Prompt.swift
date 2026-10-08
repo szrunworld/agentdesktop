@@ -27,6 +27,7 @@ extension ACPAgentServer {
             if case let .text(t) = block { texts.append(t) } else { ignored += 1 }
         }
         let text = texts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        record(sid, .user, text)
         if ignored > 0 { await say(sid, "已忽略 \(ignored) 个附件：目前只接受文字。") }
 
         if live[sid]?.binding.title == Self.defaultTitle, !text.isEmpty {
@@ -161,9 +162,9 @@ extension ACPAgentServer {
             if live[sid]?.lastSubmission?.key == key { live[sid]?.lastSubmission?.runId = runId }
             turn.runId = runId
             if case .duplicate = receipt {
-                await say(sid, "这是同一条请求的重试，继续显示原任务 \(runId)（没有新建任务）。")
+                await say(sid, "这是同一条请求的重试，继续显示原任务 \(runId)（没有新建任务）。", runId: runId)
             } else {
-                await say(sid, "任务已受理：\(runId)（\(redact(sid, task.displayName))）。")
+                await say(sid, "任务已受理：\(runId)（\(redact(sid, task.displayName))）。", runId: runId)
             }
             startFollower(sid, runId)
             // A cancel that arrived before the runId was known is sent now,

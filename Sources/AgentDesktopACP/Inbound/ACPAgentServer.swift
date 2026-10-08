@@ -11,6 +11,8 @@ public struct ACPAgentServerConfig: Sendable {
     /// How long the end of a turn waits for the event stream to deliver its
     /// last events.
     public var drainTimeout: Duration = .seconds(2)
+    /// Upper bound for streaming one ended Run's history on `session/load`.
+    public var replayTimeout: Duration = .seconds(15)
     public var now: @Sendable () -> Date = { Date() }
     public var makeSessionId: @Sendable () -> String = { "acps_" + UUID().uuidString.lowercased() }
     public init() {}
@@ -30,6 +32,9 @@ public actor ACPAgentServer {
     let runtime: any ACPRuntimePort
     let projector: any ACPEventProjector
     let store: any ACPSessionStore
+    /// Conversation text for `session/load` replay; nil: nothing to replay
+    /// but Run events.
+    let history: (any ACPSessionManagerHistoryStore)?
     let config: ACPAgentServerConfig
 
     var live: [String: LiveSession] = [:]
@@ -38,11 +43,13 @@ public actor ACPAgentServer {
     var closed = false
 
     public init(connection: any ACPConnection, runtime: any ACPRuntimePort, projector: any ACPEventProjector,
-                store: any ACPSessionStore, config: ACPAgentServerConfig = ACPAgentServerConfig()) {
+                store: any ACPSessionStore, config: ACPAgentServerConfig = ACPAgentServerConfig(),
+                history: (any ACPSessionManagerHistoryStore)? = nil) {
         self.connection = connection
         self.runtime = runtime
         self.projector = projector
         self.store = store
+        self.history = history ?? (store as? any ACPSessionManagerHistoryStore)
         self.config = config
     }
 
@@ -189,45 +196,75 @@ public actor ACPAgentServer {
         live[sid] = LiveSession(binding: binding, projector: projector)
         try persist(sid) { $0.clientId = c.clientId }
 
-        // replay: history (everything up to the snapshot's lastCursor, all
-        // of an ended Run) is streamed before the answer, as v1
-        // `session/load` requires; live events follow after it.
-        // no replay: nothing old is sent; open Runs are followed from their
-        // current cursor on.
-        var following: [(String, ACPRunSnapshot?)] = []
-        for runId in binding.runIds {
-            let snap = try? await runtime.snapshot(runId: runId)
-            if !replay {
+        guard replay else {
+            // session/resume: nothing historical. Rebound; open Runs are
+            // followed from their current cursor on, after the answer.
+            var open: [(String, ACPRunSnapshot?)] = []
+            for runId in binding.runIds {
+                let snap = try? await runtime.snapshot(runId: runId)
                 if snap?.phase == "ended" { continue }
                 if let base = snap?.lastCursor ?? binding.lastCursor[runId] { live[sid]?.seen[runId] = base }
-                following.append((runId, snap))
-                continue
+                open.append((runId, snap))
             }
-            if snap?.phase == "ended" {
+            await reply(id, .resumed(options: live[sid]?.binding.options ?? binding.options))
+            await sendCommands(sid)
+            await sayIdentity(sid)
+            await sayPendingSubmission(sid)
+            for (runId, snap) in open {
+                await say(sid, Self.runStatusLine(runId, snap))
                 startFollower(sid, runId)
-                await drain(sid, runId, timeout: nil)
-            } else if let snap, let last = snap.lastCursor {
-                startFollower(sid, runId)
-                await waitSeen(sid, runId, upTo: last, timeout: config.drainTimeout)
-                following.append((runId, snap))
-            } else {
-                following.append((runId, snap))
             }
+            return
         }
-        await reply(id, .resumed(options: live[sid]?.binding.options ?? binding.options))
+
+        // session/load (ACP v1 Loading Sessions): the whole visible history
+        // goes out as session/update first, each send awaited, and only then
+        // the answer. Order: commands, the conversation (user prompts and
+        // agent lines, redacted when stored) with each Run's events replayed
+        // right after the line that announced it, Runs no line mentions,
+        // then the current state of open Runs. Live events that arrive while
+        // this runs are delivered too (cursor de-dup keeps them single).
         await sendCommands(sid)
         await sayIdentity(sid)
-        if live[sid]?.binding.pendingSubmissionKey != nil {
-            await say(sid, "上次有一条提交没有收到 Runtime 的确认，结果待核实；原样重发那条 prompt 只会查询原请求，不会重复执行。")
-        }
-        for (runId, snap) in following {
-            if let snap {
-                await say(sid, "任务 \(runId)：\(Self.describe(snap))")
-            } else {
-                await say(sid, "任务 \(runId)：状态待核实（不会自动重试）")
+        let lines = (try? history?.history(sessionId: sid)) ?? []
+        var replayed = Set<String>()
+        var open: [(String, ACPRunSnapshot?)] = []
+        for line in lines {
+            await send(sid, Self.replayUpdate(line))
+            if let runId = line.runId, binding.runIds.contains(runId), !replayed.contains(runId) {
+                replayed.insert(runId)
+                if let state = await replayRun(sid, runId) { open.append(state) }
             }
-            startFollower(sid, runId)
         }
+        for runId in binding.runIds where !replayed.contains(runId) {
+            if let state = await replayRun(sid, runId) { open.append(state) }
+        }
+        await sayPendingSubmission(sid)
+        for (runId, snap) in open { await say(sid, Self.runStatusLine(runId, snap)) }
+        await reply(id, .resumed(options: live[sid]?.binding.options ?? binding.options))
+    }
+
+    /// Replay one Run's events up to now. Returns the Run when it is still
+    /// open (its follower keeps running after the answer).
+    private func replayRun(_ sid: String, _ runId: String) async -> (String, ACPRunSnapshot?)? {
+        let snap = try? await runtime.snapshot(runId: runId)
+        startFollower(sid, runId)
+        if snap?.phase == "ended" {
+            await drain(sid, runId, timeout: config.replayTimeout)
+            return nil
+        }
+        if let last = snap?.lastCursor { await waitSeen(sid, runId, upTo: last, timeout: config.drainTimeout) }
+        return (runId, snap)
+    }
+
+    private func sayPendingSubmission(_ sid: String) async {
+        guard live[sid]?.binding.pendingSubmissionKey != nil else { return }
+        await say(sid, "上次有一条提交没有收到 Runtime 的确认，结果待核实；原样重发那条 prompt 只会查询原请求，不会重复执行。")
+    }
+
+    static func runStatusLine(_ runId: String, _ snap: ACPRunSnapshot?) -> String {
+        guard let snap else { return "任务 \(runId)：状态待核实（不会自动重试）" }
+        return "任务 \(runId)：\(describe(snap))"
     }
 
     /// Wait until events up to `cursor` were delivered (bounded).
@@ -413,8 +450,28 @@ public actor ACPAgentServer {
         await connection.send(sessionId: sid, update)
     }
 
-    func say(_ sid: String, _ text: String) async {
+    /// An agent message. Inside a prompt turn it is also part of the
+    /// conversation and is recorded (redacted) for `session/load` replay.
+    func say(_ sid: String, _ text: String, runId: String? = nil) async {
+        if live[sid]?.turn != nil { record(sid, .agent, text, runId: runId) }
         await send(sid, .agentMessage(text))
+    }
+
+    func record(_ sid: String, _ kind: ACPSessionManagerHistoryEntry.Kind, _ text: String, runId: String? = nil) {
+        guard let history, !text.isEmpty else { return }
+        // Best effort: a lost history line must not fail a turn.
+        try? history.appendHistory(sessionId: sid, [ACPSessionManagerHistoryEntry(
+            kind: kind, text: redact(sid, text), runId: runId, at: timestamp())])
+    }
+
+    /// How a stored line is shown again. TODO(interface request): a user
+    /// line should be `user_message_chunk`; the model has no such update
+    /// yet, so it is replayed as a marked agent message.
+    static func replayUpdate(_ e: ACPSessionManagerHistoryEntry) -> ACPSessionUpdate {
+        switch e.kind {
+        case .user: return .agentMessage("› 你：\(e.text)")
+        case .agent: return .agentMessage(e.text)
+        }
     }
 
     /// Every editor-visible or stored text that did not come out of the
