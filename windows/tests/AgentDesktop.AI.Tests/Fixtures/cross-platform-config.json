@@ -1,0 +1,659 @@
+{
+ "description": "A configuration script both the Swift and the C# configuration service must run with the same outcomes. Run each step in order against a fresh store (loopback http allowed, fixture adapter not allowed) through the RPC router of caller 'owner' (or 'other' when caller says so). key is the idempotency key. \"${name.path}\" in params or expectations is replaced by the field at the dotted path of the result saved under name; a string that is exactly one placeholder takes the field's JSON value. expect.fields compares dotted paths of the result (null means JSON null), expect.notEqual requires a difference, itemCount counts result.items, details compares error.details members, fieldErrorPaths must all appear among error.details.fieldErrors[].path. No response may contain any apiKey used in the script.",
+ "version": 1,
+ "steps": [
+  {
+   "name": "create a connection",
+   "command": "ai.connections.create",
+   "key": "script-conn-0001",
+   "params": {
+    "name": "Ark",
+    "protocol": "openai_chat",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "timeoutMs": 30000,
+    "credential": {
+     "apiKey": "sk-script-0001"
+    }
+   },
+   "expect": {
+    "ok": true,
+    "save": "conn",
+    "fields": {
+     "revision": 1,
+     "baseUrl": "https://ark.cn-beijing.volces.com/api/v3/",
+     "state": "enabled",
+     "protocol": "openai_chat"
+    }
+   }
+  },
+  {
+   "name": "replay the same request and key",
+   "command": "ai.connections.create",
+   "key": "script-conn-0001",
+   "params": {
+    "name": "Ark",
+    "protocol": "openai_chat",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "timeoutMs": 30000,
+    "credential": {
+     "apiKey": "sk-script-0001"
+    }
+   },
+   "expect": {
+    "ok": true,
+    "fields": {
+     "connectionId": "${conn.connectionId}",
+     "credentialRef": "${conn.credentialRef}"
+    }
+   }
+  },
+  {
+   "name": "same key, different name",
+   "command": "ai.connections.create",
+   "key": "script-conn-0001",
+   "params": {
+    "name": "Other",
+    "protocol": "openai_chat",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "timeoutMs": 30000,
+    "credential": {
+     "apiKey": "sk-script-0001"
+    }
+   },
+   "expect": {
+    "ok": false,
+    "code": "IDEMPOTENCY_CONFLICT"
+   }
+  },
+  {
+   "name": "same key, only the secret differs",
+   "command": "ai.connections.create",
+   "key": "script-conn-0001",
+   "params": {
+    "name": "Ark",
+    "protocol": "openai_chat",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "timeoutMs": 30000,
+    "credential": {
+     "apiKey": "sk-script-0002"
+    }
+   },
+   "expect": {
+    "ok": false,
+    "code": "IDEMPOTENCY_CONFLICT"
+   }
+  },
+  {
+   "name": "another caller reuses the key",
+   "caller": "other",
+   "command": "ai.connections.create",
+   "key": "script-conn-0001",
+   "params": {
+    "name": "Theirs",
+    "protocol": "openai_chat",
+    "baseUrl": "https://x.example/v1",
+    "timeoutMs": 30000,
+    "credential": {
+     "apiKey": "sk-script-0001"
+    }
+   },
+   "expect": {
+    "ok": true,
+    "notEqual": {
+     "connectionId": "${conn.connectionId}"
+    }
+   }
+  },
+  {
+   "name": "remote http is refused by the schema",
+   "command": "ai.connections.create",
+   "key": "script-conn-0002",
+   "params": {
+    "name": "Bad",
+    "protocol": "openai_chat",
+    "baseUrl": "http://api.example.com/v1",
+    "timeoutMs": 30000,
+    "credential": {
+     "apiKey": "sk-script-0001"
+    }
+   },
+   "expect": {
+    "ok": false,
+    "code": "VALIDATION_ERROR",
+    "fieldErrorPaths": [
+     "/params/baseUrl"
+    ]
+   }
+  },
+  {
+   "name": "a base ending in chat/completions is refused by the service",
+   "command": "ai.connections.create",
+   "key": "script-conn-0003",
+   "params": {
+    "name": "Bad",
+    "protocol": "openai_chat",
+    "baseUrl": "https://api.example.com/v1/chat/completions",
+    "timeoutMs": 30000,
+    "credential": {
+     "apiKey": "sk-script-0001"
+    }
+   },
+   "expect": {
+    "ok": false,
+    "code": "VALIDATION_ERROR",
+    "fieldErrorPaths": [
+     "/params/baseUrl"
+    ]
+   }
+  },
+  {
+   "name": "update with the current revision",
+   "command": "ai.connections.update",
+   "key": "script-upd-0001",
+   "params": {
+    "connectionId": "${conn.connectionId}",
+    "expectedRevision": 1,
+    "patch": {
+     "name": "A"
+    }
+   },
+   "expect": {
+    "ok": true,
+    "save": "conn2",
+    "fields": {
+     "revision": 2,
+     "name": "A",
+     "credentialRef": "${conn.credentialRef}"
+    }
+   }
+  },
+  {
+   "name": "update with a stale revision",
+   "command": "ai.connections.update",
+   "key": "script-upd-0002",
+   "params": {
+    "connectionId": "${conn.connectionId}",
+    "expectedRevision": 1,
+    "patch": {
+     "name": "B"
+    }
+   },
+   "expect": {
+    "ok": false,
+    "code": "CONFIG_CONFLICT",
+    "details": {
+     "currentRevision": 2
+    }
+   }
+  },
+  {
+   "name": "a model profile pinned to the old connection revision",
+   "command": "ai.modelProfiles.create",
+   "key": "script-mp-0001",
+   "params": {
+    "name": "stale",
+    "connectionId": "${conn.connectionId}",
+    "connectionRevision": 1,
+    "modelId": "m",
+    "requestOptions": {},
+    "maxOutputTokens": 10
+   },
+   "expect": {
+    "ok": false,
+    "code": "CONFIG_CONFLICT",
+    "details": {
+     "currentRevision": 2
+    }
+   }
+  },
+  {
+   "name": "a model profile pinned to the current connection revision",
+   "command": "ai.modelProfiles.create",
+   "key": "script-mp-0002",
+   "params": {
+    "name": "Seed",
+    "connectionId": "${conn.connectionId}",
+    "connectionRevision": 2,
+    "modelId": "doubao-seed-2-1-lite-260915",
+    "requestOptions": {
+     "temperature": 0
+    },
+    "maxOutputTokens": 1024
+   },
+   "expect": {
+    "ok": true,
+    "save": "model",
+    "fields": {
+     "revision": 1,
+     "connectionRevision": 2,
+     "modelId": "doubao-seed-2-1-lite-260915",
+     "capabilities.guiContract.status": "unknown"
+    }
+   }
+  },
+  {
+   "name": "a GUI profile",
+   "command": "ai.profiles.create",
+   "key": "script-gp-0001",
+   "params": {
+    "name": "P",
+    "modelProfileId": "${model.modelProfileId}",
+    "modelProfileRevision": "${model.revision}",
+    "adapterId": "uitars_v1",
+    "adapterVersion": "1",
+    "promptVersion": "1",
+    "parserVersion": "1",
+    "coordinateProtocol": "normalized_1000",
+    "limits": {
+     "maxSteps": 20,
+     "maxWallTimeMs": 120000,
+     "maxModelAttemptsPerStep": 2,
+     "maxTotalModelAttempts": 30,
+     "maxOutputTokens": 1024,
+     "maxWaitMs": 5000,
+     "maxScreenshots": 5,
+     "maxImageEncodedBytes": 8388608,
+     "requireReportedUsage": false
+    },
+    "allowedFallbackProfileRefs": []
+   },
+   "expect": {
+    "ok": true,
+    "save": "gui",
+    "fields": {
+     "revision": 1,
+     "modelProfileRevision": 1,
+     "adapterId": "uitars_v1"
+    }
+   }
+  },
+  {
+   "name": "the default starts empty",
+   "command": "ai.profiles.default.get",
+   "params": {},
+   "expect": {
+    "ok": true,
+    "fields": {
+     "default.revision": 1,
+     "default.guiProfileId": null,
+     "resolvedProfile": null
+    }
+   }
+  },
+  {
+   "name": "set the default",
+   "command": "ai.profiles.setDefault",
+   "key": "script-def-0001",
+   "params": {
+    "guiProfileId": "${gui.guiProfileId}",
+    "expectedDefaultRevision": 1,
+    "expectedProfileRevision": 1
+   },
+   "expect": {
+    "ok": true,
+    "fields": {
+     "default.revision": 2,
+     "default.guiProfileId": "${gui.guiProfileId}",
+     "resolvedProfile.revision": 1
+    }
+   }
+  },
+  {
+   "name": "set the default with a stale pointer revision",
+   "command": "ai.profiles.setDefault",
+   "key": "script-def-0002",
+   "params": {
+    "guiProfileId": "${gui.guiProfileId}",
+    "expectedDefaultRevision": 1,
+    "expectedProfileRevision": 1
+   },
+   "expect": {
+    "ok": false,
+    "code": "CONFIG_CONFLICT",
+    "details": {
+     "currentRevision": 2
+    }
+   }
+  },
+  {
+   "name": "a profile edit is not a default CAS",
+   "command": "ai.profiles.update",
+   "key": "script-gp-0002",
+   "params": {
+    "guiProfileId": "${gui.guiProfileId}",
+    "expectedRevision": 1,
+    "patch": {
+     "name": "P renamed"
+    }
+   },
+   "expect": {
+    "ok": true,
+    "fields": {
+     "revision": 2,
+     "name": "P renamed"
+    }
+   }
+  },
+  {
+   "name": "the pointer keeps its revision and resolves the new profile revision",
+   "command": "ai.profiles.default.get",
+   "params": {},
+   "expect": {
+    "ok": true,
+    "fields": {
+     "default.revision": 2,
+     "resolvedProfile.revision": 2
+    }
+   }
+  },
+  {
+   "name": "delete a connection still referenced",
+   "command": "ai.connections.delete",
+   "key": "script-del-0001",
+   "params": {
+    "connectionId": "${conn.connectionId}",
+    "expectedRevision": 2
+   },
+   "expect": {
+    "ok": false,
+    "code": "RESOURCE_IN_USE"
+   }
+  },
+  {
+   "name": "delete with a wrong revision is a conflict first",
+   "command": "ai.connections.delete",
+   "key": "script-del-0002",
+   "params": {
+    "connectionId": "${conn.connectionId}",
+    "expectedRevision": 9
+   },
+   "expect": {
+    "ok": false,
+    "code": "CONFIG_CONFLICT",
+    "details": {
+     "currentRevision": 2
+    }
+   }
+  },
+  {
+   "name": "delete the default profile",
+   "command": "ai.profiles.delete",
+   "key": "script-del-0003",
+   "params": {
+    "guiProfileId": "${gui.guiProfileId}",
+    "expectedRevision": 2
+   },
+   "expect": {
+    "ok": false,
+    "code": "RESOURCE_IN_USE"
+   }
+  },
+  {
+   "name": "a profile falling back to P",
+   "command": "ai.profiles.create",
+   "key": "script-gp-0003",
+   "params": {
+    "name": "F",
+    "modelProfileId": "${model.modelProfileId}",
+    "modelProfileRevision": "${model.revision}",
+    "adapterId": "uitars_v1",
+    "adapterVersion": "1",
+    "promptVersion": "1",
+    "parserVersion": "1",
+    "coordinateProtocol": "normalized_1000",
+    "limits": {
+     "maxSteps": 20,
+     "maxWallTimeMs": 120000,
+     "maxModelAttemptsPerStep": 2,
+     "maxTotalModelAttempts": 30,
+     "maxOutputTokens": 1024,
+     "maxWaitMs": 5000,
+     "maxScreenshots": 5,
+     "maxImageEncodedBytes": 8388608,
+     "requireReportedUsage": false
+    },
+    "allowedFallbackProfileRefs": [
+     {
+      "guiProfileId": "${gui.guiProfileId}",
+      "revision": 2
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "save": "fb"
+   }
+  },
+  {
+   "name": "P falling back to F makes a cycle",
+   "command": "ai.profiles.update",
+   "key": "script-gp-0004",
+   "params": {
+    "guiProfileId": "${gui.guiProfileId}",
+    "expectedRevision": 2,
+    "patch": {
+     "allowedFallbackProfileRefs": [
+      {
+       "guiProfileId": "${fb.guiProfileId}",
+       "revision": 1
+      }
+     ]
+    }
+   },
+   "expect": {
+    "ok": false,
+    "code": "VALIDATION_ERROR"
+   }
+  },
+  {
+   "name": "the fixture adapter is not available in production",
+   "command": "ai.profiles.create",
+   "key": "script-gp-0005",
+   "params": {
+    "name": "X",
+    "modelProfileId": "${model.modelProfileId}",
+    "modelProfileRevision": "${model.revision}",
+    "adapterId": "fixture_json_v1",
+    "adapterVersion": "1",
+    "promptVersion": "1",
+    "parserVersion": "1",
+    "coordinateProtocol": "normalized_1000",
+    "limits": {
+     "maxSteps": 20,
+     "maxWallTimeMs": 120000,
+     "maxModelAttemptsPerStep": 2,
+     "maxTotalModelAttempts": 30,
+     "maxOutputTokens": 1024,
+     "maxWaitMs": 5000,
+     "maxScreenshots": 5,
+     "maxImageEncodedBytes": 8388608,
+     "requireReportedUsage": false
+    },
+    "allowedFallbackProfileRefs": []
+   },
+   "expect": {
+    "ok": false,
+    "code": "CAPABILITY_MISMATCH"
+   }
+  },
+  {
+   "name": "limits above the ceiling",
+   "command": "ai.profiles.create",
+   "key": "script-gp-0006",
+   "params": {
+    "name": "X",
+    "modelProfileId": "${model.modelProfileId}",
+    "modelProfileRevision": "${model.revision}",
+    "adapterId": "uitars_v1",
+    "adapterVersion": "1",
+    "promptVersion": "1",
+    "parserVersion": "1",
+    "coordinateProtocol": "normalized_1000",
+    "limits": {
+     "maxSteps": 21,
+     "maxWallTimeMs": 120000,
+     "maxModelAttemptsPerStep": 2,
+     "maxTotalModelAttempts": 30,
+     "maxOutputTokens": 1024,
+     "maxWaitMs": 5000,
+     "maxScreenshots": 5,
+     "maxImageEncodedBytes": 8388608,
+     "requireReportedUsage": false
+    },
+    "allowedFallbackProfileRefs": []
+   },
+   "expect": {
+    "ok": false,
+    "code": "VALIDATION_ERROR",
+    "fieldErrorPaths": [
+     "/params/limits/maxSteps"
+    ]
+   }
+  },
+  {
+   "name": "disable the model profile",
+   "command": "ai.modelProfiles.disable",
+   "key": "script-mp-0003",
+   "params": {
+    "modelProfileId": "${model.modelProfileId}",
+    "expectedRevision": 1
+   },
+   "expect": {
+    "ok": true,
+    "fields": {
+     "revision": 2,
+     "state": "disabled"
+    }
+   }
+  },
+  {
+   "name": "a new profile on the disabled model",
+   "command": "ai.profiles.create",
+   "key": "script-gp-0007",
+   "params": {
+    "name": "Y",
+    "modelProfileId": "${model.modelProfileId}",
+    "modelProfileRevision": 2,
+    "adapterId": "uitars_v1",
+    "adapterVersion": "1",
+    "promptVersion": "1",
+    "parserVersion": "1",
+    "coordinateProtocol": "normalized_1000",
+    "limits": {
+     "maxSteps": 20,
+     "maxWallTimeMs": 120000,
+     "maxModelAttemptsPerStep": 2,
+     "maxTotalModelAttempts": 30,
+     "maxOutputTokens": 1024,
+     "maxWaitMs": 5000,
+     "maxScreenshots": 5,
+     "maxImageEncodedBytes": 8388608,
+     "requireReportedUsage": false
+    },
+    "allowedFallbackProfileRefs": []
+   },
+   "expect": {
+    "ok": false,
+    "code": "RESOURCE_DISABLED"
+   }
+  },
+  {
+   "name": "rotate the key",
+   "command": "ai.credentials.rotate",
+   "key": "script-rot-0001",
+   "params": {
+    "connectionId": "${conn.connectionId}",
+    "expectedRevision": 2,
+    "credential": {
+     "apiKey": "sk-script-0003"
+    }
+   },
+   "expect": {
+    "ok": true,
+    "fields": {
+     "revision": 3,
+     "connectionId": "${conn.connectionId}"
+    },
+    "notEqual": {
+     "credentialRef": "${conn.credentialRef}"
+    }
+   }
+  },
+  {
+   "name": "rotate with a stale revision",
+   "command": "ai.credentials.rotate",
+   "key": "script-rot-0002",
+   "params": {
+    "connectionId": "${conn.connectionId}",
+    "expectedRevision": 2,
+    "credential": {
+     "apiKey": "sk-script-0004"
+    }
+   },
+   "expect": {
+    "ok": false,
+    "code": "CONFIG_CONFLICT",
+    "details": {
+     "currentRevision": 3
+    }
+   }
+  },
+  {
+   "name": "delete the unreferenced fallback profile",
+   "command": "ai.profiles.delete",
+   "key": "script-del-0004",
+   "params": {
+    "guiProfileId": "${fb.guiProfileId}",
+    "expectedRevision": 1
+   },
+   "expect": {
+    "ok": true,
+    "fields": {
+     "resourceType": "guiAiProfile",
+     "resourceId": "${fb.guiProfileId}",
+     "revision": 2
+    }
+   }
+  },
+  {
+   "name": "a deleted profile is gone",
+   "command": "ai.profiles.get",
+   "params": {
+    "guiProfileId": "${fb.guiProfileId}"
+   },
+   "expect": {
+    "ok": false,
+    "code": "NOT_FOUND"
+   }
+  },
+  {
+   "name": "the ordinary list",
+   "command": "ai.profiles.list",
+   "params": {},
+   "expect": {
+    "ok": true,
+    "fields": {
+     "nextCursor": null
+    },
+    "itemCount": 1
+   }
+  },
+  {
+   "name": "clear the default",
+   "command": "ai.profiles.setDefault",
+   "key": "script-def-0003",
+   "params": {
+    "guiProfileId": null,
+    "expectedDefaultRevision": 2
+   },
+   "expect": {
+    "ok": true,
+    "fields": {
+     "default.revision": 3,
+     "default.guiProfileId": null,
+     "resolvedProfile": null
+    }
+   }
+  }
+ ]
+}
