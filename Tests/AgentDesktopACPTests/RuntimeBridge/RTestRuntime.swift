@@ -280,7 +280,7 @@ enum RTest {
     static let validInput = JSONValue.obj([
         ("mode", .string("explore")),
         ("goal", .obj([("description", .string("open the about window"))])),
-        ("verification", .obj([("all", .array([]))])),
+        ("verification", .obj([("all", .array([.obj([("kind", .string("element_text_equals")), ("role", .string("static_text")), ("text", .string("About"))])]))])),
         ("allowedActions", .array([.string("click")])),
     ])
 

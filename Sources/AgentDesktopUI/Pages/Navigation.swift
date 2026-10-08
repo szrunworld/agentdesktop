@@ -31,6 +31,8 @@ public final class ShellNavigation: ObservableObject {
     /// Runs: nil shows the list, an ID shows that Run's detail.
     @Published public var runId: String?
     @Published public var settingsPage: SettingsPage
+    /// Desktops: the side-by-side view (P07) instead of the overview.
+    @Published public var sideBySide = false
 
     public init(section: MainSection = .desktops, desktopId: String? = nil, runId: String? = nil,
                 settingsPage: SettingsPage = .general) {
@@ -44,7 +46,7 @@ public final class ShellNavigation: ObservableObject {
     public func open(_ section: MainSection) {
         self.section = section
         switch section {
-        case .desktops: desktopId = nil
+        case .desktops: desktopId = nil; sideBySide = false
         case .runs: runId = nil
         default: break
         }
@@ -52,6 +54,7 @@ public final class ShellNavigation: ObservableObject {
 
     public func showDesktop(_ id: String) {
         section = .desktops
+        sideBySide = false
         desktopId = id
     }
 

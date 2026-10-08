@@ -1,23 +1,32 @@
 import AgentDesktopProtocol
 import SwiftUI
 
-/// Desktops › 总览 (P01, P03), read-only: what desktop.list and the active
-/// Runs say. Creating, previewing and stopping arrive with U2 / U3, so
-/// those buttons are present but off.
+/// Desktops › 总览 (P01, P03): what desktop.list and the active Runs say,
+/// with creation (P04/P05), the side-by-side view (P07) and a preview window
+/// per Desktop (P08). Stopping waits for desktop.stop (A5).
 public struct DesktopsOverviewView: View {
     @ObservedObject var store: ShellStore
     @ObservedObject var navigation: ShellNavigation
+    let openPreview: ((String) -> Void)?
     @State private var filter: Filter = .all
     @State private var query = ""
+    @State private var layout: Layout = .grid
+    @State private var creating: CreateDesktopFlow?
+
+    public enum Layout: String, CaseIterable, Identifiable {
+        case grid = "网格", list = "列表"
+        public var id: String { rawValue }
+    }
 
     public enum Filter: String, CaseIterable, Identifiable {
         case all = "全部", running = "操作中", idle = "空闲"
         public var id: String { rawValue }
     }
 
-    public init(store: ShellStore, navigation: ShellNavigation) {
+    public init(store: ShellStore, navigation: ShellNavigation, openPreview: ((String) -> Void)? = nil) {
         self.store = store
         self.navigation = navigation
+        self.openPreview = openPreview
     }
 
     /// Desktops after the filter and the name / ID search.
@@ -38,16 +47,17 @@ public struct DesktopsOverviewView: View {
 
     public var body: some View {
         PageContainer(state: store.desktopsState, emptyTitle: "还没有 Desktop",
-                      emptyDetail: "Desktop 是 Agent 的独立桌面，你继续使用自己的电脑。可以用 agentdesktop desktop create 创建；界面里的创建入口随 U2 提供。",
+                      emptyDetail: "Desktop 是 Agent 的独立桌面，你继续使用自己的电脑。",
+                      emptyAction: connected ? ("创建 Desktop", { startCreate() }) : nil,
                       syncedAt: store.desktopsSyncedAt, retry: { Task { await store.start() } },
                       header: {
             PageHeader(eyebrow: "Agent Desktop", title: "Desktops", subtitle: "每个 Agent 一个独立桌面，你继续使用自己的电脑。") {
                 HStack(spacing: ADSpace.s) {
-                    Button {} label: { Label("并排预览", systemImage: "square.grid.2x2") }.buttonStyle(ADButtonStyle(.secondary))
-                    Button {} label: { Label("创建 Desktop", systemImage: "plus") }.buttonStyle(ADButtonStyle(.primary))
+                    Button { navigation.sideBySide = true } label: { Label("并排预览", systemImage: "square.grid.2x2") }
+                        .buttonStyle(ADButtonStyle(.secondary)).disabled(store.desktops.isEmpty)
+                    Button { startCreate() } label: { Label("创建 Desktop", systemImage: "plus") }
+                        .buttonStyle(ADButtonStyle(.primary)).disabled(!connected)
                 }
-                .disabled(true)
-                .help("创建与并排预览随 Desktops 页面（U2）提供")
             }
         }) {
             let shown = Self.visible(store.desktops, activeRuns: store.activeRuns, filter: filter, query: query)
@@ -59,22 +69,81 @@ public struct DesktopsOverviewView: View {
                     .pickerStyle(.segmented).labelsHidden().frame(width: 300)
                     Spacer()
                     TextField("搜索 Desktop 名称、ID 或应用", text: $query).textFieldStyle(.roundedBorder).frame(width: 260)
+                    Picker("显示方式", selection: $layout) { ForEach(Layout.allCases) { Text($0.rawValue).tag($0) } }
+                        .pickerStyle(.segmented).labelsHidden().frame(width: 120)
                 }
                 if shown.isEmpty {
                     EmptyState(title: "没有符合条件的 Desktop", detail: "换一个筛选条件或清除搜索。",
                                action: ("清除筛选", { filter = .all; query = "" })).adPanel()
-                } else {
+                } else if layout == .grid {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: ADSpace.l, alignment: .top), count: 3),
                               spacing: ADSpace.l) {
                         ForEach(shown.indices, id: \.self) { i in
                             let d = shown[i]
+                            let id = d["desktopId"]?.stringValue ?? ""
                             DesktopCard(desktop: d, control: DesktopControlPresentation.make(desktop: d, activeRuns: store.activeRuns),
-                                        openDetail: { navigation.showDesktop(d["desktopId"]?.stringValue ?? "") })
+                                        openPreview: openPreview.map { f in { f(id) } }, stop: nil,
+                                        openDetail: { navigation.showDesktop(id) },
+                                        picture: AnyView(CardPicture(store: store, desktopId: id).id(id)),
+                                        stopUnavailable: "停止单个 Desktop：\(WaitingFor.a5)")
                         }
                     }
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(shown.indices, id: \.self) { i in listRow(shown[i]) }
+                    }
+                    .adPanel()
                 }
             }
         }
+        // P04 is a modal inside the main window (not a separate sheet
+        // window), so the page stays one window for the user and for
+        // accessibility.
+        .overlay {
+            if let flow = creating {
+                ZStack {
+                    Color.black.opacity(0.18).ignoresSafeArea()
+                        .accessibilityHidden(true)
+                    CreateDesktopSheet(flow: flow, cancel: { creating = nil }, finished: { id in
+                        creating = nil
+                        Task { await store.refreshDesktops() }
+                        navigation.showDesktop(id)
+                    })
+                    .clipShape(RoundedRectangle(cornerRadius: ADRadius.panel))
+                    .shadow(color: .black.opacity(0.18), radius: 24, y: 8)
+                }
+            }
+        }
+    }
+
+    var connected: Bool { if case .connected = store.connection { return true }; return false }
+
+    func startCreate() { creating = CreateDesktopFlow(runtime: store.runtime) }
+
+    func listRow(_ d: JSONValue) -> some View {
+        let id = d["desktopId"]?.stringValue ?? ""
+        let control = DesktopControlPresentation.make(desktop: d, activeRuns: store.activeRuns)
+        return HStack(spacing: ADSpace.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(d["name"]?.stringValue ?? "—").font(ADFont.bodyStrong).foregroundStyle(ADColor.ink)
+                Text(id).font(ADFont.identifier).foregroundStyle(ADColor.muted)
+            }
+            .frame(width: 260, alignment: .leading)
+            Text(d["binding"]?["appName"]?.stringValue ?? "没有绑定窗口").font(ADFont.note).foregroundStyle(ADColor.ink)
+                .frame(width: 180, alignment: .leading)
+            Text(DesktopControlPresentation.sizeText(d)).font(ADFont.identifier).foregroundStyle(ADColor.muted)
+                .frame(width: 110, alignment: .leading)
+            StateBadge(control.status)
+            Text(control.controller).font(ADFont.note).foregroundStyle(ADColor.muted)
+            Spacer()
+            if let openPreview {
+                Button { openPreview(id) } label: { Label("预览", systemImage: "eye") }.buttonStyle(ADButtonStyle(.secondary))
+            }
+            Button { navigation.showDesktop(id) } label: { Label("详情", systemImage: "chevron.right") }
+                .buttonStyle(ADButtonStyle(.secondary)).accessibilityLabel("打开 \(d["name"]?.stringValue ?? "Desktop") 的详情")
+        }
+        .padding(.horizontal, ADSpace.l).frame(minHeight: 60)
+        .overlay(alignment: .bottom) { Rectangle().fill(ADColor.line).frame(height: 1) }
     }
 
     func count(_ f: Filter) -> Int {
@@ -89,21 +158,29 @@ public struct DesktopInspectorView: View {
     @ObservedObject var store: ShellStore
     @ObservedObject var navigation: ShellNavigation
     @StateObject private var activity: DesktopActivityLoader
+    @StateObject private var frame: DesktopFrameLoader
+    @State private var zoom: PreviewZoom = .fit
     let desktopId: String
+    let openPreview: ((String) -> Void)?
 
-    public init(store: ShellStore, navigation: ShellNavigation, desktopId: String) {
+    public init(store: ShellStore, navigation: ShellNavigation, desktopId: String, openPreview: ((String) -> Void)? = nil) {
         self.store = store
         self.navigation = navigation
         self.desktopId = desktopId
+        self.openPreview = openPreview
         _activity = StateObject(wrappedValue: DesktopActivityLoader(runtime: store.runtime, desktopId: desktopId))
+        _frame = StateObject(wrappedValue: DesktopFrameLoader(runtime: store.runtime, desktopId: desktopId))
     }
 
-    /// With activity already read (renders, tests).
-    init(store: ShellStore, navigation: ShellNavigation, activity: DesktopActivityLoader) {
+    /// With activity and picture already read (renders, tests).
+    init(store: ShellStore, navigation: ShellNavigation, activity: DesktopActivityLoader, frame: DesktopFrameLoader? = nil,
+         openPreview: ((String) -> Void)? = nil) {
         self.store = store
         self.navigation = navigation
         self.desktopId = activity.desktopId
+        self.openPreview = openPreview
         _activity = StateObject(wrappedValue: activity)
+        _frame = StateObject(wrappedValue: frame ?? DesktopFrameLoader(runtime: store.runtime, desktopId: activity.desktopId))
     }
 
     var desktop: JSONValue? { store.desktops.first { $0["desktopId"]?.stringValue == desktopId } }
@@ -132,10 +209,12 @@ public struct DesktopInspectorView: View {
                 HStack(spacing: ADSpace.s) {
                     Button { navigation.back() } label: { Label("总览", systemImage: "chevron.left") }
                         .buttonStyle(ADButtonStyle(.secondary))
-                    Button {} label: { Label("独立预览", systemImage: "rectangle.on.rectangle") }
-                        .buttonStyle(ADButtonStyle(.secondary)).disabled(true).help("独立预览随 U2 提供")
+                    Button { openPreview?(desktopId) } label: { Label("独立预览", systemImage: "rectangle.on.rectangle") }
+                        .buttonStyle(ADButtonStyle(.secondary)).disabled(openPreview == nil || desktop == nil)
                     Button {} label: { Label("停止输入", systemImage: "stop.fill") }
-                        .buttonStyle(ADButtonStyle(.danger)).disabled(true).help("停止单个 Desktop 需要 desktop.stop（A5，U3）")
+                        .buttonStyle(ADButtonStyle(.danger)).disabled(true).help("停止单个 Desktop 需要 desktop.stop：\(WaitingFor.a5)")
+                    Button {} label: { Label("关闭", systemImage: "xmark.circle") }
+                        .buttonStyle(ADButtonStyle(.secondary)).disabled(true).help("关闭前要列出将结束的资源（desktop.closePlan）：\(WaitingFor.a5)")
                 }
             }
         }) {
@@ -144,8 +223,9 @@ public struct DesktopInspectorView: View {
                 HStack(alignment: .top, spacing: ADSpace.xl) {
                     VStack(alignment: .leading, spacing: ADSpace.l) {
                         ControllerBanner(control: control)
-                        DesktopViewport(desktop: desktop).frame(height: 420).adPanel()
-                            .clipShape(RoundedRectangle(cornerRadius: ADRadius.panel))
+                        DesktopFrameView(loader: frame, zoom: $zoom, height: 460)
+                        Text("停止、接管、关闭：\(WaitingFor.a5)（desktop.stop / takeover / closePlan 尚未上线）")
+                            .font(ADFont.note).foregroundStyle(ADColor.muted)
                         recent
                     }
                     .frame(maxWidth: .infinity)
@@ -153,7 +233,10 @@ public struct DesktopInspectorView: View {
                 }
             }
         }
-        .task(id: store.tick) { await activity.load(runs: store.runs) }
+        .task(id: store.tick) {
+            await activity.load(runs: store.runs)
+            if desktop != nil { await frame.refreshIfStale(interval: 5) }
+        }
     }
 
     var recent: some View {
@@ -193,17 +276,50 @@ public struct DesktopInspectorView: View {
 public struct DesktopsPage: View {
     @ObservedObject var store: ShellStore
     @ObservedObject var navigation: ShellNavigation
+    let openPreview: ((String) -> Void)?
 
-    public init(store: ShellStore, navigation: ShellNavigation) {
+    public init(store: ShellStore, navigation: ShellNavigation, openPreview: ((String) -> Void)? = nil) {
         self.store = store
         self.navigation = navigation
+        self.openPreview = openPreview
     }
 
     public var body: some View {
         if let id = navigation.desktopId {
-            DesktopInspectorView(store: store, navigation: navigation, desktopId: id).id(id)
+            DesktopInspectorView(store: store, navigation: navigation, desktopId: id, openPreview: openPreview).id(id)
+        } else if navigation.sideBySide {
+            SideBySideView(store: store, navigation: navigation, openPreview: openPreview)
         } else {
-            DesktopsOverviewView(store: store, navigation: navigation)
+            DesktopsOverviewView(store: store, navigation: navigation, openPreview: openPreview)
         }
+    }
+}
+
+/// A card's picture: one observation when the card appears, renewed every
+/// 15 seconds while the overview is open; the placeholder until then.
+struct CardPicture: View {
+    @ObservedObject var store: ShellStore
+    @StateObject private var loader: DesktopFrameLoader
+    let desktopId: String
+
+    init(store: ShellStore, desktopId: String) {
+        self.store = store
+        self.desktopId = desktopId
+        _loader = StateObject(wrappedValue: DesktopFrameLoader(runtime: store.runtime, desktopId: desktopId))
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            if let image = loader.image {
+                Rectangle().fill(ADColor.canvas)
+                Image(nsImage: image).resizable().aspectRatio(contentMode: .fit).padding(ADSpace.xs)
+                Text(loader.snapshotId ?? "").font(ADFont.identifier).foregroundStyle(ADColor.muted)
+                    .padding(4).background(RoundedRectangle(cornerRadius: 4).fill(ADColor.panel.opacity(0.9))).padding(ADSpace.s)
+            } else if let d = store.desktops.first(where: { $0["desktopId"]?.stringValue == desktopId }) {
+                DesktopViewport(sizeText: DesktopControlPresentation.sizeText(d), appName: d["binding"]?["appName"]?.stringValue,
+                                note: loader.state == .loading ? "正在观察…" : "画面暂不可用")
+            }
+        }
+        .task(id: store.tick) { await loader.refreshIfStale(interval: 15) }
     }
 }

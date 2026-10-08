@@ -57,9 +57,18 @@ class FakeMirroring: IPhoneMirroringSystem {
     }
 
     func recognizedText(in image: CGImage) -> [String] { ocr }
-    func accessibilityLabels(pid: pid_t) -> [String] { ax }
+    /// Texts of other windows of the app, such as its Settings.
+    var axOtherWindows: [String] = []
+    var buttonsOtherWindows: [String] = []
+    func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String] {
+        windowID == nil ? ax + axOtherWindows : ax
+    }
 
-    func pressButton(titled titles: Set<String>, pid: pid_t) -> String? {
+    func pressButton(titled titles: Set<String>, pid: pid_t, windowID: CGWindowID?) -> String? {
+        if windowID == nil, let title = buttonsOtherWindows.first(where: titles.contains) {
+            pressed.append(title)
+            return title
+        }
         guard let title = buttons.first(where: titles.contains) else { return nil }
         pressed.append(title)
         return title
@@ -309,6 +318,20 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(IPhoneConnection.classify([], ocr: [line]).state == .ready)
         // Mirroring's own text counts however long.
         #expect(IPhoneConnection.classify([line]).state == .reconnecting)
+    }
+
+    /// F6 (device, 2026-10-08): Mirroring's Settings window, open beside
+    /// the phone, says a password or Touch ID is required; that is not the
+    /// phone's state, and its buttons are not the phone window's.
+    @Test func anotherWindowsTextIsNotThePhonesState() throws {
+        let fake = FakeMirroring()
+        fake.axOtherWindows = ["Your macOS user password or Touch ID is required to access your iPhone"]
+        fake.buttonsOtherWindows = ["Resume"]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.frame()
+        #expect(try phone.connectionState().state == .ready)
+        #expect(throws: Never.self) { try phone.screenshot(size: CGSize(width: 330, height: 720)) }
+        #expect(fake.pressed.isEmpty)
     }
 
     @Test func readingStatePressesNothing() throws {

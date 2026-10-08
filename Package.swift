@@ -20,6 +20,7 @@ let package = Package(
         .library(name: "AgentDesktopProtocol", targets: ["AgentDesktopProtocol"]),
         .library(name: "AgentDesktopClient", targets: ["AgentDesktopClient"]),
         .library(name: "AgentDesktopRuntime", targets: ["AgentDesktopRuntime"]),
+        .library(name: "AgentDesktopMCP", targets: ["AgentDesktopMCP"]),
         .library(name: "AgentDesktopAI", targets: ["AgentDesktopAI"]),
         .library(name: "AgentDesktopGUI", targets: ["AgentDesktopGUI"]),
         .library(name: "AgentDesktopService", targets: ["AgentDesktopService"]),
@@ -115,9 +116,18 @@ let package = Package(
             ],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
+        // MCP stdio adapter (CLI plan §02): uses the Client, never the Runtime.
+        .target(
+            name: "AgentDesktopMCP",
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
+        ),
+        .testTarget(
+            name: "AgentDesktopMCPTests",
+            dependencies: ["AgentDesktopMCP", "AgentDesktopClient", "AgentDesktopRuntime", "AgentDesktopProtocol"]
+        ),
         .executableTarget(
             name: "AgentDesktopCLI",
-            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
+            dependencies: ["AgentDesktopClient", "AgentDesktopMCP", "AgentDesktopProtocol"]
         ),
         .testTarget(
             name: "AgentDesktopClientTests",

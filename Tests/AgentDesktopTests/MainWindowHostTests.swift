@@ -15,6 +15,10 @@ struct EmptyBackend: RuntimeBackend {
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: nil) }
 }
 
+struct FastClock: PollClock {
+    func pause(milliseconds: Int) async throws { try await Task.sleep(nanoseconds: 2_000_000) }
+}
+
 struct StillClock: PollClock {
     func pause(milliseconds: Int) async throws { try await Task.sleep(nanoseconds: 3_600_000_000_000) }
 }
@@ -59,7 +63,7 @@ struct MainWindowHostTests {
         await store.start()
         guard case .disconnected(let p) = store.connection else { Issue.record("connected"); return }
         #expect(p.code == "runtime_offline")
-        #expect(AppController.statusLines(store) == ["Runtime 未连接：Runtime 未运行"])
+        #expect(MenuBarPanelView.status(store) == StatusText("Runtime 未连接", .danger))
         store.stop()
     }
 
@@ -89,8 +93,116 @@ struct MainWindowHostTests {
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
         store.stop()
-        #expect(AppController.statusLines(store) == ["3 个 Desktop · 2 个运行进行中"])
+        #expect(MenuBarPanelView.summary(store) == "3 个 Desktop · 2 个运行进行中")
+        #expect(MenuBarPanelView.status(store) == StatusText("运行中", .running))
         await store.stopAllInput()
-        #expect(AppController.statusLines(store).last == "输入已停止")
+        #expect(MenuBarPanelView.status(store) == StatusText("输入已停止", .attention))
+        #expect(MenuBarPanelView.summary(store) == "3 个 Desktop · 2 个运行进行中（2 个停止中）")
+    }
+
+    // UC14 in the host: closing a preview window removes only the window.
+    @Test func closingAPreviewWindowKeepsTheDesktop() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let controller = MainWindowController(store: store)
+        // Never ordered on screen: the registry records it, the window is
+        // built without showing.
+        controller.previews.present = nil
+        controller.previews.show("desk_001")
+        let w = controller.previewWindows.window(for: "desk_001")
+        #expect(w.isReleasedWhenClosed == false)
+        let calls = m.callLog.count
+        w.close()
+        #expect(controller.previewWindows.windows["desk_001"] == nil)
+        #expect(controller.previews.open.isEmpty)
+        #expect(!m.callLog.dropFirst(calls).contains("desktop.destroy"))
+        #expect(store.desktops.count == 3)
+    }
+
+    // A Desktop destroyed while the Runtime was unreachable: its preview
+    // closes on the first successful refresh after reconnecting, although
+    // the Store publishes the list before its state turns loaded.
+    @Test func previewOfADesktopDestroyedWhileDisconnectedCloses() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let controller = MainWindowController(store: store)
+        controller.previews.present = nil
+        controller.previews.show("desk_001")
+        m.offline = true
+        await store.refreshDesktops()
+        #expect(store.desktopsState != .loaded)
+        m.offline = false
+        _ = try await m.call("desktop.destroy", .obj([("desktopId", .string("desk_001"))]))
+        await store.refreshDesktops()
+        #expect(store.desktopsState == .loaded)
+        #expect(controller.previews.open.isEmpty, "the preview of the destroyed Desktop closed")
+    }
+
+    // P32 choices. UC50: hiding or keeping in the background quits nothing
+    // and stops nothing; UC51: stop-and-quit answers yes only once quiet.
+    @Test func quitChoices() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let q = QuitController(store: store)
+        q.clock = FastClock()
+        var replies: [Bool] = [], hidden = 0, background = 0
+        q.reply = { replies.append($0) }
+        q.hideMainWindow = { hidden += 1 }
+        q.keepInBackground = { background += 1 }
+
+        await q.begin(show: false)
+        q.choose(.hideWindow)
+        #expect(replies == [false] && hidden == 1)
+        await q.begin(show: false)
+        q.choose(.keepInBackground)
+        #expect(replies == [false, false] && background == 1)
+        await q.begin(show: false)
+        q.choose(.cancel)
+        #expect(replies == [false, false, false])
+        #expect(!m.callLog.contains("runtime.stopAll"), "none of these stops anything")
+        #expect(store.activeRuns.count == 2)
+
+        await q.begin(show: false)
+        q.choose(.stopAndQuit)
+        let flow = try #require(q.flow)
+        for _ in 0..<200 where flow.stoppedIds.count < 2 { try await Task.sleep(nanoseconds: 5_000_000) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(replies.count == 3, "no answer while Runs are only stopping")
+        #expect(!q.approved)
+        for id in flow.stoppedIds { m.confirmQuiescence(id) }
+        for _ in 0..<200 where replies.count < 4 { try await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(replies.last == true && q.approved)
+    }
+
+    // A stalled Runtime does not hold the quit dialog back: begin returns
+    // before run.list answers, the count stays unknown (never zero) until
+    // then, and the user can still call the quit off.
+    @Test func quitDialogDoesNotWaitForTheRuntime() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        m.delays = ["run.list": 2_000_000_000]
+        let q = QuitController(store: store)
+        q.clock = FastClock()
+        var replies: [Bool] = []
+        q.reply = { replies.append($0) }
+        let started = Date()
+        await q.begin(show: false)
+        #expect(Date().timeIntervalSince(started) < 1, "begin did not wait for run.list")
+        let flow = try #require(q.flow)
+        #expect(flow.activeCount == nil)
+        #expect(QuitDialogView.activeLine(nil).hasPrefix("正在读取"))
+        q.choose(.cancel)
+        #expect(replies == [false])
+        m.delays = [:]
+        await q.counting?.value
+        #expect(flow.activeCount == 2)
     }
 }
