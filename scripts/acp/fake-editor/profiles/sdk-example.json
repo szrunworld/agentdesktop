@@ -7,7 +7,8 @@
   ],
   "features": [
     "task.slow",
-    "approval"
+    "approval",
+    "frame.survivesOversize"
   ],
   "vars": {
     "SUPPORTED_VERSIONS": "[1]",

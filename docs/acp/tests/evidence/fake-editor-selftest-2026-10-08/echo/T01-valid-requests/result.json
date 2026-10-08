@@ -7,7 +7,7 @@
   ],
   "title": "合法的 initialize / session/new / session/prompt 正常处理，连续两轮都结束于 end_turn",
   "status": "PASS",
-  "durationMs": 131,
+  "durationMs": 66,
   "failures": [],
   "steps": [
     {

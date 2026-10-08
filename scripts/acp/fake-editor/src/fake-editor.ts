@@ -481,6 +481,18 @@ class QTestScenarioRun {
         if (s.expect?.replayBeforeResponse) {
           this.check(beforeResponse > 0, `session/${method}: no history update arrived before the response`);
         }
+        if (s.expect?.replayUpdatesInclude) {
+          const kinds = new Set(this.updates.slice(fromU, fromU + beforeResponse).filter((u) => u.sessionId === sessionId).map((u) => u.update.sessionUpdate));
+          for (const k of s.expect.replayUpdatesInclude) this.check(kinds.has(k), `session/${method}: replay before the response has no ${k} (saw ${[...kinds]})`);
+        }
+        if (s.expect?.replayUserTextNotAsAgent) {
+          // The user's own prompt must come back as user_message_chunk, never as agent text.
+          const t = s.expect.replayUserTextNotAsAgent;
+          const asAgent = this.updates.slice(fromU).filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "agent_message_chunk" && String(u.update.content?.text ?? "").trim() === t.trim());
+          this.check(asAgent.length === 0, `session/${method}: the user's prompt "${t}" was replayed as agent text`);
+          const asUser = this.updates.slice(fromU).filter((u) => u.sessionId === sessionId && u.update.sessionUpdate === "user_message_chunk");
+          this.check(asUser.length > 0, `session/${method}: no user_message_chunk in the replay`);
+        }
         if (s.expect?.replayIncludes) {
           const want: string[] = s.expect.replayIncludes;
           const deadline = Date.now() + (num(s.expect.replayWithinMs) ?? 0);

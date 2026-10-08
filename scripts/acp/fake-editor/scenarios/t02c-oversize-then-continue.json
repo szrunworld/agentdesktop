@@ -1,0 +1,62 @@
+{
+  "id": "T02-oversize-then-continue",
+  "cases": [
+    "ACP-T02-04"
+  ],
+  "title": "超限帧被拒后连接保持可用：同一连接继续建会话、prompt（协调者决定：不断开）",
+  "requires": [
+    "frame.survivesOversize"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "raw",
+      "id": "raw-big",
+      "oversizeBytes": "${OVERSIZE_BYTES}",
+      "expect": {
+        "errorCodeIn": [
+          -32600,
+          -32602,
+          -32603,
+          -32700
+        ],
+        "allowClose": "false",
+        "waitMs": 8000
+      }
+    },
+    {
+      "op": "expectAlive",
+      "ms": 500
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ECHO}",
+      "expect": {
+        "stopReasonIn": [
+          "end_turn",
+          "refusal"
+        ]
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

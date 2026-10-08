@@ -8,7 +8,9 @@
   "env": {
     "AGENTDESKTOP_ENDPOINT": "/tmp/adt-acp/side.runtime.sock"
   },
-  "features": [],
+  "features": [
+    "frame.survivesOversize"
+  ],
   "vars": {
     "SUPPORTED_VERSIONS": "[1]",
     "PROMPT_ECHO": "/help",

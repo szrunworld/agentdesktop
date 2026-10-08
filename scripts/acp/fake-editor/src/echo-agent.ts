@@ -19,7 +19,8 @@
 //                         allow-when-unavailable, allow-always, ignore-cancel,
 //                         no-owner-check, cross-talk, overclaim (claims
 //                         images, still rejects them),
-//                         continue-after-reconnect, stdout-noise
+//                         continue-after-reconnect, stdout-noise,
+//                         replay-user-as-agent
 import * as acp from "@agentclientprotocol/sdk";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -118,7 +119,11 @@ class QTestEchoAgent implements acp.Agent {
   async loadSession(p: acp.LoadSessionRequest): Promise<acp.LoadSessionResponse> {
     const s = this.owned(p.sessionId);
     for (const update of s.history) {
-      await this.conn.sessionUpdate({ sessionId: p.sessionId, update });
+      const shown: acp.SessionUpdate =
+        mutant === "replay-user-as-agent" && update.sessionUpdate === "user_message_chunk"
+          ? { ...update, sessionUpdate: "agent_message_chunk" }
+          : update;
+      await this.conn.sessionUpdate({ sessionId: p.sessionId, update: shown });
     }
     if (mutant === "continue-after-reconnect" && s.history.some((u) => u.sessionUpdate === "agent_message_chunk" && u.content.type === "text" && u.content.text.startsWith("ended:connection_lost"))) {
       // The bug under test: a connection_scoped run picks up where it left off.

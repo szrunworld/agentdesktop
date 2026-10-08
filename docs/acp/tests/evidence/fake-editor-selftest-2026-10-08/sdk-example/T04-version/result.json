@@ -6,7 +6,7 @@
   ],
   "title": "请求未支持的协议版本（99、0）：要么明确报错，要么回复支持集合内的版本（不等于请求值），编辑器随后断开",
   "status": "PASS",
-  "durationMs": 124,
+  "durationMs": 148,
   "failures": [],
   "steps": []
 }
