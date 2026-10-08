@@ -1,6 +1,6 @@
 # ACP PR 依赖图与合并顺序
 
-状态：2026-10-08 第三轮，工作线 D。**唯一集成基线是 AgentDesktop `main`**（README 第八节）。#53（`acp-skeleton`→`main`）保持草案，Kevin 未批准合并。
+状态：2026-10-08 第四轮，工作线 D。**唯一集成基线是 AgentDesktop `main`**。#111 已把整个 `acp-skeleton` 带进 main（#53 显示 MERGED）；按 Kevin 第四次裁决，ACP 工作改为 main → 功能分支 → PR → main，`acp-skeleton` 退役，ACP 仍为实验，G0～G5 前不发布。
 
 ## 一、现状
 
@@ -9,17 +9,17 @@
 | `main` | 134b451 | #2 合入（`ai-gui-foundation` 全部，含 A0 #47、G0 #51、AX #60、SEC-01 #69、A2 #84 与 #94） |
 | `main` | 129b594 | #109：CI 删掉严格线程池一步（runner 上 SwiftPM 挂起） |
 | `main` | fa2222f | #102：事件目录 `PlatformRunEvent`、回执与拒绝带原因、A6 契约部分 |
-| `acp-skeleton` | 8f57c1d | 已合入 main@134b451 与 129b594；**未合入 fa2222f**。七条线第一至第六轮全部在内：#54 D、#62 S、#63 R、#65 E、#66 O、#67 T、#68 Q 及后续各轮；dev 入口已接线 |
-| #111 | 未合入 | 整合剩余分支到 main：UI、MCP/SDK（#29）、实验 ACP（#53 及 23 个线分支）、契约（#102）；ACP 仍为实验，dev 入口不打包 |
+| `acp-skeleton` | 8f57c1d | 七条线第一至第六轮全部在内（#54 D、#62 S、#63 R、#65 E、#66 O、#67 T、#68 Q 及后续各轮），dev 入口已接线；已随 #111 进入 main，分支退役 |
+| `main` | 914b8c9 | #111 于 11:46:40Z 合入：UI、MCP/SDK（#29）、实验 ACP（#53 及 23 个线分支）、契约（#102）；ACP 仍为实验，dev 入口不打包 |
+| `main` | dddc0db | 协调者核对打包边界：release 的 `agentdesktop` 与 `AgentDesktopApp` 无 ACP 符号与字符串；CLI 无 `acp` 子命令；macOS CI 成功（06 G0-14） |
 
 ## 二、总图
 
 ```
-main ──134b451（#2：A0、G0、AX、SEC-01、A2）──129b594（#109）──fa2222f（#102 事件目录）──▶
-  │                                                                       │
-  │                                                         acp-skeleton 需合入 fa2222f
-  │                                                                       ▼
-  └─ acp-skeleton #53（草案，目标 main）8f57c1d
+main ──134b451（#2：A0、G0、AX、SEC-01、A2）──129b594（#109）──fa2222f（#102 事件目录）
+     ──914b8c9（#111：#29 MCP/SDK + 整个 acp-skeleton）──dddc0db──▶
+        │
+        │  ACP 在 main 上（实验）；新工作：main → 功能分支 → PR → main
         │  已有：T 传输与 v1 · S 入站服务 · R Runtime 桥 · E 投影与三级隐私
         │        Q 用例与假编辑器 · O 出站评估 · D 文档 · dev 入口
         │
@@ -43,7 +43,7 @@ main ──134b451（#2：A0、G0、AX、SEC-01、A2）──129b594（#109）�
         │
         ├─ 之后：A4（PR3）→ T07、T15、ACP-31、心跳 → G2、G3 的身份部分
         ├─ 之后：PR4 inbox → 审批、提问、场景 C 与 D → G2、G3 的审批部分
-        ├─ 并行：#29 MCP 合入 + T18-02 真实点击 → G0-02
+        ├─ 并行：Q 跑 T18-04（#29 已在 main）+ T18-02 真实点击 → G0-02
         └─ 并行：Z1 Zed 首帧（Kevin 手工）→ G0-12、G5-04
 
    G3 完成 → Kevin 评估是否进首版候选（K3）
@@ -85,7 +85,7 @@ Zed 显示计划、动作卡片与结果
 | 握手拿到 principal | 否 | f1 契约增量 1 |
 | `unit.run` 提交 | 否 | 40 的 A6 |
 | GUI 执行与 G0 复核 | 是（main） | 测试副本打开真实 GUI 输入 |
-| 事件目录 | 在 main，不在 `acp-skeleton` | 合入 fa2222f；E 对齐 |
+| 事件目录 | 在 main（fa2222f） | E 对齐 |
 | 恢复时区分回放与实时 | 否 | f1 契约增量 2 |
 | 投影与脱敏 | 是（L1，P1/P2 裁决已通过） | 真实事件复测 |
 | 五类情况 | 正常、取消、断连、结果未知要 A6；审批拒绝要 PR4 | 见 06 |
@@ -95,7 +95,7 @@ Zed 显示计划、动作卡片与结果
 | 原文编号 | 内容 | 状态 | 依赖 |
 | --- | --- | --- | --- |
 | A0-01～04 | 差距、契约基线、生命周期、身份 | 已交付（01、04、07） | 无 |
-| A0-05 | MCP 绕过 | 单一端点已由 A2 完成；MCP 本身待 #29 | #29 |
+| A0-05 | MCP 绕过 | 单一端点已由 A2 完成；MCP 已随 #111 合入，T18-04 待取证 | 无 |
 | A0-06 | 协议版本 | 已选 v1；真实首帧待 Z1 | Z1 |
 | A0-07 | 单一 CLI 入口 | 延后到 G1 之后（f1 R9） | G1 |
 | A0-08 | 脱敏策略 | 已交付（08）；对齐目录待做 | fa2222f |
@@ -115,8 +115,8 @@ Zed 显示计划、动作卡片与结果
 
 ## 五、合并规则
 
-1. **不合并 #53**：Kevin 未批准。各线继续合入 `acp-skeleton`。
-2. **跟随 main**：main 每次有 Runtime 或契约变更（下一项是 fa2222f），协调者把 main 合入 `acp-skeleton`，各线在其上集成。
+1. **`acp-skeleton` 退役**：#53 已随 #111 进入 main，不再往该分支合入。
+2. **从 main 开分支**：ACP 改动从 main 开功能分支，经 PR 回 main（第四次裁决），不再经 `acp-skeleton`。
 3. **每次合入前本机严格池回归**：`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter AgentDesktopACPTests` 与全包各一次，记录退出码（CI 删掉了这一步，README 第八节）。
 4. **真实写操作只经 runtime/1**：ACP 不新增执行调度或 GUI 控制入口。
-5. **#111 与 #53 的关系**：#111 把 `acp-skeleton` 作为实验源码收进 main 的提议由 Kevin 与 f1 决定；在决定前，ACP 的改动仍只进 `acp-skeleton`。
+5. **#111**：Kevin 有条件追认 #111 的结果，不认可其流程（第四次裁决）；ACP 在 main 上仍是实验，G0～G5 通过前不发布。
