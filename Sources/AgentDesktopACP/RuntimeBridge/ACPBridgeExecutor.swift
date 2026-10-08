@@ -60,6 +60,9 @@ final class ACPBridgeOnce: @unchecked Sendable {
 /// client's socket timeout ends it); only the caller stops waiting.
 final class ACPBridgeExecutor: @unchecked Sendable {
     private let queue: DispatchQueue
+    /// A serial (overcommitting) queue of its own, so a timeout fires even
+    /// when the shared global pool is saturated.
+    private static let timers = DispatchQueue(label: "acp.bridge.timeouts", qos: .userInitiated)
 
     init(label: String) {
         queue = DispatchQueue(label: label, qos: .userInitiated)
@@ -72,7 +75,7 @@ final class ACPBridgeExecutor: @unchecked Sendable {
                 let r = Result { try body() }
                 if once.claim() { cont.resume(with: r) }
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+            Self.timers.asyncAfter(deadline: .now() + timeout) {
                 if once.claim() { cont.resume(throwing: ACPBridgeTimeout()) }
             }
         }
