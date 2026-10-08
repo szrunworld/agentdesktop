@@ -11,6 +11,7 @@
 | unpaired | socket 连接未出示凭据 | `unpaired:<connectionId>` |
 
 - 身份**只**来自握手凭据和内核给出的对端信息，由 Runtime 校验（token 以 SHA-256 存储、常量时间比较）。请求里自报的 `clientId`、`teamId`、`codeIdentity` 等字段不属于 Request schema，会被 `schema_invalid` 拒绝，任何字段都不能改变调用方身份。
+- 请求在 context 和 params 中提到的每一个 Desktop、session、Run 都会逐一授权；两处指向不同的 Desktop 时直接拒绝（`invalid_argument`，reason `target_mismatch`）。评审 H1 发现，旧逻辑只检查其中一个，处理时却用另一个。
 - 凭据格式为 `adt1_` + 32 字节随机数的 base64url。Runtime 只存哈希；明文只交给发起配对的那条连接一次（`hub.pairing.status`），之后再查也拿不到。
 - 测试可以给 Runtime 注入一个 socket owner token（`testSocketOwnerToken`），用于在 socket 上测试 owner 方法。产品代码（`RuntimeService.persistent`、宿主 App）从不设置它，有测试锁定这一点。
 
@@ -20,8 +21,8 @@ Runtime 在接受连接时，通过 `LOCAL_PEERTOKEN` 取得对端进程的内�
 
 | 级别 | 条件 | 效果 |
 | --- | --- | --- |
-| `verified` | 签名有效、有 Team ID、开了 hardened runtime、不是 ad-hoc | 配对时记录 designated requirement；之后每次握手，对端都必须满足它，否则返回 `permission_denied`（reason `code_identity_mismatch`）。凭据被复制到别的程序后无法使用 |
-| `shared_interpreter` | 同上，但是 python / node 等解释器 | 同样绑定，但这个解释器运行的任何脚本都共享此身份 |
+| `verified` | 签名有效、有 Team ID、开了 hardened runtime、不是 ad-hoc，且不属于下一行的情况 | 配对时记录 designated requirement；之后每次握手，对端都必须满足它，否则返回 `permission_denied`（reason `code_identity_mismatch`）。凭据被复制到别的程序后无法使用。但任何能让这个程序替自己办事的进程，仍可借用它的身份（confused deputy） |
+| `shared_interpreter` | 同上，但其他代码可以以它的身份运行：解释器（按文件名或签名 identifier 判断，改名无效，例如 `org.python.python`）、Electron App、带 `allow-dyld-environment-variables` / `disable-library-validation` / `get-task-allow` entitlement 的程序 | 同样绑定，但这个程序运行的任何脚本或被注入的代码都共享此身份 |
 | `same_user` | 其余情况（ad-hoc、自签名、无 hardened runtime，例如 Homebrew 的 node / python、当前未签发 Developer ID 的本产品 CLI） | 不绑定。只能确认是本机同一用户的进程；确认窗口会如实写明 |
 
 握手结果的 `principal.codeIdentityLevel`、`HubClient.codeIdentity` / `HubPairing.codeIdentity` 中都能看到这个级别。
@@ -42,8 +43,11 @@ Runtime 在接受连接时，通过 `LOCAL_PEERTOKEN` 取得对端进程的内�
 确认规则：
 - 默认按钮是「拒绝」（Return / Escape 都是拒绝）。点「批准…」之后，还要通过系统的用户身份验证（Touch ID 或登录密码，LocalAuthentication）。别的进程即使能用辅助功能点按钮，也无法替用户完成这一步。
 - 拒绝、取消、120 秒内未回答、无法进行身份验证、没有可信窗口：一律拒绝（`permission_denied`，reason 分别为 `user_denied`、`user_cancelled`、`confirmation_timeout`、`no_trusted_ui`）。不会降级为自动同意。
-- 确认结果绑定到申请内容的摘要（digest）：批准的必须正好是展示的那份授权或参数（`confirmation_mismatch`）。配对得到的 grant 与展示的完全相同，期限从批准时刻起算。
-- 同一时间只显示一个确认窗口，最多排队 3 个，每个客户端最多一个在等（`confirmation_busy`），防止弹窗轰炸。
+- 确认结果绑定到申请内容的摘要（digest）：窗口根据它实际展示的字段重新计算 digest，与 Runtime 计算的不一致就拒绝（`confirmation_mismatch`）。参数一律完整展示；大到无法完整展示的请求直接拒绝，不弹窗（`confirmation_too_large`）。配对得到的 grant 与展示的完全相同，期限从批准时刻起算。
+- 申请方自报的名称、发布者只能是一行可打印文字（禁止控制字符、换行、bidi 字符），在窗口里标为「自报」；系统核实的代码身份排在最前面。
+- 作用于另一个客户端的操作（例如 `hub.grants.set`），窗口会显示目标的名称、代码身份和当前授权。目标与请求方是同一个程序时，额外给出警告。
+- 同一时间只显示一个确认窗口，最多排队 3 个。排队按「程序」计：已配对客户端按 clientId；未配对连接按内核报告的程序（代码 identifier 或可执行文件路径），开新连接不算新的申请方（`confirmation_busy`）。每个程序最多有一个待定配对，全局最多 20 个（`pairing_busy`）。因排队已满而没能弹出的配对保持待定，不会被当作用户拒绝。回答时限从窗口真正显示时开始计算。审计表和已结束的配对记录有上限，会自动轮转。
+- 每条 socket 连接只能握手一次（`already_handshaken`），连接身份不能中途切换。握手完成注册之后会再检查一次撤销状态，防止撤销正好发生在两者之间。配对连接断开后，它的待定配对立即失效。配对状态只能从「待定」变为批准或拒绝一次（条件更新）。
 - 批准的 owner 调用只对这一个请求有效：这个请求结束后，连接立即回到普通权限。
 - 不能自己授权自己：`hub.pairing.approve` / `deny` 只有宿主进程内才能调用（socket 上一律 `owner_only`）；对自己的 clientId 调用 `hub.grants.set` / `revoke` 直接拒绝（`self_grant`），不弹窗。
 - 没有可信窗口时（例如没有设置 confirmer 的测试 Runtime），配对保持待定，只有宿主进程内的 owner 能决定，否则到期失效。
@@ -103,11 +107,14 @@ owner 的调用返回时，第 2 步已经完成：**此后该 App 的连接上�
 
 ## 接入要求
 
-ACP bridge、BOSS Agent、WeChat Agent 都是外部 App，必须各自配对并持有自己的凭据文件，不能使用 owner 凭据。MCP 宿主使用 `agentdesktop mcp --credential-file <file>`。
+ACP bridge、BOSS Agent、WeChat Agent 都是外部 App，必须各自配对（经可信确认窗口），各自保管自己的凭据（签名 App 用钥匙串，见 `KeychainCredentialStore`）。socket 上不存在 owner。MCP 宿主先运行 `agentdesktop agents pair --name <宿主名> --profile mcp`，再用 `agentdesktop mcp`（默认 profile `mcp`）。
 
 ## 已知限制
 
 - 隔离级别取决于客户端的代码身份（见「代码身份」一节）：`same_user` 级别的客户端，凭据被同用户进程复制后仍可使用；这类客户端在确认窗口里会如实标出。本产品 CLI 要到 S4（Developer ID + hardened runtime）之后才能达到 `verified`。
 - 能调试或注入其他进程的程序（root、关闭 SIP、`get-task-allow`、用户授予的高级权限），以及用户自己在钥匙串里点了「始终允许」、或在确认窗口里批准了不该批准的申请，都超出应用层能防御的范围。
 - callerFacts（pid、可执行文件路径）只做展示，不参与认证；参与认证的是内核 audit token 对应的代码签名。
+- 已批准、正在执行的 owner 操作（例如 `ai.tests.start`、`ai.models.refresh` 产生的后台任务）是用户亲自批准的，撤销请求方之后它们会继续执行完。撤销只阻止新的请求和尚未开始的动作（评审 L2）。
+- 钥匙串（S3）的残余风险：同用户进程可以抢先在登录钥匙串里写入同 service/account 的条目，让 CLI 以攻击者的身份工作；任何进程也都可以直接执行 CLI 来借用它的凭据（confused deputy）。要等 S4 签名之后，改用 Data Protection 钥匙串和 access group 才能消除（评审 L7，未实测）。
+- 未配对连接可以调用 `runtime.capabilities`，它会暴露方法列表和屏幕录制 / 辅助功能权限状态（契约规定开放，属于信息暴露，不能借此执行任何操作）。
 - 详见 `docs/security/a4-credential-assessment.md`。

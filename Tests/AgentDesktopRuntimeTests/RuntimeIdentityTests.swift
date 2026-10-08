@@ -120,7 +120,9 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     #expect(code(asOwner) == "permission_denied")
     let denials = s.hub.auditEvents().filter { $0["decision"]?.stringValue == "denied" && $0["method"]?.stringValue == "runtime.handshake" }
     #expect(denials.count == 4)
-    #expect(denials.contains { $0["clientId"]?.stringValue == b }, "the claimed id is recorded beside the refusal")
+    // The caller is recorded as who the connection is; the id it claimed only as a note.
+    #expect(denials.contains { ($0["reason"]?.stringValue ?? "").contains("claimed \(b)") }, "the claimed id is noted beside the refusal")
+    #expect(!denials.contains { $0["clientId"]?.stringValue == b })
 }
 
 @Test func anAppCannotReachAnotherAppsWorkByChangingParams() throws {
@@ -326,4 +328,34 @@ private func revokedStreamBody() throws {
     #expect(closed, "the stream closes once access is gone")
     #expect(after.allSatisfy { $0["event"]?["type"]?.stringValue == "run.started" }, "no event after the revocation: \(after)")
     #expect(s.hub.auditEvents().contains { $0["decision"]?.stringValue == "cut" && $0["reason"]?.stringValue == "client_revoked" })
+}
+
+/// A4 review H1: naming its own Desktop (or session) in the context and
+/// another Desktop in the params must not reach the other Desktop.
+@Test func anAppCannotReachAnotherDesktopByMixingContextAndParams() throws {
+    let platform = FakePlatform()
+    let s = platformService(platform)
+    let owner = handshaken(s)
+    let victim = try created(s, owner)
+    #expect(data(call(s, owner, "window.bind", params: #"{"desktopId":"\#(victim)","pid":101}"#)) != nil)
+    let (sc, _, _) = try pairedScene(s, platform)
+    let calls: [(String, String)] = [
+        ("desktop.show", #"{"desktopId":"\#(victim)"}"#),
+        ("session.open", #"{"desktopId":"\#(victim)"}"#),
+        ("window.bind", #"{"desktopId":"\#(victim)","pid":101}"#),
+        ("window.unbind", #"{"desktopId":"\#(victim)"}"#),
+        ("app.launch", #"{"desktopId":"\#(victim)","bundleId":"com.apple.calculator"}"#),
+        ("desktop.destroy", #"{"desktopId":"\#(victim)"}"#),
+    ]
+    for context in [#"{"desktopId":"\#(sc.desktop)"}"#, #"{"sessionId":"\#(sc.session)"}"#] {
+        for (m, p) in calls {
+            let r = call(s, sc.c, m, params: p, context: context)
+            #expect(code(r) != nil, "\(m) with \(context) reached the victim Desktop")
+        }
+    }
+    // Nothing happened to it.
+    let shown = try #require(data(call(s, owner, "desktop.show", params: #"{"desktopId":"\#(victim)"}"#)))
+    #expect(shown["binding"] != nil && shown["binding"] != .null)
+    #expect(platform.calls.filter { $0.hasPrefix("destroy") || $0.hasPrefix("launch") }.isEmpty)
+    #expect(s.hub.auditEvents().contains { $0["reason"]?.stringValue == "target_mismatch" })
 }

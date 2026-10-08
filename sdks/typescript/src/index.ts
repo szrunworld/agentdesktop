@@ -3,7 +3,7 @@
 // (scope, leases, snapshot checks, the request ledger, stopping) is the
 // Runtime's. Contract: contracts/runtime/v1 in the repository.
 import { randomUUID } from "node:crypto";
-import { chmodSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fchmodSync, lstatSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 
@@ -137,10 +137,20 @@ export function loadCredential(path: string): Credential {
   return { clientId: v.clientId, token: v.token };
 }
 
-/** Write a credential owner-only (0600). */
+/**
+ * Write a credential owner-only (0600): a fresh file, never through a
+ * symlink, never readable by others even for a moment.
+ */
 export function saveCredential(credential: Credential, path: string): void {
-  writeFileSync(path, JSON.stringify({ clientId: credential.clientId, token: credential.token }), { mode: 0o600 });
-  chmodSync(path, 0o600);
+  const tmp = `${path}.${process.pid}.tmp`;
+  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try {
+    fchmodSync(fd, 0o600);
+    writeSync(fd, JSON.stringify({ clientId: credential.clientId, token: credential.token }));
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(tmp, path);
 }
 
 export interface PairOptions {

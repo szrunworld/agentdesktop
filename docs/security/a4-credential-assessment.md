@@ -41,7 +41,7 @@
 方案按依赖程度递增排列。S1–S3 是最小修复，不改 runtime/1 冻结契约的形状，也不引入第二套身份系统。
 
 **S1 · 撤掉 owner 凭据文件（修复 F1，必做）**
-- 删除 `owner.credential`。socket 上的 owner 只有一种情况：对端是本产品包内的 CLI，经 `LOCAL_PEERTOKEN` 校验 designated requirement（本产品的 identifier，签名合格后再加上 Team ID）。
+- 删除 `owner.credential`。（最初设想让本产品 CLI 经代码签名校验后成为 socket 上的 owner；裁决后的实现更严格：socket 上不存在 owner，CLI 也只是普通配对客户端，见第五节。）
 - 即便如此，CLI 仍可能被别的进程调用，所以**授权扩大类操作**（`hub.pairing.approve`、扩大范围的 `hub.grants.set`）必须由用户亲自确认：只能在主窗口内（进程内连接）完成，或者 CLI 发起后需要主窗口确认，或系统 Touch ID / 密码确认（LocalAuthentication）。撤销、收窄、列表这类只会减少权限的操作，CLI 可以直接做。
 - 影响：PR4 的审批 UI 之前，需要一个最小的确认面板（一个原生确认弹窗即可），这一点需要 Kevin 决定是否提前做。
 

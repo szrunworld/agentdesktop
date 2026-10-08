@@ -3352,11 +3352,15 @@ enum RuntimeContractData {
         "agentName": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 64
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u061C\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\uFEFF]+$",
+          "description": "one line of printable text, shown to the user as self-reported (no control, line-separator or bidi characters)"
         },
         "publisher": {
           "type": "string",
-          "maxLength": 128
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u061C\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\uFEFF]+$",
+          "description": "one line of printable text, shown to the user as self-reported (no control, line-separator or bidi characters)"
         },
         "requested": {
           "$ref": "#/$defs/GrantRequest"
@@ -9284,7 +9288,9 @@ enum RuntimeContractData {
     "paired": "runtime.status, and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.stopAll, runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window (never for the caller's own grant: permission_denied, reason self_grant). Everything else is the owner's (permission_denied, reason owner_only)",
     "checked": "every request, against the client and grant as they are now; an action once more right before its input goes out",
     "pairing": "hub.pairing.start asks the user in the host's trusted window (details, short code, user authentication); approved exactly as shown, the grant's duration counting from the approval; denied, cancelled, timed out or no trusted window: denied",
-    "confirmation": "a confirmation is bound to a digest of exactly what will be applied; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch or no_trusted_ui"
+    "confirmation": "a confirmation is bound to a digest of exactly what will be applied, recomputed by the window from what it displayed; params are shown in full and a call too large to show is refused unseen; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch, confirmation_too_large, pairing_busy or no_trusted_ui",
+    "targets": "every Desktop, session and Run a paired client's request names, in its context or params, is authorized; naming two different Desktops is invalid_argument (reason target_mismatch)",
+    "handshake": "a socket connection completes runtime.handshake once (conflict, reason already_handshaken)"
   }
 }
 """##

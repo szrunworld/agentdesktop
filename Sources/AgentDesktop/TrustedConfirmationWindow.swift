@@ -58,7 +58,10 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
             default: return .denied
             }
         }
-        return .approved(digest: request.digest)
+        // What was displayed is what is approved: the digest of the shown fields.
+        let displayed = ConfirmationRequest.digest(kind: request.kind, requester: request.requester["clientId"]?.stringValue ?? "",
+                                               action: request.action, details: request.details)
+        return .approved(digest: displayed)
     }
 
     static func reason(_ r: ConfirmationRequest) -> String {
@@ -72,7 +75,8 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         let alert = NSAlert()
         alert.alertStyle = .warning
         let who = r.requester["agentName"]?.stringValue ?? r.requester["clientId"]?.stringValue ?? "?"
-        alert.messageText = r.kind == .pairing ? "「\(who)」请求使用 Agent Desktop" : "「\(who)」请求执行管理操作"
+        alert.messageText = r.kind == .pairing ? "一个程序请求使用 Agent Desktop（自报名称「\(who)」）"
+            : "一个已配对的程序请求执行管理操作（自报名称「\(who)」）"
         alert.informativeText = describe(r)
         // Return and Escape deny; approving is a deliberate second button
         // and then the system's authentication.
@@ -103,7 +107,7 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         let id = ci?["identifier"]?.stringValue ?? "未知"
         let team = ci?["teamId"]?.stringValue
         switch ci?["level"]?.stringValue {
-        case "verified": return "已验证签名：\(id)（Team \(team ?? "?")），凭据只对这个程序有效"
+        case "verified": return "已验证签名：\(id)（Team \(team ?? "?")）。凭据绑定到这份签名的代码；但任何能让它替自己办事的程序，仍可借它的身份"
         case "shared_interpreter": return "解释器 \(id)（Team \(team ?? "?")）：这个解释器运行的任何脚本都共享此身份"
         default: return "无法验证代码身份（\(id)）：只能确认是本机同一用户的进程，凭据被复制后可被其他程序使用"
         }
@@ -116,10 +120,13 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
     static func describe(_ r: ConfirmationRequest) -> String {
         var lines: [String] = []
         let q = r.requester
-        lines.append("请求方：\(q["agentName"]?.stringValue ?? "—")  \(q["clientId"]?.stringValue ?? "")")
-        if let p = q["publisher"]?.stringValue { lines.append("发布者（自报）：\(p)") }
-        lines.append("代码身份：" + identityText(q["codeIdentity"]))
+        // What the Runtime itself verified first; what the app says about
+        // itself after, marked as such.
+        lines.append("代码身份（系统核实）：" + identityText(q["codeIdentity"]))
         if let exe = q["callerFacts"]?["executable"]?.stringValue { lines.append("程序：\(exe)（pid \(q["callerFacts"]?["pid"]?.intValue ?? 0)）") }
+        lines.append("客户端：\(q["clientId"]?.stringValue ?? "")")
+        lines.append("自报名称：\(q["agentName"]?.stringValue ?? "—")")
+        if let p = q["publisher"]?.stringValue { lines.append("自报发布者：\(p)") }
         lines.append("")
         switch r.kind {
         case .pairing:
@@ -134,8 +141,14 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
             lines.append("期限：批准后 " + (seconds >= 3600 ? "\(seconds / 3600) 小时\(seconds % 3600 / 60 > 0 ? " \(seconds % 3600 / 60) 分钟" : "")" : "\(max(1, seconds / 60)) 分钟"))
         case .adminCall:
             lines.append("操作：\(r.action)")
-            let params = r.details.encoded()
-            lines.append("参数：" + (params.count > 800 ? String(params.prefix(800)) + "…" : params))
+            if let t = r.details["target"] {
+                lines.append("作用对象：\(t["agentName"]?.stringValue ?? "?")（\(t["clientId"]?.stringValue ?? "")）")
+                lines.append("对象的代码身份：" + identityText(t["codeIdentity"]))
+                if let g = t["grant"], g != .null { lines.append("对象当前授权：\(g.encoded())") }
+                if t["sameProgramAsRequester"]?.boolValue == true { lines.append("⚠️ 作用对象与请求方是同一个程序：这可能是在给自己扩权") }
+            }
+            // Shown in full: the Runtime refuses anything too large to show.
+            lines.append("完整参数：" + (r.details["params"] ?? r.details).encoded())
         }
         lines.append("")
         lines.append("批准需要验证你的身份（Touch ID 或登录密码）。不回答将在 \(max(1, Int(r.deadline.timeIntervalSinceNow))) 秒后自动拒绝。")

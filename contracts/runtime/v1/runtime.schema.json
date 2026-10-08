@@ -3348,11 +3348,15 @@
         "agentName": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 64
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u061C\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\uFEFF]+$",
+          "description": "one line of printable text, shown to the user as self-reported (no control, line-separator or bidi characters)"
         },
         "publisher": {
           "type": "string",
-          "maxLength": 128
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u061C\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\uFEFF]+$",
+          "description": "one line of printable text, shown to the user as self-reported (no control, line-separator or bidi characters)"
         },
         "requested": {
           "$ref": "#/$defs/GrantRequest"

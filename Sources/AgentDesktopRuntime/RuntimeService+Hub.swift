@@ -7,14 +7,40 @@ import Foundation
 /// once.
 extension RuntimeService {
     static let defaultGrantDuration: TimeInterval = 3600
+    static let maxOpenPairings = 20
 
     func strings(_ v: JSONValue?) -> [String] { (v?.arrayValue ?? []).compactMap(\.stringValue) }
 
+    /// A name an app gives itself is shown to the user: one line of
+    /// printable text, no control, line-separator or bidi characters that
+    /// could fake or hide lines of the confirmation (A4 review M2).
+    static func showableName(_ s: String?, max: Int) -> Bool {
+        guard let s else { return true }
+        guard !s.isEmpty, s.count <= max else { return false }
+        return s.unicodeScalars.allSatisfy { u in
+            switch u.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator, .surrogate, .privateUse, .unassigned: return false
+            default: return true
+            }
+        }
+    }
+
     func startPairing(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
+        guard Self.showableName(p["agentName"]?.stringValue ?? "", max: 64), Self.showableName(p["publisher"]?.stringValue, max: 128) else {
+            return .failure(.invalidArgument("agentName and publisher must be one line of printable text"))
+        }
         let requested = p["requested"] ?? .obj([])
         let unknown = strings(requested["capabilities"]).filter { !HubStore.capabilities.contains($0) }
         guard unknown.isEmpty else {
             return .failure(.invalidArgument("unknown capabilities: \(unknown.joined(separator: ", "))"))
+        }
+        // Bounded waiting: one open request per program, a few in all (review M3).
+        let open = hub.pairings()
+        let program = c.callerFacts["executable"]?.stringValue
+        if open.count >= Self.maxOpenPairings || (program != nil && open.contains { $0.callerFacts["executable"]?.stringValue == program }) {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.pairing.start", decision: "denied", reason: "pairing_busy")
+            return .failure(RuntimeError("permission_denied", "a pairing request from this program is already waiting; answer it first",
+                                         phase: .request, notSent: true, details: .obj([("reason", .string("pairing_busy"))])))
         }
         // What the user will be asked to allow, exactly as it will be applied.
         let proposed: HubStore.Grant
@@ -63,6 +89,10 @@ extension RuntimeService {
                 hub.audit(connectionId: c.connectionId, clientId: client.clientId, method: "hub.pairing.start", decision: "approved",
                           reason: pairing.pairingId)
             }
+        case let .failure(e) where e.details?["reason"]?.stringValue == "confirmation_busy":
+            // Not the user's no: it stays requested (and expires) rather
+            // than letting a flood deny real pairings (review M3).
+            _ = e
         case .failure:
             try? hub.deny(current)
         }

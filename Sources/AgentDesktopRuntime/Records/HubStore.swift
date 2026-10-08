@@ -271,6 +271,10 @@ public final class HubStore: @unchecked Sendable {
         let clientId = "app:" + DesktopRegistry.newId(prefix: "c").dropFirst(2)
         let token = Self.newToken()
         try db.transaction {
+            // Only a request still open becomes a client, once (review L1).
+            try db.execute("UPDATE pairings SET state = 'approved', client_id = ? WHERE pairing_id = ? AND state = 'requested'",
+                           [.text(clientId), .text(p.pairingId)])
+            guard db.changes == 1 else { throw RuntimeStoreError("pairing \(p.pairingId) is no longer open") }
             try db.execute("""
                 INSERT INTO clients (client_id, agent_name, publisher, caller_facts, credential_hash, state, registered_at,
                   code_identity) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
@@ -281,15 +285,19 @@ public final class HubStore: @unchecked Sendable {
             g.revision = 1
             g.state = "active"
             try putGrant(g)
-            try db.execute("UPDATE pairings SET state = 'approved', client_id = ? WHERE pairing_id = ?",
-                           [.text(clientId), .text(p.pairingId)])
         }
         lock.withLock { undelivered[p.pairingId] = token }
         return (client(clientId)!, self.grant(clientId)!)
     }
 
     public func deny(_ p: Pairing) throws {
-        try db.execute("UPDATE pairings SET state = 'denied' WHERE pairing_id = ?", [.text(p.pairingId)])
+        try db.execute("UPDATE pairings SET state = 'denied' WHERE pairing_id = ? AND state = 'requested'", [.text(p.pairingId)])
+    }
+
+    /// The connection that asked is gone: nothing could collect a credential,
+    /// so its open requests end (review L1).
+    public func expirePairings(connectionId: String) {
+        try? db.execute("UPDATE pairings SET state = 'expired' WHERE connection_id = ? AND state = 'requested'", [.text(connectionId)])
     }
 
     /// The credential of an approved pairing, once.
@@ -306,7 +314,16 @@ public final class HubStore: @unchecked Sendable {
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """, [.text(nowString), .text(connectionId), .text(clientId), .text(method), .text(decision), .text(reason),
                   runId.map { .text($0) } ?? .null])
+        // Bounded: anyone may cause entries (review M3).
+        if lock.withLock({ auditWrites += 1; return auditWrites % 500 == 0 }) {
+            try? db.execute("DELETE FROM auth_events WHERE rowid <= (SELECT MAX(rowid) FROM auth_events) - ?", [.int(Int64(Self.auditKept))])
+            try? db.execute("DELETE FROM pairings WHERE state != 'requested' AND client_id IS NULL AND expires_at < ?",
+                            [.text(Timestamp.string(now().addingTimeInterval(-86_400)))])
+        }
     }
+
+    static let auditKept = 50_000
+    private var auditWrites = 0
 
     public func auditEvents(limit: Int = 200) -> [JSONValue] {
         ((try? db.query("""

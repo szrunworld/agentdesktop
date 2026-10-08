@@ -220,7 +220,8 @@ func secAnythingButAnApprovalGrantsNothing(_ answer: String) throws {
     #expect(data(call(s, app, "hub.grants.set", params: narrowed)) != nil)
     #expect(window.requests.count == 2)
     let expected = try StrictJSON.parse(Data(narrowed.utf8))
-    #expect(window.requests.last?.details == expected)
+    #expect(window.requests.last?.details["params"] == expected)
+    #expect(window.requests.last?.details["target"]?["clientId"]?.stringValue == other)
     #expect(s.hub.grant(other)?.capabilities == ["observe"])
     // The approval did not stay with the connection.
     #expect(app.elevatedFor == nil)
@@ -339,4 +340,112 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
             } catch { k.resume(throwing: error) }
         }.start()
     }
+}
+
+/// A4 review M4: a renamed interpreter, python.org's identifier, an Electron
+/// app or injectable code is not "verified".
+@Test func codeOthersCanRunAsIsNotCalledVerified() throws {
+    typealias V = SecurityCodeIdentityVerifier
+    #expect(V.runsOthersCode(identifier: "org.python.python", executable: "/tmp/innocent", entitlements: nil))
+    #expect(V.runsOthersCode(identifier: "node", executable: "/tmp/renamed", entitlements: nil))
+    #expect(V.runsOthersCode(identifier: "com.example.app", executable: "/usr/local/bin/python3.12", entitlements: nil))
+    #expect(V.runsOthersCode(identifier: "com.example.app", executable: "/x/A.app/Contents/MacOS/A",
+                             entitlements: ["com.apple.security.cs.allow-dyld-environment-variables": true]))
+    #expect(V.runsOthersCode(identifier: "com.example.app", executable: nil,
+                             entitlements: ["com.apple.security.cs.disable-library-validation": true]))
+    #expect(!V.runsOthersCode(identifier: "com.example.boss", executable: "/Applications/Boss.app/Contents/MacOS/Boss",
+                              entitlements: ["com.apple.security.app-sandbox": true]))
+}
+
+// MARK: Review fixes (M1–M3, L1, L4)
+
+@Test func aNameThatCouldFakeLinesOfTheWindowIsRefused() throws {
+    let s = platformService()
+    let window = FakeConfirmer()
+    s.confirmer = window
+    for name in ["BOSS\n代码身份（系统核实）：已验证签名：com.apple.x", "a\u{202E}b", "x\u{2028}y", "tab\there", ""] {
+        let c = peer(s, "boss")
+        _ = hello(s, c)
+        let params = JSONValue.obj([("agentName", .string(name)), ("requested", .obj([("capabilities", .array([.string("observe")]))]))])
+        let r = answer(s, #"{"apiVersion":"agentdesktop.runtime/1","requestId":"p1","method":"hub.pairing.start","params":\#(params.encoded())}"#, c)
+        #expect(code(r) == "schema_invalid" || code(r) == "invalid_argument", "\(name.debugDescription)")
+    }
+    #expect(window.requests.isEmpty, "nothing was shown")
+    #expect(RuntimeService.showableName("BOSS Agent 招聘助手", max: 64))
+}
+
+@Test func anOwnerCallTooLargeToShowIsRefusedUnseen() throws {
+    let s = platformService()
+    let window = FakeConfirmer()
+    s.confirmer = window
+    let (app, _) = try pairedConnection(s, capabilities: ["observe"], name: "cli")
+    let (_, other) = try pairedConnection(s, capabilities: ["observe"], name: "other")
+    let apps = (0..<60).map { #""com.example.a-rather-long-bundle-identifier.app\#($0)""# }.joined(separator: ",")
+    let r = call(s, app, "hub.grants.set", params: #"{"clientId":"\#(other)","capabilities":["observe","act"],"desktops":[],"apps":[\#(apps)]}"#)
+    #expect(errorDetails(r)?["reason"]?.stringValue == "confirmation_too_large")
+    #expect(window.requests.isEmpty)
+    #expect(s.hub.grant(other)?.capabilities == ["observe"])
+}
+
+@Test func aFloodOfPairingsNeitherWaitsInLineNorDeniesRealOnes() throws {
+    let s = platformService()
+    let release = DispatchSemaphore(value: 0)
+    let window = FakeConfirmer { r in release.wait(); return .denied }
+    s.confirmer = window
+    // One program, many connections: one waiting request only.
+    let first = ConnectionState(socketPeer: getuid(), pid: 1, executable: "/tmp/flooder")
+    _ = hello(s, first)
+    #expect(data(call(s, first, "hub.pairing.start", params: #"{"agentName":"f","requested":{"capabilities":["observe"]}}"#)) != nil)
+    for _ in 0..<5 {
+        let c = ConnectionState(socketPeer: getuid(), pid: 2, executable: "/tmp/flooder")
+        _ = hello(s, c)
+        let r = call(s, c, "hub.pairing.start", params: #"{"agentName":"f","requested":{"capabilities":["observe"]}}"#)
+        #expect(errorDetails(r)?["reason"]?.stringValue == "pairing_busy")
+    }
+    #expect(waitFor { window.requests.count == 1 })
+    // Other programs fill the line (one shown, the rest waiting)...
+    for n in 0..<(ConfirmationGate.maxWaiting - 1) {
+        let c = ConnectionState(socketPeer: getuid(), pid: Int32(10 + n), executable: "/tmp/other\(n)")
+        _ = hello(s, c)
+        #expect(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"o","requested":{"capabilities":["observe"]}}"#)) != nil)
+    }
+    Thread.sleep(forTimeInterval: 0.2)
+    // ...then a real app asks: the line is full, but that is not the user's
+    // no: it stays requested.
+    let real = ConnectionState(socketPeer: getuid(), pid: 3, executable: "/Applications/Boss.app/Contents/MacOS/Boss")
+    _ = hello(s, real)
+    let id = try #require(data(call(s, real, "hub.pairing.start", params: #"{"agentName":"boss","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
+    #expect(waitFor { s.hub.auditEvents().contains { $0["reason"]?.stringValue == "confirmation_busy" } })
+    Thread.sleep(forTimeInterval: 0.1)
+    #expect(s.hub.pairing(id)?.state == "requested")
+    for _ in 0..<ConfirmationGate.maxWaiting { release.signal() }
+}
+
+@Test func aPairingEndsWithItsConnectionAndIsDecidedOnce() throws {
+    let s = platformService()
+    let c = peer(s, "boss")
+    _ = hello(s, c)
+    let id = try #require(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"x","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
+    let pairing = try #require(s.hub.pairing(id))
+    try s.hub.deny(pairing)
+    // A late approval of a denied request makes no client.
+    #expect(throws: (any Error).self) { _ = try s.hub.approve(pairing, grant: HubStore.Grant(clientId: "", capabilities: ["observe"], desktops: [], apps: [], expiresAt: Timestamp.string(Date().addingTimeInterval(60)), revision: 0, state: "active")) }
+    #expect(s.hub.clients().isEmpty && s.hub.pairing(id)?.state == "denied")
+    // The asking connection goes away: its open request expires.
+    let d = peer(s, "boss2")
+    _ = hello(s, d)
+    let id2 = try #require(data(call(s, d, "hub.pairing.start", params: #"{"agentName":"y","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
+    s.connectionClosed(d)
+    #expect(s.hub.pairing(id2)?.state == "expired")
+}
+
+@Test func aSocketConnectionSaysWhoItIsOnce() throws {
+    let s = platformService()
+    let (_, idA, tokenA) = try pairedClient(s, capabilities: ["observe"], name: "a")
+    let (_, idB, tokenB) = try pairedClient(s, capabilities: ["observe", "act"], name: "b")
+    let c = peer(s, nil)
+    #expect(data(hello(s, c, ClientCredential(clientId: idA, token: tokenA))) != nil)
+    let again = hello(s, c, ClientCredential(clientId: idB, token: tokenB))
+    #expect(errorDetails(again)?["reason"]?.stringValue == "already_handshaken")
+    #expect(c.clientId == idA)
 }

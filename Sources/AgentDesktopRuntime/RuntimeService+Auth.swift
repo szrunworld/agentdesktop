@@ -57,16 +57,24 @@ extension RuntimeService {
                                      phase: .request, notSent: true, details: .obj([("reason", .string("owner_only"))])),
                         "physical_display")
         }
-        // Another client's session or Run, named in the request: it does
-        // not exist for this caller, and the attempt is on record.
-        if let sid = request.context.sessionId, sessions.find(sid, caller: c.clientId) == nil, sessions.exists(sid) {
+        // Every session, Run and Desktop the request names, in its context
+        // or its params, is checked; they must agree (A4 review H1: checking
+        // one while the handler uses another let an app reach any Desktop).
+        let sessionIds = Set([request.context.sessionId, request.params["sessionId"]?.stringValue].compactMap { $0 })
+        for sid in sessionIds where sessions.find(sid, caller: c.clientId) == nil && sessions.exists(sid) {
             return deny(.notFound("no session \(sid)"), "foreign_session")
         }
-        if let runId = request.context.runId ?? request.params["runId"]?.stringValue,
-           let run = runs.find(runId), run.clientId != c.clientId {
-            return deny(.notFound("no run \(runId)"), "foreign_run")
+        let runIds = Set([request.context.runId, request.params["runId"]?.stringValue].compactMap { $0 })
+        for runId in runIds {
+            if let run = runs.find(runId), run.clientId != c.clientId { return deny(.notFound("no run \(runId)"), "foreign_run") }
         }
-        if let desktopId = targetDesktop(request, c), let e = desktopError(c, desktopId) {
+        let named = targetDesktops(request, c)
+        if named.count > 1 {
+            return deny(RuntimeError("invalid_argument", "the request names more than one Desktop (\(named.sorted().joined(separator: ", "))); name one",
+                                     phase: .request, notSent: true, details: .obj([("reason", .string("target_mismatch"))])),
+                        "target_mismatch")
+        }
+        if let desktopId = named.first, let e = desktopError(c, desktopId) {
             return deny(e, "desktop_out_of_grant")
         }
         if let e = appError(request, c) { return deny(e, "app_out_of_grant") }
@@ -100,11 +108,15 @@ extension RuntimeService {
         return nil
     }
 
-    /// The Desktop a request is aimed at, from its session, context or params.
-    func targetDesktop(_ request: RuntimeRequest, _ c: ConnectionState) -> String? {
-        if let sid = request.context.sessionId { return sessions.find(sid, caller: c.clientId)?.desktopId }
-        if let did = request.context.desktopId { return did }
-        return request.params["desktopId"]?.stringValue
+    /// Every Desktop a request names: its context's and params' desktopId and
+    /// the Desktops of the caller's sessions it names.
+    func targetDesktops(_ request: RuntimeRequest, _ c: ConnectionState) -> Set<String> {
+        var out: Set<String> = []
+        for sid in [request.context.sessionId, request.params["sessionId"]?.stringValue].compactMap({ $0 }) {
+            if let d = sessions.find(sid, caller: c.clientId)?.desktopId { out.insert(d) }
+        }
+        for d in [request.context.desktopId, request.params["desktopId"]?.stringValue].compactMap({ $0 }) { out.insert(d) }
+        return out
     }
 
     func desktopAllowed(_ c: ConnectionState, _ desktopId: String) -> Bool {
@@ -209,7 +221,9 @@ extension RuntimeService {
         let claimed = credential["clientId"]?.stringValue ?? ""
         let token = credential["token"]?.stringValue ?? ""
         func refuse(_ code: String, _ message: String, _ reason: String) -> RuntimeError {
-            hub.audit(connectionId: c.connectionId, clientId: claimed, method: "runtime.handshake", decision: "denied", reason: reason)
+            // The caller is who the connection is; what it claimed is only noted.
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "runtime.handshake", decision: "denied",
+                      reason: "\(reason) (claimed \(String(claimed.prefix(80))))")
             return RuntimeError(code, message, phase: .handshake, notSent: true, details: .obj([("reason", .string(reason))]))
         }
         if claimed.hasPrefix("local:") {

@@ -396,8 +396,17 @@ def load_credential(path: str) -> dict:
 
 
 def save_credential(credential: dict, path: str) -> None:
-    """Write a credential owner-only (0600)."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump({"clientId": credential["clientId"], "token": credential["token"]}, f)
-    os.chmod(path, 0o600)
+    """Write a credential owner-only (0600): a fresh file, never through a
+    symlink, never readable by others even for a moment. A file is only as
+    private as the user account; a signed app should use the keychain."""
+    tmp = f"{path}.{os.getpid()}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"clientId": credential["clientId"], "token": credential["token"]}, f)
+        os.replace(tmp, path)
+    except BaseException:
+        try: os.unlink(tmp)
+        except OSError: pass
+        raise

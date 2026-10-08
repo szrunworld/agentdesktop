@@ -22,7 +22,9 @@ public struct ConfirmationRequest: Sendable {
     public let digest: String
     public let deadline: Date
 
-    static func digest(kind: Kind, requester: String, action: String, details: JSONValue) -> String {
+    /// The window recomputes this from what it displayed; an approval counts
+    /// only when it matches the Runtime's.
+    public static func digest(kind: Kind, requester: String, action: String, details: JSONValue) -> String {
         let canonical = JSONValue.obj([("kind", .string(kind.rawValue)), ("requester", .string(requester)),
                                        ("action", .string(action)), ("details", details)]).encoded()
         return SHA256.hash(data: Data(canonical.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -76,6 +78,8 @@ final class ConfirmationGate: @unchecked Sendable {
 extension RuntimeService {
     /// How long the user has to answer.
     static let confirmationTimeout: TimeInterval = 120
+    /// The most an owner call's params may hold to be shown in full.
+    static let maxConfirmableParams = 1200
 
     /// Methods only the owner may call that a paired client may still ask
     /// for, one call at a time, each confirmed by the user in the Agent
@@ -99,6 +103,13 @@ extension RuntimeService {
         return .obj(out)
     }
 
+    /// Who waits for the user: a paired client by its id; anyone else by the
+    /// program the kernel says it runs.
+    func gateKey(_ c: ConnectionState) -> String {
+        if c.role == .paired { return c.clientId }
+        return "peer:" + (c.codeIdentity.identifier ?? c.callerFacts["executable"]?.stringValue ?? c.connectionId)
+    }
+
     /// Ask the user; success only for an approval of exactly this request.
     func confirm(_ kind: ConfirmationRequest.Kind, by c: ConnectionState, action: String, details: JSONValue,
                  agentName: String? = nil, publisher: String? = nil, shortCode: String? = nil,
@@ -111,18 +122,27 @@ extension RuntimeService {
         guard let confirmer else {
             return refuse("no_trusted_ui", "no trusted window can ask the user to allow \(action); refused")
         }
-        guard confirmationGate.admit(c.clientId) else {
+        // One waiting prompt per program, not per connection: a new
+        // connection is not a new requester (review M3).
+        let key = gateKey(c)
+        guard confirmationGate.admit(key) else {
             return refuse("confirmation_busy", "another request is waiting for the user; ask again later")
         }
-        let request = ConfirmationRequest(
-            confirmationId: DesktopRegistry.newId(prefix: "conf"), kind: kind,
-            requester: requesterJSON(c, agentName: agentName, publisher: publisher), action: action, details: details,
-            shortCode: shortCode,
-            digest: ConfirmationRequest.digest(kind: kind, requester: c.clientId, action: action, details: details),
-            deadline: now().addingTimeInterval(Self.confirmationTimeout))
-        hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: action, decision: "asked", reason: request.confirmationId,
-                  runId: runId)
-        let decision = confirmationGate.run(c.clientId) { confirmer.confirm(request) }
+        var asked: ConfirmationRequest?
+        let decision = confirmationGate.run(key) { () -> ConfirmationDecision in
+            // The user's time starts when the window can show (review M3).
+            let r = ConfirmationRequest(
+                confirmationId: DesktopRegistry.newId(prefix: "conf"), kind: kind,
+                requester: requesterJSON(c, agentName: agentName, publisher: publisher), action: action, details: details,
+                shortCode: shortCode,
+                digest: ConfirmationRequest.digest(kind: kind, requester: c.clientId, action: action, details: details),
+                deadline: now().addingTimeInterval(Self.confirmationTimeout))
+            asked = r
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: action, decision: "asked", reason: r.confirmationId,
+                      runId: runId)
+            return confirmer.confirm(r)
+        }
+        let request = asked!
         switch decision {
         case let .approved(digest) where digest == request.digest && now() <= request.deadline:
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: action, decision: "confirmed",
@@ -156,7 +176,21 @@ extension RuntimeService {
             let v = contract.validate(request.params, spec.params)
             if !v.isEmpty { return .schemaInvalid("params break \(spec.params)", violations: v) }
         }
-        if case let .failure(e) = confirm(.adminCall, by: c, action: method, details: request.params, runId: request.context.runId) {
+        // The user must be able to read all of what they approve (review M1).
+        guard request.params.encoded().count <= Self.maxConfirmableParams else {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "confirmation_too_large")
+            return RuntimeError("permission_denied", "this request is too large to show for confirmation; use the Agent Desktop window",
+                                phase: .request, notSent: true, details: .obj([("reason", .string("confirmation_too_large"))]))
+        }
+        // Who the call is aimed at, as the Runtime knows it (review L3).
+        var details: [(String, JSONValue)] = [("params", request.params)]
+        if let target, let client = hub.client(target) {
+            details.append(("target", .obj([("clientId", .string(target)), ("agentName", .string(client.agentName)),
+                                             ("codeIdentity", client.codeIdentity), ("grant", hub.grant(target)?.json ?? .null),
+                                             ("sameProgramAsRequester", .bool(CodeIdentity(json: client.codeIdentity).identifier != nil
+                                                 && CodeIdentity(json: client.codeIdentity).identifier == c.codeIdentity.identifier))])))
+        }
+        if case let .failure(e) = confirm(.adminCall, by: c, action: method, details: .obj(details), runId: request.context.runId) {
             return e
         }
         // Access may have gone while the user was deciding.

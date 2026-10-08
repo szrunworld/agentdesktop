@@ -11,6 +11,8 @@ public enum PrincipalRole: String, Sendable {
 /// What the Runtime knows about one connection.
 public final class ConnectionState: @unchecked Sendable {
     public let peerUID: uid_t
+    /// A socket client (not the host's own in-process connection).
+    public private(set) var isSocket = false
     /// Issued by the Runtime for this channel; changes on every reconnect.
     public let connectionId: String
     /// The principal behind the connection: "local:<uid>" for the owner,
@@ -83,6 +85,7 @@ public final class ConnectionState: @unchecked Sendable {
     /// A socket connection: unpaired until its handshake shows a credential.
     public init(socketPeer uid: uid_t, pid: pid_t?, executable: String?) {
         peerUID = uid
+        isSocket = true
         codeIdentity = .unknown
         connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
         clientId = "unpaired:" + connectionId
@@ -281,6 +284,7 @@ public final class RuntimeService: @unchecked Sendable {
     /// The connection is gone: Runs it owned take no further input.
     public func connectionClosed(_ connection: ConnectionState) {
         openConnections.remove(connection)
+        hub.expirePairings(connectionId: connection.connectionId)
         execution.ownerLost(connection)
     }
 
@@ -336,10 +340,22 @@ public final class RuntimeService: @unchecked Sendable {
                     "version_mismatch", "no common API version; this Runtime speaks \(RuntimeAPI.supportedVersions.joined(separator: ", "))",
                     phase: .handshake, details: .obj([("supported", .array(RuntimeAPI.supportedVersions.map(JSONValue.string)))])))
             }
+            // A socket connection says who it is once (review L4).
+            if connection.isSocket, connection.apiVersion != nil {
+                return .failure(RuntimeError("conflict", "this connection already completed its handshake; open a new one",
+                                             phase: .handshake, notSent: true, details: .obj([("reason", .string("already_handshaken"))])))
+            }
             if let refused = authenticate(p["credential"], connection) { return .failure(refused) }
             connection.apiVersion = chosen
             connection.clientName = p["client"]?["name"]?.stringValue
             openConnections.add(connection, at: nowString)
+            // Revoked between the credential check and the registration: the
+            // revocation could not cut it, so it is refused here (review L5).
+            if connection.role == .paired, hub.client(connection.clientId)?.state != "active" {
+                openConnections.remove(connection)
+                connection.cut("client_revoked")
+                return .failure(Self.cutError(connection, "client_revoked"))
+            }
             var id = identity
             id.apiVersion = chosen
             return .success(id.json.setting("principal", principalJSON(connection)))

@@ -9,8 +9,9 @@ public struct CodeIdentity: Sendable, Equatable {
     public enum Level: String, Sendable {
         /// Team-signed, hardened runtime, valid: bound by its requirement.
         case verified
-        /// As verified, but an interpreter (python, node, …): every script it
-        /// runs shares this identity.
+        /// As verified, but other code can run as it: an interpreter (python,
+        /// node, …), an Electron app, or code signed to allow injection.
+        /// Still bound to its requirement; every script it runs shares it.
         case sharedInterpreter = "shared_interpreter"
         /// Nothing verifiable (ad-hoc, self-signed, no hardened runtime):
         /// only "a process of this user".
@@ -90,7 +91,7 @@ public struct SecurityCodeIdentityVerifier: CodeIdentityVerifier {
         var staticCode: SecStaticCode?
         guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return .unknown }
         var info: CFDictionary?
-        SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+        SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation | kSecCSRequirementInformation), &info)
         let d = (info as? [String: Any]) ?? [:]
         let identifier = d[kSecCodeInfoIdentifier as String] as? String
         let team = d[kSecCodeInfoTeamIdentifier as String] as? String
@@ -104,11 +105,32 @@ public struct SecurityCodeIdentityVerifier: CodeIdentityVerifier {
         var text: CFString?
         guard SecRequirementCopyString(requirement, [], &text) == errSecSuccess, let text else { return id }
         id.requirement = text as String
-        let name = ((executable ?? "") as NSString).lastPathComponent.lowercased()
-        let isInterpreter = Self.interpreters.contains { name == $0 || name.hasPrefix($0 + "3") || name.hasPrefix($0 + "-")
-            || name.hasPrefix($0 + ".") || (identifier ?? "").lowercased() == $0 }
-        id.level = isInterpreter ? .sharedInterpreter : .verified
+        id.level = Self.runsOthersCode(identifier: identifier, executable: executable, entitlements: d[kSecCodeInfoEntitlementsDict as String] as? [String: Any])
+            ? .sharedInterpreter : .verified
         return id
+    }
+
+    /// Entitlements that let other code run inside a signed program.
+    static let injectable = ["com.apple.security.cs.allow-dyld-environment-variables", "com.apple.security.cs.disable-library-validation",
+                             "com.apple.security.get-task-allow"]
+
+    /// Whether code other than the signer's can run under this identity (A4
+    /// review M4): an interpreter (by file name or signing identifier, which
+    /// survives renaming), an Electron app (ELECTRON_RUN_AS_NODE), or code
+    /// signed with entitlements that allow injection.
+    static func runsOthersCode(identifier: String?, executable: String?, entitlements: [String: Any]?) -> Bool {
+        let name = ((executable ?? "") as NSString).lastPathComponent.lowercased()
+        let ident = (identifier ?? "").lowercased()
+        if interpreters.contains(where: { name == $0 || name.hasPrefix($0 + "3") || name.hasPrefix($0 + "-") || name.hasPrefix($0 + ".")
+            || ident == $0 || ident.hasSuffix("." + $0) || ident.contains("." + $0 + ".") || ident.hasPrefix($0 + "-") }) {
+            return true
+        }
+        if let executable, let range = executable.range(of: ".app/Contents/MacOS/") {
+            let bundle = String(executable[..<range.lowerBound]) + ".app"
+            if FileManager.default.fileExists(atPath: bundle + "/Contents/Frameworks/Electron Framework.framework") { return true }
+        }
+        if let entitlements, injectable.contains(where: { entitlements[$0] as? Bool == true }) { return true }
+        return false
     }
 
     public func satisfies(auditToken: Data, requirement: String) -> Bool {
