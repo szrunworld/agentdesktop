@@ -239,6 +239,43 @@ import Testing
         }
     }
 
+    // README §7 P2: an unknown outcome is a terminal state, never success.
+    @Test func unknownOutcomeIsTerminatedNotSucceeded() {
+        #expect(ACPWireV1.terminalUnknownStatus == .failed)
+        let title = "结果未知 · 需要核实"
+        for status in [ACPToolStatus.failed, .completed] {
+            let call = ACPToolCall(toolCallId: "t", title: title, kind: .execute, status: status, level: .unknown)
+            for u in [ACPSessionUpdate.toolCall(call), .toolCallUpdate(call)] {
+                let p = w.encodeUpdate(sessionId: "s", u)!
+                let body = p.params["update"]
+                #expect(body?["status"] == .string("failed"))
+                #expect(body?["title"] == .string(title))
+                #expect(body?["rawOutput"] == .obj([("execution", .string("terminated")), ("outcome", .string("unknown"))]))
+                #expect(body?["_meta"]?["agentdesktop"]?["actionLevel"] == .string("unknown"))
+                #expect(TTestSchema.check(frame(.notification(method: p.method, params: p.params))) == [])
+            }
+        }
+        for status in [ACPToolStatus.pending, .inProgress] {
+            let call = ACPToolCall(toolCallId: "t", title: "x", kind: .execute, status: status, level: .unknown)
+            let p = w.encodeUpdate(sessionId: "s", .toolCallUpdate(call))!
+            #expect(p.params["update"]?["status"] == .string(status.rawValue))
+            #expect(p.params["update"]?["rawOutput"] == .obj([("outcome", .string("unknown"))]))
+            #expect(TTestSchema.check(frame(.notification(method: p.method, params: p.params))) == [])
+        }
+        // Permission requests carry the same mapping; other levels have no rawOutput.
+        let perm = w.encodePermissionRequest(ACPPermissionRequest(
+            sessionId: "s", toolCall: ACPToolCall(toolCallId: "t", title: "x", kind: .execute, status: .failed, level: .unknown),
+            summary: []))
+        #expect(perm.params["toolCall"]?["rawOutput"]?["execution"] == .string("terminated"))
+        #expect(TTestSchema.check(frame(.request(id: .int(0), method: perm.method, params: perm.params))) == [])
+        for level in [ACPActionLevel.accepted, .dispatched, .executed, .verified, .contradicted, .refused(code: "x")] {
+            let p = w.encodeUpdate(sessionId: "s", .toolCallUpdate(ACPToolCall(toolCallId: "t", title: "x", kind: .other,
+                                                                               status: .failed, level: level)))!
+            #expect(p.params["update"]?["rawOutput"] == nil)
+            #expect(p.params["update"]?["status"] == .string("failed"))
+        }
+    }
+
     @Test func updatesV1CannotExpressAreDroppedNotFaked() {
         #expect(w.encodeUpdate(sessionId: "s", .usage(inputTokens: 1, outputTokens: 2)) == nil)
         #expect(w.encodeUpdate(sessionId: "s", .turnEnded(.endTurn)) == nil)
