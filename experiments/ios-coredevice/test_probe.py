@@ -127,6 +127,55 @@ class NoCrossDeviceMixing(unittest.TestCase):
         self.assertEqual(m["service_advertised_hid_universal"]["status"], probe.UNVERIFIED)
 
 
+class TunneldDeviceWithUnreachableRsd(unittest.TestCase):
+    """Codex comment on #119: tunneld lists a UDID whose RSD endpoint cannot be opened, so
+    get_tunneld_devices() skips it. The device must still be reported, with the failed tunnel as evidence."""
+
+    def test_device_only_in_tunneld_map_still_gets_a_matrix(self):
+        # A's RSD opened fine; B is in tunneld's raw map but its RSD was skipped upstream.
+        r = report(tunnels={A: [{"interface": "utun5"}], B: [{"interface": "utun7"}]},
+                   rsd={"via": "tunneld", "ok": True,
+                        "result": [{"udid": A, "os": "18.0", "interface": "utun5", "services": ALL_SERVICES}]})
+        probe.attach_matrices(r, B)
+        self.assertEqual(r["devices"], [A, B])
+        self.assertEqual(r["target_udid"], B)
+        self.assertEqual(r["target_selection"], "--udid")
+        b = r["capabilities_by_device"][B]
+        self.assertIs(r["capabilities"], b)
+        self.assertEqual(b["tunnel_tunneld"]["status"], probe.UNSUPPORTED)
+        self.assertEqual(b["tunnel_tunneld"]["evidence"]["tunnels"], [{"interface": "utun7"}])
+        self.assertIn("skipped", b["tunnel_tunneld"]["evidence"]["rsd_error"])
+        self.assertIn("could not be opened", b["tunnel_tunneld"]["reason"])
+        self.assertEqual(b["service_advertised_hid_universal"]["status"], probe.UNVERIFIED)
+        self.assertIn("tunnel_tunneld", b["service_advertised_hid_universal"]["reason"])
+        # A is unaffected: its tunnel worked.
+        self.assertEqual(r["capabilities_by_device"][A]["tunnel_tunneld"]["status"], probe.SUPPORTED)
+
+    def test_only_device_seen_is_selected_when_every_rsd_fails(self):
+        r = report(tunnels={B: [{"interface": "utun7"}]},
+                   rsd={"via": "tunneld", "ok": True, "result": []})
+        probe.attach_matrices(r, None)
+        self.assertEqual(r["devices"], [B])
+        self.assertEqual(r["target_udid"], B)
+        self.assertEqual(r["target_selection"], "only device seen")
+        self.assertEqual(r["capabilities"]["tunnel_tunneld"]["status"], probe.UNSUPPORTED)
+
+    def test_rsd_step_error_is_kept_as_evidence(self):
+        r = report(tunnels={B: [{"interface": "utun7"}]},
+                   rsd={"via": "tunneld", "ok": False, "result": "timed out after 8.0s"})
+        probe.attach_matrices(r, None)
+        self.assertEqual(r["devices"], [B])
+        t = r["capabilities"]["tunnel_tunneld"]
+        self.assertEqual(t["status"], probe.UNSUPPORTED)
+        self.assertEqual(t["evidence"]["rsd_error"], "timed out after 8.0s")
+
+    def test_tunnels_ignored_when_tunneld_not_running(self):
+        r = report()
+        r["tunneld"]["tunnels"] = {B: [{"interface": "utun7"}]}
+        probe.attach_matrices(r, None)
+        self.assertEqual(r["devices"], [])
+
+
 class NoDevice(unittest.TestCase):
     def test_default_run_without_devices(self):
         r = report()
