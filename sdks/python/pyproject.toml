@@ -1,0 +1,8 @@
+[project]
+name = "agentdesktop-client"
+version = "0.1.0"
+description = "Thin client for the AgentDesktop Runtime API (agentdesktop.runtime/1)"
+requires-python = ">=3.9"
+
+[tool.setuptools]
+packages = ["agentdesktop_client"]

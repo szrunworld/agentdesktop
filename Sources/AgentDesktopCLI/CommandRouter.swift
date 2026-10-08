@@ -29,6 +29,8 @@ struct RuntimeInvocation: Equatable {
         case runWait(runId: String, timeout: Double, untilQuiescent: Bool)
         /// run cancel, optionally waiting for quiescence.
         case runCancel(runId: String, requestId: String?, wait: Bool, timeout: Double)
+        /// mcp: serve MCP on stdio.
+        case mcp
         /// session exec: own a Run while a child program acts in it.
         case sessionExec(desktopId: String?, sessionId: String?, argv: [String])
     }
@@ -88,6 +90,8 @@ enum CommandRouter {
     }
 
     static let specs: [Spec] = [
+        Spec(words: ["mcp"], summary: "serve the Runtime as MCP tools on stdio (for agents that speak MCP)",
+             options: [:], positionals: []) { _, _ in .mcp },
         Spec(words: ["version"], summary: "CLI version, API version and build; no connection",
              options: [:], positionals: []) { _, _ in .version },
         Spec(words: ["runtime", "start"], summary: "start the installed Runtime if needed and wait for its handshake",

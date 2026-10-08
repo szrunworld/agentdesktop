@@ -23,6 +23,10 @@ jobs:
         run: swift build -c release
       - name: Unit tests
         run: swift test
+      - name: SDK unit tests (Python, TypeScript)
+        run: |
+          (cd sdks/python && python3 -m unittest discover -s tests -v)
+          (cd sdks/typescript && node --test test/*.test.ts)
       - name: Bundle the app
         run: ./scripts/bundle-app.sh
       - name: Bundle contents
