@@ -246,39 +246,75 @@ class EquivalentIdSpellings(unittest.TestCase):
         self.assertEqual(m["ios_version"]["status"], probe.SUPPORTED)
 
 
-class RsdViaTunneldPerKey(unittest.TestCase):
-    """rsd_services_via_tunneld() against a mocked pymobiledevice3.tunneld.api (no tunneld, no device)."""
+class RsdViaTunneldPerRecord(unittest.TestCase):
+    """rsd_services_via_tunneld() against a mocked RemoteServiceDiscoveryService (no tunneld, no device).
+    Codex comment on #133 (round 3): every RSD opened for a multi-tunnel key is recorded and closed."""
 
-    def test_each_key_is_opened_separately_and_failures_are_kept(self):
+    def run_probe(self, tunnels: dict, behaviour: dict):
+        """behaviour: tunnel-port -> "ok" | "refuse" | "hang" | "close-raises"."""
+        made = []
+
         class FakeRsd:
-            udid, product_version, name = A, "18.0", "utun9"
-            peer_info = {"Services": {probe.SVC_DEVICEINFO: {}}}
-            closed = False
+            def __init__(self, address, name=None, open_connection=None, auxiliary_metadata=None):
+                self.address, self.name, self.closed = address, name, 0
+                self.udid, self.product_version, self.peer_info = None, None, None
+                made.append(self)
+
+            async def connect(self):
+                mode = behaviour[self.address[1]]
+                if mode == "refuse":
+                    raise ConnectionRefusedError("refused")
+                if mode == "hang":
+                    await asyncio.sleep(3600)
+                self.udid, self.product_version = A, "18.0"
+                self.peer_info = {"Services": {f"svc.{self.name}": {}}}
 
             async def close(self):
-                FakeRsd.closed = True
+                self.closed += 1
+                if behaviour[self.address[1]] == "close-raises":
+                    raise OSError("already closed")
 
-        async def get_tunneld_device_by_udid(key):
-            if key == REMOTE:
-                return FakeRsd()
-            if key == B:
-                return [][0]  # what upstream does when the tunnel's RSD connect was skipped
-            return None
-
-        api = types.ModuleType("pymobiledevice3.tunneld.api")
-        api.get_tunneld_device_by_udid = get_tunneld_device_by_udid
+        rsd_mod = types.ModuleType("pymobiledevice3.remote.remote_service_discovery")
+        rsd_mod.RemoteServiceDiscoveryService = FakeRsd
         fake = {"pymobiledevice3": types.ModuleType("pymobiledevice3"),
-                "pymobiledevice3.tunneld": types.ModuleType("pymobiledevice3.tunneld"),
-                "pymobiledevice3.tunneld.api": api}
-        with mock.patch.dict(sys.modules, fake):
-            ok, res = asyncio.run(probe.rsd_services_via_tunneld([REMOTE, B, "GONE"]))
+                "pymobiledevice3.remote": types.ModuleType("pymobiledevice3.remote"),
+                "pymobiledevice3.remote.remote_service_discovery": rsd_mod}
+        with mock.patch.dict(sys.modules, fake), mock.patch.object(probe, "STEP_TIMEOUT", 0.05):
+            ok, res = asyncio.run(probe.rsd_services_via_tunneld(tunnels))
         self.assertTrue(ok)
-        self.assertTrue(FakeRsd.closed)
-        self.assertEqual(res["entries"], [{"tunnel_key": REMOTE, "udid": A, "os": "18.0", "interface": "utun9",
-                                           "services": [probe.SVC_DEVICEINFO]}])
-        self.assertEqual([f["tunnel_key"] for f in res["failed_tunnels"]], [B, "GONE"])
-        self.assertIn("could not be opened", res["failed_tunnels"][0]["error"])
-        self.assertIn("no longer lists", res["failed_tunnels"][1]["error"])
+        return res, made
+
+    @staticmethod
+    def record(iface: str, port: int) -> dict:
+        return {"interface": iface, "tunnel-address": "fd00::1", "tunnel-port": port}
+
+    def test_two_tunnels_under_one_key_are_both_recorded_and_closed(self):
+        res, made = self.run_probe({REMOTE: [self.record("utun5", 1), self.record("utun7", 2)]},
+                                   {1: "ok", 2: "ok"})
+        self.assertEqual(res["failed_tunnels"], [])
+        self.assertEqual([(e["tunnel_key"], e["tunnel_index"], e["interface"], e["services"]) for e in res["entries"]],
+                         [(REMOTE, 0, "utun5", ["svc.utun5"]), (REMOTE, 1, "utun7", ["svc.utun7"])])
+        self.assertEqual(len(made), 2)
+        self.assertEqual([m.closed for m in made], [1, 1])
+
+    def test_failed_and_hung_records_are_kept_and_still_closed(self):
+        res, made = self.run_probe({REMOTE: [self.record("utun5", 1), self.record("utun7", 2)],
+                                    B: [self.record("utun9", 3), self.record("utun10", 4)]},
+                                   {1: "ok", 2: "refuse", 3: "hang", 4: "close-raises"})
+        self.assertEqual([(e["tunnel_key"], e["tunnel_index"]) for e in res["entries"]], [(REMOTE, 0), (B, 1)])
+        failed = [(f["tunnel_key"], f["tunnel_index"], f["interface"]) for f in res["failed_tunnels"]]
+        self.assertEqual(failed, [(REMOTE, 1, "utun7"), (B, 0, "utun9")])
+        self.assertIn("ConnectionRefusedError", res["failed_tunnels"][0]["error"])
+        self.assertIn("timed out", res["failed_tunnels"][1]["error"])
+        self.assertEqual([m.closed for m in made], [1, 1, 1, 1])
+
+    def test_multi_tunnel_key_feeds_one_device_matrix(self):
+        res, _ = self.run_probe({REMOTE: [self.record("utun5", 1), self.record("utun7", 2)]}, {1: "ok", 2: "ok"})
+        r = report(tunnels={REMOTE: [self.record("utun5", 1), self.record("utun7", 2)]},
+                   rsd={"via": "tunneld", "ok": True, "result": res})
+        probe.attach_matrices(r, None)
+        self.assertEqual(r["devices"], [A])
+        self.assertEqual(r["capabilities"]["tunnel_tunneld"]["status"], probe.SUPPORTED)
 
 
 class NoDevice(unittest.TestCase):

@@ -74,8 +74,9 @@ def err(e: BaseException) -> str:
     return f"{type(e).__name__}: {e}"
 
 
-async def guarded(coro, timeout: float = STEP_TIMEOUT):
+async def guarded(coro, timeout: Optional[float] = None):
     """Run one probe step; never let it hang or take the whole report down."""
+    timeout = STEP_TIMEOUT if timeout is None else timeout
     try:
         return True, await asyncio.wait_for(coro, timeout)
     except asyncio.TimeoutError:
@@ -230,32 +231,40 @@ async def probe_mdns() -> tuple[bool, Any]:
     return await guarded(_probe())
 
 
-async def rsd_services_via_tunneld(tunnel_keys: list[str]) -> tuple[bool, Any]:
-    """Open the RSD of each tunneld tunnel separately, so every RSD entry is tied to the tunneld map key
-    it came from (`tunnel_key`). The key is tunneld's remote identifier and is not guaranteed to equal
-    the hardware UDID the RSD reports. get_tunneld_devices() would drop failures silently; here a tunnel
-    whose RSD cannot be opened is kept in `failed_tunnels` with its error."""
-    from pymobiledevice3.tunneld.api import get_tunneld_device_by_udid
+async def rsd_services_via_tunneld(tunnels: dict) -> tuple[bool, Any]:
+    """Open the RSD of every tunnel record tunneld listed, one record at a time, so each RSD entry is
+    tied to the tunneld map key it came from (`tunnel_key`, plus `tunnel_index` within that key).
+    The key is tunneld's remote identifier and is not guaranteed to equal the hardware UDID the RSD
+    reports. Upstream get_tunneld_devices() drops failed records silently and
+    get_tunneld_device_by_udid() returns only the first RSD of a key (leaving the others open); here
+    every record gets its own entry or `failed_tunnels` row, and every RSD opened is closed again,
+    on the error and timeout paths too. tunneld is the local default address, so records are dialled
+    directly (upstream only bridges through tunneld for non-loopback hosts)."""
+    from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
 
-    async def _one(key: str) -> dict:
-        rsd = await get_tunneld_device_by_udid(key)
-        if rsd is None:
-            raise LookupError("tunneld no longer lists this tunnel")
+    async def _one(key: str, index: int, record: dict) -> dict:
+        rsd = RemoteServiceDiscoveryService((record["tunnel-address"], record["tunnel-port"]),
+                                            name=record.get("interface"),
+                                            auxiliary_metadata=record.get("auxiliary-metadata"))
         try:
-            return {"tunnel_key": key, "udid": rsd.udid, "os": rsd.product_version, "interface": rsd.name,
-                    "services": sorted(rsd.peer_info.get("Services", {}).keys())}
+            await rsd.connect()
+            return {"tunnel_key": key, "tunnel_index": index, "udid": rsd.udid, "os": rsd.product_version,
+                    "interface": rsd.name, "services": sorted((rsd.peer_info or {}).get("Services", {}).keys())}
         finally:
-            await rsd.close()
+            try:
+                await rsd.close()
+            except Exception:  # noqa: BLE001 -- a failed connect may already have closed it
+                pass
 
     entries, failed = [], []
-    for key in tunnel_keys:
-        ok, res = await guarded(_one(key))
-        if ok:
-            entries.append(res)
-        elif "IndexError" in res:  # upstream returns rsds[0] of an empty list when the connect failed
-            failed.append({"tunnel_key": key, "error": "RSD endpoint could not be opened (" + res + ")"})
-        else:
-            failed.append({"tunnel_key": key, "error": res})
+    for key, records in tunnels.items():
+        for index, record in enumerate(records or []):
+            ok, res = await guarded(_one(key, index, record))
+            if ok:
+                entries.append(res)
+            else:
+                failed.append({"tunnel_key": key, "tunnel_index": index, "interface": record.get("interface"),
+                               "error": f"RSD endpoint could not be opened ({res})"})
     return True, {"entries": entries, "failed_tunnels": failed}
 
 
@@ -600,7 +609,7 @@ async def main_async(args) -> dict:
         report["mdns"] = None
 
     if report["tunneld"].get("running") and report["tunneld"].get("tunnels"):
-        ok, res = await rsd_services_via_tunneld(list(report["tunneld"]["tunnels"]))
+        ok, res = await rsd_services_via_tunneld(report["tunneld"]["tunnels"])
         report["rsd_services"] = {"via": "tunneld", "ok": ok, "result": res}
     elif args.allow_native_tunnel and report["native_browse"]["ok"] and report["native_browse"]["result"]:
         udid = args.udid or report["native_browse"]["result"][0].get("udid")
