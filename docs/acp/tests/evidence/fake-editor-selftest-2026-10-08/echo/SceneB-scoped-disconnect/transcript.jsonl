@@ -1,0 +1,39 @@
+{"ms":1,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":5,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":6,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":155,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":156,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":156,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-acp-selftest-q/echo/SceneB-scoped-disconnect/run","mcpServers":[]}}}
+{"ms":160,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-69177-1"}}}
+{"ms":160,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"act neutral-sample","permission":"hang","disconnectAfterMs":"800","timeoutMs":30000,"expect":{"stopReasonIn":["disconnected"],"permissionRequested":true}}}
+{"ms":160,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-69177-1","prompt":[{"type":"text","text":"act neutral-sample"}]}}}
+{"ms":162,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-69177-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
+{"ms":167,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-69177-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-69177-2","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
+{"ms":167,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"qs-69177-1","toolCall":{"toolCallId":"act-69177-2","title":"Action","kind":"execute","status":"pending"},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"reject","name":"Deny once","kind":"reject_once"}]}}}
+{"ms":961,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":968,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":969,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":969,"dir":"step","step":"mark","at":{"op":"mark","name":"afterExit"}}
+{"ms":969,"dir":"step","step":"wait","at":{"op":"wait","ms":1500}}
+{"ms":2471,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":2482,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":2484,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":2659,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":2659,"dir":"step","step":"resume","at":{"op":"resume","session":"s1","method":"load","expect":{"ok":true}}}
+{"ms":2660,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/load","params":{"sessionId":"qs-69177-1","cwd":"/tmp/adt-acp-selftest-q/echo/SceneB-scoped-disconnect/run","mcpServers":[]}}}
+{"ms":2662,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-69177-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
+{"ms":2662,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-69177-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-69177-2","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
+{"ms":2663,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-69177-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ended:connection_lost outcome:unknown"}}}}}
+{"ms":2663,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{}}}
+{"ms":2664,"dir":"step","step":"wait","at":{"op":"wait","ms":2000}}
+{"ms":4665,"dir":"step","step":"assert","at":{"op":"assert","noNewToolCallsSince":"afterExit","toolCallsNotCompletedSince":"afterExit"}}
+{"ms":4665,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"echo hello-from-fake-editor","expect":{"stopReason":"end_turn","permissionRequested":false}}}
+{"ms":4666,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-69177-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
+{"ms":4671,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-69177-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo hello-from-fake-editor"}}}}}
+{"ms":4674,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-69177-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello-from-fake-editor"}}}}}
+{"ms":4675,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":4675,"dir":"step","step":"assert","at":{"op":"assert","toolCallsNotCompletedSince":"afterExit"}}
+{"ms":4675,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":4675,"conn":2,"dir":"disconnect","mode":"close-stdin"}
+{"ms":4676,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":4689,"conn":2,"dir":"exit","code":0,"signal":null}

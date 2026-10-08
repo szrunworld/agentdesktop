@@ -1,0 +1,14 @@
+{
+  "id": "SceneB-scoped-disconnect",
+  "cases": [
+    "ACP-P2B-01",
+    "ACP-P2B-02"
+  ],
+  "title": "场景 B：等待审批时编辑器断开，动作不执行；重连加载后不自动继续、不补发审批",
+  "status": "BLOCKED",
+  "durationMs": 0,
+  "failures": [
+    "blocked: profile sdk-example-agent lacks session.load"
+  ],
+  "steps": []
+}

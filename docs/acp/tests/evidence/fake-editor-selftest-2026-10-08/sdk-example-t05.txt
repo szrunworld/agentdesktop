@@ -1,0 +1,1 @@
+FAIL    T05-capabilities  ACP-T05-01,ACP-T05-02  — image prompt not claimed but accepted ({"ok":true,"result":{"stopReason":"end_turn"}})

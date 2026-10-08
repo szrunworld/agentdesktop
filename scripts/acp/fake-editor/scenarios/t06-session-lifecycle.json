@@ -1,0 +1,112 @@
+{
+  "id": "T06-session-lifecycle",
+  "cases": [
+    "ACP-T06-01",
+    "ACP-T06-02",
+    "ACP-T06-03",
+    "ACP-T06-04"
+  ],
+  "title": "创建、列表、断开后重连加载（回放历史）、关闭；加载不存在的会话被拒",
+  "requires": [
+    "session.load",
+    "session.list",
+    "session.close"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ECHO}",
+      "expect": {
+        "stopReason": "end_turn"
+      }
+    },
+    {
+      "op": "listSessions",
+      "expect": {
+        "contains": [
+          "s1"
+        ]
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    },
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "resume",
+      "session": "s1",
+      "method": "load",
+      "expect": {
+        "ok": true,
+        "replayIncludes": [
+          "${ECHO_TEXT}"
+        ]
+      }
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ECHO}",
+      "expect": {
+        "stopReason": "end_turn"
+      }
+    },
+    {
+      "op": "resume",
+      "session": "literal:qtest-missing-session",
+      "method": "load",
+      "expect": {
+        "ok": false,
+        "noReplay": true
+      }
+    },
+    {
+      "op": "closeSession",
+      "session": "s1",
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "op": "listSessions",
+      "expect": {
+        "excludes": [
+          "s1"
+        ]
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

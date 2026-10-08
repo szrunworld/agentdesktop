@@ -1,0 +1,30 @@
+{
+  "profile": "qtest-echo",
+  "agent": [
+    "node",
+    "/Users/kevinshi/orca/agentdesktop-acp-q/scripts/acp/fake-editor/dist/echo-agent.js"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T06:26:25.845Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "T05-capabilities",
+      "cases": [
+        "ACP-T05-01",
+        "ACP-T05-02"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "image prompt claimed but refused ({\"ok\":false,\"error\":{\"code\":-32602,\"message\":\"Invalid params: only text prompts are supported\"}})"
+      ],
+      "transcript": "T05-capabilities/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T06:26:26.511Z",
+  "counts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 0
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "profile": "qtest-echo",
+  "agent": [
+    "node",
+    "/Users/kevinshi/orca/agentdesktop-acp-q/scripts/acp/fake-editor/dist/echo-agent.js"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T06:25:12.750Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "SceneB-scoped-disconnect",
+      "cases": [
+        "ACP-P2B-01",
+        "ACP-P2B-02"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "SceneB-scoped-disconnect/transcript.jsonl"
+    },
+    {
+      "id": "SceneD-approval-unavailable",
+      "cases": [
+        "ACP-P2D-01",
+        "ACP-P2D-02"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "SceneD-approval-unavailable/transcript.jsonl"
+    },
+    {
+      "id": "T01-valid-requests",
+      "cases": [
+        "ACP-T01-01",
+        "ACP-T01-02",
+        "ACP-T01-03"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T01-valid-requests/transcript.jsonl"
+    },
+    {
+      "id": "T02-malformed-frames",
+      "cases": [
+        "ACP-T02-01",
+        "ACP-T02-02",
+        "ACP-T02-03",
+        "ACP-T02-05"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T02-malformed-frames/transcript.jsonl"
+    },
+    {
+      "id": "T02-oversize-frame",
+      "cases": [
+        "ACP-T02-04"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T02-oversize-frame/transcript.jsonl"
+    },
+    {
+      "id": "T03-stdio-close",
+      "cases": [
+        "ACP-T03-01",
+        "ACP-T03-02"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T03-stdio-close/transcript.jsonl"
+    },
+    {
+      "id": "T04-version",
+      "cases": [
+        "ACP-T04-01",
+        "ACP-T04-02"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T04-version/transcript.jsonl"
+    },
+    {
+      "id": "T05-capabilities",
+      "cases": [
+        "ACP-T05-01",
+        "ACP-T05-02"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T05-capabilities/transcript.jsonl"
+    },
+    {
+      "id": "T06-session-lifecycle",
+      "cases": [
+        "ACP-T06-01",
+        "ACP-T06-02",
+        "ACP-T06-03",
+        "ACP-T06-04"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T06-session-lifecycle/transcript.jsonl"
+    },
+    {
+      "id": "T07-foreign-session",
+      "cases": [
+        "ACP-T07-01",
+        "ACP-T07-02",
+        "ACP-T07-03"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T07-foreign-session/transcript.jsonl"
+    },
+    {
+      "id": "T08-concurrent-sessions",
+      "cases": [
+        "ACP-T08-01"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T08-concurrent-sessions/transcript.jsonl"
+    },
+    {
+      "id": "T12-cancel",
+      "cases": [
+        "ACP-T12-01",
+        "ACP-T12-02",
+        "ACP-T12-03"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T12-cancel/transcript.jsonl"
+    },
+    {
+      "id": "T14-scoped-disconnect",
+      "cases": [
+        "ACP-T14-01",
+        "ACP-T14-02"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T14-scoped-disconnect/transcript.jsonl"
+    },
+    {
+      "id": "T16-approval",
+      "cases": [
+        "ACP-T16-01",
+        "ACP-T16-02",
+        "ACP-T16-03",
+        "ACP-T16-04"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T16-approval/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T06:25:28.062Z",
+  "counts": {
+    "PASS": 14,
+    "FAIL": 0,
+    "BLOCKED": 0
+  }
+}

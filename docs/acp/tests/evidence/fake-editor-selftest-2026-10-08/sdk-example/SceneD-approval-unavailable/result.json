@@ -1,0 +1,22 @@
+{
+  "id": "SceneD-approval-unavailable",
+  "cases": [
+    "ACP-P2D-01",
+    "ACP-P2D-02"
+  ],
+  "title": "场景 D：编辑器不能回答审批（方法不存在）时动作保持未执行，并给出可解释的拒绝",
+  "status": "PASS",
+  "durationMs": 4667,
+  "failures": [],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "hello",
+      "outcome": "error",
+      "error": {
+        "code": -32601,
+        "message": "\"Method not found\": session/request_permission"
+      }
+    }
+  ]
+}

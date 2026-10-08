@@ -1,0 +1,24 @@
+{
+  "name": "agentdesktop-acp-dev-demo",
+  "comment": "L1 only: lane S dev entry with --demo (built-in scripted port and projector, no Runtime, no GUI input). Needs lane T's stdio transport on the branch. Never counts as end-to-end.",
+  "agent": [
+    "${REPO_ROOT}/.build/debug/agentdesktop-acp-dev",
+    "--demo"
+  ],
+  "features": [],
+  "vars": {
+    "SUPPORTED_VERSIONS": "[1]",
+    "PROMPT_ECHO": "/desktops",
+    "ECHO_TEXT": "",
+    "ECHO_PREFIX": "",
+    "PROMPT_SLOW": "TBD-after-A6: neutral sample task, long variant",
+    "PROMPT_SLOW_LONG": "TBD-after-A6: neutral sample task, long variant",
+    "CANCEL_AFTER_MS": "1500",
+    "DISCONNECT_AFTER_MS": "1500",
+    "PROMPT_ACT": "TBD-after-PR4: neutral sample task that needs approval",
+    "OVERSIZE_BYTES": "17825792",
+    "OVERSIZE_ALLOW_CLOSE": "false",
+    "SCOPED_ENDED_TEXT": "TBD-lane-E: wording for owner_lost",
+    "REFUSAL_EXPLAINED_RE": "TBD-lane-E"
+  }
+}

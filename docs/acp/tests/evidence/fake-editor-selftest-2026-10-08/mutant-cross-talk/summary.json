@@ -1,0 +1,29 @@
+{
+  "profile": "qtest-echo",
+  "agent": [
+    "node",
+    "/Users/kevinshi/orca/agentdesktop-acp-q/scripts/acp/fake-editor/dist/echo-agent.js"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T06:26:25.218Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "T08-concurrent-sessions",
+      "cases": [
+        "ACP-T08-01"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "cross-talk: session s1 received marker-s2-k4"
+      ],
+      "transcript": "T08-concurrent-sessions/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T06:26:25.552Z",
+  "counts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 0
+  }
+}
