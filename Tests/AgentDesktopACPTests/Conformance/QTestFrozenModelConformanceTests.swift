@@ -272,15 +272,11 @@ struct QTestRequestIdConformanceTests {
     }
 
     /// Hashable requires equal values to hash equally. JSONValue compares
-    /// numbers by value but ACPRequestId hashes the raw spelling, so 1 and
-    /// 1.0 are equal yet hash apart. Reported to the coordinator as an
-    /// interface request (PR body); flip to a plain #expect once fixed.
+    /// numbers by value, so 1 and 1.0 must hash alike (fixed on acp-skeleton).
     @Test func equalNumericIdsHashEqually() {
         let a = ACPRequestId(.number(raw: "1", value: 1))
         let b = ACPRequestId(.number(raw: "1.0", value: 1))
         #expect(a == b)
-        withKnownIssue("ACPRequestId.hash uses the raw spelling; == uses the numeric value") {
-            #expect(a.hashValue == b.hashValue)
-        }
+        #expect(a.hashValue == b.hashValue)
     }
 }

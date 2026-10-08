@@ -82,7 +82,15 @@ public struct ACPRequestId: Hashable, Sendable {
     public var raw: JSONValue
     public init(_ raw: JSONValue) { self.raw = raw }
     public static func == (a: ACPRequestId, b: ACPRequestId) -> Bool { a.raw == b.raw }
-    public func hash(into h: inout Hasher) { h.combine(String(describing: raw)) }
+    /// Consistent with `==`, which compares JSON numbers by value (1 == 1.0).
+    public func hash(into h: inout Hasher) {
+        switch raw {
+        case let .number(_, value): h.combine(0); h.combine(value)
+        case let .string(s): h.combine(1); h.combine(s)
+        case .null: h.combine(2)
+        default: h.combine(3); h.combine(String(describing: raw))
+        }
+    }
 }
 
 public enum ACPStopReason: String, Sendable {

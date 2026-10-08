@@ -398,10 +398,12 @@ import Testing
         let ex = ACPBridgeExecutor(label: "rtest")
         let start = Date()
         do {
-            _ = try await ex.run(timeout: 0.1) { Thread.sleep(forTimeInterval: 1); return 1 }
+            // The blocked call sleeps far longer than the bound below, so the
+            // check stays meaningful on a loaded machine (0.903 s seen at 1 s).
+            _ = try await ex.run(timeout: 0.1) { Thread.sleep(forTimeInterval: 4); return 1 }
             Issue.record("no timeout")
         } catch is ACPBridgeTimeout {}
-        #expect(Date().timeIntervalSince(start) < 0.9)
+        #expect(Date().timeIntervalSince(start) < 2.5)
     }
 
     @Test func submitThatOutlivesTheTimeoutIsUnconfirmedThenRecovered() async throws {
