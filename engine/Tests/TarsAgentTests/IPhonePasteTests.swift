@@ -277,6 +277,7 @@ func fast() -> PasteWatcher {
         transaction.leaseURL = lock
         transaction.leaseTimeout = 5
         transaction.watcher = fast()
+        transaction.pending = HostFlag(url: lock.deletingLastPathComponent().appendingPathComponent("clipboard.pending"))
         return transaction
     }
 
@@ -425,4 +426,74 @@ func fast() -> PasteWatcher {
         #expect(response.error?.contains("clipboard_withheld") == true)
         #expect(response.route == "paste.unknown")
     }
+
+    /// A ⌘V that failed on its way out shows nothing; quiet screens after it
+    /// prove nothing, so the user's contents stay away from the clipboard.
+    @Test func quietWithoutSeeingThePasteDoesNotRestore() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("secret-token", forType: .string)
+        let phone = ThrowingPastePhone(baseline: keyboard, [keyboard])
+        phone.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.settleLooks = 5
+        let result = paste.paste("hello", verify: true, driver: phone)
+        guard case .unknown = result.outcome else {
+            Issue.record("expected unknown")
+            return
+        }
+        #expect(!result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "hello")
+    }
+
+    /// While a withheld clipboard may still be fetched, no other paste may
+    /// put its text there, from this process or another.
+    @Test func aWithheldClipboardKeepsOtherPastesOut() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        let first = ScriptedPhone(baseline: keyboard, [keyboard + pasting])
+        first.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.settleLooks = 3
+        #expect(!paste.paste("agent A", verify: true, driver: first).clipboardRestored)
+        let second = ScriptedPhone(baseline: keyboard, [keyboard + [line("agent B", y: 0.3)]])
+        second.pasteboard = pasteboard
+        let next = transaction(pasteboard, lock).paste("agent B", verify: true, driver: second)
+        guard case .notDelivered(let why) = next.outcome else {
+            Issue.record("expected notDelivered")
+            return
+        }
+        #expect(why.hasPrefix("clipboard_pending"))
+        #expect(second.pasted.isEmpty)
+        #expect(pasteboard.string(forType: .string) == "agent A")
+    }
+
+    @Test func thePendingMarkExpires() throws {
+        let (_, lock) = scratch()
+        let flag = HostFlag(url: lock.deletingLastPathComponent().appendingPathComponent("clipboard.pending"))
+        try flag.raise("x", until: Date().addingTimeInterval(-1))
+        #expect(flag.reason() == nil)
+        try flag.raise("y", until: Date().addingTimeInterval(60))
+        #expect(flag.reason() == "y")
+        flag.lower()
+        #expect(flag.reason() == nil)
+    }
+}
+
+/// A phone whose ⌘V request fails after it may have gone out.
+final class ThrowingPastePhone: PhonePasteDriver {
+    let inner: ScriptedPhone
+    var pasteboard: NSPasteboard? {
+        get { inner.pasteboard }
+        set { inner.pasteboard = newValue }
+    }
+    init(baseline: [PhoneText]?, _ screens: [[PhoneText]?]) {
+        inner = ScriptedPhone(baseline: baseline, screens)
+    }
+    struct Lost: Error {}
+    func look() throws -> [PhoneText] { try inner.look() }
+    func pressPaste() throws -> ControlResponse { throw Lost() }
+    func tap(_ point: CGPoint) throws -> ControlResponse { try inner.tap(point) }
+    func pause(_ seconds: TimeInterval) { inner.pause(seconds) }
 }

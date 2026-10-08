@@ -60,6 +60,9 @@ public protocol IPhoneMirroringSystem {
     func isRunning(pid: pid_t) -> Bool
     var now: Date { get }
     func sleep(_ seconds: TimeInterval)
+    /// Where the phone's input barrier is kept for every process: raised
+    /// when nobody knows what an input did, lowered by the next screenshot.
+    var inputBarrier: HostFlag { get }
 }
 
 // MARK: Observation
@@ -388,6 +391,10 @@ public struct IPhoneLifecycle {
 /// accessibility and Vision.
 public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     public let bundleID: String
+
+    /// One phone per Mac (iPhone Mirroring mirrors one at a time), so one
+    /// barrier.
+    public var inputBarrier: HostFlag { .named("iphone-input-barrier") }
 
     public init(bundleID: String = IPhoneAgentScreen.bundleID) {
         self.bundleID = bundleID

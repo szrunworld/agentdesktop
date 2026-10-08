@@ -237,11 +237,14 @@ public struct PasteWatcher {
     }
 
     /// After a paste that did not settle: watch up to `looks` more times for
-    /// the phone to show neither a paste prompt nor a paste in progress, on
-    /// a screen that could be read. Nothing is pressed. True only when the
-    /// phone is seen to be done with the clipboard, so the user's contents
-    /// can go back without the phone fetching them.
+    /// the phone to be seen busy with it (a paste prompt or a paste in
+    /// progress) and then to stop, on screens that could be read. Nothing is
+    /// pressed. True only when the phone is seen to be done with the
+    /// clipboard, so the user's contents can go back without the phone
+    /// fetching them. Quiet screens alone prove nothing: a ⌘V that failed
+    /// on its way out, or a fetch not yet begun, looks just as quiet.
     public func settles(looks: Int, driver: PhonePasteDriver) -> Bool {
+        var busy = false
         var quiet = 0
         for _ in 0..<looks {
             driver.pause(interval)
@@ -255,7 +258,12 @@ public struct PasteWatcher {
                     || PastePrompt.pastingLabels.contains { text.hasPrefix($0) }
                     || PastePrompt.promptPhrases.contains { text.range(of: $0, options: .caseInsensitive) != nil }
             }
-            quiet = prompting ? 0 : quiet + 1
+            if prompting {
+                busy = true
+                quiet = 0
+            } else if busy {
+                quiet += 1
+            }
             if quiet >= quietLooks { return true }
         }
         return false
@@ -305,6 +313,15 @@ public struct PasteTransaction {
     /// Extra looks, after a paste that did not settle, for the phone to be
     /// seen done with the clipboard before the user's contents go back.
     public var settleLooks = 30
+    /// Raised when a paste leaves its text on the clipboard because the
+    /// phone may still fetch it: until it expires, no agent process pastes,
+    /// since its text could reach that phone instead. The lease alone ends
+    /// with the process; this outlives it.
+    public var pending: HostFlag = .named("clipboard.pending")
+    /// How long a withheld clipboard is kept from other pastes. Universal
+    /// Clipboard offers the Mac's clipboard only for a short while; two
+    /// minutes is this backend's assumption, to be checked on a device (I07).
+    public var pendingSeconds: TimeInterval = 120
 
     public init() {}
 
@@ -321,6 +338,10 @@ public struct PasteTransaction {
     public func paste(_ text: String, verify: Bool, driver: PhonePasteDriver) -> Result {
         do {
             return try ClipboardLease.with(at: leaseURL, timeout: leaseTimeout) {
+                if let why = pending.reason() {
+                    return Result(outcome: .notDelivered("clipboard_pending: \(why); nothing was pasted"),
+                                  clipboardRestored: true)
+                }
                 let loan = try PasteboardLoan.with(text, on: pasteboard, restoreAfter: { outcome in
                     // A paste that settled is done with the clipboard. One that
                     // did not may still be fetched (a prompt left up, a slow
@@ -330,7 +351,12 @@ public struct PasteTransaction {
                 }) {
                     watcher.paste(text, verify: verify, driver: driver)
                 }
-                return Result(outcome: loan.value, clipboardRestored: loan.restored || pasteboard.string(forType: .string) != text)
+                let restored = loan.restored || pasteboard.string(forType: .string) != text
+                if !restored {
+                    try? pending.raise("a paste that did not finish left its text on the clipboard for a phone "
+                        + "that may still fetch it", until: Date().addingTimeInterval(pendingSeconds))
+                }
+                return Result(outcome: loan.value, clipboardRestored: restored)
             }
         } catch {
             // The lease or the snapshot failed: the clipboard was not touched.
