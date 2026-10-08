@@ -9,7 +9,7 @@
 | 层级 | 文件 |
 | --- | --- |
 | 架构决定 | [`docs/architecture/ADR-v2.2-hub-ui-run-lifetime.md`](../architecture/ADR-v2.2-hub-ui-run-lifetime.md)，以及 Kevin 2026-10-08 的最终裁决（Hub Core 现在做、完整 UI 分阶段；Explorer 基础现在做、学习层下一阶段） |
-| 公共契约 | [`docs/architecture/runtime-api-v1-freeze.md`](../architecture/runtime-api-v1-freeze.md) 与 `contracts/runtime/v1/`（#34 已冻结目录），由集成负责人 2ndscreen-5c 维护 |
+| 公共契约 | [`docs/architecture/runtime-api-v1-freeze.md`](../architecture/runtime-api-v1-freeze.md) 与 `contracts/runtime/v1/`（#34 已冻结目录），由集成负责人 2ndscreen-f1（原 5c） 维护 |
 | 实施规划 | 本目录 |
 | 历史方案 | Downloads 中 2026-10-08 的设计文档；架构 FINAL v1.3、单仓合并方案 FINAL v1.3 已由 ADR v2.2 宣布过期 |
 

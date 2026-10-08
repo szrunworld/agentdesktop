@@ -4,15 +4,15 @@
 
 | 工作线 | 范围 | 建议负责人 |
 | --- | --- | --- |
-| 集成负责人 | 公共契约（contracts/runtime/v1）、合并顺序、跨模块 E2E、发布门禁 | **2ndscreen-5c**（已确认；已实现 #21 #25 #26 #33 #34） |
-| L-Runtime | AgentDesktopRuntime、执行器、账本、Hub Core 的 Runtime 侧、CLI、MCP、SDK | **2ndscreen-5c**（已确认） |
+| 集成负责人 | 公共契约（contracts/runtime/v1）、合并顺序、跨模块 E2E、发布门禁 | **2ndscreen-f1（原 5c）**（已确认；已实现 #21 #25 #26 #33 #34） |
+| L-Runtime | AgentDesktopRuntime、执行器、账本、Hub Core 的 Runtime 侧、CLI、MCP、SDK | **2ndscreen-f1**（已确认） |
 | L-AIGUI | AgentDesktopAI、AgentDesktopGui（Explorer）、迁入 runtime/1、学习层 | **2ndscreen-40**（已确认；原名 1d） |
 | L-UI | 主窗口、导航、各页面、菜单栏、预览窗口（U1–U9） | **新建独立会话**（已确认）。只经统一 Runtime Client 与 Store 接入，不自定状态机或 API |
 | L-Win | Windows C# 对等实现与契约一致性 | **2ndscreen-40**（暂时确认，后续可再拆） |
 
 规则：公共契约只由集成负责人改；其他线需要新字段时提 issue 或在 A1 之后的契约 PR 里加；各线不得各自定义临时状态机。
 
-## 2.2 与 2ndscreen-5c 的 PR 编号对照
+## 2.2 与 2ndscreen-f1 的 PR 编号对照
 
 5c 在冻结文档里用 PR1–PR7 编号。本规划的 A、U、L 编号与之对应如下；以后 PR 标题同时写两个编号，避免两套计划。
 
@@ -89,8 +89,8 @@ P2：L1–L4 学习层，M1–M2 设备后端，U9 剩余 Hub 页面
 | 项 | 内容 |
 | --- | --- |
 | 输入 | Explorer 方案 B01–B10、`docs/migration/runtime-semantics-to-port.md` 七项接缝、M0 中性预演误点记录 |
-| 范围 | **AX 观察的故障隔离**（MAC-001：Safari 网页 AX 遍历拖住宿主）：AX 遍历不在主线程、不在持有 Desktop 执行锁时进行；有总 deadline，同时限制节点数、遍历深度与单个 AX 查询等待；超时后立即停止接受该遍历的新工作；无法中断的底层 AX 调用放在隔离的有界执行资源里，不能占满共享执行资源；同一 Desktop 连续超时时后台遍历数有上限，不无限积累；超时返回成功、降级结果（只有截图、元素列表标为 partial）或明确错误。仅给外层 Task 加超时不算完成。**存储权限**：`ai.sqlite` 等配置库与账本 0600、目录 0700，数据库只存凭据引用，密钥在系统安全存储。每 Desktop 串行执行器（不同 Desktop 并发）；动作在原生入口重验几何与代次，不一致返回 `target_moved`；动作前后 captureSequence 栅栏；dispatch_intent 先落盘；停止先关准入再等在途动作；审计写失败返回 `audit_unavailable` 并暂停输入；模型请求可取消 |
-| 测试 | RT-03…RT-12、RT-23A、RT-23B、SEC-01…SEC-05 |
+| 范围 | **观察与输入同一目标**（MAC-001，PR #37）：截图、元素与输入必须针对同一个绑定窗口；截图按 windowId 取窗口图像而不是整屏，或在整屏截图时核对绑定窗口在最上层且未被遮挡；目标被遮挡或不在最上层时 act 返回 `target_moved` 或 `invalid_target`，dispatch=0；回执的 confirmed 只表示投递，不表示目标窗口已变化。**AX 观察的故障隔离**（MAC-001：Safari 网页 AX 遍历拖住宿主）：AX 遍历不在主线程、不在持有 Desktop 执行锁时进行；有总 deadline，同时限制节点数、遍历深度与单个 AX 查询等待；超时后立即停止接受该遍历的新工作；无法中断的底层 AX 调用放在隔离的有界执行资源里，不能占满共享执行资源；同一 Desktop 连续超时时后台遍历数有上限，不无限积累；超时返回成功、降级结果（只有截图、元素列表标为 partial）或明确错误。仅给外层 Task 加超时不算完成。**存储权限**：`ai.sqlite` 等配置库与账本 0600、目录 0700，数据库只存凭据引用，密钥在系统安全存储。每 Desktop 串行执行器（不同 Desktop 并发）；动作在原生入口重验几何与代次，不一致返回 `target_moved`；动作前后 captureSequence 栅栏；dispatch_intent 先落盘；停止先关准入再等在途动作；审计写失败返回 `audit_unavailable` 并暂停输入；模型请求可取消 |
+| 测试 | RT-03…RT-12、RT-23A、RT-23B、RT-24、SEC-01…SEC-05 |
 | 验收 | M0 误点复现用例改为被拒绝且 dispatch=0；两 Desktop 并发、同 Desktop 有序；无静默前台回退 |
 
 ### A4 Hub Core（L-Runtime）
