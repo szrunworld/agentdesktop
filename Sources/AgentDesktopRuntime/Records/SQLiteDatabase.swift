@@ -8,7 +8,7 @@ final class SQLiteDatabase: @unchecked Sendable {
     enum Value { case text(String), int(Int64), null }
 
     private var db: OpaquePointer?
-    private let lock = NSLock()
+    private let lock = NSRecursiveLock()
 
     /// `path` nil keeps the database in memory (tests).
     init(path: String?) throws {
@@ -75,6 +75,8 @@ final class SQLiteDatabase: @unchecked Sendable {
 
     /// Run `body` in one transaction under the handle's lock order.
     func transaction<T>(_ body: () throws -> T) throws -> T {
+        lock.lock()
+        defer { lock.unlock() }
         try execute("BEGIN IMMEDIATE")
         do {
             let v = try body()

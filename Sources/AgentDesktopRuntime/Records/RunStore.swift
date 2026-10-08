@@ -75,6 +75,24 @@ public final class RunStore: @unchecked Sendable {
     private let db: SQLiteDatabase
     private let now: @Sendable () -> Date
     private let changed = NSCondition()
+    private let healthLock = NSLock()
+    private var writeFailure: Error?
+
+    /// A failed audit write latches this store unhealthy until restart.
+    /// Callers must close input admission rather than keep executing.
+    func checkWritable() throws {
+        if let failure = healthLock.withLock({ writeFailure }) { throw failure }
+    }
+
+    private func write<T>(_ body: () throws -> T) -> T? {
+        do {
+            try checkWritable()
+            return try body()
+        } catch {
+            healthLock.withLock { if writeFailure == nil { writeFailure = error } }
+            return nil
+        }
+    }
     private static let columns = """
         run_id, kind, origin, ownership, lifetime, client_id, connection_id, session_id, desktop_id, phase, outcome,
         quiescence, closing_reason, revision, created_at, ended_at, receipts, unknown_actions
@@ -151,7 +169,7 @@ public final class RunStore: @unchecked Sendable {
     }
 
     func create(_ r: RunRecord) {
-        try? db.execute("INSERT INTO runs (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(r))
+        _ = write { try db.execute("INSERT INTO runs (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(r)) }
         appendEvent(r.runId, "run.started", .obj([
             ("kind", .string(r.kind)), ("origin", .string(r.origin.rawValue)), ("ownership", .string(r.ownership.rawValue)),
             ("lifetime", .string(r.lifetime.rawValue)), ("desktopId", .string(r.desktopId)), ("sessionId", .string(r.sessionId)),
@@ -159,7 +177,7 @@ public final class RunStore: @unchecked Sendable {
     }
 
     func update(_ r: RunRecord) {
-        try? db.execute("INSERT OR REPLACE INTO runs (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(r))
+        _ = write { try db.execute("INSERT OR REPLACE INTO runs (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(r)) }
         changed.lock(); changed.broadcast(); changed.unlock()
     }
 
@@ -221,11 +239,16 @@ public final class RunStore: @unchecked Sendable {
 
     @discardableResult
     func appendEvent(_ runId: String, _ type: String, _ data: JSONValue) -> Int {
-        let seq = ((try? db.query("SELECT COALESCE(MAX(seq), 0) FROM events WHERE run_id = ?", [.text(runId)]).first?[0]) as? Int64 ?? 0) + 1
-        try? db.execute("INSERT INTO events (run_id, seq, at, type, data) VALUES (?, ?, ?, ?, ?)",
-                        [.text(runId), .int(seq), .text(Timestamp.string(now())), .text(type), .text(data.encoded())])
+        let seq = write {
+            try db.transaction {
+                let seq = ((try db.query("SELECT COALESCE(MAX(seq), 0) FROM events WHERE run_id = ?", [.text(runId)]).first?[0]) as? Int64 ?? 0) + 1
+                try db.execute("INSERT INTO events (run_id, seq, at, type, data) VALUES (?, ?, ?, ?, ?)",
+                               [.text(runId), .int(seq), .text(Timestamp.string(now())), .text(type), .text(data.encoded())])
+                return Int(seq)
+            }
+        }
         changed.lock(); changed.broadcast(); changed.unlock()
-        return Int(seq)
+        return seq ?? 0
     }
 
     public func events(_ runId: String, after: Int, limit: Int) -> [JSONValue] {
