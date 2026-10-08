@@ -13,8 +13,9 @@ state: draft
 | 2026-10-07 | 初稿，在 2ndscreen 仓库（szrunworld/2ndscreen PR #56，分支 `szrunworld/rfc-0002-acp`）。命令为 `2ndscreen acp`，实现位置为 TypeScript `packages/task-runtime` |
 | 2026-10-08 | 修订，迁到 agentdesktop 仓库 `docs/acp/`。依据 Kevin 的 [v1.0 方案](00-input-plan-v1.0.md) 与协调者的 [核对结论](README.md)。命令改为 `agentdesktop acp`；ACP 只经 `RuntimeClient` 与 runtime/1 进入 Runtime；生命周期改按 ADR v2.2；模块边界改为 `Sources/AgentDesktopACP` 的实际布局。#56 由本文取代（PR #54） |
 | 2026-10-08 | 第二轮。记入 Kevin 对 K1～K3 的裁决（README 第五节）；协议版本定为 ACP v1（`protocolVersion: 1`，见 02）；写明不连接编辑器给的 MCP 服务器这一有意偏离；隐私改为三级（见 08）；记入出站评估结论（见 09）。代码依据更新为 `acp-skeleton`@34ae2c5 |
+| 2026-10-08 | 第三轮。基线改为 AgentDesktop `main`；记入 Kevin 的第二、三次裁决（第十七节）；dev 入口已接线；unknown 的 v1 线上表示按 P2；窗口标题不进 ACP 事件流按 P1。代码依据更新为 `acp-skeleton`@8f57c1d |
 
-本文是待实施方案，不代表功能已经交付。代码依据是 `acp-skeleton`@34ae2c5：七条工作线（#54、#62、#63、#65、#66、#67、#68）已合入，基线含 `ai-gui-foundation`@b2831ca（A0 #47、G0 #51）。真实端到端仍要等 A2、A4、A6（Kevin 裁决附加约束 6：假实现通过不算端到端验收）。现状与目标的逐项差距见 [04-gap-analysis.md](04-gap-analysis.md)。
+本文是待实施方案，不代表功能已经交付。**集成基线是 AgentDesktop `main`**（第十七节）。代码依据是 `acp-skeleton`@8f57c1d：已合入 main@134b451（#2，含 A0、G0、AX、SEC-01、A2 #84 与 #94），七条工作线经第一至第六轮。真实端到端仍要等 A4、A6（附加约束 6：假实现通过不算端到端验收）；A2 已合入。现状与目标的逐项差距见 [04-gap-analysis.md](04-gap-analysis.md)。
 
 权威顺序沿用 [docs/plan/README.md](../plan/README.md)：ADR v2.2 > 冻结契约（`contracts/runtime/v1`）> `docs/plan` > 本文。本文与上位文件冲突时，以上位文件为准。
 
@@ -89,7 +90,7 @@ Zed 配置示例：
 - **端点**：沿用 `AgentDesktopClient.EndpointResolver` 与 `--endpoint`、`AGENTDESKTOP_ENDPOINT`。不自己猜路径。
 - **握手**：先 `runtime.handshake`，版本不符就以明确错误退出，不降级。
 - **ACP 协商**：客户端发 1 用 v1；发更大的数回 1，由客户端决定是否断开；发 0 拒绝（-32600，`protocol_version_unsupported`）；格式不对回 -32602（02 第五节）。
-- **开发入口**：CLI 接入之前，用不进发布包的 `agentdesktop-acp-dev`（`Sources/agentdesktop-acp-dev`）。34ae2c5 上它有 `--demo` 模式（脚本化端口，无 Runtime、无 GUI 输入），但 stdio、Runtime 端口与投影器三处接线仍是 TODO（`main.swift` 的 `ACPAgentServerDevWiring`），由第二轮补上。CLI 子命令由协调者提请 f1 接入（07 R9）。
+- **开发入口**：CLI 接入之前，用不进发布包的 `agentdesktop-acp-dev`（`Sources/agentdesktop-acp-dev`）。8f57c1d 上它已接线：`--demo`（脚本化端口，无 Runtime、无 GUI 输入）或 `--endpoint`（测试副本的 Runtime），默认拒绝产品端点。CLI 子命令按 f1 的 R9 在 G1 之后、#53 离开草案之后再接。
 
 ## 四、总体架构
 
@@ -211,7 +212,7 @@ runtime/1 现在没有任务目录方法。`ACPExposedTask` 的来源分三步�
 | --- | --- | --- | --- |
 | 现在 | 平台通用的只读与控制命令：Desktop 列表、本身份 Run 的查看与取消（S 的 `ACPCommandCatalog`） | `desktop.list`、`run.list`、`run.show`、`run.cancel` | 无 |
 | A6 之后 | 通用 GUI 目标任务：Desktop、目标描述、验证谓词、允许动作。R 的 `ACPTaskCatalog` 只在 `runtime.capabilities` 宣告 `unit.run` 时生成它，否则任务列表为空 | `unit.run`（目录 frozen，PR2d，未实现） | A6（40，PR #50；07 R1） |
-| 之后 | 学习层的已验证流程；配对 App 声明的任务 | `gui.procedures.*`（reserved，PR7）；任务目录方法（不存在，07 R6 提议 `task.catalog.list`） | f1 契约增量、A4 授权 |
+| 之后 | 学习层的已验证流程；配对 App 声明的任务 | `gui.procedures.*`（reserved，PR7）；任务目录方法：f1 不接受 R6，ADR v2.2 下平台不登记 Agent，任务只来自方法宣告（07 第〇节） | A4 授权 |
 
 规则：
 
@@ -226,7 +227,7 @@ runtime/1 现在没有任务目录方法。`ACPExposedTask` 的来源分三步�
 
 - **一处投影**：所有 `session/update` 都由 `ACPEventProjector` 产生。Runtime、GUI Core、业务代码都不拼 ACP JSON。
 - **三级结果不混淆**：受理、已执行、已验证是三件事（`ACPActionLevel`：accepted、dispatched、executed、verified、contradicted、unknown、refused）。已执行从不显示为已验证。
-- **unknown**：只显示「待核实」，从不重试。
+- **unknown**：明确终态，从不重试（第二次裁决 P2）。Run 结束后内部为 execution = terminated、outcome = unknown，显示「结果未知 · 需要核实」。ACP v1 的工具状态没有中性终态，线上用 `failed`，`rawOutput` 带 `{execution: "terminated", outcome: "unknown"}`；映射只在 Wire 适配器一处，可单点切换。
 - **未识别事件**：目录外的类型按受保护级处理，只产生一条中性状态，不崩溃（08 第一节第 5 条、3.4）。
 - **事件来源**：Runtime 现在发出 `run.started`、`action.accepted`、`action.dispatched`、`action.<结果>`、`run.finishing`、`stop.accepted`、`run.quiescent`、`run.ended`（`RunStore.swift:124,155`；`RuntimeService+Act.swift:52,95,129`；`ExecutionCoordinator.swift:198,221-222`）。`RunEvent.type` 在 schema 里是自由字符串，类型目录未冻结（F1-01）。原文 5.1 的 Queued、Unit Started、Verification、Policy Rejected、Approval Required 在 Runtime 里还没有对应事件。
 - **续传**：每个 Run 用 `events.subscribe {runId, after}` 从 `lastCursor[runId]` 续传；游标过期返回 `events_cursor_expired`，这时改用 `run.show` 读当前状态。
@@ -270,6 +271,7 @@ runtime/1 现在没有任务目录方法。`ACPExposedTask` 的来源分三步�
 
 - **跨应用数据**：截图只在放宽且其 `windowId` 等于绑定目标时给出引用；窗口标题只读绑定目标；输入内容任何策略下都不显示；审批参数属受保护级（08 2.1）。
 - **默认最严**：截图、页面文字、窗口标题、动作参数默认不进入任何 ACP 更新（`ACPPrivacyPolicy` 默认 `screenshots=off`、`pageText=false`）。放宽 `pageText` 也不放松邮箱、电话等的遮盖。
+- **窗口标题与身份信息**（第二次裁决 P1）：默认敏感，在事件与日志中一律脱敏；只在用户授权的本地主窗口展示，任何策略下都不进入 ACP 事件流。页面正文只在明确授权的观察任务中可读，仍遵守脱敏与日志规则。
 - **元数据也脱敏**：工具标题、错误消息、摘要、参数里的个人信息同样脱敏，例如「点击发送给 example@email.com」。
 - **脱敏只在一处**：E 的 `ACPEventProjector.redact`。S 写日志、写存储、回错误之前都先经它。
 - **日志不是旁路**：错误日志、调试日志、崩溃输出只写稳定错误码与 ID，不写原文。
@@ -308,7 +310,7 @@ P3 要通过，还需：网关数据等级闸门（P3-06）、执行体改写自
 | 键的现状 | 现在的调用方是连接的 uid，不是 clientId。同一用户的所有客户端共用一个 requestId 空间。ACP 生成的 requestId 必须全局唯一：前缀加本进程随机段与会话 ID |
 | 同一 prompt 重试 | `ACPSubmission.submissionKey` 对同一 prompt 稳定。R 的 requestId 为 `acp-sub-` 加 sha256（`acp-submission/v1`、调用方、submissionKey）的前 24 字节十六进制（07 第一节）；发送前写入 `ACPSubmissionLog`，重试复用同一 requestId，Runtime 返回原回执（`.duplicate`）。进程重启后，会话的 `pendingSubmissionKey` 让重试沿用原键 |
 | 不同请求 | 正文相同也用不同 requestId，不会被错误去重 |
-| 结果不明 | 发出后丢了回复，记为 `.unconfirmed`，只用 `request.show {requestId}` 查询，从不重发。查不到时显示「待核实」 |
+| 结果不明 | 发出后丢了回复，记为 `.unconfirmed`，只用 `request.show {requestId}` 查询。查不到时显示「待核实」。按 f1 对 R7 的结论，只有提交时间晚于 not_found 里的 `oldestAcceptedAt`、且 `instanceId` 与提交时握手一致，才可用同一 requestId 重发一次；这两个字段落地前一律不重发 |
 | 回复丢失的映射 | 现在由 CLI 自己映射为 `request_acceptance_unknown`（`Sources/AgentDesktopCLI/Commands/CallCommand.swift:41`），`RuntimeClient` 不做。R 要自己实现同样的映射 |
 | unknown | 已执行但结果未知的动作，从不因超时重新执行 |
 
@@ -349,3 +351,22 @@ P3 要通过，还需：网关数据等级闸门（P3-06）、执行体改写自
 | 测试 | P1～P4 验收 | T01～T28、ACP-29～31 与 G0～G5 |
 | 协议版本 | 未定 | ACP v1；v2 草案不做 |
 | 编辑器 MCP | 入站一律忽略 | 同，且写明是对 v1 规范的有意偏离 |
+
+## 十七、基线与 Kevin 的第二、三次裁决（2026-10-08）
+
+全文见 [README](README.md) 第七、八节。这里只列影响本 RFC 的结论。
+
+| 编号 | 结论 | 对本 RFC 的影响 |
+| --- | --- | --- |
+| 总体 | 七条线协议层验收通过；ACP v1 暂不宣布完成、暂不批准发布；#53 保持草案 | 第十四节的发布条件不变 |
+| O1 | 真实模型验收用独立测试凭据，存系统钥匙串或受控密钥存储，有预算与工具白名单 | 第十二节 P3-10 的前提 |
+| O2 | Codex 为 Experimental 执行适配器，经 RuntimeClient，不绕过审批，不重复执行 unknown | 第十二节 |
+| O3 | 允许在隔离环境做「agent 修改自身 MCP 配置」实验，不进产品 | 第十二节，G4-06 |
+| P1 | 窗口标题与身份信息不进入 ACP 事件流 | 第十一节 |
+| P2 | 结果不明的动作为明确终态 | 第九节 |
+| Z1 | Zed 手工首帧纳入协议验收；取得真实帧之前不得据模拟结果填写协议版本文档或标记通过 | 第三节的 v1 选择以 02 与 Z1 为准 |
+| 第三次 | AgentDesktop `main` 是唯一集成基线；#53 目标改为 main，仍不批准合并 | 本文代码依据 |
+| 第三次 | CI 严格线程池一步在 GitHub runner 上超时，#109 删除；恢复前每次 ACP 合入前在本机执行 `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter AgentDesktopACPTests` 与全包，并记录退出码；`ACPBridgeExecutor` 的闸门测试不得删除或放宽 | 06 G3-12 |
+| 第三次 | 下一阶段：先与 f1 对齐三项契约增量（principal、`Run.lastEventSequence`、事件目录），40 的 `unit.run` 同为 P0；然后打通 Zed → ACP → Runtime → GUI → 事件 → Zed | 05 第二、三节 |
+
+PR #2 于 11:15:34Z 由共用账号合入 main（134b451）；Kevin 要求核实操作者，决定现阶段不回滚。

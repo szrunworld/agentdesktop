@@ -1,124 +1,122 @@
 # ACP PR 依赖图与合并顺序
 
-状态：2026-10-08 第二轮，工作线 D。基线：`acp-skeleton`@34ae2c5（draft PR #53，目标 `ai-gui-foundation`）。
+状态：2026-10-08 第三轮，工作线 D。**唯一集成基线是 AgentDesktop `main`**（README 第八节）。#53（`acp-skeleton`→`main`）保持草案，Kevin 未批准合并。
 
-## 一、已合入的状态
+## 一、现状
 
-| PR | 线 | 内容 | 合入 `acp-skeleton` |
-| --- | --- | --- | --- |
-| #53 | 协调者 | 冻结接口（`Ports.swift`、`Model/`）、方案输入、分工；仍是草案，目标 `ai-gui-foundation` | 基线本身 |
-| #54 | D | 01、04、05、06 第一版 | 已合入 |
-| #62 | S | 入站服务：会话、prompt、取消、审批、存储、dev 入口（`--demo`） | 已合入 |
-| #63 | R | Runtime 桥 `ACPBridgeRuntimePort`、提交记录、任务目录、07 | 已合入 |
-| #65 | E | 事件投影、三级隐私、脱敏、08、15 份夹具 | 已合入 |
-| #66 | O | 出站隔离实测（`spikes/acp-outbound/`）、09 | 已合入 |
-| #67 | T | stdio JSON-RPC、v1 适配器、版本决策 02 | 已合入 |
-| #68 | Q | 156 个用例、假编辑器、一致性测试、E2E 手册 | 已合入 |
-| 协调者提交 | 协调者 | `ACPActionLevel.failed(code:)`（d24c1f7）；`ACPRequestId` 哈希与 `==` 一致（86a64c2）；会话列表带 `cwd`、恢复带 `replay`（34ae2c5） | 已合入 |
-
-基线已含 `ai-gui-foundation`@b2831ca（A0 #47、G0 #51）。
+| 位置 | 提交 | 内容 |
+| --- | --- | --- |
+| `main` | 134b451 | #2 合入（`ai-gui-foundation` 全部，含 A0 #47、G0 #51、AX #60、SEC-01 #69、A2 #84 与 #94） |
+| `main` | 129b594 | #109：CI 删掉严格线程池一步（runner 上 SwiftPM 挂起） |
+| `main` | fa2222f | #102：事件目录 `PlatformRunEvent`、回执与拒绝带原因、A6 契约部分 |
+| `acp-skeleton` | 8f57c1d | 已合入 main@134b451 与 129b594；**未合入 fa2222f**。七条线第一至第六轮全部在内：#54 D、#62 S、#63 R、#65 E、#66 O、#67 T、#68 Q 及后续各轮；dev 入口已接线 |
+| #111 | 未合入 | 整合剩余分支到 main：UI、MCP/SDK（#29）、实验 ACP（#53 及 23 个线分支）、契约（#102）；ACP 仍为实验，dev 入口不打包 |
 
 ## 二、总图
 
 ```
-ai-gui-foundation
-  b2831ca  A0 #47 + G0 #51
-     │
-     └─ acp-skeleton #53（草案）
-          │  已合入：#54 D、#62 S、#63 R、#65 E、#66 O、#67 T、#68 Q
-          │  34ae2c5
-          │
-          ├─ 第二轮（进行中）
-          │    t2  T 线 ─┐
-          │    s2  S 线 ─┼─ dev 入口接上真实 stdio + RuntimeClient 端口 + 投影器（GAP-28）
-          │    r2  R 线 ─┘
-          │    d2  D 线：本文、01、04、06 更新
-          │
-          ├─ 下一步 Q-L1：假编辑器对真 dev 入口跑场景（scripts/acp/run-real.sh）
-          │
-          ├─ Q-L2：/tmp/adt-* 测试副本上的真 Runtime（只读部分现在就能跑）
-          │
-          └─ #53 转正式 PR → f1 审核接口 → ai-gui-foundation（只含 mock 与只读）
+main ──134b451（#2：A0、G0、AX、SEC-01、A2）──129b594（#109）──fa2222f（#102 事件目录）──▶
+  │                                                                       │
+  │                                                         acp-skeleton 需合入 fa2222f
+  │                                                                       ▼
+  └─ acp-skeleton #53（草案，目标 main）8f57c1d
+        │  已有：T 传输与 v1 · S 入站服务 · R Runtime 桥 · E 投影与三级隐私
+        │        Q 用例与假编辑器 · O 出站评估 · D 文档 · dev 入口
+        │
+        │  P0 依赖（README 第八节）
+        │  ┌──────────────────────────────────────────────────────────┐
+        │  │ f1 契约增量 1：principal（R4）           ── main 未见      │
+        │  │ f1 契约增量 2：Run.lastEventSequence（R10）── main 未见    │
+        │  │ f1 契约增量 3：事件目录（R3，F1-01）     ── fa2222f 已落   │
+        │  │ 40：unit.run（A6，#50）                  ── 未开始实现     │
+        │  └──────────────────────────────────────────────────────────┘
+        │              │ 契约落地后立即
+        │              ▼
+        ├─ R 集成：caller.verified=true、lastCursor、unit.run 提交
+        ├─ E 集成：按目录分级，删除按键名推断
+        │              │
+        │              ▼
+        ├─ Q：最小真实链路（第三节），隔离测试副本，不影响其他会话的 WindowServer
+        │              │
+        │              ▼  G1
+        ├─ f1 R9：CLI `agentdesktop acp`（G1 之后、#53 离开草案之后）
+        │
+        ├─ 之后：A4（PR3）→ T07、T15、ACP-31、心跳 → G2、G3 的身份部分
+        ├─ 之后：PR4 inbox → 审批、提问、场景 C 与 D → G2、G3 的审批部分
+        ├─ 并行：#29 MCP 合入 + T18-02 真实点击 → G0-02
+        └─ 并行：Z1 Zed 首帧（Kevin 手工）→ G0-12、G5-04
 
-   外部依赖（不由本组实现）                          解锁
-   A2 / PR2b 单一端点（f1）──────┐
-   #29 MCP 经 Runtime（f1，A7）──┼─→ G0 ─→ CLI `agentdesktop acp`（07 R9）
-   SEC-01～05（f1；#69 进行中）──┘
-   A6 / PR2d unit.run（40，#50）──────────→ 真实任务提交 → G1、G2 的 L2/L3
-   A4 / PR3 身份、授权、心跳（f1）─────────→ T07、T15、ACP-31、HB-11
-   PR4 inbox 审批与提问（f1；07 R2）────────→ T16、T17、场景 D 的真实部分
-   F1-01 事件目录（f1；07 R3，08 E-1～E-10）→ E 对齐，G0-13
-   AX 隔离 RT-23A/B（#60 进行中）──────────→ T28、G3-08
-   Zed 真机握手（Q，前台一次）─────────────→ G0-12、G5-04
-   P3 网关闸门与真实模型凭据（Kevin，O1）──→ G4
-   打包、清单、Registry、JetBrains（P2）───→ G5
+   G3 完成 → Kevin 评估是否进首版候选（K3）
+   正式发布 → G4（P3 实现）、G5（分发）与 Runtime 集成验收全部通过
 ```
 
-读法：箭头表示「必须先合入或先满足」。按 Kevin 裁决附加约束 6，A2、A4、A6 合入前任何假实现通过都不算端到端验收。
+读法：箭头表示「必须先合入或先满足」。按附加约束 6，A2、A4、A6 合入前任何假实现通过都不算端到端验收；A2 已合入，A4、A6 未合入。
 
-## 三、第二轮与下一步
+## 三、最小真实链路
 
-| 步骤 | 内容 | 前提 | 验收 |
-| --- | --- | --- | --- |
-| 1 | t2、s2、r2：`ACPAgentServerDevWiring` 三处接线；各线第一轮遗留项 | 无 | `swift build`、`swift test` 退出码 0；`agentdesktop-acp-dev` 不再报「not on this build yet」 |
-| 2 | d2：文档更新 | 无 | 本 PR |
-| 3 | Q-L1：`scripts/acp/run-real.sh agentdesktop-dev <out>` 对真 dev 入口跑假编辑器场景 | 步骤 1 | `summary.json` 退出码；cases.csv 只改 L1 用例的状态与证据 |
-| 4 | Q-L2 只读：测试副本上 `desktop.list`、`run.list`、`run.show`、`events.subscribe` | 步骤 1 | 记录到 `docs/acp/tests/evidence/` |
-| 5 | Zed 真机握手：取得 `initialize` 线上帧 | Zed 已装 | 02 7.2 补上帧 |
-| 6 | #53 送 f1 审核接口，合入 `ai-gui-foundation` | 步骤 1～3 | f1 审核意见 |
-| 7 | A2、#29 合入且 G0 通过后：CLI 接入 `agentdesktop acp` | G0 | G0 清单 |
-| 8 | A6 合入后：真实任务提交、G1 的 L2 与 L3（Zed） | A6、步骤 7 | G1 清单 |
-| 9 | A4、PR4 合入后：G2、G3 | A4、PR4 | G2、G3 清单 |
-| 10 | G3 完成后评估是否进首版候选（K3） | G3 | Kevin 决定 |
-| 11 | G4、G5 | P3 实现、分发 | G4、G5 清单 |
+第二次裁决定的下一阶段优先级：真实编辑器到结果返回编辑器，至少覆盖正常完成、取消、断连、审批拒绝、结果未知五类。
+
+```
+Zed 1.23.2（隔离 --user-data-dir）
+   │ stdio，ACP v1（protocolVersion 1）
+   ▼
+agentdesktop-acp-dev --endpoint /tmp/adt-*/side.runtime.sock
+   │  T：帧与 v1 适配 → S：会话与 prompt → R：提交
+   │ 控制连接：runtime.handshake（principal）→ unit.run（requestId = acp-sub-…）
+   ▼
+AgentDesktop Runtime（测试副本，真实 GUI 输入已打开）
+   │ unit.run → Run（agent_hub / external_client / connection_scoped）
+   ▼
+GUI 执行（Explorer 单元，绑定窗口，G0 复核）
+   │ RunEvent：run.started、action.*、run.quiescent、run.ended（目录 fa2222f）
+   ▼
+R 的订阅连接：events.subscribe {runId, after}
+   │
+   ▼
+E：投影与三级脱敏 → S → T → session/update、prompt 回复
+   ▼
+Zed 显示计划、动作卡片与结果
+```
+
+| 环节 | 现在是否具备 | 缺什么 |
+| --- | --- | --- |
+| Zed 启动 dev 入口并完成 `initialize` | 部分 | Z1 真实首帧未取得 |
+| ACP v1 传输、会话、prompt | 是（L1 通过） | 无 |
+| 握手拿到 principal | 否 | f1 契约增量 1 |
+| `unit.run` 提交 | 否 | 40 的 A6 |
+| GUI 执行与 G0 复核 | 是（main） | 测试副本打开真实 GUI 输入 |
+| 事件目录 | 在 main，不在 `acp-skeleton` | 合入 fa2222f；E 对齐 |
+| 恢复时区分回放与实时 | 否 | f1 契约增量 2 |
+| 投影与脱敏 | 是（L1，P1/P2 裁决已通过） | 真实事件复测 |
+| 五类情况 | 正常、取消、断连、结果未知要 A6；审批拒绝要 PR4 | 见 06 |
 
 ## 四、对应原文 ACP-A0～P4
 
-| 原文编号 | 内容 | 落在 | 状态 | 外部依赖 |
-| --- | --- | --- | --- | --- |
-| A0-01 | CLI v1.2 与代码差异 | D：04 | 已交付 | 无 |
-| A0-02 | Runtime/1 接口基线 | D：04；R：07 | 已交付 | 无 |
-| A0-03 | ADR v2.2 生命周期映射 | D：01 第七节 | 已交付，K1 已裁决 | 无 |
-| A0-04 | Hub 身份、授权、撤销 | D：04 GAP-05、06；R：07 R4、R5 | 已交付（文档） | A4 |
-| A0-05 | MCP 绕过修复 | 外部 | 未开始 | A2、#29 |
-| A0-06 | 协议版本与 SDK | T：02 | 已交付：v1 | 无 |
-| A0-07 | 单一 CLI 入口 | 协调者提请 f1（07 R9） | 未开始 | f1 |
-| A0-08 | 事件脱敏策略 | E：08 | 已交付 | F1-01 对齐 |
-| P1-01 | `agentdesktop acp` | dev 入口（S）；CLI 由 f1 | dev 入口接线在第二轮 | f1、G0 |
-| P1-02 | stdio JSON-RPC | T | 已合入 | 无 |
-| P1-03 | 初始化与能力协商 | T | 已合入 | 无 |
-| P1-04 | ACP Session 创建 | S | 已合入（mock） | A4 |
-| P1-05 | 任务映射 | R `ACPTaskCatalog`、S `ACPCommandCatalog` | 已合入（无 `unit.run` 时列表为空） | A6、R6 |
-| P1-06 | prompt 到 Runtime | S、R | 已合入（mock） | A6 |
-| P1-07 | `session/update` 事件流 | E | 已合入（mock） | F1-01 |
-| P1-08 | Run 状态查询 | R | 已合入，可读真 Runtime | 无 |
-| P1-09 | Zed 兼容 | Q | 用例与手册已合入 | A6、CLI |
-| P2-01 | Session List | S | 已合入（mock） | A4 |
-| P2-02 | Session Resume | S、R | 已合入（load 与 resume，34ae2c5） | 无 |
-| P2-03 | Event Replay | R、E | 已合入（mock） | F1-01 |
-| P2-04 | Approval | S | 已合入（Runtime 侧 `capability_missing` 即拒绝） | PR4 |
-| P2-05 | Ask / Auto | S | 已合入（mock） | PR4 |
-| P2-06 | Cancel | S、R | 已合入 | 无 |
-| P2-07 | Unknown | E、S | 已合入 | 无 |
-| P2-08 | Privacy Filter | E | 已合入 | 无 |
-| P2-09 | 长运行与断连 | R、Q | 用例已合入 | A6 |
-| P2-10 | Zed、JetBrains 兼容 | Q | JetBrains 延后（K2） | A6 |
-| P3-01～P3-10 | 出站执行体 | O 评估 | 已交付：现在不能通过 | Kevin（O1、O2）、P3 实现 |
-| P4 | 打包、清单、Registry、文档 | 协调者、f1 | 未开始 | G0～G3 |
+| 原文编号 | 内容 | 状态 | 依赖 |
+| --- | --- | --- | --- |
+| A0-01～04 | 差距、契约基线、生命周期、身份 | 已交付（01、04、07） | 无 |
+| A0-05 | MCP 绕过 | 单一端点已由 A2 完成；MCP 本身待 #29 | #29 |
+| A0-06 | 协议版本 | 已选 v1；真实首帧待 Z1 | Z1 |
+| A0-07 | 单一 CLI 入口 | 延后到 G1 之后（f1 R9） | G1 |
+| A0-08 | 脱敏策略 | 已交付（08）；对齐目录待做 | fa2222f |
+| P1-01 | `agentdesktop acp` | dev 入口已可用；CLI 延后 | G1 |
+| P1-02～04 | 传输、协商、会话 | 已合入，L1 通过 | A4（真实身份） |
+| P1-05、06 | 任务与 prompt 到 Runtime | 已合入；任务来自 `unit.run` 宣告 | A6 |
+| P1-07 | 事件流 | 已合入 | 目录对齐、A6 |
+| P1-08 | Run 状态查询 | 已合入，L2 只读通过 | 无 |
+| P1-09 | Zed | 手册与采集工具已合入 | Z1、A6 |
+| P2-01～03 | 列表、恢复、回放 | 已合入（L1） | A4、增量 2 |
+| P2-04、05 | 审批、Ask/Auto | 已合入（`capability_missing` 即拒绝） | PR4 |
+| P2-06、07 | 取消、unknown | 已合入；P2 裁决的明确终态 L1 通过 | A6 |
+| P2-08 | 隐私 | 已合入；P1 裁决 L1 通过 | A6 |
+| P2-09、10 | 长运行、编辑器兼容 | 用例已有 | A6、Z1；JetBrains 为 P2 |
+| P3-01～10 | 出站 | 评估完成，不能通过；O1～O3 已裁决 | P3 实现 |
+| P4 | 分发 | 未开始 | G1～G3、R9 |
 
-## 五、A2、A6 之前能合什么
+## 五、合并规则
 
-**可以合入 `acp-skeleton`，并随 #53 送 f1 审核：**
-
-- **文档**：01～09、`docs/acp/tests/**`。
-- **协议、投影、桥、服务器**：已合入的 T、E、R、S 代码与第二轮的接线。
-- **开发入口**：`agentdesktop-acp-dev`，不进 `bundle-app.sh` 的发布包。
-- **只读真机**：测试副本上的只读调用。
-
-**不能在 A2、A6 之前合入或启用：**
-
-- **发布物里的 `agentdesktop acp`**：要等 G0。
-- **真实任务提交**：`unit.run` 不存在；桥对真 Runtime 只能返回 `capability_missing`。
-- **任何真实写操作由 ACP 自己驱动**：ACP 不是执行器，永远不做。
-- **真实审批裁决**：PR4 之前不存在。
-- **出站代码**：只在 `spikes/`，G4 之前不进 `Package.swift`。
+1. **不合并 #53**：Kevin 未批准。各线继续合入 `acp-skeleton`。
+2. **跟随 main**：main 每次有 Runtime 或契约变更（下一项是 fa2222f），协调者把 main 合入 `acp-skeleton`，各线在其上集成。
+3. **每次合入前本机严格池回归**：`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter AgentDesktopACPTests` 与全包各一次，记录退出码（CI 删掉了这一步，README 第八节）。
+4. **真实写操作只经 runtime/1**：ACP 不新增执行调度或 GUI 控制入口。
+5. **#111 与 #53 的关系**：#111 把 `acp-skeleton` 作为实验源码收进 main 的提议由 Kevin 与 f1 决定；在决定前，ACP 的改动仍只进 `acp-skeleton`。
