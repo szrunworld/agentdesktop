@@ -15,6 +15,10 @@ struct EmptyBackend: RuntimeBackend {
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: nil) }
 }
 
+struct FastClock: PollClock {
+    func pause(milliseconds: Int) async throws { try await Task.sleep(nanoseconds: 2_000_000) }
+}
+
 struct StillClock: PollClock {
     func pause(milliseconds: Int) async throws { try await Task.sleep(nanoseconds: 3_600_000_000_000) }
 }
@@ -59,7 +63,7 @@ struct MainWindowHostTests {
         await store.start()
         guard case .disconnected(let p) = store.connection else { Issue.record("connected"); return }
         #expect(p.code == "runtime_offline")
-        #expect(AppController.statusLines(store) == ["Runtime 未连接：Runtime 未运行"])
+        #expect(MenuBarPanelView.status(store) == StatusText("Runtime 未连接", .danger))
         store.stop()
     }
 
@@ -89,9 +93,11 @@ struct MainWindowHostTests {
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
         store.stop()
-        #expect(AppController.statusLines(store) == ["3 个 Desktop · 2 个运行进行中"])
+        #expect(MenuBarPanelView.summary(store) == "3 个 Desktop · 2 个运行进行中")
+        #expect(MenuBarPanelView.status(store) == StatusText("运行中", .running))
         await store.stopAllInput()
-        #expect(AppController.statusLines(store).last == "输入已停止")
+        #expect(MenuBarPanelView.status(store) == StatusText("输入已停止", .attention))
+        #expect(MenuBarPanelView.summary(store) == "3 个 Desktop · 2 个运行进行中（2 个停止中）")
     }
 
     // UC14 in the host: closing a preview window removes only the window.
@@ -134,5 +140,43 @@ struct MainWindowHostTests {
         await store.refreshDesktops()
         #expect(store.desktopsState == .loaded)
         #expect(controller.previews.open.isEmpty, "the preview of the destroyed Desktop closed")
+    }
+
+    // P32 choices. UC50: hiding or keeping in the background quits nothing
+    // and stops nothing; UC51: stop-and-quit answers yes only once quiet.
+    @Test func quitChoices() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let q = QuitController(store: store)
+        q.clock = FastClock()
+        var replies: [Bool] = [], hidden = 0, background = 0
+        q.reply = { replies.append($0) }
+        q.hideMainWindow = { hidden += 1 }
+        q.keepInBackground = { background += 1 }
+
+        await q.begin(show: false)
+        q.choose(.hideWindow)
+        #expect(replies == [false] && hidden == 1)
+        await q.begin(show: false)
+        q.choose(.keepInBackground)
+        #expect(replies == [false, false] && background == 1)
+        await q.begin(show: false)
+        q.choose(.cancel)
+        #expect(replies == [false, false, false])
+        #expect(!m.callLog.contains("runtime.stopAll"), "none of these stops anything")
+        #expect(store.activeRuns.count == 2)
+
+        await q.begin(show: false)
+        q.choose(.stopAndQuit)
+        let flow = try #require(q.flow)
+        for _ in 0..<200 where flow.stoppedIds.count < 2 { try await Task.sleep(nanoseconds: 5_000_000) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(replies.count == 3, "no answer while Runs are only stopping")
+        #expect(!q.approved)
+        for id in flow.stoppedIds { m.confirmQuiescence(id) }
+        for _ in 0..<200 where replies.count < 4 { try await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(replies.last == true && q.approved)
     }
 }
