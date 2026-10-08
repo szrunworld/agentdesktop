@@ -33,7 +33,7 @@ final class LiveRuntime {
         path = dir + "/runtime.sock"
         let identity = RuntimeIdentity(instanceId: "rt_live", pid: getpid(), startedAt: Timestamp.string(Date()),
                                        endpoint: path, buildSource: "unknown")
-        server = RuntimeServer(path: path, service: { let s = RuntimeService(identity: identity, backend: backend); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }())
+        server = RuntimeServer(path: path, service: { let s = RuntimeService(identity: identity, backend: backend); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; return s }())
         try server.start()
     }
 

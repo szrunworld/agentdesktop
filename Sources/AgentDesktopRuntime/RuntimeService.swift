@@ -1,9 +1,20 @@
 import AgentDesktopProtocol
 import Foundation
 
+/// Where a connection comes from, as the Runtime saw it. Never taken from
+/// anything the client sends.
+public enum ConnectionOrigin: String, Sendable {
+    /// Built inside this process: the main window, the GUI ports.
+    case host
+    /// Accepted by RuntimeServer on the socket: any local client.
+    case socket
+}
+
 /// What the Runtime knows about one connection.
 public final class ConnectionState: @unchecked Sendable {
     public let peerUID: uid_t
+    /// Set when the connection is made; nothing on the wire changes it.
+    public let origin: ConnectionOrigin
     /// Issued by the Runtime for this channel; changes on every reconnect.
     public let connectionId: String
     /// The principal behind the connection. Until AgentHub pairing issues
@@ -20,10 +31,22 @@ public final class ConnectionState: @unchecked Sendable {
     var subscription: EventSubscription?
     public var isSubscribed: Bool { subscription != nil }
 
-    public init(peerUID: uid_t) {
+    /// A connection inside this process (the main window, the GUI ports).
+    /// Package access: only the host's own code makes one.
+    package init(peerUID: uid_t) {
         self.peerUID = peerUID
+        origin = .host
         connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
         clientId = "local:\(peerUID)"
+    }
+
+    /// A connection RuntimeServer accepted on the socket. (A4 #137 adds the
+    /// peer's pid and executable; until then they are not used.)
+    public init(socketPeer uid: uid_t, pid: pid_t? = nil, executable: String? = nil) {
+        peerUID = uid
+        origin = .socket
+        connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
+        clientId = "local:\(uid)"
     }
 }
 
@@ -68,6 +91,22 @@ public final class RuntimeService: @unchecked Sendable {
     /// bar, notifications and any window dragged there). Tests turn this
     /// off; the product never does.
     var refusesScreenCaptureWithoutBinding = true
+    /// Until launch grants (PR3, SEC-04): a socket client cannot start apps.
+    /// The host's own window launches through its in-process connection.
+    /// Tests turn this off; the product never does.
+    var socketLaunchRequiresGrant = true
+    /// Until window-discovery grants (PR3, SEC-05): a socket client cannot
+    /// list apps or windows (titles name chats, documents, customers). The
+    /// host's own window lists them in-process for the user to choose from.
+    /// Tests turn this off; the product never does.
+    var socketDiscoveryRequiresGrant = true
+    /// Until GUI-run grants (PR3): a socket client cannot start a GUI Run.
+    /// The run executes on the host's in-process ports with the host's
+    /// identity, observes a bound window and sends it to a model: started
+    /// from a socket it would borrow the host's rights (observe, disclose,
+    /// a window the user bound in the main window). Reading, cancelling and
+    /// following a run stay open. Tests turn this off; the product never does.
+    var socketGuiRunRequiresGrant = true
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date
@@ -139,6 +178,10 @@ public final class RuntimeService: @unchecked Sendable {
                     "conflict", "this connection carries an event subscription; use another connection or send events.unsubscribe",
                     phase: .handler, details: .obj([("reason", .string("subscribed"))])))
             }
+            // Before the ledger and the service: a refusal has no side effect.
+            if let refusal = extensionGrantRefusal(request.method, connection) {
+                return .failure(request.requestId, refusal)
+            }
             guard let handler = extensions.handler(request.method) else {
                 return .failure(request.requestId, .capabilityMissing("\(request.method) is not available: the \(spec.servedBy!) is not running"))
             }
@@ -165,6 +208,10 @@ public final class RuntimeService: @unchecked Sendable {
         let paramViolations = contract.validate(request.params, spec.params)
         guard paramViolations.isEmpty else {
             return .failure(request.requestId, .schemaInvalid("params break \(spec.params)", violations: paramViolations))
+        }
+        // Before the ledger and the platform: a refusal has no side effect.
+        if let refusal = grantRefusal(method, connection) {
+            return .failure(request.requestId, refusal)
         }
         let result: Result<JSONValue, RuntimeError>
         if spec.mutation {
@@ -225,6 +272,32 @@ public final class RuntimeService: @unchecked Sendable {
                 "requestId \(request.requestId) was used for a different \(record.method) request; use a new requestId for a new operation",
                 phase: .request, details: .obj([("requestId", .string(request.requestId)), ("originalMethod", .string(record.method))])))
         }
+    }
+
+    /// The until-grants refusals for socket clients. The message and details
+    /// name no app, window, title or pid.
+    func grantRefusal(_ method: RuntimeMethod, _ connection: ConnectionState) -> RuntimeError? {
+        guard connection.origin == .socket else { return nil }
+        switch method {
+        case .appLaunch where socketLaunchRequiresGrant:
+            return RuntimeError("permission_denied", "starting apps needs a launch grant, which this client does not have",
+                                phase: .handler, notSent: true,
+                                details: .obj([("reason", .string("launch_requires_grant"))]))
+        case .appList where socketDiscoveryRequiresGrant, .windowList where socketDiscoveryRequiresGrant:
+            return RuntimeError("permission_denied", "listing apps and windows needs a window-discovery grant, which this client does not have",
+                                phase: .handler, notSent: true,
+                                details: .obj([("reason", .string("window_discovery_requires_grant"))]))
+        default:
+            return nil
+        }
+    }
+
+    /// The until-grants refusal for methods other services answer here.
+    func extensionGrantRefusal(_ method: String, _ connection: ConnectionState) -> RuntimeError? {
+        guard connection.origin == .socket, socketGuiRunRequiresGrant, method == "gui.runs.start" else { return nil }
+        return RuntimeError("permission_denied", "starting a GUI run needs a GUI-run grant, which this client does not have",
+                            phase: .handler, notSent: true,
+                            details: .obj([("reason", .string("gui_run_requires_grant"))]))
     }
 
     private func handle(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {

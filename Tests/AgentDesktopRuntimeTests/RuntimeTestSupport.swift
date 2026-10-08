@@ -44,7 +44,7 @@ func makeService(backend: RuntimeBackend = FixedBackend(), endpoint: String = "/
     { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(),
                                              startedAt: Timestamp.string(Date()), endpoint: endpoint,
                                              buildSource: "unknown"),
-                   backend: backend, desktops: desktops); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+                   backend: backend, desktops: desktops); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; return s }()
 }
 
 /// A short private directory for sockets (sun_path holds 104 bytes).
@@ -287,7 +287,7 @@ func platformService(_ platform: FakePlatform = FakePlatform(), backend: FixedBa
                      ledger: RequestLedger? = nil) -> RuntimeService {
     { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                              endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                   backend: backend, platform: platform, ledger: ledger); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+                   backend: backend, platform: platform, ledger: ledger); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; return s }()
 }
 
 import CoreGraphics

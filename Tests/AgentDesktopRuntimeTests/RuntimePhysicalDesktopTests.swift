@@ -14,7 +14,7 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     platform.onScreen[11] = "physical-1"
     let s = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                           backend: backend, platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+                           backend: backend, platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; return s }()
     s.physicalDesktopsEnabled = true
     let c = handshaken(s)
     let d = try #require(data(call(s, c, "desktop.create", params: #"{"name":"main","physical":{}}"#))?["desktopId"]?.stringValue)

@@ -178,7 +178,7 @@ func created(_ s: RuntimeService, _ c: ConnectionState, name: String? = nil) thr
     _ = call(s2, c2, "window.bind", params: #"{"desktopId":"\#(id2)","pid":101}"#)
     // Same service, but the process behind pid 101 is now another launch.
     let restartedService = { let s = RuntimeService(identity: s2.identity, backend: {
-        var b = backend; b.restarted = [101]; return b }(), platform: platform2, desktops: s2.desktops); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+        var b = backend; b.restarted = [101]; return b }(), platform: platform2, desktops: s2.desktops); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; return s }()
     let c3 = handshaken(restartedService)
     #expect(code(call(restartedService, c3, "observe", context: #"{"desktopId":"\#(id2)"}"#)) == "stale_observation")
 }
