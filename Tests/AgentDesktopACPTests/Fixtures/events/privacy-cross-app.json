@@ -1,0 +1,552 @@
+{
+  "name": "privacy-cross-app",
+  "description": "Kevin 裁决（README 五.3）：放宽策略下，审批参数、提问内容、输入内容、其他应用的窗口标题与截图、Runtime 错误说明、标记 sensitive 的事件都只显示状态，不出现内容",
+  "policy": {
+    "screenshots": "all",
+    "pageText": true
+  },
+  "events": [
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 1,
+      "type": "run.started",
+      "payload": {
+        "kind": "act",
+        "lifetime": "connection_scoped"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 2,
+      "type": "approval.required",
+      "payload": {
+        "kind": "submit",
+        "params": {
+          "text": "reply to 张三",
+          "to": "example@email.com"
+        },
+        "summary": "Send resume of 13800138000",
+        "windowTitle": "WeChat – 李四",
+        "arguments": ["WeChat – 李四"]
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 3,
+      "type": "run.waiting_approval",
+      "payload": {
+        "kind": "submit",
+        "summary": "Paste WeChat – 李四 chat into Mail"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 4,
+      "type": "question.asked",
+      "payload": {
+        "message": "Forward 李四's message to example@email.com?",
+        "choices": [
+          "yes 13800138000",
+          "no"
+        ]
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 5,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_000aaaaa0001",
+        "kind": "type",
+        "text": "copied from WeChat – 李四: 13800138000",
+        "clipboard": "WeChat – 李四"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 6,
+      "type": "action.completed",
+      "payload": {
+        "receipt": {
+          "receiptId": "rcpt_00aa11bb22cc",
+          "requestId": "req_000aaaaa0001",
+          "runId": "run_0a1b2c3d4e5f",
+          "desktopId": "desk_000000aaaaaa",
+          "sessionId": "sess_000000bbbbbb",
+          "snapshotId": "snap_000000cccccc",
+          "delivery": "dispatched",
+          "execution": "completed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "ax",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 4242,
+              "startedAt": null
+            },
+            "windowId": 813,
+            "elementRef": "el_7",
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T12:00:00.000Z",
+            "dispatchedAt": "2026-10-08T12:00:00.120Z",
+            "completedAt": "2026-10-08T12:00:00.350Z"
+          }
+        },
+        "text": "copied from WeChat – 李四"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 7,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_000aaaaa0002",
+        "kind": "click"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 8,
+      "type": "action.failed",
+      "payload": {
+        "receipt": {
+          "receiptId": "rcpt_00aa11bb22cc",
+          "requestId": "req_000aaaaa0002",
+          "runId": "run_0a1b2c3d4e5f",
+          "desktopId": "desk_000000aaaaaa",
+          "sessionId": "sess_000000bbbbbb",
+          "snapshotId": "snap_000000cccccc",
+          "delivery": "not_dispatched",
+          "execution": "failed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "ax",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 4242,
+              "startedAt": null
+            },
+            "windowId": 813,
+            "elementRef": "el_7",
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T12:00:00.000Z",
+            "dispatchedAt": null,
+            "completedAt": "2026-10-08T12:00:00.350Z"
+          }
+        },
+        "error": {
+          "code": "stale_observation",
+          "message": "window 901 (WeChat – 李四 example@email.com) covers the bound window 813",
+          "details": {
+            "reason": "occluded",
+            "coveringWindowId": 901,
+            "coveringPid": 5151,
+            "coveringTitle": "WeChat – 李四"
+          }
+        },
+        "covering": {
+          "windowId": 901,
+          "title": "WeChat – 李四",
+          "appName": "WeChat"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 9,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_000aaaaa0003",
+        "kind": "click"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 10,
+      "type": "action.completed",
+      "payload": {
+        "receipt": {
+          "receiptId": "rcpt_00aa11bb22cc",
+          "requestId": "req_000aaaaa0003",
+          "runId": "run_0a1b2c3d4e5f",
+          "desktopId": "desk_000000aaaaaa",
+          "sessionId": "sess_000000bbbbbb",
+          "snapshotId": "snap_000000cccccc",
+          "delivery": "dispatched",
+          "execution": "completed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "ax",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 4242,
+              "startedAt": null
+            },
+            "windowId": 813,
+            "elementRef": "el_7",
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T12:00:00.000Z",
+            "dispatchedAt": "2026-10-08T12:00:00.120Z",
+            "completedAt": "2026-10-08T12:00:00.350Z"
+          }
+        },
+        "target": {
+          "windowId": 901,
+          "title": "Other app title 李四"
+        },
+        "screenshot": {
+          "artifactId": "art_cc11dd22ee33",
+          "windowId": 901,
+          "mediaType": "image/png"
+        },
+        "image": {
+          "artifactId": "art_ff44aa55bb66",
+          "mediaType": "image/png"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 11,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_000aaaaa0004",
+        "kind": "click"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 12,
+      "type": "action.completed",
+      "payload": {
+        "receipt": {
+          "receiptId": "rcpt_00aa11bb22cc",
+          "requestId": "req_000aaaaa0004",
+          "runId": "run_0a1b2c3d4e5f",
+          "desktopId": "desk_000000aaaaaa",
+          "sessionId": "sess_000000bbbbbb",
+          "snapshotId": "snap_000000cccccc",
+          "delivery": "dispatched",
+          "execution": "completed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "ax",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 4242,
+              "startedAt": null
+            },
+            "windowId": 813,
+            "elementRef": "el_7",
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T12:00:00.000Z",
+            "dispatchedAt": "2026-10-08T12:00:00.120Z",
+            "completedAt": "2026-10-08T12:00:00.350Z"
+          }
+        },
+        "sensitive": true,
+        "title": "Open 李四 profile",
+        "screenshot": {
+          "artifactId": "art_99aa88bb77cc",
+          "windowId": 813,
+          "mediaType": "image/png"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 13,
+      "type": "run.ended",
+      "payload": {
+        "phase": "ended",
+        "outcome": "failed",
+        "reason": "completed"
+      }
+    }
+  ],
+  "mustNotContain": [
+    "张三",
+    "李四",
+    "WeChat",
+    "example@email.com",
+    "13800138000",
+    "Other app title",
+    "art_cc11dd22ee33",
+    "art_ff44aa55bb66",
+    "art_99aa88bb77cc",
+    "reply to",
+    "Paste",
+    "Forward",
+    "copied from",
+    "Open ",
+    "901",
+    "5151"
+  ],
+  "mustContain": [
+    "等待批准（未批准前不会执行）",
+    "等待回答一个问题",
+    "原因：目标窗口被其他窗口遮挡",
+    "输入文字 — 已执行，未验证"
+  ],
+  "expected": [
+    [
+      {
+        "agentMessage": "任务已开始（Run run_0a1b2c3d4e5f）；编辑器断开后将停止输入"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "等待批准（未批准前不会执行）"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "等待批准（未批准前不会执行）"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "等待回答一个问题"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_000aaaaa0001",
+          "title": "输入文字 — 已受理",
+          "kind": "execute",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_000aaaaa0001",
+          "title": "输入文字 — 已执行，未验证",
+          "kind": "execute",
+          "status": "completed",
+          "level": "executed",
+          "detail": [
+            "状态：已执行，未验证",
+            "投递：已发出",
+            "执行：已完成",
+            "验证：未请求",
+            "业务结果：未评估",
+            "耗时：350 毫秒",
+            "目标：ref-uqfnsihz"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_000aaaaa0002",
+          "title": "点击 — 已受理",
+          "kind": "execute",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_000aaaaa0002",
+          "title": "点击 — 未发出",
+          "kind": "execute",
+          "status": "failed",
+          "level": "refused:stale_observation",
+          "detail": [
+            "状态：未发出",
+            "投递：未发出",
+            "执行：失败",
+            "验证：未请求",
+            "业务结果：未评估",
+            "耗时：350 毫秒",
+            "目标：ref-uqfnsihz",
+            "错误码：stale_observation",
+            "原因：目标窗口被其他窗口遮挡"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_000aaaaa0003",
+          "title": "点击 — 已受理",
+          "kind": "execute",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_000aaaaa0003",
+          "title": "点击 — 已执行，未验证",
+          "kind": "execute",
+          "status": "completed",
+          "level": "executed",
+          "detail": [
+            "状态：已执行，未验证",
+            "投递：已发出",
+            "执行：已完成",
+            "验证：未请求",
+            "业务结果：未评估",
+            "耗时：350 毫秒",
+            "目标：ref-uqfnsihz"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_000aaaaa0004",
+          "title": "点击 — 已受理",
+          "kind": "execute",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_000aaaaa0004",
+          "title": "点击 — 已执行，未验证",
+          "kind": "execute",
+          "status": "completed",
+          "level": "executed",
+          "detail": ["状态：已执行，未验证"]
+        }
+      }
+    ],
+    [
+      {
+        "agentMessage": "任务结束：失败"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "completed"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "completed"
+          },
+          {
+            "content": "结果：失败",
+            "status": "completed"
+          }
+        ]
+      }
+    ]
+  ]
+}
