@@ -101,7 +101,7 @@ import Testing
         await ed.connection.reply(to: id1, .sessionCreated(sessionId: "s1", options: []))
         await ed.connection.send(sessionId: "s1", .agentMessage("hello"))
         await ed.connection.reply(to: id3, .promptFinished(.cancelled))
-        await ed.connection.reply(to: id2, .sessions([.init(sessionId: "s1", title: "t", updatedAt: "2026-10-08T00:00:00Z")]))
+        await ed.connection.reply(to: id2, .sessions([.init(sessionId: "s1", title: "t", updatedAt: "2026-10-08T00:00:00Z", cwd: "/tmp/w")]))
         // Answering the same request twice sends nothing.
         await ed.connection.reply(to: id3, .promptFinished(.endTurn))
 
@@ -115,7 +115,7 @@ import Testing
         let f4 = await ed.nextFrame()
         #expect(f4?["id"] == .string("two"))
         #expect(f4?["result"]?["sessions"]?.arrayValue?.first?["cwd"] == .string("/tmp/w"))
-        #expect(await ed.nextFrame(timeout: 0.2) == nil)
+        #expect(await ed.probeFrameIsNext())
         #expect(ed.schemaProblems == [])
     }
 
@@ -164,11 +164,9 @@ import Testing
         await ed.respond(.int(999), .obj([]))
         // Unknown notifications get no answer.
         await ed.notify("$/cancel_request", .obj([("requestId", .int(1))]))
-        #expect(await ed.nextFrame(timeout: 0.2) == nil)
-        // None of the refused frames reached the server.
-        #expect(await ed.nextEvent(timeout: 0.2) == nil)
-        await ed.request(8, "session/new", .obj([("cwd", .string("/ok")), ("mcpServers", .array([]))]))
-        guard case .request(_, .newSession)? = await ed.nextEvent() else { Issue.record("still alive"); return }
+        #expect(await ed.probeFrameIsNext())
+        // None of the refused frames reached the server, and it is still alive.
+        #expect(await ed.probeEventIsNext())
         #expect(ed.schemaProblems == [])
     }
 
@@ -177,8 +175,8 @@ import Testing
         await ed.request(1, "session/new", .obj([("cwd", .string("/x")), ("mcpServers", .array([]))]))
         let f = await ed.nextFrame()
         #expect(f?["id"] == .int(1) && f?["error"]?["code"] == .int(ACPJsonRpcErrorCode.invalidRequest))
-        #expect(await ed.nextEvent(timeout: 0.2) == nil)
-        await ed.initialize()
+        // The refused request never reached the server: the next event is initialize.
+        #expect(await ed.initialize() != nil)
         await ed.request(2, "initialize", .obj([("protocolVersion", .int(1))]))
         #expect(await ed.nextFrame()?["error"]?["message"] == .string("connection already initialized"))
     }
@@ -193,7 +191,7 @@ import Testing
         let f = await ed.nextFrame()
         #expect(f?["id"] == .null && f?["error"]?["code"] == .int(ACPJsonRpcErrorCode.invalidRequest))
         #expect(await ed.nextEvent() == .closed(reason: "frame_too_large"))
-        #expect(await ed.nextEvent(timeout: 0.2) == nil)
+        #expect(await ed.nextEvent() == nil)  // the stream ended
         #expect(ed.schemaProblems == [])
     }
 
@@ -223,7 +221,7 @@ import Testing
         #expect(await permission == .unavailable)
         #expect(await answer == .unavailable)
         #expect(await ed.nextEvent() == .closed(reason: "input_closed_mid_frame"))
-        #expect(await ed.nextEvent(timeout: 0.2) == nil)
+        #expect(await ed.nextEvent() == nil)  // the stream ended
         // After close every peer call is a safe no-op or .unavailable.
         await ed.connection.reply(to: promptId, .promptFinished(.endTurn))
         await ed.connection.send(sessionId: "s", .agentMessage("late"))
@@ -235,7 +233,7 @@ import Testing
         let ed = TTestEditor()
         ed.editorSide.closeWriteSide()
         #expect(await ed.nextEvent() == .closed(reason: "input_closed"))
-        #expect(await ed.nextEvent(timeout: 0.2) == nil)
+        #expect(await ed.nextEvent() == nil)  // the stream ended
     }
 
     @Test func t03EditorThatStopsReadingMakesWritesFailNotCrash() async throws {
