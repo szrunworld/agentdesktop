@@ -197,7 +197,7 @@ public enum WindowMover {
         return windows.first { frame(of: $0) == window.frame }
     }
 
-    static func windowID(of element: AXUIElement) -> CGWindowID? {
+    public static func windowID(of element: AXUIElement) -> CGWindowID? {
         var id: CGWindowID = 0
         return _AXUIElementGetWindow(element, &id) == .success && id != 0 ? id : nil
     }

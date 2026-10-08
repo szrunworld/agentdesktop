@@ -51,10 +51,14 @@ public protocol IPhoneMirroringSystem {
     func recognizedText(in image: CGImage) -> [String]
     /// The titles of iPhone Mirroring's own texts and buttons, read through
     /// accessibility. The phone's picture is not among them.
-    func accessibilityLabels(pid: pid_t) -> [String]
-    /// Press the first button of the process whose title is in `titles`;
-    /// the title pressed, or nil when there is none.
-    func pressButton(titled titles: Set<String>, pid: pid_t) -> String?
+    /// `windowID`: only that window's; nil for all the process's windows.
+    /// Another window of the app (its Settings) carries texts that are not
+    /// the phone's state, such as "password or Touch ID is required".
+    func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String]
+    /// Press the first button of the process whose title is in `titles`,
+    /// in `windowID` only when given; the title pressed, or nil when there
+    /// is none.
+    func pressButton(titled titles: Set<String>, pid: pid_t, windowID: CGWindowID?) -> String?
     /// Ask the process to quit; false when the request was not delivered.
     func terminate(pid: pid_t) -> Bool
     func isRunning(pid: pid_t) -> Bool
@@ -457,12 +461,12 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
     }
 
-    public func accessibilityLabels(pid: pid_t) -> [String] {
-        Self.elements(of: pid).flatMap(\.labels)
+    public func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String] {
+        Self.elements(of: pid, windowID: windowID).flatMap(\.labels)
     }
 
-    public func pressButton(titled titles: Set<String>, pid: pid_t) -> String? {
-        for element in Self.elements(of: pid) where element.button {
+    public func pressButton(titled titles: Set<String>, pid: pid_t, windowID: CGWindowID?) -> String? {
+        for element in Self.elements(of: pid, windowID: windowID) where element.button {
             if let title = element.labels.first(where: titles.contains) {
                 AXUIElementPerformAction(element.element, kAXPressAction as CFString)
                 return title
@@ -494,11 +498,12 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
 
     /// Texts and buttons of the process's windows. SwiftUI carries a
     /// button's text as its title or description, a text's as its value.
-    private static func elements(of pid: pid_t) -> [Element] {
+    private static func elements(of pid: pid_t, windowID: CGWindowID?) -> [Element] {
         let app = AXUIElementCreateApplication(pid)
         var windows: AnyObject?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows) == .success,
-              let list = windows as? [AXUIElement] else { return [] }
+              var list = windows as? [AXUIElement] else { return [] }
+        if let windowID { list = list.filter { WindowMover.windowID(of: $0) == windowID } }
         var found: [Element] = []
         func visit(_ element: AXUIElement, depth: Int) {
             guard depth < 10, found.count < 200 else { return }
