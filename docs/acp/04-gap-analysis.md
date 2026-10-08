@@ -1,8 +1,15 @@
 # ACP 差距分析：现有代码与目标架构
 
-状态：2026-10-08，工作线 D。
+状态：2026-10-08 第二轮，工作线 D。
 
-核对对象：`acp-skeleton`@2837bd4（基于 `ai-gui-foundation`@6c18480，A0 PR #47 已合入）。另查了 `origin/ai-gui-foundation`@b2831ca（多了 PR #51）与 PR #2、#29、#48、#50。每条都在代码里核对过；行号对应 2837bd4，另注明的除外。
+| 轮 | 核对对象 |
+| --- | --- |
+| 第一轮（#54） | `acp-skeleton`@2837bd4（基于 `ai-gui-foundation`@6c18480，A0 #47）；另查 b2831ca（#51）与 PR #2、#29、#48、#50 |
+| 第二轮（本稿） | `acp-skeleton`@34ae2c5：七条工作线 #54（D）、#62（S）、#63（R）、#65（E）、#66（O）、#67（T）、#68（Q）已合入，基线含 b2831ca。外部 PR 状态于 2026-10-08 用 `gh pr view` 核对：#29 草案未合入、#50 未合入、#60（AX 隔离）未合入、#69（SEC-01 记录文件权限）未合入 |
+
+每条都在代码里核对过。Runtime 侧行号对应 2837bd4（34ae2c5 未改 Runtime、Client、Protocol、CLI）；ACP 侧行号对应 34ae2c5。
+
+第二轮的「状态」列：**已关闭**＝合入的工作线已解决；**部分**＝ACP 侧已规避，根因仍在 Runtime；**未关闭**＝仍需外部负责方。
 
 负责方：**f1** = Runtime / 集成负责人 2ndscreen-f1；**40** = L-AIGUI 与 L-Win 2ndscreen-40；**ACP 线** = 本组 T/S/R/E/O/Q；**Kevin** = 产品决定。
 
@@ -38,7 +45,82 @@
 | GAP-26 | 出站执行体 | 没有代码；本轮只做 `spikes/acp-outbound/` 评估 | ACP 线 O；P3 实现待 Kevin | G4 |
 | GAP-27 | 分发：ACP 清单、Registry、安装说明 | 包里只有 `agentdesktop`（`scripts/bundle-app.sh:55`），没有 ACP 清单与 Registry 元数据 | 协调者、f1 | G5 |
 
-## 二、前五项差距
+### 1.1 第二轮状态
+
+| 编号 | 状态 | 依据 |
+| --- | --- | --- |
+| GAP-01 单一端点（A2） | 未关闭 | `ai.sock` 仍在；A2 未合入 |
+| GAP-02 引擎旧 CLI 可自编译 | 未关闭 | `engine/Package.swift:8` 未变 |
+| GAP-03 `unit.run`（A6） | 未关闭 | #50 未合入；R 在 Runtime 不宣告时 `submit` 返回 `.refused(capability_missing)`，不发任何请求（07 第一节，R1） |
+| GAP-04 任务目录 | 未关闭 | 07 R6 提议 `task.catalog.list`；R 的 `ACPTaskCatalog` 在没有 `unit.run` 时返回空列表 |
+| GAP-05 握手 principal | 部分 | R 返回本机 owner 占位，`ACPCaller.verified == false`（`Ports.swift`，Q 的一致性测试钉住）；根因待 f1（07 R4） |
+| GAP-06 身份与授权（A4） | 未关闭 | A4 未开始；T07、T15、ACP-31 的真实验证都等它 |
+| GAP-07 审批与提问方法 | 未关闭 | R 的 `pending`、`decide`、`answer`、`decline` 抛 `capability_missing`，S 按拒绝处理；Runtime 侧待 PR4（07 R2） |
+| GAP-08 事件目录（F1-01） | 未关闭 | E 按「已发」与「暂定」两类映射并做了 15 份夹具；目录冻结后对齐（07 R3，08 E-5、E-6） |
+| GAP-09 CLI `acp` 子命令 | 未关闭 | CLI 未改；07 R9 写明接线方式 |
+| GAP-10 MCP #29 | 未关闭 | 仍是草案 |
+| GAP-11 Windows | 未关闭 | 无变化 |
+| GAP-12 真编辑器 | 部分 | Zed 1.23.2 已装（K2，`/Applications/Zed.app`）；真机握手帧尚未取得（02 7.2）；JetBrains 延后到 P2 |
+| GAP-13 幂等键是 uid | 部分 | R 的 requestId 为 `acp-sub-` 加哈希，不会与 CLI、MCP 相撞（07 第一节）；Runtime 键仍是 uid |
+| GAP-14 丢回复只查询 | 已关闭 | `ACPBridgeRuntimePort.swift:21-23,102,147,152`：结果不明返回 `.unconfirmed`，之后只读 `request.show` / `run.show`；R7 请求 Runtime 给出确定的「未到达」答复 |
+| GAP-15 异步端口 | 已关闭 | `ACPBridgeExecutor.swift`：阻塞调用放在专用线程，带上限 |
+| GAP-16 控制与订阅分离 | 已关闭 | `ACPBridgeEventReader.swift:6-7`：事件在单独连接、专用线程读取，从不用控制连接 |
+| GAP-17 心跳 | 未关闭 | A4 |
+| GAP-18 #51 进入基线 | 已关闭 | `git merge-base --is-ancestor b2831ca 34ae2c5` 为真 |
+| GAP-19 AX 隔离 | 未关闭 | #60 未合入 |
+| GAP-20 SEC | 未关闭 | #69 未合入；SEC-02、04、05 未验证 |
+| GAP-21 ACP 会话存储 | 已关闭 | `Inbound/ACPFileSessionStore.swift`：目录 0700、文件 0600、原子替换、revision 检查 |
+| GAP-22 服务器、传输、桥、投影 | 部分 | 代码已合入（`Transport/`、`Wire/`、`Inbound/`、`RuntimeBridge/`、`Events/`、`Privacy/`）；dev 入口的三处接线仍是 TODO（见 GAP-28） |
+| GAP-23 编辑器发起 Durable | 已裁决 | K1：不支持；按设计不是差距，T13 已改写 |
+| GAP-24 unknown 核实 | 未关闭 | PR4 |
+| GAP-25 真实 GUI 输入开关 | 未关闭 | 测试副本需打开；Q 的 e2e-runbook 记录做法 |
+| GAP-26 出站执行体 | 未关闭 | O 的结论：P3 现在不能通过（09 第六节） |
+| GAP-27 分发 | 未关闭 | 无变化 |
+
+### 1.2 第二轮新增
+
+| 编号 | 目标需要 | 现状与证据 | 负责 | 阻塞 |
+| --- | --- | --- | --- | --- |
+| GAP-28 | dev 入口接上真实 stdio、Runtime 端口与投影器 | `Sources/agentdesktop-acp-dev/main.swift` 的 `ACPAgentServerDevWiring` 三个方法都返回 nil 并标 TODO；运行时报「the stdio transport (lane T) is not on this build yet」（tests/README 4.1） | 第二轮 t2、s2、r2 | Q 的 L1 对真目标、全部 L2 |
+| GAP-29 | Zed 真机握手记录 | 02 7.2：在隔离数据目录登记了回声 agent，但没有拿到线上帧；Zed 说 v1 的证据来自源码与二进制 | Q（需要前台操作一次） | G0-12、G5-04 |
+| GAP-30 | 数据等级闸门（出站） | 09 第五节：授权工具返回的 PII 在三家都到达模型端；只能在我们自己的任务级 MCP 网关返回前过滤 | P3（Kevin 批准后） | G4 |
+| GAP-31 | 观察他人 Durable Run 的授权（ACP-31） | A4 前所有本机连接都是 owner，能看见所有 Run（`RuntimeService+Runs.swift:9-15`）；07 R5 请求 Run 的入口标记与按来源过滤 | f1（A4、R5） | G2-11 |
+| GAP-32 | v1 规范要求支持编辑器给的 stdio MCP 服务器 | 有意不支持（`Wire/ACPWireV1.swift:84`），写进 RFC 2.1 | 无（设计决定） | 记入 G5-04 的兼容声明 |
+
+### 1.3 工作线提出的 Runtime 缺口（引用，不重复）
+
+**工作线 R 的需求清单**（[07-runtime-requests.md](07-runtime-requests.md) 第三节）：
+
+| 编号 | 内容 | 负责 | 对应本文 |
+| --- | --- | --- | --- |
+| R1 | `unit.run` 实现与宣告 | 40（f1 审） | GAP-03 |
+| R2 | `inbox.list` / `inbox.resolve` 与事件 | f1 | GAP-07 |
+| R3 | 事件类型目录 F1-01 | f1 | GAP-08 |
+| R4 | `handshake.principal` 与 Client 暴露 | f1 | GAP-05 |
+| R5 | Run 的入口标记与 `run.list` 过滤 | f1 | GAP-31 |
+| R6 | 任务目录 `task.catalog.list` 与自由文本映射 | f1、40 | GAP-04 |
+| R7 | `request.show` 的确定性未到达答复 | f1 | GAP-14 |
+| R8 | 取消的正式错误码与事件 | f1 | 无（新） |
+| R9 | `agentdesktop acp` 子命令接线 | f1、协调者 | GAP-09 |
+
+**工作线 E 的 schema 缺口**（[08-event-mapping.md](08-event-mapping.md) 第六节）：
+
+| 编号 | 内容 | 对应本文 |
+| --- | --- | --- |
+| E-1 | 回执没有验证结果，任何动作到不了「已验证」 | GAP-08 |
+| E-2 | 派发前拒绝不产生结果事件 | GAP-08 |
+| E-3 | 结果事件不带错误码 | GAP-08 |
+| E-4 | `run.ended` 不带 kind、unknownActions、verification | GAP-08 |
+| E-5 | 排队、单元、审批、提问、策略拒绝事件不存在 | GAP-08、C-10 |
+| E-6 | `RunEvent.type` 是自由字符串 | GAP-08 |
+| E-7 | 事件 data 没有敏感标记 | 无（新） |
+| E-8 | `run.ended.reason` 是自由字符串 | GAP-08 |
+| E-9 | 截图没有采集范围（windowId、scope），所以截图引用今天一律不显示 | 无（新） |
+| E-10 | 事件没有分级字段 | 无（新） |
+
+E-1～E-10 与 R1～R9 都由协调者转 f1（R1、R6 另转 40）。
+
+## 二、前五项差距（第二轮仍然成立）
 
 | 顺序 | 编号 | 为什么排在前面 |
 | --- | --- | --- |
@@ -50,7 +132,7 @@
 
 ## 三、方案原文与核对结论、代码的冲突
 
-一条一行。「README」指 [README.md](README.md) 第二节。
+一条一行。「README」指 [README.md](README.md) 第二节。第二轮补注：C-02 的更正已由协调者写进 README 第二节第 1 条；C-03 已由 K1 裁决（维持 ADR）；C-12、C-13 的接口差异维持 `Ports.swift` 的形状。
 
 | 编号 | 原文位置 | 冲突 |
 | --- | --- | --- |
@@ -75,7 +157,7 @@
 | C-19 | `methods.json` 的 `transport.macOS`「control.sock (frozen; runtime.sock until PR2b moves it)」 | A2 之后 Runtime 端点会改名为 `control.sock`，与引擎旧 socket 同名；G0 的检查必须按监听进程与协议判定，不能按文件名 |
 | C-20 | #56「入站鉴权：stdio 子进程与用户同权，不另设登录」 | 原文与 ADR v2.2 要求身份来自 Runtime 认证；本修订版采用后者，A4 前明确标为本机 owner |
 
-## 四、对其他工作线的提示
+## 四、对其他工作线的提示（第一轮，均已在各线 PR 中处理）
 
 | 线 | 提示 | 依据 |
 | --- | --- | --- |
