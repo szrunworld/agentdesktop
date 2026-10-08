@@ -133,7 +133,7 @@ struct DesktopsU2aTests {
         #expect(lease.status == .live && lease.frame?.pixelWidth == 1600)
         #expect(PreviewZoom.actual.factor(imageScale: 2) == 0.5)
         #expect(PreviewZoom.fit.factor(imageScale: 2) == nil)
-        #expect(DesktopFrameView.sizeText(lease.frame) == "1600 × 1000 px · scale 2x")
+        #expect(DesktopFrameView.sizeText(lease.frame) == "整个显示器 · 1600 × 1000 px · scale 2x")
         let calls = m.callLog.count
         for z in PreviewZoom.allCases {
             let png = SnapshotRenderer.png(DesktopFrameView(lease: lease, zoom: .constant(z)), size: CGSize(width: 600, height: 400))
