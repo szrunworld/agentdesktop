@@ -1,0 +1,8 @@
+{
+  "def": "Principal",
+  "instance": {
+    "clientId": "agent:me",
+    "role": "owner",
+    "connectionId": "conn_1"
+  }
+}

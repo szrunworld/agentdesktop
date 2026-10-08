@@ -1,0 +1,8 @@
+{
+  "def": "artifact_read_params",
+  "instance": {
+    "artifactId": "art_1",
+    "offset": 0,
+    "length": 1048576
+  }
+}

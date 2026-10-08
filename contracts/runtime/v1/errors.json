@@ -1,6 +1,6 @@
 {
   "apiVersion": "agentdesktop.runtime/1",
-  "status": "DRAFT_PR1",
+  "status": "FROZEN_2026_10_08",
   "note": "error.code is the stable machine interface; exitCode is the CLI's coarse class (CLI plan v1.2 §06). Codes marked reserved are named now so every client maps them the same way; no PR1 method returns them.",
   "codes": [
     {
@@ -142,6 +142,20 @@
       "exitCode": 7,
       "phase": "handler",
       "description": "The Runtime failed while handling a read-only request."
+    },
+    {
+      "code": "limit_exceeded",
+      "exitCode": 5,
+      "phase": "handler",
+      "reserved": true,
+      "description": "A configured limit (steps, time, budget, quota) refused or ended the work."
+    },
+    {
+      "code": "events_cursor_expired",
+      "exitCode": 5,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The events cursor points before the retained range; read the current state with run.show."
     },
     {
       "code": "wait_timeout",
