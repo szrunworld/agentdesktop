@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import SwiftUI
 
 /// Buttons for actions the Runtime does not offer yet (desktop.stop,

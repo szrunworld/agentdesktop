@@ -114,4 +114,25 @@ struct MainWindowHostTests {
         #expect(!m.callLog.dropFirst(calls).contains("desktop.destroy"))
         #expect(store.desktops.count == 3)
     }
+
+    // A Desktop destroyed while the Runtime was unreachable: its preview
+    // closes on the first successful refresh after reconnecting, although
+    // the Store publishes the list before its state turns loaded.
+    @Test func previewOfADesktopDestroyedWhileDisconnectedCloses() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let controller = MainWindowController(store: store)
+        controller.previews.present = nil
+        controller.previews.show("desk_001")
+        m.offline = true
+        await store.refreshDesktops()
+        #expect(store.desktopsState != .loaded)
+        m.offline = false
+        _ = try await m.call("desktop.destroy", .obj([("desktopId", .string("desk_001"))]))
+        await store.refreshDesktops()
+        #expect(store.desktopsState == .loaded)
+        #expect(controller.previews.open.isEmpty, "the preview of the destroyed Desktop closed")
+    }
 }

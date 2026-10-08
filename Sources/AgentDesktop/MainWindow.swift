@@ -24,9 +24,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         self.store = store
         super.init()
         previewWindows = PreviewWindows(store: store, registry: previews)
-        // A preview of a Desktop that is gone closes by itself.
-        pruning = store.$desktops.sink { [weak self] list in
-            guard let self, self.store.desktopsState == .loaded || self.store.desktopsState == .empty else { return }
+        // A preview of a Desktop that is gone closes by itself. The list and
+        // its state are watched together: after a disconnection the Store
+        // publishes the new list before the state turns loaded again.
+        pruning = store.$desktops.combineLatest(store.$desktopsState).sink { [weak self] list, state in
+            guard let self, state == .loaded || state == .empty else { return }
             self.previews.prune(existing: Set(list.compactMap { $0["desktopId"]?.stringValue }))
         }
         previewWindows.openDetail = { [weak self] id in
