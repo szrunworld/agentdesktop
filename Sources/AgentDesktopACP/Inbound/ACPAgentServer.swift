@@ -135,9 +135,14 @@ public actor ACPAgentServer {
 
     /// Until A4 the Runtime does not authenticate the caller; the session is
     /// owned by a local-owner placeholder. Say so instead of implying more.
+    static let identityNoticePrefix = "身份说明："
+
+    /// Describes the current connection, so it is never stored in the
+    /// conversation: a load regenerates it once, for the connection it is on.
     func sayIdentity(_ sid: String) async {
         guard let c = cachedCaller, !c.verified else { return }
-        await say(sid, "身份说明：Runtime 尚未认证调用方身份，本会话暂按本机所有者占位身份（\(redact(sid, c.principalId))）归属。")
+        await notice(sid, Self.identityNoticePrefix
+            + "Runtime 尚未认证调用方身份，本会话暂按本机所有者占位身份（\(redact(sid, c.principalId))）归属。")
     }
 
     // MARK: Sessions
@@ -211,7 +216,7 @@ public actor ACPAgentServer {
             await sayIdentity(sid)
             await sayPendingSubmission(sid)
             for (runId, snap) in open {
-                await say(sid, Self.runStatusLine(runId, snap))
+                await notice(sid, Self.runStatusLine(runId, snap))
                 startFollower(sid, runId)
             }
             return
@@ -230,6 +235,9 @@ public actor ACPAgentServer {
         var replayed = Set<String>()
         var open: [(String, ACPRunSnapshot?)] = []
         for line in lines {
+            // Histories written before notices stopped being recorded may
+            // hold an identity line; it was just regenerated above.
+            if line.kind == .agent, line.text.hasPrefix(Self.identityNoticePrefix) { continue }
             await send(sid, Self.replayUpdate(line))
             if let runId = line.runId, binding.runIds.contains(runId), !replayed.contains(runId) {
                 replayed.insert(runId)
@@ -240,7 +248,7 @@ public actor ACPAgentServer {
             if let state = await replayRun(sid, runId) { open.append(state) }
         }
         await sayPendingSubmission(sid)
-        for (runId, snap) in open { await say(sid, Self.runStatusLine(runId, snap)) }
+        for (runId, snap) in open { await notice(sid, Self.runStatusLine(runId, snap)) }
         await reply(id, .resumed(options: live[sid]?.binding.options ?? binding.options))
     }
 
@@ -259,7 +267,7 @@ public actor ACPAgentServer {
 
     private func sayPendingSubmission(_ sid: String) async {
         guard live[sid]?.binding.pendingSubmissionKey != nil else { return }
-        await say(sid, "上次有一条提交没有收到 Runtime 的确认，结果待核实；原样重发那条 prompt 只会查询原请求，不会重复执行。")
+        await notice(sid, "上次有一条提交没有收到 Runtime 的确认，结果待核实；原样重发那条 prompt 只会查询原请求，不会重复执行。")
     }
 
     static func runStatusLine(_ runId: String, _ snap: ACPRunSnapshot?) -> String {
@@ -454,6 +462,13 @@ public actor ACPAgentServer {
     /// conversation and is recorded (redacted) for `session/load` replay.
     func say(_ sid: String, _ text: String, runId: String? = nil) async {
         if live[sid]?.turn != nil { record(sid, .agent, text, runId: runId) }
+        await send(sid, .agentMessage(text))
+    }
+
+    /// A message about the current connection or state (identity, status on
+    /// load). Never recorded, even when a turn happens to be open: the next
+    /// load regenerates what is still true.
+    func notice(_ sid: String, _ text: String) async {
         await send(sid, .agentMessage(text))
     }
 
