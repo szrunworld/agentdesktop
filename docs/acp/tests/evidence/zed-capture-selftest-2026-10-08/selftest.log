@@ -1,0 +1,17 @@
+== 1. byte-exact tee
+PASS bytes: 2097220 bytes, 33 chunks in, stdout and both .bin identical to the input
+== 2. fake editor through the wrapper
+PASS    T01-valid-requests  ACP-T01-01,ACP-T01-02,ACP-T01-03
+PASS    T01-pipelining  ACP-T01-06
+PASS    T06-load-ordering  ACP-T06-09
+PASS frames editor->agent: wrapper 11, fake editor 11
+PASS frames agent->editor: wrapper 24, fake editor 24
+== 3. redaction
+launches: 4
+launch-1-226: initialize requested v1 answered v1; client agentdesktop-fake-editor 0.1.0; frames in/out 4/8; sent before initialize reply: none
+launch-2-229: initialize requested v1 answered v1; client ?; frames in/out 2/4; sent before initialize reply: session/new
+launch-3-231: initialize requested v1 answered v1; client agentdesktop-fake-editor 0.1.0; frames in/out 3/6; sent before initialize reply: none
+launch-4-248: initialize requested v1 answered v1; client agentdesktop-fake-editor 0.1.0; frames in/out 2/6; sent before initialize reply: none
+redacted copy: <out>/proto/redacted
+PASS redaction
+evidence: <out>
