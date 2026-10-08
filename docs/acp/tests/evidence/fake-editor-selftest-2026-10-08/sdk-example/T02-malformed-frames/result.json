@@ -1,0 +1,78 @@
+{
+  "id": "T02-malformed-frames",
+  "cases": [
+    "ACP-T02-01",
+    "ACP-T02-02",
+    "ACP-T02-03",
+    "ACP-T02-05"
+  ],
+  "title": "坏 JSON、未知方法、参数类型错误都得到 JSON-RPC 错误，连接继续可用",
+  "status": "PASS",
+  "durationMs": 5386,
+  "failures": [],
+  "steps": [
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": null,
+          "error": {
+            "code": -32700,
+            "message": "Parse error"
+          }
+        }
+      }
+    },
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": "raw-1",
+          "error": {
+            "code": -32601,
+            "message": "\"Method not found\": qtest/no_such_method",
+            "data": {
+              "method": "qtest/no_such_method"
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": "raw-2",
+          "error": {
+            "code": -32602,
+            "message": "Invalid params",
+            "data": {
+              "_errors": [],
+              "sessionId": {
+                "_errors": [
+                  "Invalid input: expected string, received number"
+                ]
+              },
+              "prompt": {
+                "_errors": [
+                  "Invalid input: expected array, received undefined"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "prompt",
+      "text": "hello",
+      "outcome": "end_turn"
+    }
+  ]
+}

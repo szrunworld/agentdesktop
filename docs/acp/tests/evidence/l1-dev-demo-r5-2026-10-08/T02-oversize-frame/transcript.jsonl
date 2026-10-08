@@ -1,0 +1,8 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":5,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
+{"ms":6,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-big","oversizeBytes":"17825792","expect":{"errorCodeIn":[-32600,-32602,-32603,-32700],"allowClose":"false","waitMs":8000}}}
+{"ms":47,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-big\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"x\",\"prompt\":[{\"type\":\"text\",\"text\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…(17825914 bytes)"}
+{"ms":170,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-big","error":{"code":-32600,"message":"frame exceeds 16777216 bytes (saw at least 16842752); skipped to the next line"}}}
+{"ms":173,"conn":1,"dir":"exit","code":null,"signal":"SIGKILL"}

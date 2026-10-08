@@ -1,0 +1,51 @@
+{
+  "id": "T03-stdio-close",
+  "cases": [
+    "ACP-T03-01",
+    "ACP-T03-02"
+  ],
+  "title": "初始化前与一轮进行中关闭 stdin：进程在 5 秒内退出且不是崩溃信号",
+  "requires": [
+    "task.slow"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    },
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_SLOW}",
+      "disconnectAfterMs": "${DISCONNECT_AFTER_MS}",
+      "expect": {
+        "stopReasonIn": [
+          "disconnected"
+        ]
+      }
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

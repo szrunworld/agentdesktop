@@ -1,0 +1,30 @@
+{
+  "profile": "qtest-echo",
+  "agent": [
+    "node",
+    "/Users/kevinshi/orca/agentdesktop-acp-q5/scripts/acp/fake-editor/dist/echo-agent.js"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T09:17:55.999Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "T14-scoped-disconnect",
+      "cases": [
+        "ACP-T14-01",
+        "ACP-T14-02"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "4 new tool calls after mark afterExit: step-70046-1,step-70046-1,step-70046-2,step-70046-2"
+      ],
+      "transcript": "T14-scoped-disconnect/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T09:18:00.503Z",
+  "counts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 0
+  }
+}

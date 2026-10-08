@@ -1,0 +1,34 @@
+{
+  "id": "T05-capabilities",
+  "cases": [
+    "ACP-T05-01",
+    "ACP-T05-02"
+  ],
+  "title": "宣告与实现一致：宣告的会话能力能调用，未宣告的被拒；未宣告图片时图片 prompt 被拒",
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "probeCapabilities",
+      "imageSession": "s1"
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

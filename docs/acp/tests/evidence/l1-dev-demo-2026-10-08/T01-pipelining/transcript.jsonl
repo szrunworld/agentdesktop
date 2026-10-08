@@ -1,0 +1,7 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"rawBatch","at":{"op":"rawBatch","waitMs":5000,"items":[{"id":"raw-init","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-init\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{}}}","expect":{"ok":true}},{"id":"raw-new","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-new\",\"method\":\"session/new\",\"params\":{\"cwd\":\"/tmp/adt-q2-l1/T01-pipelining/run\",\"mcpServers\":[]}}","expect":{"ok":true}}]}}
+{"ms":1,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-init\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{}}}"}
+{"ms":1,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-new\",\"method\":\"session/new\",\"params\":{\"cwd\":\"/tmp/adt-q2-l1/T01-pipelining/run\",\"mcpServers\":[]}}"}
+{"ms":7,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-new","error":{"code":-32600,"message":"connection not initialized: send initialize first"}}}
+{"ms":7,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-init","result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
+{"ms":8,"conn":1,"dir":"exit","code":null,"signal":"SIGKILL"}

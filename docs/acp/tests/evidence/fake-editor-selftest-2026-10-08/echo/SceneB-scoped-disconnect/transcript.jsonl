@@ -1,0 +1,39 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":82,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":83,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":83,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q5-st/echo/SceneB-scoped-disconnect/run","mcpServers":[]}}}
+{"ms":84,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-65488-1"}}}
+{"ms":85,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"act neutral-sample","permission":"hang","disconnectAfterMs":"800","timeoutMs":30000,"expect":{"stopReasonIn":["disconnected"],"permissionRequested":true}}}
+{"ms":85,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-65488-1","prompt":[{"type":"text","text":"act neutral-sample"}]}}}
+{"ms":86,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65488-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
+{"ms":87,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65488-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-65488-2","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
+{"ms":87,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"qs-65488-1","toolCall":{"toolCallId":"act-65488-2","title":"Action","kind":"execute","status":"pending"},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"reject","name":"Deny once","kind":"reject_once"}]}}}
+{"ms":886,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":890,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":890,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":890,"dir":"step","step":"mark","at":{"op":"mark","name":"afterExit"}}
+{"ms":890,"dir":"step","step":"wait","at":{"op":"wait","ms":1500}}
+{"ms":2392,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":2393,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":2394,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":2458,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":2458,"dir":"step","step":"resume","at":{"op":"resume","session":"s1","method":"load","expect":{"ok":true}}}
+{"ms":2458,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/load","params":{"sessionId":"qs-65488-1","cwd":"/tmp/adt-q5-st/echo/SceneB-scoped-disconnect/run","mcpServers":[]}}}
+{"ms":2460,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65488-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
+{"ms":2460,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65488-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-65488-2","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
+{"ms":2460,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65488-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ended:connection_lost outcome:unknown"}}}}}
+{"ms":2460,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{}}}
+{"ms":2460,"dir":"step","step":"wait","at":{"op":"wait","ms":2000}}
+{"ms":4461,"dir":"step","step":"assert","at":{"op":"assert","noNewToolCallsSince":"afterExit","toolCallsNotCompletedSince":"afterExit"}}
+{"ms":4461,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"echo hello-from-fake-editor","expect":{"stopReason":"end_turn","permissionRequested":false}}}
+{"ms":4462,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-65488-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
+{"ms":4465,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65488-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo hello-from-fake-editor"}}}}}
+{"ms":4466,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65488-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello-from-fake-editor"}}}}}
+{"ms":4466,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":4466,"dir":"step","step":"assert","at":{"op":"assert","toolCallsNotCompletedSince":"afterExit"}}
+{"ms":4466,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":4466,"conn":2,"dir":"disconnect","mode":"close-stdin"}
+{"ms":4466,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":4470,"conn":2,"dir":"exit","code":0,"signal":null}

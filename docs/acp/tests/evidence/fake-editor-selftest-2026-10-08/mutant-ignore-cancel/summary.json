@@ -1,0 +1,31 @@
+{
+  "profile": "qtest-echo",
+  "agent": [
+    "node",
+    "/Users/kevinshi/orca/agentdesktop-acp-q5/scripts/acp/fake-editor/dist/echo-agent.js"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T09:17:52.083Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "T12-cancel",
+      "cases": [
+        "ACP-T12-01",
+        "ACP-T12-02",
+        "ACP-T12-03"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "prompt: stopReason end_turn (undefined), expected cancelled"
+      ],
+      "transcript": "T12-cancel/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T09:17:55.202Z",
+  "counts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 0
+  }
+}

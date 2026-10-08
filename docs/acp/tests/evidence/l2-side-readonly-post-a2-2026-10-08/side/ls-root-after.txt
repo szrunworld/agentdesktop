@@ -1,0 +1,8 @@
+total 8
+drwx------@   7 kevinshi  wheel   224 Oct  8 18:21 .
+drwxrwxrwt  192 root      wheel  6144 Oct  8 18:21 ..
+drwxr-xr-x@   3 kevinshi  wheel    96 Oct  8 18:21 Agent Desktop.app
+drwx------@   3 kevinshi  wheel    96 Oct  8 18:21 acp
+drwx------@  13 kevinshi  wheel   416 Oct  8 18:21 side.runtime
+srw-------@   1 kevinshi  wheel     0 Oct  8 18:21 side.runtime.sock
+-rw-------@   1 kevinshi  wheel     6 Oct  8 18:21 side.runtime.sock.lock

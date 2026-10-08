@@ -1,0 +1,1 @@
+FAIL    T06-load-ordering  ACP-T06-09  — session/load: replay before the response has no user_message_chunk (saw agent_message_chunk)

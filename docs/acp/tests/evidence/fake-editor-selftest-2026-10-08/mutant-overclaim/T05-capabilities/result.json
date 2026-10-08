@@ -1,0 +1,14 @@
+{
+  "id": "T05-capabilities",
+  "cases": [
+    "ACP-T05-01",
+    "ACP-T05-02"
+  ],
+  "title": "宣告与实现一致：宣告的会话能力能调用，未宣告的被拒；未宣告图片时图片 prompt 被拒",
+  "status": "FAIL",
+  "durationMs": 144,
+  "failures": [
+    "image prompt claimed but refused ({\"ok\":false,\"error\":{\"code\":-32602,\"message\":\"Invalid params: only text prompts are supported\"}})"
+  ],
+  "steps": []
+}

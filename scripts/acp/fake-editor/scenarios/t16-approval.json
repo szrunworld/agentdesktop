@@ -1,0 +1,86 @@
+{
+  "id": "T16-approval",
+  "cases": [
+    "ACP-T16-01",
+    "ACP-T16-02",
+    "ACP-T16-03",
+    "ACP-T16-04"
+  ],
+  "title": "审批只提供 allow_once / reject_once；拒绝与取消都不执行，允许才执行",
+  "requires": [
+    "approval"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ACT}",
+      "permission": "deny",
+      "timeoutMs": 30000,
+      "expect": {
+        "stopReasonIn": [
+          "end_turn",
+          "refusal"
+        ],
+        "permissionRequested": true,
+        "permissionOptionKinds": [
+          "allow_once",
+          "reject_once"
+        ],
+        "deniedToolsNotCompleted": true
+      }
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ACT}",
+      "permission": "cancelled",
+      "timeoutMs": 30000,
+      "expect": {
+        "stopReasonIn": [
+          "end_turn",
+          "refusal",
+          "cancelled"
+        ],
+        "permissionRequested": true,
+        "deniedToolsNotCompleted": true
+      }
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ACT}",
+      "permission": "allow",
+      "timeoutMs": 30000,
+      "expect": {
+        "stopReason": "end_turn",
+        "permissionRequested": true,
+        "permissionOptionKinds": [
+          "allow_once",
+          "reject_once"
+        ],
+        "allowedToolsCompleted": true
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

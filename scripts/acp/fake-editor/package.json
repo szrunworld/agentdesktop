@@ -1,0 +1,19 @@
+{
+  "name": "agentdesktop-acp-fake-editor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Scripted ACP client for AgentDesktop ACP acceptance (lane Q). Not shipped.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p .",
+    "selftest": "npm run build && node dist/selftest.js"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.7.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "22.18.0"
+  }
+}

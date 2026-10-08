@@ -1,0 +1,39 @@
+{
+  "id": "T01-pipelining",
+  "cases": [
+    "ACP-T01-06"
+  ],
+  "title": "不等 initialize 回复就发 session/new（流水线）：两个请求都应成功",
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "rawBatch",
+      "waitMs": 5000,
+      "items": [
+        {
+          "id": "raw-init",
+          "line": "{\"jsonrpc\":\"2.0\",\"id\":\"raw-init\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{}}}",
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "id": "raw-new",
+          "line": "{\"jsonrpc\":\"2.0\",\"id\":\"raw-new\",\"method\":\"session/new\",\"params\":{\"cwd\":\"${RUN_DIR}\",\"mcpServers\":[]}}",
+          "expect": {
+            "ok": true
+          }
+        }
+      ]
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

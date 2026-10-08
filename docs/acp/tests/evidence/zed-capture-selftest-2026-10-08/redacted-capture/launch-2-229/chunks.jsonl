@@ -1,0 +1,7 @@
+{"t":"2026-10-08T08:59:28.587Z","ms":4,"dir":"editor->agent","offset":0,"length":257}
+{"t":"2026-10-08T08:59:28.590Z","ms":7,"dir":"agent->editor","offset":0,"length":358}
+{"t":"2026-10-08T08:59:28.594Z","ms":11,"dir":"agent->editor","offset":358,"length":605}
+{"t":"2026-10-08T08:59:28.595Z","ms":12,"dir":"agent->editor","offset":963,"length":586}
+{"t":"2026-10-08T08:59:28.596Z","ms":13,"dir":"editor->agent","end":true,"total":257}
+{"t":"2026-10-08T08:59:28.597Z","ms":14,"dir":"agent->editor","offset":1549,"length":317}
+{"t":"2026-10-08T08:59:28.597Z","ms":14,"dir":"agent->editor","end":true,"total":1866}

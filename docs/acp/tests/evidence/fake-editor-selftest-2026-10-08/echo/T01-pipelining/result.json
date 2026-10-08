@@ -1,0 +1,49 @@
+{
+  "id": "T01-pipelining",
+  "cases": [
+    "ACP-T01-06"
+  ],
+  "title": "不等 initialize 回复就发 session/new（流水线）：两个请求都应成功",
+  "status": "PASS",
+  "durationMs": 67,
+  "failures": [],
+  "steps": [
+    {
+      "op": "rawBatch",
+      "got": [
+        {
+          "jsonrpc": "2.0",
+          "id": "raw-init",
+          "result": {
+            "protocolVersion": 1,
+            "agentCapabilities": {
+              "loadSession": true,
+              "promptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embeddedContext": false
+              },
+              "sessionCapabilities": {
+                "list": {},
+                "resume": {},
+                "close": {}
+              }
+            },
+            "agentInfo": {
+              "name": "qtest-echo-agent",
+              "version": "0.1.0"
+            },
+            "authMethods": []
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": "raw-new",
+          "result": {
+            "sessionId": "qs-65747-1"
+          }
+        }
+      ]
+    }
+  ]
+}

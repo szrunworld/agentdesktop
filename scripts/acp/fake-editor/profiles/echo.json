@@ -1,0 +1,50 @@
+{
+  "name": "qtest-echo",
+  "comment": "Self-test target: src/echo-agent.ts. Not AgentDesktop; proves the fake editor's assertions work.",
+  "agent": [
+    "node",
+    "${FAKE_EDITOR_DIR}/dist/echo-agent.js"
+  ],
+  "env": {
+    "QTEST_ECHO_STATE": "${RUN_DIR}/state",
+    "QTEST_ECHO_PRINCIPAL": "principal-a"
+  },
+  "identities": {
+    "second": {
+      "QTEST_ECHO_PRINCIPAL": "principal-b"
+    }
+  },
+  "features": [
+    "session.load",
+    "session.list",
+    "session.close",
+    "identity.second",
+    "echo.marker",
+    "task.slow",
+    "approval",
+    "runtime.events.windowTitle",
+    "runtime.events.unknown"
+  ],
+  "vars": {
+    "SUPPORTED_VERSIONS": "[1]",
+    "PROMPT_ECHO": "echo hello-from-fake-editor",
+    "ECHO_TEXT": "hello-from-fake-editor",
+    "ECHO_PREFIX": "echo",
+    "PROMPT_SLOW": "slow 12",
+    "PROMPT_SLOW_LONG": "slow 40",
+    "CANCEL_AFTER_MS": "700",
+    "DISCONNECT_AFTER_MS": "800",
+    "PROMPT_ACT": "act neutral-sample",
+    "OVERSIZE_BYTES": "2097152",
+    "OVERSIZE_ALLOW_CLOSE": "true",
+    "SCOPED_ENDED_TEXT": "ended:connection_lost",
+    "REFUSAL_EXPLAINED_RE": "not_executed:approval_(unavailable|cancelled)",
+    "PROMPT_TASK": "forbidden",
+    "NO_TASK_RE": ".*",
+    "PROMPT_P1": "titled",
+    "P1_NAME": "王小明",
+    "P1_TITLE_FRAGMENT": "候选人",
+    "PROMPT_P2": "unknown",
+    "P2_TEXT": "结果未知 · 需要核实"
+  }
+}

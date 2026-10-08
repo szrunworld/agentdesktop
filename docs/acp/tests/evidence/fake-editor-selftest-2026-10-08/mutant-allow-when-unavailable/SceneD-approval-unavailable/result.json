@@ -1,0 +1,20 @@
+{
+  "id": "SceneD-approval-unavailable",
+  "cases": [
+    "ACP-P2D-01",
+    "ACP-P2D-02"
+  ],
+  "title": "场景 D：编辑器不能回答审批（方法不存在）时动作保持未执行，并给出可解释的拒绝",
+  "status": "FAIL",
+  "durationMs": 110,
+  "failures": [
+    "turn: text \"executed\" does not match /not_executed:approval_(unavailable|cancelled)/"
+  ],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "act neutral-sample",
+      "outcome": "end_turn"
+    }
+  ]
+}

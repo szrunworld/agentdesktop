@@ -1,0 +1,46 @@
+{"ms":1,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":2,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":2,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":78,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":78,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":78,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q5-st/echo/T06-session-lifecycle/run","mcpServers":[]}}}
+{"ms":81,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-65868-1"}}}
+{"ms":81,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"echo hello-from-fake-editor","expect":{"stopReason":"end_turn"}}}
+{"ms":81,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-65868-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
+{"ms":84,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65868-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo hello-from-fake-editor"}}}}}
+{"ms":84,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65868-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello-from-fake-editor"}}}}}
+{"ms":84,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":85,"dir":"step","step":"listSessions","at":{"op":"listSessions","expect":{"contains":["s1"]}}}
+{"ms":85,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}}
+{"ms":86,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"qs-65868-1","cwd":"/tmp/adt-q5-st/echo/T06-session-lifecycle/run","title":null,"updatedAt":"2026-10-08T09:16:47.440Z"}]}}}
+{"ms":86,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":86,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":86,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":92,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":92,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":93,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":93,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":182,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":183,"dir":"step","step":"resume","at":{"op":"resume","session":"s1","method":"load","expect":{"ok":true,"replayIncludes":["hello-from-fake-editor"],"replayWithinMs":3000}}}
+{"ms":183,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/load","params":{"sessionId":"qs-65868-1","cwd":"/tmp/adt-q5-st/echo/T06-session-lifecycle/run","mcpServers":[]}}}
+{"ms":184,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65868-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo hello-from-fake-editor"}}}}}
+{"ms":184,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65868-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello-from-fake-editor"}}}}}
+{"ms":184,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{}}}
+{"ms":184,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"echo hello-from-fake-editor","expect":{"stopReason":"end_turn"}}}
+{"ms":185,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-65868-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
+{"ms":189,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65868-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo hello-from-fake-editor"}}}}}
+{"ms":189,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65868-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello-from-fake-editor"}}}}}
+{"ms":189,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":190,"dir":"step","step":"resume","at":{"op":"resume","session":"literal:qtest-missing-session","method":"load","expect":{"ok":false,"noReplay":true}}}
+{"ms":190,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/load","params":{"sessionId":"qtest-missing-session","cwd":"/tmp/adt-q5-st/echo/T06-session-lifecycle/run","mcpServers":[]}}}
+{"ms":190,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"Resource not found: qtest-missing-session","data":{"uri":"qtest-missing-session"}}}}
+{"ms":190,"dir":"step","step":"closeSession","at":{"op":"closeSession","session":"s1","expect":{"ok":true}}}
+{"ms":191,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"session/close","params":{"sessionId":"qs-65868-1"}}}
+{"ms":192,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":4,"result":{}}}
+{"ms":192,"dir":"step","step":"listSessions","at":{"op":"listSessions","expect":{"excludes":["s1"]}}}
+{"ms":192,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":5,"method":"session/list","params":{}}}
+{"ms":192,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":5,"result":{"sessions":[]}}}
+{"ms":192,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":192,"conn":2,"dir":"disconnect","mode":"close-stdin"}
+{"ms":193,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":197,"conn":2,"dir":"exit","code":0,"signal":null}

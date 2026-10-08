@@ -1,0 +1,188 @@
+{
+  "name": "emitted-full-frame-payload",
+  "description": "桥若把整个 RunEvent（含 data、at）作为 payload 交来，投影结果相同",
+  "policy": {
+    "screenshots": "off",
+    "pageText": false
+  },
+  "events": [
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 1,
+      "type": "run.started",
+      "payload": {
+        "runId": "run_0a1b2c3d4e5f",
+        "sequence": 1,
+        "at": "2026-10-08T12:00:00.000Z",
+        "type": "run.started",
+        "data": {
+          "kind": "act",
+          "origin": "agent_hub",
+          "ownership": "external_client",
+          "lifetime": "connection_scoped",
+          "desktopId": "desk_000000aaaaaa",
+          "sessionId": "sess_000000bbbbbb",
+          "at": "2026-10-08T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 2,
+      "type": "action.accepted",
+      "payload": {
+        "runId": "run_0a1b2c3d4e5f",
+        "sequence": 2,
+        "at": "2026-10-08T12:00:00.010Z",
+        "type": "action.accepted",
+        "data": {
+          "requestId": "req_0001aaaabbbb",
+          "kind": "click"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 3,
+      "type": "action.completed",
+      "payload": {
+        "runId": "run_0a1b2c3d4e5f",
+        "sequence": 3,
+        "at": "2026-10-08T12:00:00.400Z",
+        "type": "action.completed",
+        "data": {
+          "receipt": {
+            "receiptId": "rcpt_00aa11bb22cc",
+            "requestId": "req_0001aaaabbbb",
+            "runId": "run_0a1b2c3d4e5f",
+            "desktopId": "desk_000000aaaaaa",
+            "sessionId": "sess_000000bbbbbb",
+            "snapshotId": "snap_000000cccccc",
+            "delivery": "dispatched",
+            "execution": "completed",
+            "verification": "not_requested",
+            "businessResult": "not_evaluated",
+            "route": "ax",
+            "target": {
+              "generation": 1,
+              "process": {
+                "pid": 4242,
+                "startedAt": null
+              },
+              "windowId": 813,
+              "elementRef": "el_7",
+              "point": null
+            },
+            "timing": {
+              "acceptedAt": "2026-10-08T12:00:00.000Z",
+              "dispatchedAt": "2026-10-08T12:00:00.120Z",
+              "completedAt": "2026-10-08T12:00:00.350Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 4,
+      "type": "run.ended",
+      "payload": {
+        "runId": "run_0a1b2c3d4e5f",
+        "sequence": 4,
+        "at": "2026-10-08T12:00:02.000Z",
+        "type": "run.ended",
+        "data": {
+          "phase": "ended",
+          "outcome": "success",
+          "reason": "completed"
+        }
+      }
+    }
+  ],
+  "mustContain": ["用时 2.0 秒"],
+  "expected": [
+    [
+      {
+        "agentMessage": "任务已开始（Run run_0a1b2c3d4e5f）；编辑器断开后将停止输入"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0001aaaabbbb",
+          "title": "点击 — 已受理",
+          "kind": "execute",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0001aaaabbbb",
+          "title": "点击 — 已执行，未验证",
+          "kind": "execute",
+          "status": "completed",
+          "level": "executed",
+          "detail": [
+            "状态：已执行，未验证",
+            "投递：已发出",
+            "执行：已完成",
+            "验证：未请求",
+            "业务结果：未评估",
+            "耗时：350 毫秒",
+            "目标：ref-uqfnsihz"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "agentMessage": "任务结束：已投递（业务结果：未评估）；用时 2.0 秒"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "completed"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "completed"
+          },
+          {
+            "content": "结果：已结束（业务结果未评估）",
+            "status": "completed"
+          }
+        ]
+      }
+    ]
+  ],
+  "mustNotContain": []
+}

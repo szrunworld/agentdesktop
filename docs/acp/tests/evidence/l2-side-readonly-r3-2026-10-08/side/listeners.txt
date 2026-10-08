@@ -1,0 +1,2 @@
+/tmp/adt-acp/side.ai.sock
+/tmp/adt-acp/side.runtime.sock

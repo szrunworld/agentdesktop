@@ -1,0 +1,72 @@
+{
+  "id": "T06-load-ordering",
+  "cases": [
+    "ACP-T06-09"
+  ],
+  "title": "session/load 先回放历史再回复；用户自己的输入以 user_message_chunk 回放（ACP v1 Loading Sessions）",
+  "requires": [
+    "session.load"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ECHO}",
+      "expect": {
+        "stopReasonIn": [
+          "end_turn",
+          "refusal"
+        ]
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    },
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "resume",
+      "session": "s1",
+      "method": "load",
+      "expect": {
+        "ok": true,
+        "replayBeforeResponse": true,
+        "replayUpdatesInclude": [
+          "user_message_chunk"
+        ],
+        "replayUserTextNotAsAgent": "${PROMPT_ECHO}"
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

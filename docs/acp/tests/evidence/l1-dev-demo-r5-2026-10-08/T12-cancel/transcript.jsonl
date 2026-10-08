@@ -1,0 +1,31 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":5,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
+{"ms":5,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":5,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q5-l1/T12-cancel/run","mcpServers":[]}}}
+{"ms":8,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","configOptions":[{"id":"mode","name":"执行确认","category":"mode","type":"select","currentValue":"ask","options":[{"value":"ask","name":"ask"},{"value":"auto","name":"auto"}]},{"id":"screenshots","name":"截图","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"submit","name":"submit"},{"value":"all","name":"all"}]},{"id":"pageText","name":"页面文字","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"on","name":"on"}]}]}}}
+{"ms":8,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"demo slow run","cancelAfterMs":"400","expect":{"stopReason":"cancelled","quietAfterMs":1500}}}
+{"ms":8,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","prompt":[{"type":"text","text":"demo slow run"}]}}}
+{"ms":8,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"demo-echo","description":"演示：三步进度后结束","input":{"hint":"<text>"}},{"name":"help","description":"列出可用命令"},{"name":"status","description":"查看本会话任务的状态","input":{"hint":"[runId]"}},{"name":"runs","description":"列出本会话的任务"},{"name":"cancel","description":"请求停止本会话正在运行的任务","input":{"hint":"[runId]"}}]}}}}
+{"ms":9,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"身份说明：Runtime 尚未认证调用方身份，本会话暂按本机所有者占位身份（[已隐藏]）归属。"}}}}}
+{"ms":12,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"任务已受理：demo-run-1（[已隐藏]）。"}}}}}
+{"ms":410,"conn":1,"dir":"note","note":"cancel acps_1c0cabca-8804-425f-8372-74daad80415f"}
+{"ms":410,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f"}}}
+{"ms":411,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"正在停止任务 demo-run-1：阶段 stopping，输入静止 pending"}}}}}
+{"ms":431,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"演示进度 1/3"}}}}}
+{"ms":852,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"演示进度 2/3"}}}}}
+{"ms":1258,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"演示进度 3/3"}}}}}
+{"ms":2099,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"任务 demo-run-1 已结束：阶段 ended，结果 cancelled，输入静止 confirmed"}}}}}
+{"ms":2100,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"cancelled"}}}
+{"ms":3600,"dir":"step","step":"cancel","at":{"op":"cancel","session":"s1"}}
+{"ms":3600,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f"}}}
+{"ms":3601,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":300}}
+{"ms":3902,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"/help","timeoutMs":30000,"expect":{"stopReason":"end_turn"}}}
+{"ms":3902,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","prompt":[{"type":"text","text":"/help"}]}}}
+{"ms":3904,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_1c0cabca-8804-425f-8372-74daad80415f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"可用命令：\n/demo-echo <text>：演示：三步进度后结束\n/help：列出可用命令\n/status [runId]：查看本会话任务的状态\n/runs：列出本会话的任务\n/cancel [runId]：请求停止本会话正在运行的任务"}}}}}
+{"ms":3904,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}}
+{"ms":3904,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":3904,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":3904,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":3905,"conn":1,"dir":"exit","code":0,"signal":null}
