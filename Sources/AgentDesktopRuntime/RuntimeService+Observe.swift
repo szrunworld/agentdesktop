@@ -58,8 +58,14 @@ extension RuntimeService {
             func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
                 let artifactId = "art_" + snapshotId.dropFirst(4)
                 let path = artifacts.path(for: artifactId, ext: "png")
-                let size = try crop.map { try platform.screenshot(d.screen, cropTo: $0, to: path) }
-                    ?? platform.screenshot(d.screen, to: path)
+                // The bound window alone, never the screen cut down afterwards:
+                // no whole-screen image is written, even for a moment.
+                let size: (width: Int, height: Int)
+                if let b = d.binding, crop != nil {
+                    size = try platform.windowScreenshot(d.screen, pid: b.process.pid, windowId: b.windowId, to: path)
+                } else {
+                    size = try platform.screenshot(d.screen, to: path)
+                }
                 let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
                 let scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
                 let info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
@@ -75,6 +81,12 @@ extension RuntimeService {
                 ])
             }
             guard let b = d.binding else {
+                if wantsImage && refusesScreenCaptureWithoutBinding {
+                    throw RuntimeError("invalid_target",
+                                       "desktop \(d.desktopId) has no bound window; a screenshot of the whole screen needs a screen-level grant",
+                                       phase: .handler, notSent: true,
+                                       details: .obj([("reason", .string("screen_capture_requires_grant"))]))
+                }
                 // A physical Desktop shows the user's own screen: without a
                 // bound window there is nothing it may look at.
                 guard d.kind == .virtual else {

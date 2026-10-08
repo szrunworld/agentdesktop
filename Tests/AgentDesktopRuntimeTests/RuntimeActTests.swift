@@ -16,9 +16,9 @@ struct Scene {
 
 func scene(_ platform: FakePlatform = FakePlatform(), backend: FixedBackend = FixedBackend(),
            ledger: RequestLedger? = nil, runs: RunStore? = nil) throws -> Scene {
-    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let s = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                           backend: backend, platform: platform, ledger: ledger, runs: runs)
+                           backend: backend, platform: platform, ledger: ledger, runs: runs); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let c = handshaken(s)
     let d = try created(s, c)
     _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)

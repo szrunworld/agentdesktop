@@ -58,6 +58,12 @@ extension RuntimeService {
         }
         do {
             if let physical = p["physical"] {
+                guard physicalDesktopsEnabled else {
+                    return .failure(RuntimeError("permission_denied",
+                                                 "physical Desktops are disabled until per-window grants exist: attaching your screen and binding its windows needs your authorization for each window",
+                                                 phase: .handler, notSent: true,
+                                                 details: .obj([("reason", .string("physical_desktop_requires_grant"))])))
+                }
                 // A physical Desktop: attach one of the user's displays; nothing is created.
                 guard p["width"] == nil, p["height"] == nil else {
                     return .failure(.invalidArgument("a physical Desktop takes the display's size; leave out width and height"))
@@ -168,6 +174,12 @@ extension RuntimeService {
             let wanted = p["windowId"]?.intValue.map(UInt32.init)
             let process = backend.processIdentity(pid)
             guard process.startedAt != nil else { throw RuntimeError.notFound("no process \(pid)") }
+            if d.kind == .virtual && bindsOnlyLaunchedProcesses && !d.launched.contains(process) {
+                throw RuntimeError("permission_denied",
+                                   "only an app launched on desktop \(d.desktopId) can be bound until per-window grants exist; launch it there with app.launch",
+                                   phase: .handler, notSent: true,
+                                   details: .obj([("reason", .string("bind_requires_grant"))]))
+            }
             if d.kind == .physical {
                 // Never move the user's window: it must already be on this display.
                 guard let wanted else {
