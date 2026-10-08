@@ -107,6 +107,9 @@ public final class IPhoneAgentScreen: AgentScreen {
     }
 
     public func screenshot(size: CGSize) throws -> Data {
+        // An input that turns uncertain while this capture is taken raises a
+        // barrier this picture predates: only the one already up is lowered.
+        let barrierSeen = system.inputBarrier.generation(now: system.now)
         let capture = try capturedWindow()
         let status = state(of: capture)
         guard status.state == .ready else {
@@ -122,7 +125,7 @@ public final class IPhoneAgentScreen: AgentScreen {
                                         pixelSize: size, capturedAt: system.now)
         // Whoever took it can now see what an uncertain input left.
         invalidated = nil
-        system.inputBarrier.lower()
+        if let barrierSeen { system.inputBarrier.lower(ifStill: barrierSeen) }
         return png
     }
 
@@ -370,6 +373,8 @@ public final class IPhoneAgentScreen: AgentScreen {
         }
 
         func pause(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+
+        func blockInput(_ reason: String) { phone.block(reason) }
     }
 
     /// The text on the mirroring window, for `PastePrompt.read` and for

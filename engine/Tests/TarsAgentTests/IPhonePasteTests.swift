@@ -52,6 +52,12 @@ final class ScriptedPhone: PhonePasteDriver {
         return tapResponse
     }
 
+    private(set) var blocked: [String] = []
+    func blockInput(_ reason: String) {
+        blocked.append(reason)
+        log.append("block")
+    }
+
     func pause(_ seconds: TimeInterval) {
         onPause?()
         if pauseSeconds > 0 { Thread.sleep(forTimeInterval: pauseSeconds) }
@@ -547,6 +553,98 @@ func fast() -> PasteWatcher {
         #expect(phone.taps.count == 1)
         if let tap = phone.taps.first { #expect(abs(tap.x - 0.5) < 1e-9 && abs(tap.y - 0.595) < 1e-9) }
     }
+
+    /// Codex on #78: an Allow Paste the user accepted can vanish before the
+    /// transfer shows; that quiet is not the end of the fetch.
+    @Test func anAcceptedPromptThenQuietIsNotDone() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("secret-token", forType: .string)
+        let prompts = [[PhoneText]?](repeating: keyboard + alert, count: 8)
+        let phone = ScriptedPhone(baseline: keyboard, prompts + [keyboard])
+        phone.pasteboard = pasteboard
+        phone.tapResponse = .failure("tap refused")
+        var paste = transaction(pasteboard, lock)
+        paste.settleLooks = 6
+        let result = paste.paste("hello", verify: true, driver: phone)
+        guard case .unknown = result.outcome else {
+            Issue.record("expected unknown")
+            return
+        }
+        #expect(!result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "hello")
+    }
+
+    /// Codex on #78: input is blocked as soon as the outcome is unknown,
+    /// before the wait for the phone to finish.
+    @Test func inputIsBlockedBeforeTheSettlingWait() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard + pasting])
+        phone.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.settleLooks = 3
+        _ = paste.paste("hello", verify: true, driver: phone)
+        #expect(phone.blocked == ["may hold a half-finished paste"])
+        guard let block = phone.log.firstIndex(of: "block") else {
+            Issue.record("input was not blocked")
+            return
+        }
+        // Every look after the block belongs to the settling wait.
+        #expect(phone.log.count > block + 1)
+    }
+
+    /// Codex on #95: a page's own centred controls are not the system's.
+    @Test func aCopyDuringThePasteNeverPressesPageControls() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("before", forType: .string)
+        let page = [line("Allow Paste", y: 0.5), line("Don't Allow Paste", y: 0.56), line("Cancel", x: 0.4, y: 0.62, width: 0.2)]
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard + page])
+        phone.pasteboard = pasteboard
+        phone.onPause = {
+            if phone.looks == 1 {
+                pasteboard.clearContents()
+                pasteboard.setString("USER-SECRET", forType: .string)
+            }
+        }
+        let result = transaction(pasteboard, lock).paste("hello", verify: true, driver: phone)
+        guard case .unknown(let why) = result.outcome else {
+            Issue.record("expected unknown")
+            return
+        }
+        #expect(why.contains("no system Cancel"))
+        #expect(phone.taps.isEmpty)
+    }
+
+    @Test func aBarrierRaisedSinceIsNotLowered() throws {
+        let (_, lock) = scratch()
+        let flag = HostFlag(url: lock.deletingLastPathComponent().appendingPathComponent("barrier"))
+        try flag.raise("first")
+        let seen = try #require(flag.generation())
+        try flag.raise("second")
+        flag.lower(ifStill: seen)
+        #expect(flag.reason() == "second")
+        let now = try #require(flag.generation())
+        flag.lower(ifStill: now)
+        #expect(flag.reason() == nil)
+    }
+}
+
+@Suite struct AgentIndeterminateResults {
+    @Test func unknownPastesAndDeliveriesStopTheRun() {
+        var paste = ControlResponse.failure("the paste did not finish")
+        paste.route = "paste.unknown"
+        #expect(TarsAgent.isIndeterminate(paste))
+        #expect(TarsAgent.isIndeterminate(.failure("action_delivery_unknown (target_changed_during_dispatch): x")))
+        #expect(TarsAgent.isIndeterminate(.failure("stale_observation (delivery_unknown): the window moved")))
+        #expect(!TarsAgent.isIndeterminate(.failure("stale_observation (moved): take a new screenshot")))
+        var delivered = ControlResponse()
+        delivered.route = "paste.delivered"
+        #expect(!TarsAgent.isIndeterminate(delivered))
+    }
 }
 
 /// A phone whose ⌘V request fails after it may have gone out.
@@ -564,4 +662,5 @@ final class ThrowingPastePhone: PhonePasteDriver {
     func pressPaste() throws -> ControlResponse { throw Lost() }
     func tap(_ point: CGPoint) throws -> ControlResponse { try inner.tap(point) }
     func pause(_ seconds: TimeInterval) { inner.pause(seconds) }
+    func blockInput(_ reason: String) { inner.blockInput(reason) }
 }

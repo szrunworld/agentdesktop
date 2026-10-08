@@ -21,6 +21,8 @@ public struct HostFlag: Sendable {
     private struct Record: Codable {
         var reason: String
         var until: Date?
+        /// Which raising this is, so a reader can lower only the one it saw.
+        var generation: String?
     }
 
     /// Raises the flag with `reason`, until `until` if given.
@@ -28,7 +30,7 @@ public struct HostFlag: Sendable {
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        let data = try JSONEncoder().encode(Record(reason: reason, until: until))
+        let data = try JSONEncoder().encode(Record(reason: reason, until: until, generation: UUID().uuidString))
         // Written aside and renamed in, so a reader never sees half a record.
         let staging = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString)")
         guard FileManager.default.createFile(atPath: staging.path, contents: data,
@@ -58,5 +60,19 @@ public struct HostFlag: Sendable {
 
     public func lower() {
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// The raising now in place, if the flag is up: pass it to
+    /// `lower(ifStill:)` to lower that one and not a later one.
+    public func generation(now: Date = Date()) -> String? {
+        guard reason(now: now) != nil, let data = FileManager.default.contents(atPath: url.path) else { return nil }
+        return (try? JSONDecoder().decode(Record.self, from: data))?.generation ?? "unreadable"
+    }
+
+    /// Lowers the flag only if it is still the raising `generation` named;
+    /// one raised since stays up.
+    public func lower(ifStill generation: String) {
+        guard self.generation() == generation else { return }
+        lower()
     }
 }
