@@ -37,6 +37,8 @@ final class RTestRuntime: @unchecked Sendable {
     var events: [String: [JSONValue]] = [:]
     var ledger: [String: (method: String, state: String, outcome: JSONValue?)] = [:]
     var supportsPush = true
+    /// Put `lastEventSequence` on Runs (07 R10).
+    var exposeLastCursor = false
     /// Close a subscription after this many frames (simulated drop).
     var dropAfterFrames: Int?
     var dropsLeft = 0
@@ -89,6 +91,8 @@ final class RTestRuntime: @unchecked Sendable {
                      ("ownership", .string("external_client")), ("lifetime", .string(r["lifetime"] ?? "")),
                      ("connectionId", .string(r["connectionId"] ?? "")), ("phase", .string(r["phase"] ?? "")),
                      ("outcome", r["outcome"].map(JSONValue.string) ?? .null), ("quiescence", .string(r["quiescence"] ?? ""))])
+            .setting("lastEventSequence", exposeLastCursor ? .int(events[id]?.count ?? 0) : .null)
+            .dropNull("lastEventSequence")
     }
 
     func connectionClosed(_ conn: Int) {
@@ -293,5 +297,12 @@ enum RTest {
             if out.count >= limit { break }
         }
         return out
+    }
+}
+
+extension JSONValue {
+    func dropNull(_ key: String) -> JSONValue {
+        guard case let .object(m) = self else { return self }
+        return .object(m.filter { !($0.key == key && $0.value.isNull) })
     }
 }

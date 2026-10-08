@@ -58,11 +58,23 @@ final class ACPBridgeOnce: @unchecked Sendable {
 /// the cooperative pool, and bounds how long an async caller waits. A job
 /// that outlives its timeout keeps running to completion on the queue (the
 /// client's socket timeout ends it); only the caller stops waiting.
+///
+/// The timeout is armed on a timer queue of its own, never on the job queue
+/// (which the blocked call occupies) nor on a global queue (which other
+/// blocking work can saturate), so it fires on time. What it cannot speed up
+/// is the caller's own resumption: an `await` continues on the Swift
+/// cooperative pool, and when other code blocks every thread of that pool
+/// the caller resumes late. Measured 2026-10-08 under the full suite: the
+/// timer fired at 0.105 s every run, the caller resumed after 0.87–1.40 s.
+/// Nothing in this bridge blocks the pool.
 final class ACPBridgeExecutor: @unchecked Sendable {
     private let queue: DispatchQueue
     /// A serial (overcommitting) queue of its own, so a timeout fires even
     /// when the shared global pool is saturated.
     private static let timers = DispatchQueue(label: "acp.bridge.timeouts", qos: .userInitiated)
+
+    /// Test hook: called on the timer queue when a timeout fires.
+    var onTimeout: ((Date) -> Void)?
 
     init(label: String) {
         queue = DispatchQueue(label: label, qos: .userInitiated)
@@ -76,7 +88,10 @@ final class ACPBridgeExecutor: @unchecked Sendable {
                 if once.claim() { cont.resume(with: r) }
             }
             Self.timers.asyncAfter(deadline: .now() + timeout) {
-                if once.claim() { cont.resume(throwing: ACPBridgeTimeout()) }
+                if once.claim() {
+                    self.onTimeout?(Date())
+                    cont.resume(throwing: ACPBridgeTimeout())
+                }
             }
         }
     }

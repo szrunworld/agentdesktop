@@ -1,6 +1,6 @@
 # ACP 对 runtime/1 的需求清单（工作线 R）
 
-状态：2026-10-08，基于 `acp-skeleton`（含 ai-gui-foundation b2831ca）的代码与 `contracts/runtime/v1` 核对。负责人：工作线 R。由协调者转给 f1（契约负责人）与 40（unit.run）。
+状态：2026-10-08（第二轮更新：R10、事件载荷、`verified`），基于 `acp-skeleton`（含 ai-gui-foundation b2831ca）的代码与 `contracts/runtime/v1` 核对。负责人：工作线 R。由协调者转给 f1（契约负责人）与 40（unit.run）。
 
 本文只列 ACP 需要、而 runtime/1 现在没有或没有实现的东西。每一条写明：现状证据、建议的确切形状、负责方、阻塞的 ACP 门禁（见 [06-gates.md](06-gates.md)）。原则沿用 [00 方案](00-input-plan-v1.0.md) 4.6：不为 ACP 新增 `acp.*` 专用 RPC，只提通用能力。
 
@@ -10,13 +10,13 @@
 
 | 端口方法 | 今天 | 用到的方法 |
 | --- | --- | --- |
-| `caller()` | 真实，但只是本机 owner 占位（见 R4） | `runtime.handshake`、`runtime.status` |
+| `caller()` | 真实，但只是本机 owner 占位，`verified: false`（见 R4） | `runtime.handshake`、`runtime.status` |
 | `tasks()` | 真实；Runtime 不宣告 `unit.run` 时为空列表 | `runtime.capabilities`（有 `unit.run` 且有 `ai.profiles.list` 时再读 GUI 配置） |
 | `submit()` | 没有 `unit.run` 时返回 `.refused(code: "capability_missing")`，什么都不发；有时走 `unit.run` | `unit.run`、`request.show`、`run.show` |
-| `snapshot()` | 真实 | `run.show` |
+| `snapshot()` | 真实；`lastCursor` 在 Runtime 提供 `Run.lastEventSequence` 前为 nil（见 R10） | `run.show` |
 | `cancel()` | 真实（受理回执；静止之后再到） | `run.cancel`、`run.show` |
-| `events()` | 真实；单独连接，游标续传、去重 | `events.subscribe`，回退 `run.events` |
-| `pending()` / `decide()` / `answer()` | 抛 `capability_missing`，调用方按拒绝处理 | 无（见 R2） |
+| `events()` | 真实；单独连接，游标续传、去重；`payload` 是完整的 `RunEvent`（`runId`、`sequence`、`at`、`type`、`data`） | `events.subscribe`，回退 `run.events` |
+| `pending()` / `decide()` / `answer()` / `decline()` | 抛 `capability_missing`，调用方按拒绝处理 | 无（见 R2） |
 | `connectionLost()` | 真实：关闭控制连接，由 Runtime 按 ADR v2.2 停止 Delegated Run；不重连、不恢复 | 关闭连接 |
 
 幂等：requestId = `acp-sub-` + sha256(`acp-submission/v1`、调用方、`submissionKey`) 的前 24 字节十六进制，和 CLI、MCP 的 requestId 在同一个「调用方 uid + requestId」空间里不会相撞。发送前先写 `ACPSubmissionLog`（0600 文件，只存 submissionKey → requestId / runId / 状态，不存输入）；重试只查 `request.show` / `run.show`，结果不明一律 `.unconfirmed`，绝不重发。
@@ -86,7 +86,7 @@
   1. `RuntimeIdentity` 增加可选 `principal: Principal`（`{clientId, role, connectionId}`），每个连接的握手结果都带上。
   2. `RuntimeClient` 暴露它（例如 `handshake()` 返回值里带 `principal`，或新增 `principal()`）。
   3. 配对客户端（`app:<id>`，role `paired`）只看见自己的 Run / 请求 / 事件，ACP 会话按 `clientId` 隔离。
-- **A4 之后 R 要改的**：`caller()` 直接取 `principal`；requestId 派生里的调用方改用 `principal.clientId`；`ACPSubmissionLog` 按 clientId 分区。接口 `ACPCaller` 不变。
+- **A4 之后 R 要改的**：`caller()` 直接取 `principal` 并置 `verified: true`；requestId 派生里的调用方改用 `principal.clientId`；`ACPSubmissionLog` 按 clientId 分区。接口 `ACPCaller` 不变。
 - **负责**：f1（A4 / PR2b），Client 的改动由 f1 一并做。
 - **阻塞**：G1-09、G2-01（真实身份）、G2-02、G2-08。
 
@@ -146,6 +146,20 @@
 - **负责**：f1（CLI），协调者提出。
 - **阻塞**：G1-11、所有真编辑器验收。
 
+### R10　Run 的最后事件序号
+
+- **现状**：`Run` 没有「最后一条事件的 sequence」。ACP 恢复会话时要知道编辑器错过了多少事件，只能把 `run.events` 从游标翻到底；`ACPRunSnapshot.lastCursor` 因此今天恒为 nil。
+- **需要**：`Run` 增加可选字段 `lastEventSequence: integer ≥ 0`（该 Run 已写入的最大 `sequence`，没有事件时为 0），`run.show`、`run.list`、`run.wait` 都带上。R 已按这个名字读取（`ACPBridgeRuntimePort.lastCursorField`），字段一出现即生效，不必改代码。
+- **负责**：f1（与 docs/plan/03 §3.3 的 Run 增量一起）。
+- **阻塞**：G2-01 的恢复回放（今天可用 `run.events` 翻页代替，较慢）。
+
+### R11　事件里的回执引用
+
+- **现状**：E 线需要从事件计算耗时并关联动作回执。R 现在把完整 `RunEvent` 作为 `payload` 交给 E，时间取 `at`；但回执只在 `data` 里按事件类型约定出现，没有统一字段。
+- **需要**：F1-01 目录（R3）里，凡与动作有关的事件，`data` 一律带 `receiptId`（与 `Run.receipts` 中的 ID 一致）与 `dispatchSequence`；需要耗时的事件带 `elapsedMs`（与 ActionReceipt 增量同名）。
+- **负责**：f1。
+- **阻塞**：E 线的耗时展示与三级结果关联（G1-08）。
+
 ## 三、汇总
 
 | 编号 | 内容 | 负责 | 阻塞门禁 |
@@ -159,3 +173,5 @@
 | R7 | `request.show` 的确定性未到达答复 | f1 | G2-09 |
 | R8 | 取消的正式错误码与事件 | f1 | G2-05 |
 | R9 | `agentdesktop acp` 子命令接线 | f1 / 协调者 | G1-11 |
+| R10 | `Run.lastEventSequence` | f1 | G2-01 |
+| R11 | 动作事件统一带 `receiptId` / `elapsedMs` | f1 | G1-08 |
