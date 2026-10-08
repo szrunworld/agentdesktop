@@ -41,6 +41,19 @@ extension RuntimeService {
         case let .failure(e): return .failure(e)
         case let .success((d, s)): desk = d; session = s
         }
+        // Screenshots count against a quota bucket: the Run named in the
+        // context, which must be one this connection owns or joined (a made-up
+        // or another caller's runId neither gets a fresh quota nor spends
+        // someone else's); otherwise the session, else the Desktop.
+        let bucket: String
+        if let runId = request.context.runId {
+            if case let .failure(e) = execution.authorized(runId: runId, connection: c) { return .failure(e) }
+            bucket = "run:" + runId
+        } else if let session {
+            bucket = "session:" + session.sessionId
+        } else {
+            bucket = "desktop:" + desk.desktopId
+        }
         let requestDeadline = request.deadline.flatMap(Timestamp.date)
         let snapshotId = DesktopRegistry.newId(prefix: "obs")
         let wantsImage = p["screenshot"]?.boolValue ?? true
@@ -57,21 +70,32 @@ extension RuntimeService {
             /// The screen, or with a binding only the bound window's frame.
             func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
                 // Within the store's limits, before anything is captured.
-                try artifacts.admit(runId: request.context.runId)
+                try artifacts.admit(bucket: bucket)
                 let artifactId = "art_" + snapshotId.dropFirst(4)
                 let path = artifacts.path(for: artifactId, ext: "png")
                 // The bound window alone, never the screen cut down afterwards:
                 // no whole-screen image is written, even for a moment.
                 let size: (width: Int, height: Int)
-                if let b = d.binding, crop != nil {
-                    size = try platform.windowScreenshot(d.screen, pid: b.process.pid, windowId: b.windowId, to: path)
-                } else {
-                    size = try platform.screenshot(d.screen, to: path)
+                do {
+                    if let b = d.binding, crop != nil {
+                        size = try platform.windowScreenshot(d.screen, pid: b.process.pid, windowId: b.windowId, to: path)
+                    } else {
+                        size = try platform.screenshot(d.screen, to: path)
+                    }
+                } catch {
+                    artifacts.release(bucket: bucket)
+                    throw error
                 }
                 let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
                 let scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
-                let info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
-                                                  runId: request.context.runId, createdAt: nowString)
+                let info: ArtifactStore.Info
+                do {
+                    info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
+                                                  runId: request.context.runId, createdAt: nowString, bucket: bucket)
+                } catch {
+                    artifacts.release(bucket: bucket)
+                    throw error
+                }
                 stored.transform = (origin.0, origin.1, scale)
                 stored.imageSize = size
                 image = .obj([

@@ -115,12 +115,23 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         let factor = longSide > Self.maxModelSide ? Self.maxModelSide / longSide : 1
         let resized = Size(width: (crop.size.width * factor).rounded(), height: (crop.size.height * factor).rounded())
         let modelPNG = try Self.render(source: source, crop: crop, to: resized)
-        try service.artifacts.admit(runId: runId)
+        // The model's copy counts against the same session bucket the
+        // window capture above was admitted to (the GUI Run's own session).
+        let bucket = "session:" + rb.sessionId
+        let sha: String
+        do {
+            try service.artifacts.admit(bucket: bucket)
+        } catch let e as RuntimeError { throw Self.contractError(e) }
         let artifactId = "art_gui_" + snapshotId.dropFirst(4)
-        try modelPNG.write(to: URL(fileURLWithPath: service.artifacts.path(for: artifactId, ext: "png")))
-        // Readable by id from the owner (Runs page), not by other clients.
-        let sha = try service.artifacts.register(artifactId, mediaType: "image/png", clientId: "platform", runId: runId,
-                                                 createdAt: Timestamp.string(Date())).sha256
+        do {
+            try modelPNG.write(to: URL(fileURLWithPath: service.artifacts.path(for: artifactId, ext: "png")))
+            // Readable by id from the owner (Runs page), not by other clients.
+            sha = try service.artifacts.register(artifactId, mediaType: "image/png", clientId: "platform", runId: runId,
+                                                 createdAt: Timestamp.string(Date()), bucket: bucket).sha256
+        } catch {
+            service.artifacts.release(bucket: bucket)
+            throw error
+        }
         let shot = try ScreenshotDescriptor(
             screenshotId: "shot_" + snapshotId.dropFirst(4), artifactRef: artifactId, sha256: sha, mimeType: "image/png",
             transformVersion: "runtime-window-crop-v1",
@@ -281,6 +292,7 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         case "capability_missing": code = .capabilityMismatch
         case "action_delivery_unknown", "request_acceptance_unknown": code = .actionOutcomeUnknown
         case "schema_invalid", "invalid_argument": code = .invalidAction
+        case "limit_exceeded": code = .limitExceeded
         default: code = .internalError
         }
         return ContractError(code, e.message)

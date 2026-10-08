@@ -109,7 +109,8 @@ public final class ArtifactStore: @unchecked Sendable {
     /// a photo 8 MB. A GUI explorer Run takes at most about 60; a resident
     /// agent observing every 5 s for 2¾ hours takes 2,000.
     public struct Limits: Equatable, Sendable {
-        /// Screenshots of one Run.
+        /// Screenshots of one Run, or of one session outside any Run (a GUI
+        /// explorer Run has its own session).
         public var perRunArtifacts = 2_000
         public var perRunBytes: Int64 = 2 << 30
         /// Everything in the store.
@@ -119,9 +120,17 @@ public final class ArtifactStore: @unchecked Sendable {
         public init() {}
     }
     var limits = Limits()
-    /// Free bytes on the store's volume; nil when unknown (tests replace it).
+    /// Free bytes on the store's volume; nil when the volume cannot say
+    /// (tests replace it). Asked at most every `freeSpaceInterval`, off the
+    /// caller; a refusal follows from an unknown answer too.
     var freeBytes: @Sendable () -> Int64? = { nil }
-    private var usageByRun: [String: (count: Int, bytes: Int64)] = [:]
+    static let freeSpaceInterval: TimeInterval = 10
+    private var free: (bytes: Int64?, at: Date)?
+    private var refreshingFree = false
+    /// Usage by quota bucket ("run:<id>", "session:<id>", "desktop:<id>"):
+    /// each artifact counts from the moment it is admitted (a reservation),
+    /// its bytes once it is registered.
+    private var usage: [String: (count: Int, bytes: Int64)] = [:]
     private var usageTotal: Int64 = 0
 
     public init(directory: String, now: @escaping () -> Date = Date.init) throws {
@@ -137,44 +146,88 @@ public final class ArtifactStore: @unchecked Sendable {
         }
         sweep(at: lastSweep)
         recount()
+        refreshFreeSpace()
     }
 
-    /// Whether a new artifact of `runId` may be made. Called before the
-    /// screenshot is taken, so a refused one is never written. A refusal is
+    /// Admit one new artifact to `bucket` and reserve its place, before the
+    /// screenshot is taken, so a refused one is never written and parallel
+    /// requests cannot all slip under a limit. Each admit is followed by
+    /// `register(…, bucket:)` or `release(bucket:)`. A refusal is
     /// `limit_exceeded`; observing without a screenshot still works, and a
     /// Run's history (events, receipts) is never affected.
-    public func admit(runId: String?) throws {
-        let (run, total, limits) = lock.withLock { (runId.flatMap { usageByRun[$0] }, usageTotal, self.limits) }
-        func refuse(_ reason: String, _ message: String) -> RuntimeError {
-            RuntimeError("limit_exceeded", message + "; observe without a screenshot still works", phase: .handler,
-                         notSent: true, details: .obj([("reason", .string(reason))]))
+    public func admit(bucket: String) throws {
+        let stale = lock.withLock { () -> Bool in
+            guard let f = free else { return true }
+            return clock().timeIntervalSince(f.at) >= Self.freeSpaceInterval && !refreshingFree
         }
-        if let runId, let run, run.count >= limits.perRunArtifacts || run.bytes >= limits.perRunBytes {
-            throw refuse("run_artifact_quota",
-                         "run \(runId) already holds \(run.count) screenshots (\(run.bytes) bytes); a Run may keep at most \(limits.perRunArtifacts) or \(limits.perRunBytes) bytes")
-        }
-        if total >= limits.totalBytes {
-            throw refuse("artifact_store_full", "the artifact store holds \(total) bytes, its limit is \(limits.totalBytes)")
-        }
-        if let free = freeBytes(), free < limits.minFreeBytes {
-            throw refuse("disk_low", "only \(free) bytes are free on the artifact volume; the store leaves at least \(limits.minFreeBytes)")
+        if stale { scheduleFreeSpace() }
+        try lock.withLock {
+            func refuse(_ reason: String, _ message: String) -> RuntimeError {
+                RuntimeError("limit_exceeded", message + "; observe without a screenshot still works", phase: .handler,
+                             details: .obj([("reason", .string(reason))]))
+            }
+            let u = usage[bucket] ?? (0, 0)
+            if u.count >= limits.perRunArtifacts || u.bytes >= limits.perRunBytes {
+                throw refuse("run_artifact_quota",
+                             "\(bucket) already holds \(u.count) screenshots (\(u.bytes) bytes); at most \(limits.perRunArtifacts) or \(limits.perRunBytes) bytes")
+            }
+            if usageTotal >= limits.totalBytes {
+                throw refuse("artifact_store_full", "the artifact store holds \(usageTotal) bytes, its limit is \(limits.totalBytes)")
+            }
+            guard let freeBytes = free?.bytes else {
+                throw refuse("disk_unknown", "the free space on the artifact volume is unknown")
+            }
+            if freeBytes < limits.minFreeBytes {
+                throw refuse("disk_low", "only \(freeBytes) bytes are free on the artifact volume; the store leaves at least \(limits.minFreeBytes)")
+            }
+            usage[bucket] = (u.count + 1, u.bytes)
         }
     }
 
-    /// Usage from the records on disk (at start, and after a sweep).
+    /// Give back a reservation whose screenshot was not made.
+    public func release(bucket: String) {
+        lock.withLock {
+            guard let u = usage[bucket], u.count > 0 else { return }
+            usage[bucket] = (u.count - 1, u.bytes)
+        }
+    }
+
+    /// Ask the volume now (tests, and at start).
+    func refreshFreeSpace() {
+        let bytes = freeBytes()
+        lock.withLock { free = (bytes, clock()); refreshingFree = false }
+    }
+
+    private func scheduleFreeSpace() {
+        let go = lock.withLock { () -> Bool in defer { refreshingFree = true }; return !refreshingFree }
+        guard go else { return }
+        sweeper.async { [self] in refreshFreeSpace() }
+    }
+
+    /// Usage from the records on disk, once, at start (nothing else runs yet).
     private func recount() {
-        var byRun: [String: (count: Int, bytes: Int64)] = [:]
+        var byBucket: [String: (count: Int, bytes: Int64)] = [:]
         var total: Int64 = 0
         for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [] where name.hasSuffix(".meta.json") {
             guard let m = FileManager.default.contents(atPath: directory + "/" + name).flatMap({ try? StrictJSON.parse($0) }),
                   let size = m["byteSize"]?.intValue else { continue }
             total += Int64(size)
-            if let run = m["runId"]?.stringValue {
-                let u = byRun[run] ?? (0, 0)
-                byRun[run] = (u.count + 1, u.bytes + Int64(size))
+            if let bucket = m["bucket"]?.stringValue ?? m["runId"]?.stringValue.map({ "run:" + $0 }) {
+                let u = byBucket[bucket] ?? (0, 0)
+                byBucket[bucket] = (u.count + 1, u.bytes + Int64(size))
             }
         }
-        lock.withLock { usageByRun = byRun; usageTotal = total }
+        lock.withLock { usage = byBucket; usageTotal = total }
+    }
+
+    /// One artifact left the store: take it off its bucket and the total.
+    private func forget(bucket: String?, bytes: Int64) {
+        lock.withLock {
+            usageTotal = max(0, usageTotal - bytes)
+            if let bucket, let u = usage[bucket] {
+                usage[bucket] = (max(0, u.count - 1), max(0, u.bytes - bytes))
+            }
+        }
     }
 
     /// Removes artifacts older than the retention period (methods.json
@@ -190,7 +243,6 @@ public final class ArtifactStore: @unchecked Sendable {
             if let id = Self.artifactId(ofFile: name) { files[id, default: []].append(name) }
         }
         let keep = retained
-        var removed = false
         for (id, names) in files {
             var newest: Date?
             var regular = true
@@ -202,13 +254,16 @@ public final class ArtifactStore: @unchecked Sendable {
             }
             // An artifact goes when all of its files are old, never half.
             guard regular, let newest, newest < cutoff else { continue }
-            let runId = FileManager.default.contents(atPath: metaPath(id))
-                .flatMap { try? StrictJSON.parse($0) }?["runId"]?.stringValue
+            let meta = FileManager.default.contents(atPath: metaPath(id)).flatMap { try? StrictJSON.parse($0) }
+            let runId = meta?["runId"]?.stringValue
             if keep(id, runId) { continue }
             for name in names { unlink(directory + "/" + name) }
-            removed = true
+            // Incremental, under the lock: a full recount here could lose a
+            // write registered meanwhile.
+            if let size = meta?["byteSize"]?.intValue {
+                forget(bucket: meta?["bucket"]?.stringValue ?? runId.map { "run:" + $0 }, bytes: Int64(size))
+            }
         }
-        if removed { recount() }
     }
 
     /// The artifact a file in the store belongs to, if the store named it.
@@ -283,7 +338,7 @@ public final class ArtifactStore: @unchecked Sendable {
     /// the file does.
     @discardableResult
     public func register(_ artifactId: String, mediaType: String, clientId: String, runId: String?,
-                         createdAt: String) throws -> Info {
+                         createdAt: String, bucket: String? = nil) throws -> Info {
         sweepIfDue()
         guard Self.validId(artifactId), let ext = Self.extensions[mediaType] else {
             throw RuntimeError("internal_error", "artifact \(artifactId) of \(mediaType) cannot be stored", phase: .handler)
@@ -296,15 +351,17 @@ public final class ArtifactStore: @unchecked Sendable {
                         createdAt: createdAt, clientId: clientId, runId: runId)
         var meta = info.json.setting("clientId", .string(clientId))
         meta = meta.setting("ext", .string(ext))
+        if let bucket { meta = meta.setting("bucket", .string(bucket)) }
         let sidecar = metaPath(artifactId)
         guard FileManager.default.createFile(atPath: sidecar, contents: Data(meta.encoded().utf8),
                                              attributes: [.posixPermissions: 0o600])
         else { throw RuntimeError("internal_error", "cannot record artifact \(artifactId)", phase: .handler) }
         lock.withLock {
             usageTotal += Int64(data.count)
-            if let runId {
-                let u = usageByRun[runId] ?? (0, 0)
-                usageByRun[runId] = (u.count + 1, u.bytes + Int64(data.count))
+            // Its count was reserved by admit(bucket:); its bytes count now.
+            if let bucket {
+                let u = usage[bucket] ?? (0, 0)
+                usage[bucket] = (u.count, u.bytes + Int64(data.count))
             }
         }
         return info

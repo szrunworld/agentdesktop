@@ -305,9 +305,16 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
     #expect(code(full) == "limit_exceeded" && failure(full)?.details?["reason"]?.stringValue == "artifact_store_full")
     store.limits = ArtifactStore.Limits()
     store.freeBytes = { 100 }
+    store.refreshFreeSpace()
     let low = call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)
     #expect(code(low) == "limit_exceeded" && failure(low)?.details?["reason"]?.stringValue == "disk_low")
+    // A volume that cannot say how much is free is not trusted either.
     store.freeBytes = { nil }
+    store.refreshFreeSpace()
+    let unknown = call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)
+    #expect(code(unknown) == "limit_exceeded" && failure(unknown)?.details?["reason"]?.stringValue == "disk_unknown")
+    store.freeBytes = { 100 << 30 }
+    store.refreshFreeSpace()
     #expect(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) != nil)
 }
 
@@ -319,12 +326,14 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
     let first = try ArtifactStore(directory: dir, now: { clock.now })
     for id in ["art_a", "art_b"] {
         try Data(repeating: 1, count: 100).write(to: URL(fileURLWithPath: first.path(for: id, ext: "png")))
-        try first.register(id, mediaType: "image/png", clientId: "owner", runId: "run_x", createdAt: Timestamp.string(clock.now))
+        try first.admit(bucket: "run:run_x")
+        try first.register(id, mediaType: "image/png", clientId: "owner", runId: "run_x", createdAt: Timestamp.string(clock.now),
+                           bucket: "run:run_x")
     }
     // A new Runtime over the same store counts what is there.
     let again = try ArtifactStore(directory: dir, now: { clock.now })
     again.limits.perRunArtifacts = 2
-    #expect(throws: RuntimeError.self) { try again.admit(runId: "run_x") }
+    #expect(throws: RuntimeError.self) { try again.admit(bucket: "run:run_x") }
     // Once they expire (run_x is not live) the sweep frees the quota.
     for id in ["art_a", "art_b"] {
         for p in [again.path(for: id, ext: "png"), again.metaPath(id)] {
@@ -332,5 +341,36 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
         }
     }
     again.sweep(at: clock.now)
-    try again.admit(runId: "run_x")
+    try again.admit(bucket: "run:run_x")
+}
+
+// b9's review: a runId must be one's own Run; a made-up one gets no fresh
+// quota and another caller's cannot be spent.
+@Test func aRunIdThatIsNotTheCallersOwnIsRefused() throws {
+    let (s, c, sid, _, dir) = try quotaScene { _ in }
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let madeUp = call(s, c, "observe", context: #"{"sessionId":"\#(sid)","runId":"run_madeup"}"#)
+    #expect(code(madeUp) == "permission_denied")
+    let other = handshaken(s)
+    let theirs = try #require(data(call(s, other, "run.start", context: #"{"sessionId":"\#(sid)"}"#))?["run"]?["runId"]?.stringValue)
+    #expect(code(call(s, c, "observe", context: #"{"sessionId":"\#(sid)","runId":"\#(theirs)"}"#)) == "permission_denied")
+    #expect((try FileManager.default.contentsOfDirectory(atPath: dir)).filter { $0.hasSuffix(".png") }.isEmpty)
+}
+
+// b9's review B1/S1: a GUI Run's window capture and its model copy count
+// against the Run's own session, and a refusal reaches the GUI as LIMIT_EXCEEDED.
+@Test func aGuiRunIsHeldToItsLimitAndHearsWhy() async throws {
+    let (platform, s, ports, d) = try guiScene()
+    s.artifacts.limits.perRunArtifacts = 3
+    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)  // window capture + model copy: 2
+    do {
+        _ = try await ports.observe(runId: "r1", expectedGeneration: 1)  // window capture 3, model copy refused
+        Issue.record("the GUI run went past its limit")
+    } catch let e as ContractError {
+        #expect(e.code == .limitExceeded)
+    }
+    let files = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".png") }
+    #expect(files.filter { $0.hasPrefix("art_gui_") }.count == 1, "\(files)")
+    _ = platform
 }
