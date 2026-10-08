@@ -504,7 +504,7 @@ public actor ACPAgentServer {
 
     static func describe(_ s: ACPRunSnapshot) -> String {
         var parts = ["阶段 \(s.phase)"]
-        if let o = s.outcome { parts.append(o == "unknown" ? "结果待核实（不会自动重试）" : "结果 \(o)") }
+        if let o = s.outcome { parts.append(o == "unknown" ? "结果未知 · 需要核实（不会自动重试）" : "结果 \(o)") }
         if s.phase == "stopping" || s.quiescence != "not_confirmed" { parts.append("输入静止 \(s.quiescence)") }
         return parts.joined(separator: "，")
     }

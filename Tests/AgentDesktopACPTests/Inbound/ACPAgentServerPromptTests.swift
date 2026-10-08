@@ -354,7 +354,7 @@ import Testing
         #expect(h.runtime.cancels.get().map(\.0) == ["run-1"])
         h.runtime.end("run-1", outcome: "unknown")
         _ = await h.connection.waitReply(h.prompt(sid, "/runs"))
-        #expect(h.connection.allText(sid).contains("结果待核实"))
+        #expect(h.connection.allText(sid).contains("结果未知 · 需要核实"))
         #expect(h.runtime.submitCount == 1)
     }
 }
