@@ -1,6 +1,6 @@
 # ACP × A6 `unit.run`：差距、测试要求与验收（辅助工作包）
 
-状态：2026-10-08，基于 `main`@cbe7772（含 #102 冻结的 A6 契约增量）。作者：ACP 辅助工作包（2ndscreen 会话 997716a3）。
+状态：2026-10-08 第二版（按独立审核与 Kevin 裁决返工），基于合入后的 `main`（含 #102 冻结的 A6 契约增量）；行号已按当前 main 更新。作者：ACP 辅助工作包（2ndscreen 会话 997716a3）。
 
 **范围与边界**：Kevin 批准 ACP 为 A6 准备适配器测试与端到端夹具，**不批准** ACP 实现 `unit.run` 或任何第二个执行入口。本文和 `Tests/AgentDesktopACPTests/Pending/UnitRun/` 只做三件事：对照冻结契约列出 ACP 侧的差距；写出 Mock 测试（今天可跑）和真 Runtime 测试（已写、禁用）；给工作线 Q 留下可复用的场景夹具。**Mock 测试全部通过不代表 A6 完成，也不是端到端验收**（README §五附加约束 6）。
 
@@ -8,7 +8,7 @@
 
 ## 一、现状一句话
 
-契约已冻结（`methods.json` 第 676–682 行 `unit.run` 为 `frozen`，`runtime.schema.json` 第 2308 行 `unit_run_params`、第 2975 行 `RunUnit`、第 1913 行 `Run.unit`），处理函数没有（`Sources/AgentDesktopProtocol/RuntimeAPI.swift` 第 22–55 行的 `RuntimeMethod` 里没有 `unit.run`），Runtime 也不在 `runtime.capabilities` 里宣告它。ACP 的 Runtime 桥已经按「宣告即出现任务」写好，所以 A6 合入后 ACP 能**提交** `unit.run`；但 Zed 的 prompt 今天走不到提交那一步（见 UR-G1），这是 ACP 自己的差距，与 A6 无关。
+契约已冻结（`methods.json` 第 676–682 行 `unit.run` 为 `frozen`，`runtime.schema.json` 第 2328 行 `unit_run_params`、第 2995 行 `RunUnit`、第 1933 行 `Run.unit`），处理函数没有（`Sources/AgentDesktopProtocol/RuntimeAPI.swift` 第 22–55 行的 `RuntimeMethod` 里没有 `unit.run`），Runtime 也不在 `runtime.capabilities` 里宣告它。ACP 的 Runtime 桥已经按「宣告即出现任务」写好，所以 A6 合入后 ACP 能**提交** `unit.run`；但 Zed 的 prompt 今天走不到提交那一步（见 UR-G1），这是 ACP 自己的差距，与 A6 无关。
 
 ## 二、差距表
 
@@ -17,15 +17,15 @@
 | 编号 | 现状（证据） | ACP 需要 | 负责 | 测试 |
 | --- | --- | --- | --- | --- |
 | UR-A1 | `unit.run` 无处理函数；`RuntimeMethod`（`RuntimeAPI.swift:22-55`）不含它；`runtime.capabilities` 不列出 | 按冻结形状实现并宣告；ACP 的 `ACPTaskCatalog` 见到即生成任务（`ACPTaskCatalog.swift:58-73`），R 不需改代码 | 40 | `realRuntimeAdvertisesUnitRunAndACPOffersTheTask`（Real，禁用）；`noUnitRunNoTask`、`withoutUnitRunNothingIsSent`（Mock） |
-| UR-A2 | 越权字段的错误码说法不一：冻结契约 `methods.json:682`、冻结文档 `runtime-api-v1-freeze.md:76`、`a6-unit-run-draft.md:125`、`docs/plan/02:137` 都写 `ownership_escalation_denied`，且 Schema 放行这三个字段（`runtime.schema.json:2394-2399`「accepted only to refuse escalation explicitly」，夹具 `unit-run-escalation-fields-reach-the-handler.valid.json`）；而 07 §〇 R1（第 13 行）记 f1 说「schema 层以 `schema_invalid` 拒绝」 | 定一个码。ACP 本地拒绝用契约里的 `ownership_escalation_denied`（`ACPTaskCatalog.swift:82-84`），从不发出，所以 ACP 不受影响；但真 Runtime 测试与 CLI/MCP 需要同一个答案 | f1、40 | `escalationFieldsAreAHandlerRefusalNotASchemaOne`、`escalationIsRefusedLocallyWithTheContractCode`、`escalationNeverReachesTheRuntime`（Mock）；`realRuntimeRefusesEscalationAndCreatesNoRun`（Real，禁用，暂时两个码都接受） |
-| UR-A3 | `unit.*` 事件不在冻结目录里：`PlatformRunEvent` 的说明（`runtime.schema.json:2594`）写「unit. 前缀由 Explorer 文档约定」；A6 草案 3.2 的八类事件只是提议 | 冻结 `unit.*` 的 type 与 data 必填字段、敏感分级；尤其 `unit.verification`、`unit.progress` | 40（f1 审） | `scenarioEventsUseTheFrozenCatalogue`（夹具里 `unit.*` 标 `frozen: false`）；`unitEventsLeakNothing` |
-| UR-A4 | 前置检查失败的落账：A6 草案 3.4 说「不建 Run」，07 §〇 R1 补充「请求账本记一条 state=failed」；契约里 `RequestRecord.state` 有 `failed`（`runtime.schema.json:1260` 起），但没有写进 `unit.run` 的说明 | Runtime 保证：拒绝 → 无 Run、账本 failed、同 requestId 重放原错误。ACP 的重试只读账本（`ACPBridgeRuntimePort.swift:171-197`） | 40 | `precheckRefusalsCreateNoRunAndAreNotResent`（Mock，14 行）；`realPrecheckRefusalWritesAFailedRecord`（Real，禁用） |
+| UR-A2 | 越权字段的错误码说法不一：冻结契约 `methods.json:682`、冻结文档 `runtime-api-v1-freeze.md:76`、`a6-unit-run-draft.md:125`、`docs/plan/02:137` 都写 `ownership_escalation_denied`，且 Schema 放行这三个字段（`runtime.schema.json:2414-2419`「accepted only to refuse escalation explicitly」，夹具 `unit-run-escalation-fields-reach-the-handler.valid.json`）；而 07 §〇 R1（第 13 行）记 f1 说「schema 层以 `schema_invalid` 拒绝」 | 定一个码。ACP 本地拒绝用契约里的 `ownership_escalation_denied`（`ACPTaskCatalog.swift:82-84`），从不发出，所以 ACP 不受影响；但真 Runtime 测试与 CLI/MCP 需要同一个答案 | f1、40 | `escalationFieldsAreAHandlerRefusalNotASchemaOne`、`escalationIsRefusedLocallyWithTheContractCode`、`escalationNeverReachesTheRuntime`（Mock）；`realRuntimeRefusesEscalationAndCreatesNoRun`（Real，禁用，暂时两个码都接受） |
+| UR-A3 | `unit.*` 事件不在冻结目录里：`PlatformRunEvent` 的说明（`runtime.schema.json:2614`）写「unit. 前缀由 Explorer 文档约定」；A6 草案 3.2 的八类事件只是提议 | 冻结 `unit.*` 的 type 与 data 必填字段、敏感分级；尤其 `unit.verification`、`unit.progress` | 40（f1 审） | `scenarioEventsUseTheFrozenCatalogue`（夹具里 `unit.*` 标 `frozen: false`）；`unitEventsLeakNothing` |
+| UR-A4 | 前置检查失败的落账：A6 草案 3.4 说「不建 Run」，07 §〇 R1 补充「请求账本记一条 state=failed」；契约里 `RequestRecord.state` 有 `failed`（`runtime.schema.json:1280` 起），但没有写进 `unit.run` 的说明 | Runtime 保证：拒绝 → 无 Run、账本 failed、同 requestId 重放原错误。ACP 的重试只读账本（`ACPBridgeRuntimePort.swift:171-197`） | 40 | `precheckRefusalsCreateNoRunAndAreNotResent`（Mock，14 行）；`realPrecheckRefusalWritesAFailedRecord`（Real，禁用） |
 | UR-G1 | **prompt 无法指定 Desktop**：服务端提交时 `desktopId: nil`（`ACPAgentServer+Prompt.swift:144`）；会话配置只有 mode / screenshots / pageText（`ACPSessionManagerOptions.swift:14-25`）；编辑器侧 schema 去掉了 `desktopId` 且 `additionalProperties: false`（`ACPTaskCatalog.swift:122-138`），所以输入里写也被拒绝（「不接受字段 desktopId」）；桥最后以 `invalid_argument`「no Desktop chosen」拒绝（`ACPTaskCatalog.swift:93-95`）。结论：A6 合入后 Zed 里的任何 prompt 仍不会发出 `unit.run` | 会话级的 Desktop 选择（S 加配置项，值来自 Runtime 的 `desktop.list`，不是编辑器自报），或由协调者定其他来源。属于冻结接口（`ACPSubmission.desktopId` 已有，只是 S 没填）| S（协调者定方案） | `allowedPromptShouldReachUnitRun`（Mock，全栈，known issue） |
 | UR-G2 | 编辑器侧 schema 仍列出 `origin`、`lifetime`、`ownership`（`editorSchema()` 只去掉桥自己填的字段，`ACPTaskCatalog.swift:127-128`），命令提示里出现 `"lifetime": …` | 从编辑器 schema 去掉 `forbiddenInputKeys`；拒绝逻辑不变 | R | `editorSchemaShouldNotAdvertiseForbiddenFields`（Mock，known issue） |
 | UR-G3 | 任务宣告 `allowFreeText: true`（`ACPTaskCatalog.swift:114`），但一句话填不出 `unit_run_params` 的必填项，得到「需要 JSON 参数」（`ACPCommandCatalog.swift:129`）。f1 不接受 R6 任务目录，自由文本映射归 40 的 F40 增量（07 §〇 R6） | 40 定自由文本 → `goal.description` 与其余必填项（`verification`、`allowedActions`、`mode`）的固定取值；之前 R 应宣告 `allowFreeText: false`，免得误导 | 40；R | `freeTextCannotStartAUnitRunYet`（Mock，known issue） |
 | UR-G4 | 前置检查的 `details.reason`（`gui_execution_off`、`desktop_not_found`…，A6 草案 3.4 固定取值）到不了编辑器：`ACPSubmissionReceipt.refused` 只有 code 与 message（`Ports.swift:124`）。07 R1 补充请求 1 要求「原样展示为拒绝原因」 | 冻结接口加 `reason`（协调者改 Ports），S 展示 | 协调者、R、S | `precheckReasonShouldReachTheEditor`（Mock，known issue） |
 | UR-G5 | 桥不核对返回的 Run 轴：任何能解析的 Run 都当作本连接的 Delegated Run（`ACPBridgeRuntimePort.swift:152-156`） | 线协议上的 `unit.run` 必须得到 `external_client / connection_scoped / agent_hub`（ADR v2.2，`methods.json:682`）；不符即按契约违例处理（显示为错误、不跟随、记录），不当作成功 | R | `aDurableRunFromTheWireShouldBeRejected`（Mock，known issue） |
-| UR-G6 | 桥在本地拒绝（`invalid_argument`、`schema_invalid`、`ownership_escalation_denied`）也显示成「Runtime 拒绝了这个任务」（`ACPAgentServer+Prompt.swift:180`） | 区分「本地未发出」与「Runtime 拒绝」，避免用户以为请求到过 Runtime | S、R | `allowedPromptShouldReachUnitRun` 的文本断言（记录现状） |
+| UR-G6 | 桥在本地拒绝（`invalid_argument`、`schema_invalid`、`ownership_escalation_denied`）也显示成「Runtime 拒绝了这个任务」（`ACPAgentServer+Prompt.swift:180`） | 区分「本地未发出」与「Runtime 拒绝」，避免用户以为请求到过 Runtime | S、R | `localRefusalShouldNotBeAttributedToTheRuntime`（Mock，全栈，known issue：断言本地拒绝不得显示为 Runtime 拒绝，今天失败） |
 | UR-E1 | `unit.*` 事件今天投影为一行中性思考「收到未识别的运行事件（unit.xxx），未作处理」（`ACPProjector.swift:44`）；一次 Run 会有很多条 | 目录冻结后为 `unit.progress`（计划条目）、`unit.verification`（见 Q4）定映射，其余仍只显示状态 | E（等 UR-A3） | `unitEventsLeakNothing` |
 | UR-E2 | unit Run 成功时显示「任务结束：已执行（业务结果：未评估）」（`ACPProjector.swift:239-241`），`verifiedValues` 为空（`ACPProjector.swift:19`）；不读 `Run.unit.verification.status` | 按 Q4 的答复决定是否、以及从哪里显示「已验证」。在答复前保持现状（README §九：验证结果落地前不得显示「已验证」） | E（等 Q4） | `normalCompletionIsExecutedNotVerified`（Mock，断言不出现「已验证」） |
 | UR-E3 | `run.ended.reason` 是自由字符串，只显示已知值（`ACPEventText.swift:126-145`）；A6 草案说失败原因写在 `closingReason`（如验证未达成、步数用尽），这些值目前不会显示 | 固定 unit 的结束原因枚举（README §九已列为 P1「结束原因固定枚举」） | f1、40 | `timeLimitEndsFailedWithItsReason`（只覆盖已知的 `deadline_exceeded`） |
@@ -69,15 +69,38 @@
 
 | 文件 | 层 | 内容 |
 | --- | --- | --- |
-| `URTestRuntime.swift` | Mock 辅助 | 按冻结形状应答的假 runtime/1：账本重放、Schema 校验、越权拒绝（F40-06 第 1 行）、前置检查拒绝、完整的 `Run`（含 `unit`）、`PlatformRunEvent`、`CancelReceipt`、`RequestRecord`；它发出与收到的每个值都对契约校验，违例让测试失败 |
+| `URTestRuntime.swift` | Mock 辅助 | 按冻结形状应答的假 runtime/1：账本重放、Schema 校验、越权拒绝（F40-06 第 1 行）、前置检查拒绝、完整的 `Run`（含 `unit`）、`RuntimeStatus`、`Capabilities`、`PlatformRunEvent`、`CancelReceipt`、`RequestRecord`、`RunEvents`、`EventSubscription`。校验范围见第四节之后的「契约校验范围」，违例让测试失败 |
 | `URTestSupport.swift` | Mock 辅助 | 驱动器（目录 → 提交 → 事件 → 投影 → Wire v1 帧，按场景在某事件后取消或断连）；场景期望检查；真实管道上的编辑器（与 dev 入口同一套 Transport / Server / Projector / Wire / Store） |
 | `UnitRunContractTests.swift` | Mock | 10 个：冻结夹具、越权字段的 Schema 证据、场景输入与事件合法、目录与配置、参数构造与本地拒绝、越权本地码；UR-G2、UR-G3 为 known issue |
 | `UnitRunFlowTests.swift` | Mock | 16 个：五类场景加时限用尽、调用超时、回复丢失、14 行前置检查、越权从不发出、Runtime 侧越权应答、无宣告、`unit.*` 不泄露；UR-G4、UR-G5 为 known issue |
-| `UnitRunServerTests.swift` | Mock（全栈） | 3 个：Ask 模式拒绝 → 不发 `unit.run`；批准后因 UR-G1 仍不发（known issue）；prompt 里的越权被拒 |
-| `UnitRunRealRuntimeTests.swift` | Real（未运行） | 8 个，全部 `.disabled("waiting for A6 unit.run: …")`：宣告、正常、取消、断连 owner_lost、审批拒绝（另等 PR4）、结果不明、越权、前置检查落账。只允许连 `/tmp/adt-*` 测试副本（`AGENTDESKTOP_ENDPOINT`），需要 `URTEST_DESKTOP_ID` |
+| `UnitRunServerTests.swift` | Mock（全栈） | 4 个：Ask 模式拒绝 → 不发 `unit.run`；批准后因 UR-G1 仍不发（known issue）；本地拒绝被说成 Runtime 拒绝（UR-G6，known issue）；prompt 里的越权被拒 |
+| `UnitRunRealRuntimeTests.swift` | Real（未运行） | 8 个，全部 `.disabled("waiting for A6 unit.run: …")`：宣告、正常、取消、断连 owner_lost、审批拒绝（另等 PR4）、结果不明、越权、前置检查落账。需要 `URTEST_DESKTOP_ID`；端点经 `URTestEndpointGuard` 检查 |
+| `URTestEndpointGuard.swift` | Mock | 端点白名单与 2 个测试。照 #141 的 `ACPTestEndpointGuard`（尚未进 main）在本目录实现同样逻辑：绝对路径；所在目录经 realpath(3) 解析后必须在 `/tmp/adt-*`（macOS 上为 `/private/tmp/adt-*`）下；另外比 #141 多一条：socket 本身不能是符号链接；不符即抛错，测试在连接之前就停止。`/tmp/adt-*` 指向 `$HOME` 的符号链接、`..` 路径、指向产品 socket 的链接、相对路径、不存在的目录都被拒绝（测试证明）。**#141 合入后改用共享的 `ACPTestEndpointGuard`，删掉本地副本** |
 | `Fixtures/ur-*.json` | 夹具 | 见第五节 |
 
-计数：Mock 29 个（今天运行、全部通过，其中 6 处为固定差距的 known issue），Real 8 个（已写、禁用、未运行）。
+计数：Mock 32 个（今天运行、全部通过，其中 7 处为固定差距的 known issue），Real 8 个（已写、禁用、未运行）。
+
+**命名**：每个测试的显示名以层开头，`[Mock] …` 或 `[Real·not run] …`，测试输出里一眼可分。**禁用的 Real 测试永远不计为真实验收**：它们只是写好的步骤，没有运行过，不能出现在任何「通过」统计里；只有去掉 `.disabled`、在测试副本上实际运行并留下证据后，才算 L2 真 Runtime 记录。
+
+### 契约校验范围（精确说明）
+
+假 Runtime 对嵌入的 runtime/1 契约（`RuntimeContract.shared`）校验以下内容，任何违例都让测试失败：
+
+| 校验 | 对照的定义 |
+| --- | --- |
+| 每个请求的 params（ACP 发来的），只要方法在 runtime/1 里有定义 | `methods.json` 的 params 定义：`runtime.status`、`runtime.capabilities` → `empty_params`；`run.show`、`run.cancel` → `run_ref_params`；`request.show` → `request_show_params`；`run.events` → `run_events_params`；`events.subscribe` → `events_subscribe_params`；`unit.run` → `unit_run_params`（取自冻结的 catalog） |
+| 每个成功应答 | 方法的 result 定义：`RuntimeStatus`、`Capabilities`、`Run`、`CancelReceipt`、`RequestRecord`、`RunEvents`、`EventSubscription` |
+| 每个错误应答 | `Error` |
+| 写进 Run 流的每条事件 | `RunEvent`；前缀为 `run.`、`action.`、`stop.` 的再对 `PlatformRunEvent` |
+| 推送的每一帧 | `EventFrame` |
+| 账本里的每条记录 | `RequestRecord` |
+
+**不校验**：
+
+- 握手：`RuntimeIdentity` 由客户端类型直接构造，假 Runtime 不经 JSON，也没有握手 params；
+- runtime/1 之外的方法：`ai.profiles.list` 属于 ai-gui/v1，不在本契约里，记入 `unvalidated`；
+- `unit.*` 事件的 `data`：目录还没冻结（UR-A3），只校验外层 `RunEvent`；
+- 假 Runtime 自身的行为：比如是否真的「不建 Run」，由测试断言检查，不由 Schema 检查。
 
 **Mock 的含义**：证明 ACP 这一侧按冻结形状说话、在每类情况下做对的事；不证明 Runtime 会这样做。A6 是否完成只看 40 的实现与真 Runtime 测试、G1/G3 的真实记录。
 
@@ -116,7 +139,7 @@
 
 ## 七、验收标准与依赖
 
-**本工作包（已满足）**：Mock 29 个通过、Real 8 个禁用且原因写明「waiting for A6 unit.run」；`swift build`、`swift test`、`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter AgentDesktopACPTests` 退出码 0（PR 正文记录）。
+**本工作包（已满足）**：Mock 32 个通过、Real 8 个禁用且原因写明「waiting for A6 unit.run」（不计为验收）；`swift build`、`swift test`、`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter AgentDesktopACPTests` 退出码 0（PR 正文记录）。
 
 **A6 之后 ACP 侧算通过**，全部要真实记录（L2 真 Runtime 测试副本，L3 再加 Zed）：
 

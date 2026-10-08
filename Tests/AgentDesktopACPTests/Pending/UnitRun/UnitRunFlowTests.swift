@@ -20,7 +20,7 @@ struct UnitRunFlowTests {
 
     // MARK: The five E2E classes (plus the time limit)
 
-    @Test func normalCompletionIsExecutedNotVerified() async throws {
+    @Test("[Mock] normalCompletionIsExecutedNotVerified") func normalCompletionIsExecutedNotVerified() async throws {
         let (rt, port) = try setUp("ur-normal")
         let t = try await URTestFlow.drive(rt, port)
         URTestFlow.checkExpectations(t, rt)
@@ -38,7 +38,7 @@ struct UnitRunFlowTests {
         #expect(t.actionUpdates.dropLast().allSatisfy { $0["status"]?.stringValue != "completed" })
     }
 
-    @Test func cancelStopsAndEndsCancelled() async throws {
+    @Test("[Mock] cancelStopsAndEndsCancelled") func cancelStopsAndEndsCancelled() async throws {
         let (rt, port) = try setUp("ur-cancel")
         let t = try await URTestFlow.drive(rt, port)
         URTestFlow.checkExpectations(t, rt)
@@ -47,7 +47,7 @@ struct UnitRunFlowTests {
     }
 
     /// ACP-29 shape at Mock level: the editor goes away mid-run.
-    @Test func disconnectStopsTheRunAsConnectionScoped() async throws {
+    @Test("[Mock] disconnectStopsTheRunAsConnectionScoped") func disconnectStopsTheRunAsConnectionScoped() async throws {
         let (rt, port) = try setUp("ur-disconnect")
         let t = try await URTestFlow.drive(rt, port)
         URTestFlow.checkExpectations(t, rt)
@@ -67,7 +67,7 @@ struct UnitRunFlowTests {
     }
 
     /// Runtime-side approval: no inbox before PR4, so ACP never approves.
-    @Test func approvalWithoutAChannelIsNeverAnAllow() async throws {
+    @Test("[Mock] approvalWithoutAChannelIsNeverAnAllow") func approvalWithoutAChannelIsNeverAnAllow() async throws {
         let (rt, port) = try setUp("ur-approval-rejected")
         // Before the cancel trigger fires, the Run waits for approval.
         let task = try #require(try await port.tasks().first)
@@ -84,7 +84,7 @@ struct UnitRunFlowTests {
         #expect(rt.with { (rt.events[snap.runId] ?? []).contains { $0["type"]?.stringValue?.hasPrefix("action.") == true } } == false)
     }
 
-    @Test func approvalScenarioFlow() async throws {
+    @Test("[Mock] approvalScenarioFlow") func approvalScenarioFlow() async throws {
         let (rt, port) = try setUp("ur-approval-rejected")
         let t = try await URTestFlow.drive(rt, port)
         URTestFlow.checkExpectations(t, rt)
@@ -93,7 +93,7 @@ struct UnitRunFlowTests {
 
     /// Ruling P2 through the wire: terminal, failed on v1, rawOutput says
     /// terminated/unknown, never retried.
-    @Test func unknownOutcomeIsTerminalAndNeverRetried() async throws {
+    @Test("[Mock] unknownOutcomeIsTerminalAndNeverRetried") func unknownOutcomeIsTerminalAndNeverRetried() async throws {
         let (rt, port) = try setUp("ur-unknown")
         let t = try await URTestFlow.drive(rt, port)
         URTestFlow.checkExpectations(t, rt)
@@ -108,7 +108,7 @@ struct UnitRunFlowTests {
         #expect(rt.count("unit.run") == 1)
     }
 
-    @Test func timeLimitEndsFailedWithItsReason() async throws {
+    @Test("[Mock] timeLimitEndsFailedWithItsReason") func timeLimitEndsFailedWithItsReason() async throws {
         let (rt, port) = try setUp("ur-limit-exhausted")
         let t = try await URTestFlow.drive(rt, port)
         URTestFlow.checkExpectations(t, rt)
@@ -118,7 +118,7 @@ struct UnitRunFlowTests {
 
     /// The unit.run answer does not come back in time: unconfirmed, never
     /// resent; the retry reads the ledger and maps to the same Run.
-    @Test func callTimeoutIsUnconfirmedThenTheSameRun() async throws {
+    @Test("[Mock] callTimeoutIsUnconfirmedThenTheSameRun") func callTimeoutIsUnconfirmedThenTheSameRun() async throws {
         let rt = URTestRuntime(try URTestScenario.load("ur-normal"))
         rt.answer = .hang(seconds: 0.6)
         let port = try URTestFlow.port(rt, timeout: 0.15)
@@ -137,7 +137,7 @@ struct UnitRunFlowTests {
         #expect(rt.allViolations.isEmpty)
     }
 
-    @Test func lostAnswerIsQueriedNotResent() async throws {
+    @Test("[Mock] lostAnswerIsQueriedNotResent") func lostAnswerIsQueriedNotResent() async throws {
         let rt = URTestRuntime(try URTestScenario.load("ur-normal"))
         rt.answer = .loseAnswer
         let port = try URTestFlow.port(rt)
@@ -154,7 +154,7 @@ struct UnitRunFlowTests {
 
     /// F40-06 rows 2–15: refused, no Run, the ledger holds a failed record,
     /// a retry reads it back and never sends again.
-    @Test func precheckRefusalsCreateNoRunAndAreNotResent() async throws {
+    @Test("[Mock] precheckRefusalsCreateNoRunAndAreNotResent") func precheckRefusalsCreateNoRunAndAreNotResent() async throws {
         let table = try URTestScenario.json("ur-precheck-refusals")
         for row in table["rows"]?.arrayValue ?? [] {
             let code = row["code"]?.stringValue ?? ""
@@ -177,7 +177,7 @@ struct UnitRunFlowTests {
 
     /// Gap UR-G4: the fixed `details.reason` (gui_execution_off, …) does not
     /// reach the editor: ACPSubmissionReceipt.refused has code and message only.
-    @Test func precheckReasonShouldReachTheEditor() async throws {
+    @Test("[Mock] precheckReasonShouldReachTheEditor") func precheckReasonShouldReachTheEditor() async throws {
         let rt = URTestRuntime(try URTestScenario.load("ur-normal"))
         rt.answer = .refuse(code: "unsupported_backend", reason: "gui_execution_off", details: [])
         let port = try URTestFlow.port(rt)
@@ -190,7 +190,7 @@ struct UnitRunFlowTests {
     }
 
     /// Escalation never leaves ACP, whatever the field (ur-escalation.json).
-    @Test func escalationNeverReachesTheRuntime() async throws {
+    @Test("[Mock] escalationNeverReachesTheRuntime") func escalationNeverReachesTheRuntime() async throws {
         let esc = try URTestScenario.json("ur-escalation")
         let rt = URTestRuntime(try URTestScenario.load("ur-normal"))
         let port = try URTestFlow.port(rt)
@@ -207,7 +207,7 @@ struct UnitRunFlowTests {
 
     /// What the fake Runtime does if a raw client sends them anyway (the
     /// contract's answer, not ACP's): no Run, failed record.
-    @Test func runtimeSideEscalationAnswerFollowsTheContract() throws {
+    @Test("[Mock] runtimeSideEscalationAnswerFollowsTheContract") func runtimeSideEscalationAnswerFollowsTheContract() throws {
         let rt = URTestRuntime(try URTestScenario.load("ur-normal"))
         let c = URTestClient(server: rt, role: .control)
         let params = rt.scenario.input.urAdding("desktopId", .string("desk_A")).urAdding("lifetime", .string("platform_durable"))
@@ -219,7 +219,7 @@ struct UnitRunFlowTests {
     }
 
     /// No unit.run advertised: no task, a clear capability_missing, nothing sent.
-    @Test func withoutUnitRunNothingIsSent() async throws {
+    @Test("[Mock] withoutUnitRunNothingIsSent") func withoutUnitRunNothingIsSent() async throws {
         let rt = URTestRuntime(try URTestScenario.load("ur-normal"))
         rt.methods = URTestRuntime.withoutUnitRun
         let port = try URTestFlow.port(rt)
@@ -234,7 +234,7 @@ struct UnitRunFlowTests {
     /// Gap UR-G5: ACP takes whatever Run comes back. A unit.run over the wire
     /// must yield external_client / connection_scoped / agent_hub (ADR v2.2);
     /// anything else should be treated as a contract breach, not shown as ours.
-    @Test func aDurableRunFromTheWireShouldBeRejected() async throws {
+    @Test("[Mock] aDurableRunFromTheWireShouldBeRejected") func aDurableRunFromTheWireShouldBeRejected() async throws {
         let rt = URTestRuntime(try URTestScenario.load("ur-normal"))
         let port = try URTestFlow.port(rt)
         // Simulate a broken Runtime by rewriting the answer through a wrapper client.
@@ -252,7 +252,7 @@ struct UnitRunFlowTests {
 
     /// Ruling P1 on unit.* events (not frozen): a window title in their data
     /// must not reach the editor; the event is shown as a neutral line.
-    @Test func unitEventsLeakNothing() async throws {
+    @Test("[Mock] unitEventsLeakNothing") func unitEventsLeakNothing() async throws {
         let (rt, port) = try setUp("ur-normal")
         let probe = JSONValue.obj([("type", .string("unit.observation")),
                                    ("data", .obj([("observationId", .string("obs_ac0000b9")), ("windowTitle", .string("王小明 的私信 – 微信")),

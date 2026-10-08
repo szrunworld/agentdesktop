@@ -12,7 +12,7 @@ struct UnitRunContractTests {
     let contract = RuntimeContract.shared
 
     /// The frozen fixtures still mean what ACP relies on.
-    @Test func frozenFixturesKeepTheirMeaning() throws {
+    @Test("[Mock] frozenFixturesKeepTheirMeaning") func frozenFixturesKeepTheirMeaning() throws {
         let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("contracts/fixtures/runtime/v1")
@@ -36,7 +36,7 @@ struct UnitRunContractTests {
 
     /// Q1 evidence: the Schema lets origin/lifetime/ownership through, so a
     /// refusal of them cannot be schema_invalid as long as #102 stands.
-    @Test func escalationFieldsAreAHandlerRefusalNotASchemaOne() throws {
+    @Test("[Mock] escalationFieldsAreAHandlerRefusalNotASchemaOne") func escalationFieldsAreAHandlerRefusalNotASchemaOne() throws {
         let base = try URTestScenario.load("ur-normal").input.urAdding("desktopId", .string("desk_A"))
         for (k, v) in [("lifetime", "platform_durable"), ("ownership", "platform"), ("origin", "gui_explorer")] {
             #expect(contract.validate(base.urAdding(k, .string(v)), "unit_run_params").isEmpty, "\(k) is a schema error")
@@ -45,7 +45,7 @@ struct UnitRunContractTests {
         #expect(contract.error("ownership_escalation_denied") != nil)
     }
 
-    @Test func scenarioInputsAreValidUnitRunParams() throws {
+    @Test("[Mock] scenarioInputsAreValidUnitRunParams") func scenarioInputsAreValidUnitRunParams() throws {
         for name in URTestScenario.flowNames + ["ur-precheck-refusals"] {
             let s = try URTestScenario.json(name)
             let params = (s["input"] ?? .null).urAdding("desktopId", s["desktopId"] ?? .null)
@@ -55,7 +55,7 @@ struct UnitRunContractTests {
 
     /// Frozen-prefix events in the fixtures validate as PlatformRunEvent;
     /// unit.* ones are marked not frozen.
-    @Test func scenarioEventsUseTheFrozenCatalogue() throws {
+    @Test("[Mock] scenarioEventsUseTheFrozenCatalogue") func scenarioEventsUseTheFrozenCatalogue() throws {
         for name in URTestScenario.flowNames {
             let s = try URTestScenario.load(name)
             for (i, e) in (s.onAccept + s.onTrigger).enumerated() {
@@ -74,13 +74,13 @@ struct UnitRunContractTests {
 
     // MARK: Catalog
 
-    @Test func noUnitRunNoTask() {
+    @Test("[Mock] noUnitRunNoTask") func noUnitRunNoTask() {
         let c = ACPTaskCatalog()
         #expect(c.entries(methods: URTestRuntime.withoutUnitRun, profiles: nil).isEmpty)
         #expect(c.entries(methods: URTestRuntime.withUnitRun, profiles: nil).map(\.task.taskType) == ["unit.run"])
     }
 
-    @Test func profilesBecomeTasksPinnedToTheirRevision() throws {
+    @Test("[Mock] profilesBecomeTasksPinnedToTheirRevision") func profilesBecomeTasksPinnedToTheirRevision() throws {
         let c = ACPTaskCatalog()
         let profiles: [JSONValue] = [
             .obj([("guiProfileId", .string("gp_gui_v1")), ("name", .string("GUI v1")), ("state", .string("enabled")), ("revision", .int(3))]),
@@ -96,7 +96,7 @@ struct UnitRunContractTests {
         #expect(contract.validate(params, "unit_run_params").isEmpty)
     }
 
-    @Test func bridgeBuildsValidParamsAndRefusesBadOnesLocally() throws {
+    @Test("[Mock] bridgeBuildsValidParamsAndRefusesBadOnesLocally") func bridgeBuildsValidParamsAndRefusesBadOnesLocally() throws {
         let c = ACPTaskCatalog()
         let entry = c.entries(methods: URTestRuntime.withUnitRun, profiles: nil)[0]
         let input = try URTestScenario.load("ur-normal").input
@@ -123,7 +123,7 @@ struct UnitRunContractTests {
 
     /// Escalation fields (ur-escalation.json): refused before anything is
     /// sent, with the contract's code.
-    @Test func escalationIsRefusedLocallyWithTheContractCode() throws {
+    @Test("[Mock] escalationIsRefusedLocallyWithTheContractCode") func escalationIsRefusedLocallyWithTheContractCode() throws {
         let esc = try URTestScenario.json("ur-escalation")
         let c = ACPTaskCatalog()
         let entry = c.entries(methods: URTestRuntime.withUnitRun, profiles: nil)[0]
@@ -139,7 +139,7 @@ struct UnitRunContractTests {
     /// Gap UR-G2: the editor schema still advertises the fields the bridge
     /// will refuse (origin / lifetime / ownership), so the command hint
     /// shows them. Remove the known-issue wrapper when R strips them.
-    @Test func editorSchemaShouldNotAdvertiseForbiddenFields() throws {
+    @Test("[Mock] editorSchemaShouldNotAdvertiseForbiddenFields") func editorSchemaShouldNotAdvertiseForbiddenFields() throws {
         let task = ACPTaskCatalog().entries(methods: URTestRuntime.withUnitRun, profiles: nil)[0].task
         let props = Set((task.inputSchema["properties"]?.objectMembers ?? []).map(\.key))
         #expect(!props.contains("desktopId"))
@@ -151,7 +151,7 @@ struct UnitRunContractTests {
 
     /// Gap UR-G3: the task claims free text, but a plain sentence cannot
     /// fill unit_run_params (no free-text mapping; f1 R6 declined, 40's F40).
-    @Test func freeTextCannotStartAUnitRunYet() {
+    @Test("[Mock] freeTextCannotStartAUnitRunYet") func freeTextCannotStartAUnitRunYet() {
         let task = ACPTaskCatalog().entries(methods: URTestRuntime.withUnitRun, profiles: nil)[0].task
         #expect(task.allowFreeText)
         withKnownIssue("UR-G3: no free-text → goal.description mapping") {

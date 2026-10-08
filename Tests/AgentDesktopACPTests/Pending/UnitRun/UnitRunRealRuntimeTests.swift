@@ -18,10 +18,11 @@ import Testing
 
 enum URTestReal {
     static func endpoint() throws -> Endpoint {
-        let path = ProcessInfo.processInfo.environment["AGENTDESKTOP_ENDPOINT"] ?? ""
-        // Never the product endpoint (README §四 rule 7).
-        guard path.hasPrefix("/tmp/adt-") else { throw URTestRealError.notATestCopy(path) }
-        return Endpoint(path: path, source: .environment)
+        let raw = ProcessInfo.processInfo.environment["AGENTDESKTOP_ENDPOINT"] ?? ""
+        // Never the product endpoint (README §四 rule 7): realpath-based
+        // allowlist that throws (URTestEndpointGuard; the shared
+        // ACPTestEndpointGuard after #141).
+        return Endpoint(path: try URTestEndpointGuard.check(raw), source: .environment)
     }
 
     static func desktopId() throws -> String {
@@ -49,17 +50,17 @@ enum URTestReal {
     }
 }
 
-enum URTestRealError: Error { case notATestCopy(String), noDesktop }
+enum URTestRealError: Error { case noDesktop }
 
 @Suite("UR · Real (not run) · unit.run against a Runtime test copy", .serialized)
 struct UnitRunRealRuntimeTests {
-    @Test(.disabled("waiting for A6 unit.run: runtime.capabilities does not list unit.run yet (40, PR2d #50)"))
+    @Test("[Real·not run] realRuntimeAdvertisesUnitRunAndACPOffersTheTask", .disabled("waiting for A6 unit.run: runtime.capabilities does not list unit.run yet (40, PR2d #50)"))
     func realRuntimeAdvertisesUnitRunAndACPOffersTheTask() async throws {
         let tasks = try await URTestReal.port().tasks()
         #expect(tasks.contains { $0.taskType.hasPrefix("unit.run") })
     }
 
-    @Test(.disabled("waiting for A6 unit.run: no handler; G1-06/G1-11 normal class"))
+    @Test("[Real·not run] realNormalCompletion", .disabled("waiting for A6 unit.run: no handler; G1-06/G1-11 normal class"))
     func realNormalCompletion() async throws {
         let t = try await URTestReal.drive("ur-normal")
         #expect(t.runId != nil)
@@ -68,14 +69,14 @@ struct UnitRunRealRuntimeTests {
         #expect(t.wireProblems.isEmpty)
     }
 
-    @Test(.disabled("waiting for A6 unit.run: no handler; G2-05 cancel class"))
+    @Test("[Real·not run] realCancel", .disabled("waiting for A6 unit.run: no handler; G2-05 cancel class"))
     func realCancel() async throws {
         let t = try await URTestReal.drive("ur-cancel")
         #expect(t.planResult == "结果：已取消")
         #expect(t.wireProblems.isEmpty)
     }
 
-    @Test(.disabled("waiting for A6 unit.run: no handler; ACP-29 / G1-10 / G3-03 disconnect class (Mock part runs today)"))
+    @Test("[Real·not run] realDisconnectEndsOwnerLost", .disabled("waiting for A6 unit.run: no handler; ACP-29 / G1-10 / G3-03 disconnect class (Mock part runs today)"))
     func realDisconnectEndsOwnerLost() async throws {
         let t = try await URTestReal.drive("ur-disconnect")
         let runId = try #require(t.runId)
@@ -92,19 +93,19 @@ struct UnitRunRealRuntimeTests {
         #expect(run["lifetime"]?.stringValue == "connection_scoped")
     }
 
-    @Test(.disabled("waiting for A6 unit.run and PR4 inbox: approval-rejected class needs a Runtime approval source"))
+    @Test("[Real·not run] realApprovalRejected", .disabled("waiting for A6 unit.run and PR4 inbox: approval-rejected class needs a Runtime approval source"))
     func realApprovalRejected() async throws {
         let t = try await URTestReal.drive("ur-approval-rejected")
         #expect(t.actionUpdates.isEmpty)
     }
 
-    @Test(.disabled("waiting for A6 unit.run: unknown class needs an executor without receipt (G3-01, G3-14)"))
+    @Test("[Real·not run] realUnknownIsTerminal", .disabled("waiting for A6 unit.run: unknown class needs an executor without receipt (G3-01, G3-14)"))
     func realUnknownIsTerminal() async throws {
         let t = try await URTestReal.drive("ur-unknown")
         #expect(t.actionUpdates.last?["rawOutput"] == .obj([("execution", .string("terminated")), ("outcome", .string("unknown"))]))
     }
 
-    @Test(.disabled("waiting for A6 unit.run: escalation refusal is the handler's (F40-06 row 1); code to be confirmed, Q1"))
+    @Test("[Real·not run] realRuntimeRefusesEscalationAndCreatesNoRun", .disabled("waiting for A6 unit.run: escalation refusal is the handler's (F40-06 row 1); code to be confirmed, Q1"))
     func realRuntimeRefusesEscalationAndCreatesNoRun() async throws {
         let c = try URTestReal.client()
         defer { c.close() }
@@ -121,7 +122,7 @@ struct UnitRunRealRuntimeTests {
         #expect(rec["state"]?.stringValue == "failed")
     }
 
-    @Test(.disabled("waiting for A6 unit.run: precheck refusal writes a failed RequestRecord (07 §〇 R1)"))
+    @Test("[Real·not run] realPrecheckRefusalWritesAFailedRecord", .disabled("waiting for A6 unit.run: precheck refusal writes a failed RequestRecord (07 §〇 R1)"))
     func realPrecheckRefusalWritesAFailedRecord() async throws {
         let c = try URTestReal.client()
         defer { c.close() }

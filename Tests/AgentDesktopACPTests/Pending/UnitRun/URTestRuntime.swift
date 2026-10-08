@@ -6,10 +6,16 @@ import Foundation
 
 // Layer: Mock. A fake runtime/1 that answers `unit.run` in the shapes frozen
 // by #102 (contracts/runtime/v1: unit_run_params, Run + RunUnit,
-// PlatformRunEvent, RequestRecord, CancelReceipt). Every value it receives
-// or sends is validated against the embedded contract and violations are
-// collected in `violations`, so a test proves the adapter side speaks the
-// frozen shapes. It is NOT the Runtime: passing tests here never mean A6 is
+// PlatformRunEvent, RequestRecord, CancelReceipt). What is validated
+// against the embedded contract (violations collected in `violations`):
+// the params of every request whose method runtime/1 defines (methods.json,
+// plus unit.run from the frozen catalog), every success result against the
+// method's result def, every error against `Error`, every stored RunEvent
+// (`RunEvent`, and `PlatformRunEvent` for run./action./stop.), every pushed
+// `EventFrame`. Not validated: the handshake (RuntimeIdentity is built by
+// the client type, no request params pass through it), methods outside
+// runtime/1 (ai.profiles.list, listed in `unvalidated`), and `unit.*`
+// event data (not frozen). It is NOT the Runtime: passing tests here never mean A6 is
 // done (docs/acp/12-unit-run.md §五).
 
 /// One scenario fixture (Pending/UnitRun/Fixtures/ur-*.json).
@@ -197,6 +203,9 @@ final class URTestRuntime: @unchecked Sendable {
 
     // MARK: Server side
 
+    /// A pushed event frame (events.subscribe stream) against `EventFrame`.
+    func checkFrame(_ f: JSONValue) { with { check(f, "EventFrame", "pushed frame") } }
+
     func connectionClosed(_ conn: Int) {
         with {
             guard !closed.contains(conn) else { return }
@@ -220,18 +229,54 @@ final class URTestRuntime: @unchecked Sendable {
 
     var answerIsHang: Double? { with { if case let .hang(s) = answer { return s } else { return nil } } }
 
+    /// The contract's params and result defs of a method: methods.json
+    /// `methods`, plus the frozen catalog entry for unit.run. Nil for a
+    /// method the runtime/1 contract does not define (ai.profiles.list is
+    /// ai-gui/v1), which is then recorded in `unvalidated`.
+    func defs(_ method: String) -> (params: String, result: String)? {
+        if method == "unit.run" { return ("unit_run_params", "Run") }
+        return contract.method(method).map { ($0.params, $0.result) }
+    }
+
+    /// Methods answered without a contract to check them against.
+    var unvalidated: Set<String> = []
+
+    /// Every request: params checked against the method's params def; every
+    /// answer against its result def; every error against `Error`.
     func handle(_ conn: Int, _ r: RuntimeRequest) throws -> JSONValue {
         lock.lock()
         defer { lock.unlock() }
         calls.append(Call(connection: conn, method: r.method, requestId: r.requestId))
+        let d = defs(r.method)
+        if let d { check(r.params, d.params, "params of \(r.method)") } else { unvalidated.insert(r.method) }
+        do {
+            let v = try respond(conn, r)
+            if let d { check(v, d.result, "result of \(r.method)") }
+            return v
+        } catch let e as RuntimeError {
+            check(e.json, "Error", "error of \(r.method)")
+            throw e
+        }
+    }
+
+    private func respond(_ conn: Int, _ r: RuntimeRequest) throws -> JSONValue {
         guard methods.contains(r.method) else { throw RuntimeError.capabilityMissing("method \(r.method) is not available") }
         let p = r.params
         switch r.method {
         case "runtime.status":
-            return .obj([("instanceId", .string(instanceId)), ("state", .string("running"))])
+            return .obj([("instanceId", .string(instanceId)), ("state", .string("running")), ("startedAt", .string(Self.at(0))),
+                         ("uptimeSeconds", .int(1)), ("connections", .int(connections)), ("desktops", .int(1)),
+                         ("sessions", .int(1)), ("runs", .int(runs.count))])
         case "runtime.capabilities":
-            return .obj([("apiVersion", .string(RuntimeAPI.version)),
-                         ("interface", .obj([("methods", .array(methods.sorted().map { .obj([("method", .string($0))]) }))]))])
+            let listed = methods.sorted().map { m -> JSONValue in
+                let spec = contract.method(m)
+                return .obj([("method", .string(m)), ("mutation", .bool(spec?.mutation ?? (m == "unit.run"))),
+                             ("stage", .string(spec?.stage ?? "P0"))])
+            }
+            return .obj([("apiVersion", .string(RuntimeAPI.version)), ("interface", .obj([("methods", .array(listed))])),
+                         ("backend", .obj([("platform", .obj([("os", .string("macos")), ("osVersion", .string("15.1")), ("arch", .string("arm64"))])),
+                                           ("permissions", .obj([("screenRecording", .string("granted")), ("accessibility", .string("granted"))])),
+                                           ("features", .array([]))]))])
         case "ai.profiles.list":
             return .obj([("items", .array(profiles ?? [])), ("nextCursor", .null)])
         case "unit.run":
@@ -270,7 +315,10 @@ final class URTestRuntime: @unchecked Sendable {
                 throw RuntimeError("conflict", "this connection controls a live Run", phase: .handler,
                                    details: .obj([("reason", .string("control_connection"))]))
             }
-            return .obj([("subscribed", .bool(true))])
+            var sub: [(String, JSONValue)] = [("subscribed", .bool(true))]
+            if let id = p["runId"] { sub.append(("runId", id)) }
+            sub.append(("next", .int(p["after"]?.intValue ?? 0)))
+            return .obj(sub)
         case "run.events":
             let id = p["runId"]?.stringValue ?? ""
             guard runs[id] != nil else { throw RuntimeError.notFound("no run") }
@@ -357,9 +405,12 @@ final class URTestClient: RuntimeClient {
 
     func subscribe(runId: String?, after: Int?) throws -> JSONValue {
         _ = try handshake()
-        _ = try server.handle(conn!, RuntimeRequest(.eventsSubscribe, params: .obj([])))
+        var params: [(String, JSONValue)] = []
+        if let runId { params.append(("runId", .string(runId))) }
+        if let after { params.append(("after", .int(after))) }
+        let answer = try server.handle(conn!, RuntimeRequest(.eventsSubscribe, params: .obj(params)))
         subscription = (runId ?? "", after ?? 0)
-        return .obj([("subscribed", .bool(true)), ("next", .int(after ?? 0))])
+        return answer
     }
 
     func nextEvent() throws -> PushedEvent {
@@ -372,6 +423,7 @@ final class URTestClient: RuntimeClient {
             sub.cursor = frame["sequence"]?.intValue ?? sub.cursor
             subscription = sub
             let f = JSONValue.obj([("apiVersion", .string(RuntimeAPI.version)), ("event", frame), ("cursor", .int(sub.cursor))])
+            server.checkFrame(f)
             return .frame(f)
         }
         if ended { close(); return .closed }
