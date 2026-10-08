@@ -159,6 +159,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startAIService(runtime: RuntimeService, records: String) {
         let path = role.aiEndpoint.path
         let enabled = role.guiExecutionEnabled
+        let credentialBackend = role.credentialBackend
         let ports = RuntimeGuiPorts(service: runtime)
         Task {
             do {
@@ -167,8 +168,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     sessions: ports,
                     features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"],
                                                  independentDesktopConcurrency: true)) : nil
+                let credentials: CredentialStore
+                switch credentialBackend {
+                case .keychain: credentials = KeychainCredentialStore()
+                case .files(let directory): credentials = try FileCredentialStore(directory: directory.path)
+                }
                 let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
-                    databasePath: records + "/ai.sqlite", credentials: KeychainCredentialStore(), executionBackend: backend))
+                    databasePath: records + "/ai.sqlite", credentials: credentials, executionBackend: backend))
                 let me = getuid()
                 let server = RpcSocketServer(path: path) { uid in
                     uid == me ? service.router(callerScope: "uid:\(uid)", trustedOwner: true) : nil
