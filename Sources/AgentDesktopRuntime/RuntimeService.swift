@@ -46,6 +46,12 @@ public final class RuntimeService: @unchecked Sendable {
     let execution: ExecutionCoordinator
     let conflicts = ConflictRegistry()
     public let artifacts: ArtifactStore
+    /// Accessibility reads, off the main thread, the cooperative pool and
+    /// every Desktop lock (RT-23A/B).
+    public let axReader = AXReader()
+    /// How long one element read may take before an observation goes on
+    /// with the screenshot alone (RT-23A).
+    public var elementReadBudget: TimeInterval = 5
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date

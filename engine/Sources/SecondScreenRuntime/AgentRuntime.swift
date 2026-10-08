@@ -12,7 +12,9 @@ import SecondScreenCore
 @MainActor
 public final class AgentRuntime {
     public let screens: AgentScreens
-    public let input = InputEngine()
+    /// Thread-safe; the host's Runtime reads windows through it from its
+    /// own bounded threads, off the main actor and the cooperative pool.
+    public nonisolated let input = InputEngine()
 
     /// Screens the host owns besides the agent screens, such as the user's
     /// own second screen; agents see them in `screen list` and can place
