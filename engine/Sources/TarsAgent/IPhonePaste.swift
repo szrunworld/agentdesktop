@@ -269,6 +269,14 @@ public struct PasteWatcher {
         return .unknown(why + "; the phone's paste was cancelled")
     }
 
+    /// Whether a failed ⌘V may still have reached the phone, as the screen
+    /// says of input whose delivery failed after it went out.
+    static func mayHaveReached(_ response: ControlResponse) -> Bool {
+        if response.route?.hasSuffix(".unknown") == true { return true }
+        guard let error = response.error else { return false }
+        return error.hasPrefix("action_delivery_unknown") || error.contains("(delivery_unknown)")
+    }
+
     /// `verify`: whether the text may be read back off the screen to
     /// confirm it. Without that the best outcome is `.delivered`.
     public func paste(_ text: String, verify: Bool, driver: PhonePasteDriver) -> PasteOutcome {
@@ -281,7 +289,13 @@ public struct PasteWatcher {
             // The request may have gone out before it failed.
             return .unknown("⌘V: \(error.localizedDescription)")
         }
-        guard pressed.ok else { return .notDelivered(pressed.error ?? "⌘V failed") }
+        guard pressed.ok else {
+            // A send that failed midway (the transport broke, the window
+            // changed under it) may have reached the phone: unknown, so the
+            // clipboard is not handed back while the phone may fetch it.
+            if Self.mayHaveReached(pressed) { return .unknown("⌘V: \(pressed.error ?? "delivery unknown")") }
+            return .notDelivered(pressed.error ?? "⌘V failed")
+        }
 
         var quiet = 0
         var presses = 0

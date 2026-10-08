@@ -8,6 +8,9 @@ import Foundation
 /// lowered.
 public struct HostFlag: Sendable {
     public let url: URL
+    /// Runs between reading an expired record and dropping it: tests use it
+    /// to raise the flag again in that gap.
+    var beforeDropping: (@Sendable () -> Void)?
     /// How long a record that cannot be read still counts as raised.
     public static let unreadableLifetime: TimeInterval = 600
 
@@ -76,24 +79,41 @@ public struct HostFlag: Sendable {
     /// A record that cannot be read counts as up: the flag guards against
     /// harm, so doubt keeps it raised.
     public func reason(now: Date = Date()) -> String? {
-        guard let data = FileManager.default.contents(atPath: url.path) else { return nil }
+        // Dropping an expired record races a new raising: when the record
+        // changed before it could be dropped, read the new one.
+        for _ in 0..<3 {
+            if case .settled(let reason) = read(now: now) { return reason }
+        }
+        // Doubt keeps it up.
+        return "a record at \(url.path) that could not be settled"
+    }
+
+    private enum Reading {
+        /// The reason the flag is up, or nil when it is down.
+        case settled(String?)
+        /// A stale record could not be dropped: another replaced it first.
+        case changed
+    }
+
+    private func read(now: Date) -> Reading {
+        guard let data = FileManager.default.contents(atPath: url.path) else { return .settled(nil) }
         guard let record = try? JSONDecoder().decode(Record.self, from: data) else {
             // Doubt keeps it up, but not for ever: an unreadable record older
             // than `unreadableLifetime` is dropped, so a corrupt file cannot
             // block every agent until someone deletes it by hand.
             let written = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
             if let written, now.timeIntervalSince(written) > Self.unreadableLifetime {
-                lower(ifStill: "unreadable")
-                return nil
+                return lower(ifStill: "unreadable") ? .settled(nil) : .changed
             }
-            return "an unreadable record at \(url.path)"
+            return .settled("an unreadable record at \(url.path)")
         }
         if let until = record.until, until <= now {
             // Only this expired raising goes; a new one raised meanwhile stays.
-            if let generation = record.generation { lower(ifStill: generation) }
-            return nil
+            guard let generation = record.generation else { return .settled(nil) }
+            beforeDropping?()
+            return lower(ifStill: generation) ? .settled(nil) : .changed
         }
-        return record.reason
+        return .settled(record.reason)
     }
 
     public func lower() {
@@ -109,12 +129,16 @@ public struct HostFlag: Sendable {
 
     /// Lowers the flag only if it is still the raising `generation` named;
     /// one raised since stays up.
-    public func lower(ifStill generation: String) {
-        _ = try? serialized {
-            guard let data = FileManager.default.contents(atPath: url.path) else { return }
+    /// Returns false when another raising is in place, or the flag could
+    /// not be checked, and so may still be up.
+    @discardableResult
+    public func lower(ifStill generation: String) -> Bool {
+        (try? serialized { () -> Bool in
+            guard let data = FileManager.default.contents(atPath: url.path) else { return true }
             let current = (try? JSONDecoder().decode(Record.self, from: data))?.generation ?? "unreadable"
-            guard current == generation else { return }
+            guard current == generation else { return false }
             try? FileManager.default.removeItem(at: url)
-        }
+            return !FileManager.default.fileExists(atPath: url.path)
+        }) ?? false
     }
 }

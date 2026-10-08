@@ -296,6 +296,17 @@ func fast() -> PasteWatcher {
         #expect(fast().paste("hello", verify: true, driver: phone) == .notDelivered("SkyLight refused"))
         #expect(phone.looks == 1)
     }
+
+    @Test func pasteKeyThatFailedMidwayIsUnknown() {
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard])
+        var midway = ControlResponse.failure("action_delivery_unknown (transport_error): the socket closed")
+        midway.route = "key.unknown"
+        phone.pasteResponse = midway
+        guard case .unknown = fast().paste("hello", verify: true, driver: phone) else {
+            Issue.record("a ⌘V that may have reached the phone must not count as not delivered")
+            return
+        }
+    }
 }
 
 @Suite struct PasteResponses {
