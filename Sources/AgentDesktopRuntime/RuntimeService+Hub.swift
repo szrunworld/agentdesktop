@@ -119,6 +119,8 @@ extension RuntimeService {
     func revokeClient(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["clientId"]?.stringValue ?? ""
         guard (try? hub.revoke(id)) ?? nil != nil, let client = hub.client(id) else { return .failure(.notFound("no client \(id)")) }
+        // The linearization point: from here nothing more reaches the app.
+        cutConnections(of: id, reason: "client_revoked")
         execution.stopRuns(ofClient: id, reason: "client_revoked")
         // Its sessions close too, so they hold no Desktop open.
         sessions.closeAll(caller: id, at: nowString)
@@ -139,9 +141,12 @@ extension RuntimeService {
         switch grantFrom(p, requested: nil, clientId: id) {
         case let .failure(e): return .failure(e)
         case let .success(g):
+            let epoch = hub.policyEpoch
             guard let saved = try? hub.setGrant(g) else {
                 return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable", phase: .handler, notSent: true))
             }
+            // Narrowed: its connections are cut, it reconnects under the new grant.
+            if hub.policyEpoch != epoch { cutConnections(of: id, reason: "grant_narrowed") }
             var filter = RunStore.ListFilter()
             filter.clientId = id
             filter.activeOnly = true
@@ -162,6 +167,7 @@ extension RuntimeService {
         guard let saved = try? hub.setGrant(g) else {
             return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable", phase: .handler, notSent: true))
         }
+        cutConnections(of: id, reason: "grant_revoked")
         execution.stopRuns(ofClient: id, reason: "grant_revoked")
         hub.audit(connectionId: c.connectionId, clientId: id, method: "hub.grants.revoke", decision: "revoked", reason: "owner")
         return .success(saved.json)

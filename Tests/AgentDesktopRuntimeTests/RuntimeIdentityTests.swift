@@ -180,7 +180,7 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     let platform = FakePlatform()
     let s = platformService(platform)
     let owner = handshaken(s)
-    let (sc, id, _) = try pairedScene(s, platform)
+    let (sc, id, token) = try pairedScene(s, platform)
     var g = try #require(s.hub.grant(id))
     g.expiresAt = Timestamp.string(Date().addingTimeInterval(-1))
     try s.hub.putGrant(g)
@@ -191,7 +191,12 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     #expect(code(call(s, owner, "hub.grants.set", params: #"{"clientId":"\#(id)","capabilities":["observe","act"],"desktops":["created"],"durationSeconds":9999999}"#)) == "schema_invalid")
     let renewed = try #require(data(call(s, owner, "hub.grants.set", params: #"{"clientId":"\#(id)","capabilities":["observe","act"],"desktops":["created"],"apps":["com.apple.calculator"],"durationSeconds":600}"#)))
     #expect(renewed["revision"]?.intValue == 2)
-    #expect(data(act(sc, clickContinue)) != nil)
+    // The renewal dropped capabilities: the old connection was cut; the app
+    // reconnects under the new grant.
+    #expect(code(act(sc, clickContinue)) == "grant_missing")
+    let (again, _) = socketConnection(s, clientId: id, token: token)
+    let back = Scene(platform: platform, s: s, c: again, desktop: sc.desktop, session: sc.session, snapshot: sc.snapshot)
+    #expect(data(act(back, clickContinue)) != nil)
 }
 
 @Test func revokingAnAppStopsItsRunsAndRefusesNewActionsInThem() throws {
@@ -243,8 +248,9 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     let (sc, id, _) = try pairedScene(s, platform)
     let runId = try #require(data(call(s, sc.c, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
     #expect(data(call(s, owner, "hub.grants.set", params: #"{"clientId":"\#(id)","capabilities":["observe","act"],"desktops":[]}"#)) != nil)
-    #expect(code(act(sc, clickContinue, runId: runId)) == "not_found")
-    #expect(code(act(sc, clickContinue)) == "not_found")
+    // The connection was cut on narrowing.
+    #expect(code(act(sc, clickContinue, runId: runId)) == "grant_missing")
+    #expect(code(act(sc, clickContinue)) == "grant_missing")
     #expect(platform.performed.isEmpty)
     let run = try #require(data(call(s, owner, "run.show", params: #"{"runId":"\#(runId)"}"#)))
     #expect(run["closingReason"]?.stringValue == "grant_narrowed")
@@ -308,5 +314,5 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     }
     #expect(closed, "the stream closes once access is gone")
     #expect(after.allSatisfy { $0["event"]?["type"]?.stringValue == "run.started" }, "no event after the revocation: \(after)")
-    #expect(s.hub.auditEvents().contains { $0["method"]?.stringValue == "events.subscribe" && $0["reason"]?.stringValue == "client_revoked" })
+    #expect(s.hub.auditEvents().contains { $0["decision"]?.stringValue == "cut" && $0["reason"]?.stringValue == "client_revoked" })
 }

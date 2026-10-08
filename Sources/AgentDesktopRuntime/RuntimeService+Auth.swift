@@ -42,6 +42,7 @@ extension RuntimeService {
             return deny(RuntimeError("pairing_required", "pair this app with AgentDesktop first (hub.pairing.start); \(method) needs a paired client",
                                      phase: .request, notSent: true), "unpaired")
         }
+        if let reason = c.cutReason { return deny(Self.cutError(c, reason), "connection_cut") }
         if let e = accessError(c, method: method) { return deny(e, e.details?["reason"]?.stringValue ?? e.code) }
         // Attaching one of the user's own displays puts the user's real
         // windows in reach: only the owner does that. An owner may still
@@ -142,10 +143,40 @@ extension RuntimeService {
 
     /// Right before input goes out: the grant as it is now (a revocation or
     /// expiry while the action waited for the Desktop stops it).
+    /// The error on a connection the owner cut (revoked, grant revoked or
+    /// narrowed): reconnect with a credential that is still valid.
+    static func cutError(_ c: ConnectionState, _ reason: String) -> RuntimeError {
+        let code = reason == "client_revoked" ? "client_revoked" : "grant_missing"
+        return RuntimeError(code, "the owner withdrew the access of \(c.clientId) on this connection (\(reason)); reconnect",
+                            phase: .request, notSent: true, details: .obj([("reason", .string(reason))]))
+    }
+
+    /// Withdraw access at once on every open connection of a client: after
+    /// this returns, nothing more is sent to it (see ConnectionState.cut).
+    func cutConnections(of clientId: String, reason: String) {
+        for e in openConnections.all where e.connection.clientId == clientId {
+            e.connection.cut(reason)
+            hub.audit(connectionId: e.connection.connectionId, clientId: clientId, method: "connection", decision: "cut", reason: reason,
+                      runId: e.connection.subscription?.runId)
+        }
+    }
+
+    /// A read answered after its caller lost access: the error to send
+    /// instead of the answer, audited.
+    func accessLost(_ request: RuntimeRequest, _ c: ConnectionState) -> RuntimeError? {
+        guard c.role == .paired, !Self.openMethods.contains(request.method) else { return nil }
+        let e = c.cutReason.map { Self.cutError(c, $0) } ?? accessError(c, method: request.method)
+        guard let e else { return nil }
+        hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: request.method, decision: "withheld",
+                  reason: e.details?["reason"]?.stringValue ?? e.code, runId: request.context.runId)
+        return e
+    }
+
     /// A paired connection's event stream ends once its access is gone
     /// (revoked, expired, or no longer granted `run`).
     public func subscriptionRevoked(_ c: ConnectionState) -> Bool {
-        guard c.role == .paired, c.subscription != nil, let e = accessError(c, method: "events.subscribe") else { return false }
+        guard c.role == .paired, c.subscription != nil,
+              let e = c.cutReason.map({ Self.cutError(c, $0) }) ?? accessError(c, method: "events.subscribe") else { return false }
         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "events.subscribe", decision: "denied",
                   reason: e.details?["reason"]?.stringValue ?? e.code, runId: c.subscription?.runId)
         c.subscription = nil
@@ -154,6 +185,7 @@ extension RuntimeService {
 
     func recheckAct(_ c: ConnectionState, desktopId: String, method: String = "act") -> RuntimeError? {
         guard c.role == .paired else { return nil }
+        if let reason = c.cutReason { return Self.cutError(c, reason) }
         if let e = accessError(c, method: method) { return e }
         return desktopAllowed(c, desktopId) ? nil
             : RuntimeError("grant_missing", "desktop \(desktopId) left the grant of \(c.clientId)", phase: .handler, notSent: true,

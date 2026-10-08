@@ -31,6 +31,35 @@ public final class ConnectionState: @unchecked Sendable {
     var subscription: EventSubscription?
     public var isSubscribed: Bool { subscription != nil }
 
+    // A4 revocation boundary. Once the owner withdraws this connection's
+    // access it is cut: nothing more is sent on it. Every send holds the
+    // gate; `cut` first shuts the socket (a send in progress fails rather
+    // than finishing later), then marks it under the gate. What was already
+    // in the kernel's buffer may still arrive; nothing starts after.
+    private let sendGate = NSLock()
+    private var cutBy: String?
+    private let closerLock = NSLock()
+    private var closer: (@Sendable () -> Void)?
+
+    /// Why this connection was cut, if it was.
+    public var cutReason: String? { sendGate.withLock { cutBy } }
+
+    /// Send through the gate: false, without sending, once cut.
+    public func send(_ write: () -> Bool) -> Bool {
+        sendGate.withLock { cutBy == nil ? write() : false }
+    }
+
+    /// The server's way to shut this connection's socket; `detach` runs the
+    /// server's close under the same lock so a late cut never shuts a
+    /// reused descriptor.
+    public func attachCloser(_ close: @escaping @Sendable () -> Void) { closerLock.withLock { closer = close } }
+    public func detach(_ close: () -> Void) { closerLock.withLock { closer = nil; close() } }
+
+    func cut(_ reason: String) {
+        closerLock.withLock { closer?() }
+        sendGate.withLock { if cutBy == nil { cutBy = reason } }
+    }
+
     /// A connection inside this process (the main window, the GUI ports):
     /// the owner.
     public init(peerUID: uid_t) {
@@ -86,6 +115,9 @@ public final class RuntimeService: @unchecked Sendable {
     /// How long one element read may take before an observation goes on
     /// with the screenshot alone (RT-23A).
     public var elementReadBudget: TimeInterval = 5
+    /// Tests only: runs on a pushing connection between its access check and
+    /// fetching the next frames, to hold a revocation race open.
+    var pushCheckpoint: (@Sendable (ConnectionState) -> Void)?
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date
@@ -190,11 +222,15 @@ public final class RuntimeService: @unchecked Sendable {
         guard paramViolations.isEmpty else {
             return .failure(request.requestId, .schemaInvalid("params break \(spec.params)", violations: paramViolations))
         }
-        let result: Result<JSONValue, RuntimeError>
+        var result: Result<JSONValue, RuntimeError>
         if spec.mutation {
             result = ledgered(request, on: connection)
         } else {
             result = handle(request, on: connection)
+            // A read that took a while (wait, run.wait, observe) answers only
+            // if the caller may still see the answer. A write reports what
+            // happened, as recorded in the ledger.
+            if case .success = result, let lost = accessLost(request, connection) { result = .failure(lost) }
         }
         switch result {
         case let .success(data):
