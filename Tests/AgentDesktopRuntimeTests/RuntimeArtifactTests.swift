@@ -439,6 +439,62 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
     for _ in 0..<ArtifactStore.maxFreeQueries { gate.signal() }
 }
 
+// b9's review of 3b8cbc4: after the clock is set back, a new answer still
+// counts, so screenshots resume at once instead of when the clock catches up.
+@Test func screenshotsResumeRightAfterTheClockIsSetBack() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Clock: @unchecked Sendable { var now = Date() }
+    let clock = Clock()
+    let store = try ArtifactStore(directory: dir, now: { clock.now })
+    store.freeBytes = { 100 << 30 }
+    store.refreshFreeSpace()
+    clock.now = clock.now.addingTimeInterval(-3600)
+    #expect(throws: RuntimeError.self) { try store.admit(bucket: "session:s") }
+    store.refreshFreeSpace()
+    try store.admit(bucket: "session:s")
+}
+
+// A sweep that cannot remove a file does not take it off the usage.
+@Test func aFileTheSweepCannotRemoveStillCounts() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { chmod(dir, 0o700); try? FileManager.default.removeItem(atPath: dir) }
+    let store = try ArtifactStore(directory: dir)
+    store.freeBytes = { 100 << 30 }
+    store.refreshFreeSpace()
+    try Data(repeating: 1, count: 100).write(to: URL(fileURLWithPath: store.path(for: "art_a", ext: "png")))
+    try store.admit(bucket: "session:s")
+    _ = try store.register("art_a", mediaType: "image/png", clientId: "c", runId: nil, createdAt: Timestamp.string(Date()),
+                           bucket: "session:s")
+    for p in [store.path(for: "art_a", ext: "png"), store.metaPath("art_a")] {
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-30 * 3600)], ofItemAtPath: p)
+    }
+    chmod(dir, 0o500)
+    store.sweep(at: Date())
+    chmod(dir, 0o700)
+    #expect(FileManager.default.fileExists(atPath: store.path(for: "art_a", ext: "png")))
+    #expect(store.count(bucket: "session:s") == 1)
+}
+
+// A failed capture leaves no half-written image behind.
+@Test func aFailedCaptureLeavesNoFile() async throws {
+    let (platform, s, ports, d) = try guiScene()
+    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    platform.failScreenshot = true
+    await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: "r1", expectedGeneration: 1) }
+    let files = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".png") }
+    #expect(files.isEmpty, "\(files)")
+    // A GUI step's window capture is recorded under its Run.
+    platform.failScreenshot = false
+    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)
+    let metas = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".meta.json") }
+    #expect(metas.count == 2)
+    for m in metas {
+        let v = try StrictJSON.parse(try Data(contentsOf: URL(fileURLWithPath: s.artifacts.directory + "/" + m)))
+        #expect(v["runId"]?.stringValue == "r1", "\(m)")
+    }
+}
+
 // b9 (#144, fourth review): a GUI step's places are admitted together with
 // every limit, so no window capture is written when the store, the disk or
 // an unknown answer would refuse the model's copy; unused places come back.
@@ -493,22 +549,17 @@ func aGuiStepIsRefusedWholeByAnyLimit(_ which: String) async throws {
 @Test func aLateAnswerFromAHungQueryIsNotTakenForANewOne() throws {
     let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
     defer { try? FileManager.default.removeItem(atPath: dir) }
-    final class Clock: @unchecked Sendable { var now = Date() }
-    let clock = Clock()
-    let store = try ArtifactStore(directory: dir, now: { clock.now })
-    // A query asked now answers only after a newer one did.
-    store.freeBytes = { 100 << 30 }
-    clock.now = clock.now.addingTimeInterval(5)
-    store.refreshFreeSpace()
+    let store = try ArtifactStore(directory: dir)
+    // The first query hangs and will answer 1 byte; a later one answers
+    // plenty first. The late answer, to the older question, is dropped.
     let late = DispatchQueue(label: "late")
     let asked = DispatchSemaphore(value: 0), answer = DispatchSemaphore(value: 0)
-    clock.now = clock.now.addingTimeInterval(-3)
     store.freeBytes = { asked.signal(); answer.wait(); return 1 }
     late.async { store.refreshFreeSpace() }
     asked.wait()
-    clock.now = clock.now.addingTimeInterval(3)
+    store.freeBytes = { 100 << 30 }
+    store.refreshFreeSpace()
     answer.signal()
     late.sync {}
-    // The newer answer (plenty) stands; the late, older one (1 byte) did not replace it.
     try store.admit(bucket: "session:s")
 }

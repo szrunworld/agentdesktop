@@ -88,6 +88,8 @@ extension RuntimeService {
                         size = try platform.screenshot(d.screen, to: path)
                     }
                 } catch {
+                    // No half-written image is left behind, uncounted.
+                    unlink(path)
                     // A place the ports reserved is theirs to give back.
                     if reserved == nil { artifacts.release(bucket: bucket) }
                     throw error
@@ -97,8 +99,10 @@ extension RuntimeService {
                 let info: ArtifactStore.Info
                 do {
                     info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
-                                                  runId: request.context.runId, createdAt: nowString, bucket: bucket)
+                                                  runId: reserved.map { String($0.dropFirst("gui:".count)) } ?? request.context.runId,
+                                                  createdAt: nowString, bucket: bucket)
                 } catch {
+                    unlink(path)
                     // A place the ports reserved is theirs to give back.
                     if reserved == nil { artifacts.release(bucket: bucket) }
                     throw error

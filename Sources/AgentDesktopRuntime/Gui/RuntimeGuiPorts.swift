@@ -136,10 +136,18 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         let resized = Size(width: (crop.size.width * factor).rounded(), height: (crop.size.height * factor).rounded())
         let modelPNG = try Self.render(source: source, crop: crop, to: resized)
         let artifactId = "art_gui_" + snapshotId.dropFirst(4)
-        try modelPNG.write(to: URL(fileURLWithPath: service.artifacts.path(for: artifactId, ext: "png")))
-        // Readable by id from the owner (Runs page), not by other clients.
-        let sha = try service.artifacts.register(artifactId, mediaType: "image/png", clientId: "platform", runId: runId,
+        let modelPath = service.artifacts.path(for: artifactId, ext: "png")
+        let sha: String
+        do {
+            try modelPNG.write(to: URL(fileURLWithPath: modelPath))
+            // Readable by id from the owner (Runs page), not by other clients.
+            sha = try service.artifacts.register(artifactId, mediaType: "image/png", clientId: "platform", runId: runId,
                                                  createdAt: Timestamp.string(Date()), bucket: bucket).sha256
+        } catch {
+            // No uncounted file stays behind.
+            unlink(modelPath)
+            throw error
+        }
         unused = 0
         let shot = try ScreenshotDescriptor(
             screenshotId: "shot_" + snapshotId.dropFirst(4), artifactRef: artifactId, sha256: sha, mimeType: "image/png",

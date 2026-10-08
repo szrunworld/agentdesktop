@@ -126,6 +126,11 @@ public final class ArtifactStore: @unchecked Sendable {
     var freeBytes: @Sendable () -> Int64? = { nil }
     static let freeSpaceInterval: TimeInterval = 10
     private var free: (bytes: Int64?, at: Date)?
+    /// Each volume query's place in the order they were asked: a late
+    /// answer to an older query never replaces a newer one. A counter, not
+    /// the clock: after the clock is set back, new answers still count.
+    private var freeQueriesAsked: UInt64 = 0
+    private var freeAnswerFrom: UInt64 = 0
     private var refreshingFree = false
     /// Concurrent: a retry is not queued behind a query that hangs.
     private let freeSpaceQueue = DispatchQueue(label: "agentdesktop.artifacts.freespace", qos: .utility, attributes: .concurrent)
@@ -216,10 +221,13 @@ public final class ArtifactStore: @unchecked Sendable {
     func refreshFreeSpace() {
         // Stamped with when the question was asked: a query that hung and
         // returns late does not pass off an old answer as a new one.
-        let askedAt = clock()
+        let (askedAt, order) = lock.withLock { () -> (Date, UInt64) in
+            freeQueriesAsked += 1
+            return (clock(), freeQueriesAsked)
+        }
         let bytes = freeBytes()
         lock.withLock {
-            if free.map({ askedAt >= $0.at }) ?? true { free = (bytes, askedAt) }
+            if order > freeAnswerFrom { free = (bytes, askedAt); freeAnswerFrom = order }
             refreshingFree = false
         }
     }
@@ -293,10 +301,12 @@ public final class ArtifactStore: @unchecked Sendable {
             let meta = FileManager.default.contents(atPath: metaPath(id)).flatMap { try? StrictJSON.parse($0) }
             let runId = meta?["runId"]?.stringValue
             if keep(id, runId) { continue }
-            for name in names { unlink(directory + "/" + name) }
+            // Only what really left the store comes off its usage.
+            var removed = true
+            for name in names where unlink(directory + "/" + name) != 0 && errno != ENOENT { removed = false }
             // Incremental, under the lock: a full recount here could lose a
             // write registered meanwhile.
-            if let size = meta?["byteSize"]?.intValue {
+            if removed, let size = meta?["byteSize"]?.intValue {
                 forget(bucket: meta?["bucket"]?.stringValue ?? runId.map { "run:" + $0 }, bytes: Int64(size))
             }
         }
