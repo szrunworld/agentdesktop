@@ -75,6 +75,13 @@ extension RuntimeService {
                 ])
             }
             guard let b = d.binding else {
+                // A physical Desktop shows the user's own screen: without a
+                // bound window there is nothing it may look at.
+                guard d.kind == .virtual else {
+                    throw RuntimeError("invalid_target",
+                                       "desktop \(d.desktopId) is physical and has no bound window; bind the window to observe it",
+                                       phase: .handler, notSent: true)
+                }
                 if wantsImage { try capture(nil) }
                 return .null
             }

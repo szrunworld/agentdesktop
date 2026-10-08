@@ -127,6 +127,20 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         }
     }
 
+    /// The user's own displays a physical Desktop may attach, by ID.
+    var physicalDisplays: [UInt32: ScreenHandle] = [
+        1: ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1512, height: 982), hiDPI: true),
+    ]
+
+    func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle {
+        let id = displayId ?? 1
+        note("attach \(id)")
+        guard let h = lock.withLock({ physicalDisplays[id] }) else {
+            throw PlatformError(.notFound, "display \(id) is not one of the user's physical displays")
+        }
+        return h
+    }
+
     func destroyScreen(name: String) throws {
         note("destroy \(name)")
         try lock.withLock {

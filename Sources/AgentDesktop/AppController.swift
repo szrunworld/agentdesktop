@@ -58,6 +58,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         // The engine serves this process only (A0): the Runtime below drives
         // it in-process and is the one way in; the engine's own control
         // socket is not opened.
+        // The user's own displays, so a physical Desktop can attach one
+        // instead of creating a virtual display.
+        runtime.hostScreens = { PhysicalDisplays.screens() }
         runtime.startInProcess()
         startRuntimeServer()
 
