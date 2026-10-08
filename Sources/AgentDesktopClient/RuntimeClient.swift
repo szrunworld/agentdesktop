@@ -16,6 +16,12 @@ public protocol RuntimeClient: AnyObject {
     /// The next pushed event frame.
     func nextEvent() throws -> PushedEvent
     func close()
+    /// The process on the other end of this client's own connection.
+    var peer: PeerCredentials? { get }
+}
+
+extension RuntimeClient {
+    public var peer: PeerCredentials? { nil }
 }
 
 /// What an event subscription delivered.
@@ -55,6 +61,8 @@ public final class SocketRuntimeClient: RuntimeClient {
     private let connect: (String, Double) throws -> RuntimeTransport
     private var transport: RuntimeTransport?
     private var identity: RuntimeIdentity?
+    /// The Runtime's process on this client's connection (after handshake).
+    public var peer: PeerCredentials? { transport?.peer }
 
     public init(endpoint: Endpoint, info: ClientInfo, timeout: Double = 10,
                 contract: RuntimeContract = .shared,

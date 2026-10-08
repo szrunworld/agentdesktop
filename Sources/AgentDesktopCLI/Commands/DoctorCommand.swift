@@ -31,7 +31,7 @@ extension CLI {
         // no Run created (EndpointInspector). A connection that answers is
         // not trusted for that alone.
         let home = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
-        let report = EndpointInspector.inspect(endpoint, home: home, makeClient: makeClient)
+        let report = EndpointInspector.inspect(endpoint, home: home, makeClient: makeClient, signer: peerSigner)
         let place = ["product": "the installed product's endpoint", "side_instance": "a side instance's endpoint",
                      "custom": "a custom endpoint"][report.environment.rawValue]!
         checks.append(Check(id: "endpoint.environment", status: .ok,
@@ -52,9 +52,14 @@ extension CLI {
                                 message: "\(endpoint.path) is open to other users (mode \(Self.octal(report.socketMode))); not connecting",
                                 code: "permission_denied"))
         }
-        if let mode = report.directoryMode, mode & 0o077 != 0 {
+        if let mode = report.directoryMode, mode & 0o022 != 0 {
+            // Others could put their own socket in its place.
+            checks.append(Check(id: "endpoint.directory", status: .fail,
+                                message: "others may write the endpoint's directory (mode \(Self.octal(mode))); not trusting what listens there",
+                                code: "permission_denied"))
+        } else if let mode = report.directoryMode, mode & 0o055 != 0 {
             checks.append(Check(id: "endpoint.directory", status: .warn,
-                                message: "the endpoint's directory is open to other users (mode \(Self.octal(mode)))"))
+                                message: "others may read the endpoint's directory (mode \(Self.octal(mode)))"))
         }
         checks.append(Self.holderCheck(report))
 
@@ -75,7 +80,7 @@ extension CLI {
             switch report.identity {
             case .verified:
                 checks.append(Check(id: "identity", status: .ok,
-                                    message: "verified: the socket's peer, the handshake and the lock file name the same process"))
+                                    message: "verified: the socket's peer, the handshake and the lock file name the same process, signed as this product"))
             case .unverified:
                 checks.append(Check(id: "identity", status: .warn,
                                     message: "unverified: " + report.identityNotes.joined(separator: "; ")))
@@ -102,26 +107,23 @@ extension CLI {
             checks.append(Check(id: "exec.context", status: .ok, message: "inside session exec; context file \(context)"))
         }
 
-        if identity != nil {
-            let client = makeClient(endpoint)
-            defer { client.close() }
-            do {
-                _ = try client.handshake()
-                let caps = try client.call(RuntimeRequest(.capabilities))
-                let p = caps["backend"]?["permissions"]
-                for (key, name) in [("screenRecording", "Screen Recording"), ("accessibility", "Accessibility")] {
-                    let state = p?[key]?.stringValue ?? "unknown"
-                    checks.append(state == "granted"
-                        ? Check(id: "permission.\(key)", status: .ok, message: "\(name) granted to the Runtime")
-                        : Check(id: "permission.\(key)", status: .fail,
-                                message: "\(name) is \(state) for the Runtime; grant it to Agent Desktop in System Settings › Privacy & Security",
-                                code: "permission_denied"))
-                }
-            } catch let e as RuntimeError {
-                checks.append(Check(id: "capabilities", status: .fail, message: e.message, code: e.code))
-            } catch {}
+        // Permissions as the Runtime reports them, asked on the inspector's
+        // own connection, and only of one whose identity is not contradicted.
+        if let caps = report.capabilities {
+            let p = caps["backend"]?["permissions"]
+            let trusted = report.identity == .verified
+            for (key, name) in [("screenRecording", "Screen Recording"), ("accessibility", "Accessibility")] {
+                let state = p?[key]?.stringValue ?? "unknown"
+                let said = trusted ? "" : " (as an unverified Runtime reports it)"
+                checks.append(state == "granted"
+                    ? Check(id: "permission.\(key)", status: trusted ? .ok : .warn, message: "\(name) granted to the Runtime" + said)
+                    : Check(id: "permission.\(key)", status: .fail,
+                            message: "\(name) is \(state) for the Runtime" + said + "; grant it to Agent Desktop in System Settings › Privacy & Security",
+                            code: "permission_denied"))
+            }
         } else {
-            checks.append(Check(id: "permissions", status: .skip, message: "needs a Runtime to ask"))
+            checks.append(Check(id: "permissions", status: .skip,
+                                message: report.identity == .mismatch ? "not asked: the Runtime's identity is contradicted" : "needs a Runtime to ask"))
         }
 
         let firstFailure = checks.first { $0.status == .fail }

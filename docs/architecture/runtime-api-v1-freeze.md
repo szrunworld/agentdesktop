@@ -216,5 +216,12 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
   - Runtime 版本与契约版本；
   - Run 服务是否可用；
   - 失败所在的环节：connect（连接）、identity（身份）、version（版本）、authorization（授权）、service（服务）。
-- **身份判定**：只有当内核报告的 socket 对端 pid（`LOCAL_PEERPID`）、握手里的 pid、锁文件记录（pid、instanceId、正在监听、进程启动时间不晚于记录时间）三者一致时，才判为 `verified`。缺少任一项判为 `unverified`（只给警告）；互相矛盾判为 `mismatch`（失败，`instance_mismatch`）。**连得上不等于身份可信。**
-- 对其他用户可读写的 socket 判为 `too_open`，不连接。在 `session exec` 里运行时，只报告上下文文件的路径，不显示其中的令牌。
+- **身份判定**：同时满足以下条件才判为 `verified`：
+  - 握手**所用的同一条连接**上，内核报告的对端 pid 和 uid（`LOCAL_PEERPID`、`getpeereid`）与握手内容一致；
+  - 锁文件记录一致（pid、instanceId、正在监听、进程启动时间不晚于记录时间）；
+  - 对端进程**由和本 CLI 相同的证书签名**。同一用户的冒充者可以写出一致的记录和握手，但无法冒用产品的签名。
+  
+  缺少任一项判为 `unverified`（警告）；互相矛盾（包括签名不同、对端是其他用户）判为 `mismatch`（失败），**判定后不再向它询问任何东西**，它报告的权限也不会显示。身份未核实时显示的权限会标明"由未核实的 Runtime 报告"。**连得上不等于身份可信。**
+- 锁文件只读普通文件，不跟随链接、不在 FIFO 上等待，最多读 4 KB。Runtime 停止时从自己持有的文件描述符读取记录，不按路径重新打开。已经存在的锁文件在取锁后改回 0600。
+- 端点所在目录**其他用户可写**时判为失败（别人可能把自己的 socket 放进去）；只是可读时给警告。
+- 对其他用户可读写的 socket 判为 `too_open`，不连接。**所有客户端**（CLI、MCP、ACP、SDK 用的 `EndpointResolver.inspect`）都会拒绝连接这样的 socket，不只是诊断。在 `session exec` 里运行时，只报告上下文文件的路径，不显示其中的令牌。

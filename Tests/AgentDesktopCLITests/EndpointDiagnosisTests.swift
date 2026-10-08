@@ -8,9 +8,12 @@ import Testing
 // Endpoint diagnosis (doctor): read only, and an answer on the socket is not
 // trusted for that alone.
 
-private func doctor(_ path: String, env extra: [String: String] = [:]) -> (Int32, JSONValue?, String) {
+private func doctor(_ path: String, env extra: [String: String] = [:],
+                    signer: @escaping (Int32) -> EndpointInspector.Signer = { _ in .same }) -> (Int32, JSONValue?, String) {
     var out: [String] = []
     var cli = CLI()
+    // Test binaries are unsigned; the signature check is exercised on its own below.
+    cli.peerSigner = signer
     cli.stdout = { out.append($0) }
     cli.stderr = { _ in }
     cli.environment = ["HOME": "/nonexistent", EndpointResolver.environmentKey: path].merging(extra) { $1 }
@@ -143,4 +146,47 @@ private func snapshot(_ dir: String) -> [String: String] {
     #expect(EndpointInspector.environment(of: "/Users/u/Library/Application Support/AgentDesktop/runtime.sock", home: "/Users/u") == .product)
     #expect(EndpointInspector.environment(of: "/tmp/adt-x/side.runtime.sock", home: "/Users/u") == .sideInstance)
     #expect(EndpointInspector.environment(of: "/tmp/adt-x/runtime.sock", home: "/Users/u") == .custom)
+}
+
+
+// b9's review of #154.
+
+@Test func aRuntimeNotSignedAsTheProductIsAMismatchAndIsAskedNothingMore() throws {
+    let rt = try LiveRuntime()
+    let (code, v, text) = doctor(rt.path, signer: { _ in .different })
+    let d = try #require(diagnosis(v))
+    #expect(d["identity"]?.stringValue == "mismatch")
+    #expect(d["runsAvailable"] == nil, "no Run service question after a contradiction")
+    #expect(text.contains("not asked: the Runtime's identity is contradicted"))
+    #expect(code != 0)
+}
+
+@Test func anUncomparableSignatureLeavesTheIdentityUnverified() throws {
+    let rt = try LiveRuntime()
+    let (_, v, _) = doctor(rt.path, signer: { _ in .unknown })
+    #expect(diagnosis(v)?["identity"]?.stringValue == "unverified")
+}
+
+@Test func aLockFileThatIsAFifoOrALinkIsNotRead() throws {
+    for kind in ["fifo", "link"] {
+        let rt = try LiveRuntime()
+        let lock = rt.path + ".lock"
+        try FileManager.default.removeItem(atPath: lock)
+        if kind == "fifo" { #expect(mkfifo(lock, 0o600) == 0) } else { try FileManager.default.createSymbolicLink(atPath: lock, withDestinationPath: "/dev/zero") }
+        let started = Date()
+        let (_, v, _) = doctor(rt.path)
+        #expect(Date().timeIntervalSince(started) < 5, "\(kind): doctor did not wait on the lock file")
+        #expect(diagnosis(v)?["holder"]?.stringValue == "unknown", "\(kind)")
+        #expect(diagnosis(v)?["identity"]?.stringValue != "verified")
+    }
+}
+
+@Test func aDirectoryOthersMayWriteFailsTheCheck() throws {
+    let rt = try LiveRuntime()
+    chmod(rt.dir, 0o777)
+    defer { chmod(rt.dir, 0o700) }
+    let (code, v, text) = doctor(rt.path)
+    #expect(text.contains("others may write the endpoint's directory"))
+    #expect(diagnosis(v)?["identity"]?.stringValue != "verified")
+    #expect(code == 4)
 }

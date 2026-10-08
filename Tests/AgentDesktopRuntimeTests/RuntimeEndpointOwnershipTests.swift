@@ -119,3 +119,29 @@ private func staleSocket(_ path: String) {
     #expect(EndpointRecord.parse("{not json").record == nil && EndpointRecord.parse("{not json").legacyPID == nil)
     #expect(!r.line.contains("token") && !r.line.contains("credential"))
 }
+
+
+// Stopping reads the record from the descriptor it holds: whatever is put at
+// the path meanwhile (a FIFO) cannot hold the app's exit up.
+@Test func stoppingDoesNotWaitOnWhateverIsAtTheLockPath() throws {
+    let dir = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runtime.sock"
+    let server = try startServer(path)
+    try FileManager.default.removeItem(atPath: path + ".lock")
+    #expect(mkfifo(path + ".lock", 0o600) == 0)
+    let started = Date()
+    server.stop()
+    #expect(Date().timeIntervalSince(started) < 2)
+}
+
+@Test func anExistingLockFileBecomesOwnerOnly() throws {
+    let dir = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runtime.sock"
+    FileManager.default.createFile(atPath: path + ".lock", contents: Data(), attributes: [.posixPermissions: 0o644])
+    let server = try startServer(path)
+    defer { server.stop() }
+    var st = stat()
+    #expect(lstat(path + ".lock", &st) == 0 && st.st_mode & 0o777 == 0o600)
+}

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// What the Runtime that holds an endpoint writes into its lock file
@@ -52,5 +53,28 @@ public struct EndpointRecord: Equatable, Sendable {
         else { return (nil, nil) }
         return (EndpointRecord(product: product, productVersion: version, pid: p, instanceId: instance,
                                endpoint: endpoint, listening: listening, since: since), nil)
+    }
+
+    /// The most a lock file may hold; anything longer is not a record.
+    public static let maxBytes = 4096
+
+    /// The lock file's text, read without following a link or waiting on a
+    /// FIFO, only from a regular file, at most `maxBytes`. Nil otherwise.
+    public static func readFile(_ path: String) -> String? {
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        return read(fd: fd)
+    }
+
+    /// The text of an open lock file, from its start, at most `maxBytes`;
+    /// nil unless it is a regular file.
+    public static func read(fd: Int32) -> String? {
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { return nil }
+        var buffer = [UInt8](repeating: 0, count: maxBytes)
+        let n = pread(fd, &buffer, maxBytes, 0)
+        guard n >= 0 else { return nil }
+        return String(decoding: buffer[0..<n], as: UTF8.self)
     }
 }

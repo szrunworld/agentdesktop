@@ -56,10 +56,12 @@ public final class RuntimeServer: @unchecked Sendable {
         let lfd = Darwin.open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
         guard lfd >= 0 else { throw StartError.io("open \(lockPath): \(String(cString: strerror(errno)))") }
         if flock(lfd, LOCK_EX | LOCK_NB) != 0 {
-            let parsed = (try? String(contentsOfFile: lockPath, encoding: .utf8)).map(EndpointRecord.parse)
+            let parsed = EndpointRecord.read(fd: lfd).map(EndpointRecord.parse)
             Darwin.close(lfd)
             throw StartError.alreadyServed(path: path, holderPID: parsed?.record?.pid ?? parsed?.legacyPID)
         }
+        // An existing lock file keeps whatever mode it had: owner-only again.
+        fchmod(lfd, 0o600)
         // Who holds the endpoint, for diagnosis: a clue, not proof (see
         // EndpointRecord). Rewritten once the socket listens.
         var record = EndpointRecord(product: service.identity.product, productVersion: service.identity.productVersion,
@@ -140,8 +142,9 @@ public final class RuntimeServer: @unchecked Sendable {
         if lstat(path, &st) == 0, st.st_ino == inode { unlink(path) }
         if lfd >= 0 {
             // The record stays, marked as no longer listening.
-            let text = (try? String(contentsOfFile: lockPath, encoding: .utf8)) ?? ""
-            if var r = EndpointRecord.parse(text).record, r.pid == getpid() {
+            // From the descriptor it holds, never the path: whatever now sits
+            // at the path (a FIFO, a link) cannot hold up stopping.
+            if var r = EndpointRecord.read(fd: lfd).flatMap({ EndpointRecord.parse($0).record }), r.pid == getpid() {
                 r.listening = false
                 Self.write(r, to: lfd)
             }

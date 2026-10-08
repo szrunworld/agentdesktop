@@ -1,6 +1,7 @@
 import AgentDesktopProtocol
 import Darwin
 import Foundation
+import Security
 
 /// Read-only diagnosis of a Runtime endpoint: what is at the path, who
 /// claims it, whether the one answering is that claimant, and whether its
@@ -50,6 +51,14 @@ public enum EndpointInspector {
         case verified, unverified, mismatch
     }
 
+    /// Whether the Runtime's process is signed by the same certificate as
+    /// this program (both ship in the same app). Same-user code can write a
+    /// consistent record and answer a consistent handshake; it cannot sign
+    /// as the product.
+    public enum Signer: String, Sendable {
+        case same, different, unknown
+    }
+
     /// Which step failed, for a caller that must decide what to do.
     public enum Failure: String, Sendable {
         case connect, identity, version, authorization, service
@@ -64,8 +73,14 @@ public enum EndpointInspector {
         public var record: EndpointRecord?
         public var legacyPID: Int32?
         public var holder: Holder
-        /// The process on the other end of a connection, from the kernel.
+        /// The process on the other end of the very connection the handshake
+        /// used, from the kernel.
         public var peerPID: Int32?
+        public var peerUID: uid_t?
+        public var signer: Signer = .unknown
+        /// runtime.capabilities, asked on the same connection, only of a
+        /// Runtime whose identity is not contradicted.
+        public var capabilities: JSONValue?
         public var connectError: String?
         public var handshake: RuntimeIdentity?
         public var handshakeError: RuntimeError?
@@ -81,7 +96,8 @@ public enum EndpointInspector {
     /// Diagnose `endpoint`; `makeClient` opens a connection for the
     /// handshake and the read-only service check.
     public static func inspect(_ endpoint: Endpoint, home: String = NSHomeDirectory(),
-                               makeClient: (Endpoint) -> RuntimeClient) -> Report {
+                               makeClient: (Endpoint) -> RuntimeClient,
+                               signer: (Int32) -> Signer = EndpointInspector.signer(of:)) -> Report {
         let path = endpoint.path
         var report = Report(path: path, environment: environment(of: path, home: home), socket: .missing,
                             holder: .none, identity: .unverified, identityNotes: [], failures: [])
@@ -98,7 +114,7 @@ public enum EndpointInspector {
         }
 
         // The lock file's record: read, never locked.
-        if let text = try? String(contentsOfFile: path + ".lock", encoding: .utf8) {
+        if let text = EndpointRecord.readFile(path + ".lock") {
             let parsed = EndpointRecord.parse(text)
             report.record = parsed.record
             report.legacyPID = parsed.legacyPID
@@ -119,45 +135,55 @@ public enum EndpointInspector {
             return report
         }
 
-        // The peer process, from the kernel, on a connection that sends nothing.
-        switch peerPID(path) {
-        case let .success(pid): report.peerPID = pid
-        case let .failure(f):
-            report.connectError = f.message
-            report.failures.append(.connect)
-            report.identityNotes.append("the socket does not accept connections")
-            return report
-        }
-
         let client = makeClient(endpoint)
         defer { client.close() }
         do {
             report.handshake = try client.handshake()
         } catch let e as RuntimeError {
             report.handshakeError = e
-            report.failures.append(e.code == "version_mismatch" ? .version : .identity)
+            if e.phase == .connect || e.code == "runtime_offline" { report.connectError = e.message }
+            report.failures.append(e.code == "version_mismatch" ? .version : (report.connectError != nil ? .connect : .identity))
+            report.identityNotes.append(report.connectError != nil ? "the socket does not accept connections" : "no handshake")
+            return report
         } catch {
             report.handshakeError = RuntimeError("internal_error", "\(error)", phase: .handshake)
             report.failures.append(.identity)
+            return report
         }
+        // The peer of this very connection (a client without one, as in
+        // tests, is asked on a probe connection that sends nothing).
+        if let peer = client.peer {
+            report.peerPID = peer.pid
+            report.peerUID = peer.uid
+        } else if case let .success(pid) = peerPID(path) {
+            report.peerPID = pid
+        }
+        if let pid = report.peerPID { report.signer = signer(pid) }
 
         (report.identity, report.identityNotes) = judge(report)
-        if report.identity != .verified, !report.failures.contains(.identity) { report.failures.append(.identity) }
+        // A contradicted identity is not asked anything more: what it would
+        // answer (permissions, Runs) is not to be shown as fact.
+        guard report.identity != .mismatch else {
+            report.failures.append(.identity)
+            return report
+        }
+        if report.identity != .verified { report.failures.append(.identity) }
 
-        if report.handshake != nil {
-            do {
-                _ = try client.call(RuntimeRequest(.runList, params: .obj([("limit", .int(1))])))
-                report.runsAvailable = true
-            } catch let e as RuntimeError {
-                report.runsAvailable = false
-                report.runsError = e
-                if e.code != "capability_missing" {
-                    report.failures.append(Self.authorizationCodes.contains(e.code) ? .authorization : .service)
-                }
-            } catch {
-                report.runsAvailable = false
-                report.failures.append(.service)
+        do {
+            report.capabilities = try client.call(RuntimeRequest(.capabilities))
+        } catch {}
+        do {
+            _ = try client.call(RuntimeRequest(.runList, params: .obj([("limit", .int(1))])))
+            report.runsAvailable = true
+        } catch let e as RuntimeError {
+            report.runsAvailable = false
+            report.runsError = e
+            if e.code != "capability_missing" {
+                report.failures.append(Self.authorizationCodes.contains(e.code) ? .authorization : .service)
             }
+        } catch {
+            report.runsAvailable = false
+            report.failures.append(.service)
         }
         return report
     }
@@ -184,6 +210,13 @@ public enum EndpointInspector {
         } else {
             notes.append("the socket's peer process is unknown")
         }
+        if let uid = r.peerUID, uid != getuid() { notes.append("the socket's peer runs as another user"); contradiction = true }
+        switch r.signer {
+        case .same: break
+        case .different: notes.append("the Runtime's process is not signed as this product"); contradiction = true
+        case .unknown: notes.append("the Runtime's code signature cannot be compared with this program's")
+        }
+        if let mode = r.directoryMode, mode & 0o022 != 0 { notes.append("others may write the endpoint's directory") }
         if let rec = r.record {
             if rec.pid != id.pid || rec.instanceId != id.instanceId {
                 notes.append("the lock file names another instance"); contradiction = true
@@ -244,5 +277,28 @@ public enum EndpointInspector {
             return .failure(ProbeFailure(message: String(cString: strerror(errno))))
         }
         return .success(pid)
+    }
+
+    /// Compare the leaf signing certificate of process `pid` with this
+    /// program's. Unsigned or ad-hoc code on either side is `unknown`.
+    public static func signer(of pid: Int32) -> Signer {
+        func leaf(_ code: SecCode) -> Data? {
+            guard SecCodeCheckValidity(code, [], nil) == errSecSuccess else { return nil }
+            var staticCode: SecStaticCode?
+            guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+            var info: CFDictionary?
+            guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+                  let dict = info as? [String: Any],
+                  let certs = dict[kSecCodeInfoCertificates as String] as? [SecCertificate], let first = certs.first
+            else { return nil }
+            return SecCertificateCopyData(first) as Data
+        }
+        var me: SecCode?
+        guard SecCodeCopySelf([], &me) == errSecSuccess, let me, let mine = leaf(me) else { return .unknown }
+        var peer: SecCode?
+        let attributes = [kSecGuestAttributePid: pid] as CFDictionary
+        guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &peer) == errSecSuccess, let peer else { return .unknown }
+        guard let theirs = leaf(peer) else { return .different }
+        return theirs == mine ? .same : .different
     }
 }
