@@ -1631,6 +1631,10 @@ enum RuntimeContractData {
         "verification": {
           "const": "not_requested"
         },
+        "businessResult": {
+          "const": "not_evaluated",
+          "description": "delivery is not effect; a later observation or the caller establishes the effect"
+        },
         "route": {
           "type": [
             "string",
