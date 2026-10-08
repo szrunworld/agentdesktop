@@ -73,7 +73,7 @@ struct MainWindowHostTests {
         let m = MockRuntime.sample()
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
-        let controller = MainWindowController(store: store)
+        let controller = MainWindowController(store: store, frames: FakeDesktopFrames().hub)
         let window = controller.ensureWindow()      // never ordered on screen
         #expect(window.isReleasedWhenClosed == false)
         let before = try await m.call("run.list", .obj([]))
@@ -106,17 +106,26 @@ struct MainWindowHostTests {
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
         store.stop()
-        let controller = MainWindowController(store: store)
+        let fake = FakeDesktopFrames()
+        let controller = MainWindowController(store: store, frames: fake.hub)
         // Never ordered on screen: the registry records it, the window is
         // built without showing.
         controller.previews.present = nil
         controller.previews.show("desk_001")
         let w = controller.previewWindows.window(for: "desk_001")
         #expect(w.isReleasedWhenClosed == false)
+        // What the preview view does when it appears: hold the Desktop's
+        // display in the window's scope.
+        let lease = DesktopFrameLease()
+        lease.attach(controller.frames, displayId: DesktopFrameHub.displayId(of: store.desktops.first { $0["desktopId"]?.stringValue == "desk_001" }),
+                     scope: PreviewWindowRegistry.scope("desk_001"))
+        #expect(controller.frames.streamCount == 1)
         let calls = m.callLog.count
         w.close()
         #expect(controller.previewWindows.windows["desk_001"] == nil)
         #expect(controller.previews.open.isEmpty)
+        #expect(controller.frames.streamCount == 0 && controller.frames.consumerCount == 0, "closing the window stops its stream")
+        #expect(fake.running.isEmpty)
         #expect(!m.callLog.dropFirst(calls).contains("desktop.destroy"))
         #expect(store.desktops.count == 3)
     }
@@ -129,9 +138,15 @@ struct MainWindowHostTests {
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
         store.stop()
-        let controller = MainWindowController(store: store)
+        let fake = FakeDesktopFrames()
+        let controller = MainWindowController(store: store, frames: fake.hub)
         controller.previews.present = nil
         controller.previews.show("desk_001")
+        let lease = DesktopFrameLease()
+        lease.attach(controller.frames, displayId: DesktopFrameHub.displayId(of: store.desktops.first { $0["desktopId"]?.stringValue == "desk_001" }),
+                     scope: DesktopFrameHub.mainScope)
+        controller.frames.setScopeVisible(DesktopFrameHub.mainScope, true)
+        #expect(controller.frames.streamCount == 1)
         m.offline = true
         await store.refreshDesktops()
         #expect(store.desktopsState != .loaded)
@@ -140,6 +155,7 @@ struct MainWindowHostTests {
         await store.refreshDesktops()
         #expect(store.desktopsState == .loaded)
         #expect(controller.previews.open.isEmpty, "the preview of the destroyed Desktop closed")
+        #expect(controller.frames.streamCount == 0, "nothing captures the destroyed Desktop's display")
     }
 
     // P32 choices. UC50: hiding or keeping in the background quits nothing

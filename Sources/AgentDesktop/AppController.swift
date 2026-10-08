@@ -65,7 +65,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         let port: RuntimePort = runtimeService.map(InProcessRuntimePort.init(service:))
             ?? UnavailableRuntimePort(reason: "the Runtime did not start in this host")
         store = ShellStore(runtime: port, allowSubscription: false)
-        mainWindow = MainWindowController(store: store)
+        mainWindow = MainWindowController(store: store, frames: ScreenCaptureFrameSource.hub())
         Task { await store.start() }
 
         quit = QuitController(store: store)
@@ -121,6 +121,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        mainWindow?.frames.stopAll()
         store?.stop()
         runtimeServer?.stop()
         runtime.stop()
