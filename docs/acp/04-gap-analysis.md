@@ -1,11 +1,14 @@
 # ACP 差距分析：现有代码与目标架构
 
-状态：2026-10-08 第二轮，工作线 D。
+状态：2026-10-08 第三轮，工作线 D。**基线是 AgentDesktop `main`**（README 第八节）：PR #2 已于 2026-10-08 11:15:34Z 合入 main（134b451），`ai-gui-foundation` 不再是集成基线。
 
 | 轮 | 核对对象 |
 | --- | --- |
 | 第一轮（#54） | `acp-skeleton`@2837bd4（基于 `ai-gui-foundation`@6c18480，A0 #47）；另查 b2831ca（#51）与 PR #2、#29、#48、#50 |
 | 第二轮（本稿） | `acp-skeleton`@34ae2c5：七条工作线 #54（D）、#62（S）、#63（R）、#65（E）、#66（O）、#67（T）、#68（Q）已合入，基线含 b2831ca。外部 PR 状态于 2026-10-08 用 `gh pr view` 核对：#29 草案未合入、#50 未合入、#60（AX 隔离）未合入、#69（SEC-01 记录文件权限）未合入 |
+
+| 第三轮 | `acp-skeleton`@8f57c1d：已合入 main@134b451（#2）与 A2（#84 → 29d8f9b、#94 → f0f3827）；七条线经第三至第六轮。main 之后又合入 #102（fa2222f，事件目录），`acp-skeleton` 尚未包含。外部 PR 状态于 2026-10-08 核对：#29 草案（并入 #111 待审）、#50 未合入、#111（整合剩余分支，含 #53）未合入 |
+| 第四轮 | main@914b8c9：#111 于 2026-10-08 11:46:40Z 合入 main，带入 #29 MCP/SDK、#102 事件目录（fa2222f，11:41Z 合入）与整个 `acp-skeleton`（#53 显示 MERGED）。ACP 工作改为 main → 功能分支 → PR → main，`acp-skeleton` 退役（Kevin 第四次裁决）。本节只更新下列条目，其余同第三轮 |
 
 每条都在代码里核对过。Runtime 侧行号对应 2837bd4（34ae2c5 未改 Runtime、Client、Protocol、CLI）；ACP 侧行号对应 34ae2c5。
 
@@ -13,7 +16,44 @@
 
 负责方：**f1** = Runtime / 集成负责人 2ndscreen-f1；**40** = L-AIGUI 与 L-Win 2ndscreen-40；**ACP 线** = 本组 T/S/R/E/O/Q；**Kevin** = 产品决定。
 
-## 一、差距总表
+## 〇、第三轮状态（以本节为准）
+
+| 编号 | 第三轮状态 | 依据 |
+| --- | --- | --- |
+| GAP-01 单一端点（A2） | **已关闭** | #84（PR2b-1）删除 `ai.sock`，27 个 `ai.*` 由 Runtime 端点以 runtime/1 应答；#94（PR2b-2）删除 ai/1 信封，Contracts 并入 Protocol。8f57c1d 上 `grep -rn RpcSocketServer Sources` 无结果。验收：`docs/acceptance/single-endpoint-pr2b-1-2026-10-08.md`、`single-endpoint-pr2b-2-2026-10-08.md`；Q 的 ACP-T18-01、03 在测试副本上 PASSED（06 G0-01） |
+| GAP-02 引擎旧 CLI 可自编译 | 未关闭 | `engine/Package.swift:8` 仍声明 `agentdesktop-cli`；`AgentRuntime.start(socketPath:)` 仍在（`engine/Sources/SecondScreenRuntime/AgentRuntime.swift:47`）。不在发布包。T18-02 需要一次真实点击才能证明它驱动不了产品（06 G0-02） |
+| GAP-03 `unit.run`（A6） | 未关闭，P0 | 仍只在 `catalog`（frozen，PR2d）；main 的 64 个方法里没有。#102 已落 A6 的契约部分（`UnitVerification`、`Run.unit`）。`gui.runs.*` 作为过渡方法保留到 A6（`methods.json` 中 `servedBy: ai-service`） |
+| GAP-04 任务目录 | 已裁决：不做 | f1 不接受 R6（07 第〇节）：ADR v2.2 下平台不登记 Agent；ACP 按「方法宣告 → 任务」 |
+| GAP-05 握手 principal | 未关闭，P0 契约增量 | f1 接受 R4（PR2b），但 main 的 `runtime.schema.json` 里 `principal` 为 0 处。`caller.verified` 仍为 false |
+| GAP-06 身份与授权（A4） | 未关闭 | A4 未开始 |
+| GAP-07 审批与提问方法 | 未关闭 | PR4（07 R2，f1 已接受形状）；在此之前 `capability_missing` 即拒绝 |
+| GAP-08 事件目录（F1-01） | 部分，P0 契约增量 | #102 在 main（fa2222f）冻结 `PlatformRunEvent` 10 种事件、回执带 `reason`、新增 `action.refused`。已随 #111 进入 main；E 未对齐。**与 f1 在 08 第〇节的结论不一致两处**：f1 说 E-2「不新增 `action.refused`」，#102 新增了；f1 说目录放 `methods.json` 的 `events` 段，#102 放在 `runtime.schema.json`（main 的 methods.json 没有 `events` 键）。级别字段（E-10）未见 |
+| GAP-09 CLI `acp` 子命令 | 未关闭，按 f1 R9 延后 | 过 G1 且 #53 离开草案后再接 |
+| GAP-10 MCP #29 | 部分：已合入，验收待做 | 随 #111 合入 main（914b8c9）：`AgentDesktopMCP` 目标（`Package.swift:23,121`），工具经 RuntimeClient 走 runtime/1。T18-04（`agentdesktop mcp` 一次 `act` 在账本可查）尚未取证（06 G0-02） |
+| GAP-11 Windows | 未关闭 | 无变化 |
+| GAP-12 真编辑器 | 部分 | Zed 已装；真实首帧要 Kevin 手工做一次（Z1） |
+| GAP-13 幂等键是 uid | 部分 | 无变化；R7 部分接受：`request.show` 的 not_found 带 `oldestAcceptedAt`、`instanceId`，未在 main 的 schema 中出现（`oldestAcceptedAt` 0 处） |
+| GAP-14、15、16、18、21 | 已关闭 | 第二轮已关闭，无回退 |
+| GAP-17 心跳 | 未关闭 | A4 |
+| GAP-19 AX 隔离 | **已关闭** | #60 合入，验收 `docs/acceptance/ax-isolation-2026-10-08.md` |
+| GAP-20 SEC | 部分 | SEC-01 已关闭（#69，`docs/acceptance/sec-01-2026-10-08.md`）；SEC-02 未验证；SEC-04、05 缺环境 |
+| GAP-22 服务器、传输、桥、投影 | **已关闭** | 代码已合入且 dev 入口已接线 |
+| GAP-23 | 已裁决 | K1 |
+| GAP-24 unknown 核实 | 未关闭 | PR4；第二次裁决 P2 已把 unknown 定为明确终态（L1 已通过） |
+| GAP-25 真实 GUI 输入开关 | 未关闭 | 真实 E2E 前在测试副本打开 |
+| GAP-26 出站 | 未关闭 | O1～O3 已裁决；P3 未开始 |
+| GAP-27 分发 | 未关闭 | 依赖 G1 与 R9 |
+| GAP-28 dev 入口接线 | **已关闭** | `Sources/agentdesktop-acp-dev/main.swift` 已无 TODO，支持 `--demo`、`--endpoint`、`--state-dir`；默认拒绝产品端点（`--allow-product-endpoint` 才放行） |
+| GAP-29 Zed 首帧 | 未关闭 | Z1；工具 `scripts/acp/zed-capture/` 已就绪 |
+| GAP-30 出站数据闸门 | 未关闭 | P3 |
+| GAP-31 ACP-31 授权 | 未关闭 | A4、R5（PR2b，`Run.clientName`、`Run.transport` 未见于 main） |
+| GAP-32 MCP 偏离 | 设计决定 | RFC 2.1 |
+| GAP-33（新）CI 严格线程池 | 未关闭 | GitHub runner 上严格一步超时（run 37763484340），#109 删掉；本机通过。在恢复前，本机记录退出码（06 G3-12） |
+| GAP-34（新）`Run.lastEventSequence` | 未关闭，P0 契约增量 | f1 接受 R10（PR2b），main 的 schema 中 0 处；恢复会话时区分回放与实时依赖它（R 已读取该字段，`ACPBridgeRuntimePort.swift:338,347`；Runtime 不返回时 `lastCursor` 为 nil） |
+
+**P0 依赖**（README 第八节）：f1 三项契约增量（principal、`Run.lastEventSequence`、事件目录对齐）与 40 的 `unit.run`。
+
+## 一、差距总表（第一轮原文，状态见第〇节）
 
 | 编号 | 目标需要 | 现状与证据 | 负责 | 阻塞 |
 | --- | --- | --- | --- | --- |
@@ -45,7 +85,7 @@
 | GAP-26 | 出站执行体 | 没有代码；本轮只做 `spikes/acp-outbound/` 评估 | ACP 线 O；P3 实现待 Kevin | G4 |
 | GAP-27 | 分发：ACP 清单、Registry、安装说明 | 包里只有 `agentdesktop`（`scripts/bundle-app.sh:55`），没有 ACP 清单与 Registry 元数据 | 协调者、f1 | G5 |
 
-### 1.1 第二轮状态
+### 1.1 第二轮状态（历史，已被第〇节取代）
 
 | 编号 | 状态 | 依据 |
 | --- | --- | --- |
@@ -120,7 +160,17 @@
 
 E-1～E-10 与 R1～R9 都由协调者转 f1（R1、R6 另转 40）。
 
-## 二、前五项差距（第二轮仍然成立）
+## 二、前五项差距（第三轮）
+
+| 顺序 | 编号 | 说明 |
+| --- | --- | --- |
+| 1 | GAP-03 `unit.run` | 40；没有它，ACP 不能创建任何 Run，G1～G3 的真实部分全部卡住 |
+| 2 | GAP-05、GAP-34、GAP-08 三项契约增量 | f1；principal、`Run.lastEventSequence` 未落 main，事件目录已落但与审核结论有两处不同 |
+| 3 | GAP-07 PR4 inbox | f1；审批、提问、场景 C 与 D |
+| 4 | GAP-06 A4 | f1；身份隔离、T07、T15、ACP-31 |
+| 5 | GAP-29 Zed 首帧（Z1） | Kevin 手工约 2 分钟；协议版本文档与 G0-12 都等它 |
+
+### 第二轮的前五项（历史）
 
 | 顺序 | 编号 | 为什么排在前面 |
 | --- | --- | --- |
