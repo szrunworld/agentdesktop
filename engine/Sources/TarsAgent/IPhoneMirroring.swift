@@ -13,11 +13,26 @@ public struct IPhoneWindow: Equatable {
     public var windowID: CGWindowID
     /// Global points, top-left origin.
     public var frame: CGRect
+    /// The window's title, read through accessibility (the window server's
+    /// name otherwise); nil when neither gives one.
+    public var title: String?
 
-    public init(pid: pid_t, windowID: CGWindowID, frame: CGRect) {
+    public init(pid: pid_t, windowID: CGWindowID, frame: CGRect, title: String? = nil) {
         self.pid = pid
         self.windowID = windowID
         self.frame = frame
+        self.title = title
+    }
+
+    /// Titles of the window that shows the phone, by the Mac's language.
+    /// Mirroring's other windows ("iPhone Mirroring Settings", …) are not
+    /// it; an unknown title is not taken for it either.
+    public static let phoneWindowTitles: Set<String> = ["iPhone Mirroring", "iPhone镜像"]
+
+    /// Whether this is the window that shows the phone: its title is
+    /// exactly one of `phoneWindowTitles`.
+    public var isPhoneWindow: Bool {
+        title.map(Self.phoneWindowTitles.contains) ?? false
     }
 }
 
@@ -54,7 +69,10 @@ public protocol IPhoneMirroringSystem {
     /// `windowID`: only that window's; nil for all the process's windows.
     /// Another window of the app (its Settings) carries texts that are not
     /// the phone's state, such as "password or Touch ID is required".
-    func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String]
+    /// nil when they could not be read (no Accessibility permission, a read
+    /// that failed, no window `windowID`), which is not the same as a window
+    /// that has none: `[]`.
+    func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String]?
     /// Press the first button of the process whose title is in `titles`,
     /// in `windowID` only when given; the title pressed, or nil when there
     /// is none.
@@ -165,6 +183,12 @@ public enum IPhoneConnectionState: String, CaseIterable {
     /// Something only the user can fix: Bluetooth or Wi-Fi off, iCloud,
     /// setup, restrictions.
     case needsUser
+    /// Not known: Mirroring's own texts could not be read through
+    /// accessibility, or the picture shows a status phrase that nothing of
+    /// Mirroring's own confirms (it may be a status page, or a phone app
+    /// showing the same words). Treated as not ready: nothing is handed out
+    /// or sent until a look shows the phone for certain.
+    case uncertain
 
     public var hint: String {
         switch self {
@@ -174,6 +198,10 @@ public enum IPhoneConnectionState: String, CaseIterable {
         case .authRequired: return "unlock the iPhone or authenticate on the Mac (Touch ID or password)"
         case .reconnecting: return "iPhone Mirroring is connecting; wait and look again"
         case .needsUser: return "iPhone Mirroring needs the user (Bluetooth, Wi-Fi, iCloud or setup)"
+        case .uncertain:
+            return "cannot tell whether iPhone Mirroring shows the phone (its own texts could not be read, or the "
+                + "picture shows a status phrase nothing confirms); look again, check Accessibility permission, "
+                + "or look at the window"
         }
     }
 }
@@ -232,33 +260,35 @@ public enum IPhoneConnection {
     static let statusControls: Set<String> = reconnectButtons.union(["Cancel", "取消", "OK", "好"])
 
     /// The state the texts show, and the status text that says so; ready
-    /// when none is a status page. OCR spacing, case and hyphen variants do
-    /// not matter.
+    /// only when nothing suggests a status page. OCR spacing, case and
+    /// hyphen variants do not matter.
     ///
     /// `texts` are accessibility texts of the phone's window: Mirroring's
     /// own, never the phone's (the phone's picture has no accessibility
-    /// elements), so a status phrase counts wherever it appears.
+    /// elements), so a status phrase in them counts wherever it appears.
+    /// nil means they could not be read: then nothing is known and the
+    /// state is `uncertain`, never ready.
     ///
-    /// `ocr` texts come from the picture, which is the phone's own screen
-    /// when connected: a phone app showing "Connecting to Wi-Fi", "Timed
-    /// Out" or "Unlock iPhone" is not a status page. An OCR line counts only
-    /// with evidence that the window is Mirroring's status page: one of its
-    /// status controls (`statusControls`) among the accessibility texts.
-    /// With that evidence the window is known to be a status page, so a
-    /// status phrase counts anywhere in a line, as the rules hold sentence
-    /// fragments ("has ended due to iPhone use") that OCR reads inside the
-    /// page's full message. Without that evidence OCR alone never makes the
-    /// window anything but ready.
-    public static func classify(_ texts: [String], ocr: [String] = []) -> (state: IPhoneConnectionState, label: String?) {
+    /// `ocr` texts come from the picture, which may be a status page or the
+    /// phone's own screen. A status phrase anywhere in them counts as that
+    /// state when one of the status page's own controls (`statusControls`)
+    /// is among the accessibility texts. Without such a control it may be a
+    /// phone app showing "Connecting to Wi-Fi", "Timed Out" or "Unlock
+    /// iPhone", or a status page whose texts were not exposed: `uncertain`,
+    /// so the window is refused rather than guessed ready.
+    public static func classify(_ texts: [String]?, ocr: [String] = []) -> (state: IPhoneConnectionState, label: String?) {
+        guard let texts else { return (.uncertain, nil) }
         let own = texts.map(normalize)
         let controls = Set(statusControls.map(normalize))
         let corroborated = own.contains(where: controls.contains)
-        let seen = corroborated ? ocr.map(normalize) : []
+        let seen = ocr.map(normalize)
         for (label, state) in rules {
             let key = normalize(label)
-            if own.contains(where: { $0.contains(key) }) || seen.contains(where: { $0.contains(key) }) {
-                return (state, label)
-            }
+            if own.contains(where: { $0.contains(key) }) { return (state, label) }
+        }
+        for (label, state) in rules {
+            let key = normalize(label)
+            if seen.contains(where: { $0.contains(key) }) { return (corroborated ? state : .uncertain, label) }
         }
         return (.ready, nil)
     }
@@ -434,7 +464,28 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     }
 
     public func windows(pid: pid_t) -> [IPhoneWindow] {
-        WindowMover.windows(ofPID: pid).map { IPhoneWindow(pid: $0.pid, windowID: $0.windowID, frame: $0.frame) }
+        let titles = Self.accessibilityTitles(of: pid)
+        return WindowMover.windows(ofPID: pid).map {
+            IPhoneWindow(pid: $0.pid, windowID: $0.windowID, frame: $0.frame,
+                         title: titles[$0.windowID] ?? ($0.title.isEmpty ? nil : $0.title))
+        }
+    }
+
+    /// The titles of the process's windows through accessibility, by window.
+    private static func accessibilityTitles(of pid: pid_t) -> [CGWindowID: String] {
+        var windows: AnyObject?
+        guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString,
+                                            &windows) == .success,
+              let list = windows as? [AXUIElement] else { return [:] }
+        var titles: [CGWindowID: String] = [:]
+        for window in list {
+            var title: AnyObject?
+            guard let id = WindowMover.windowID(of: window),
+                  AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &title) == .success,
+                  let text = title as? String, !text.isEmpty else { continue }
+            titles[id] = text
+        }
+        return titles
     }
 
     public func captureWindow(screen: String, pid: pid_t, windowID: CGWindowID) throws -> IPhoneWindowCapture {
@@ -477,12 +528,12 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
     }
 
-    public func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String] {
-        Self.elements(of: pid, windowID: windowID).flatMap(\.labels)
+    public func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String]? {
+        Self.elements(of: pid, windowID: windowID)?.flatMap(\.labels)
     }
 
     public func pressButton(titled titles: Set<String>, pid: pid_t, windowID: CGWindowID?) -> String? {
-        for element in Self.elements(of: pid, windowID: windowID) where element.button {
+        for element in Self.elements(of: pid, windowID: windowID) ?? [] where element.button {
             if let title = element.labels.first(where: titles.contains) {
                 AXUIElementPerformAction(element.element, kAXPressAction as CFString)
                 return title
@@ -514,18 +565,32 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
 
     /// Texts and buttons of the process's windows. SwiftUI carries a
     /// button's text as its title or description, a text's as its value.
-    private static func elements(of pid: pid_t, windowID: CGWindowID?) -> [Element] {
+    /// nil when they could not be read: no Accessibility permission, the
+    /// windows or a child list could not be read, no window `windowID`, or
+    /// more elements than are read. An element that has no children is not
+    /// a failure.
+    private static func elements(of pid: pid_t, windowID: CGWindowID?) -> [Element]? {
+        guard AXIsProcessTrusted() else { return nil }
         let app = AXUIElementCreateApplication(pid)
         var windows: AnyObject?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows) == .success,
-              var list = windows as? [AXUIElement] else { return [] }
-        if let windowID { list = list.filter { WindowMover.windowID(of: $0) == windowID } }
+              var list = windows as? [AXUIElement] else { return nil }
+        if let windowID {
+            list = list.filter { WindowMover.windowID(of: $0) == windowID }
+            guard !list.isEmpty else { return nil }
+        }
         var found: [Element] = []
+        var failed = false
         func visit(_ element: AXUIElement, depth: Int) {
-            guard depth < 10, found.count < 200 else { return }
+            guard !failed else { return }
+            guard depth < 10, found.count < 200 else { failed = true; return }
             var children: AnyObject?
-            guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
-                  let list = children as? [AXUIElement] else { return }
+            switch AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) {
+            case .success: break
+            case .noValue, .attributeUnsupported: return
+            default: failed = true; return
+            }
+            guard let list = children as? [AXUIElement] else { return }
             for child in list {
                 var role: AnyObject?
                 AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &role)
@@ -541,6 +606,6 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
             }
         }
         list.forEach { visit($0, depth: 0) }
-        return found
+        return failed ? nil : found
     }
 }

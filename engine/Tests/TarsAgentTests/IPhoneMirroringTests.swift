@@ -34,7 +34,14 @@ class FakeMirroring: IPhoneMirroringSystem {
 
     func mirroringPIDs() -> [pid_t] { pids }
     func screenFrame(named name: String) throws -> CGRect? { screen }
-    func windows(pid: pid_t) -> [IPhoneWindow] { windowsByPID[pid] ?? [] }
+    /// Windows without a title are the phone's window.
+    func windows(pid: pid_t) -> [IPhoneWindow] {
+        (windowsByPID[pid] ?? []).map { window in
+            var titled = window
+            if titled.title == nil { titled.title = "iPhone Mirroring" }
+            return titled
+        }
+    }
 
     func captureWindow(screen: String, pid: pid_t, windowID: CGWindowID) throws -> IPhoneWindowCapture {
         guard let window = windows(pid: pid).first(where: { $0.windowID == windowID }) else {
@@ -60,8 +67,11 @@ class FakeMirroring: IPhoneMirroringSystem {
     /// Texts of other windows of the app, such as its Settings.
     var axOtherWindows: [String] = []
     var buttonsOtherWindows: [String] = []
-    func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String] {
-        windowID == nil ? ax + axOtherWindows : ax
+    /// Accessibility cannot be read (no permission, a failed read).
+    var axUnreadable = false
+    func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String]? {
+        if axUnreadable { return nil }
+        return windowID == nil ? ax + axOtherWindows : ax
     }
 
     func pressButton(titled titles: Set<String>, pid: pid_t, windowID: CGWindowID?) -> String? {
@@ -316,13 +326,24 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         // show through accessibility that it is a status page...
         #expect(IPhoneConnection.classify(["Try Again"], ocr: texts).state == state)
         #expect(IPhoneConnection.classify(["重试"], ocr: texts).state == state)
-        // ...and never on OCR alone: it could be the phone's own screen.
-        #expect(IPhoneConnection.classify([], ocr: texts).state == .ready)
+        // ...and on OCR alone it is not known: it could be the phone's own
+        // screen or a page whose texts were not exposed. Never ready.
+        let alone = IPhoneConnection.classify([], ocr: texts).state
+        #expect(alone == (state == .ready ? .ready : .uncertain))
+        // Accessibility that could not be read says nothing: never ready.
+        #expect(IPhoneConnection.classify(nil, ocr: texts).state == .uncertain)
     }
 
-    @Test func aPhoneAppSentenceIsNotAStatusPage() {
+    @Test func unreadableAccessibilityIsUncertainNotEmpty() {
+        #expect(IPhoneConnection.classify(nil).state == .uncertain)
+        #expect(IPhoneConnection.classify(nil, ocr: ["9:41", "微信"]).state == .uncertain)
+        #expect(IPhoneConnection.classify([]).state == .ready)
+    }
+
+    @Test func aSentenceWithAStatusPhraseIsUncertainOnOCRAlone() {
         let line = "Connecting to the server, please keep this app open while we finish syncing your messages"
-        #expect(IPhoneConnection.classify([], ocr: [line]).state == .ready)
+        // It may be a phone app's; it may be a status page: refused, not guessed.
+        #expect(IPhoneConnection.classify([], ocr: [line]).state == .uncertain)
         // Mirroring's own text counts however long.
         #expect(IPhoneConnection.classify([line]).state == .reconnecting)
     }
@@ -333,32 +354,53 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
     /// called these pages ready, so their picture went out as the phone's.
     @Test(arguments: [
         ("iPhone Mirroring has ended due to iPhone use", IPhoneConnectionState.phoneInUse),
-        ("Your iPhone is no longer in use", IPhoneConnectionState.disconnected),
+        // "is no longer in use" is a phone-in-use rule.
+        ("Your iPhone is no longer in use", IPhoneConnectionState.phoneInUse),
         ("Your macOS user password or Touch ID is required to access your iPhone", IPhoneConnectionState.authRequired),
     ] as [(String, IPhoneConnectionState)])
     func aStatusPagesFullMessageCountsWithItsControl(message: String, state: IPhoneConnectionState) {
-        #expect(IPhoneConnection.classify(["OK"], ocr: [message]).state != .ready)
-        // Without the page's control the same words could be a phone app's.
-        #expect(IPhoneConnection.classify([], ocr: [message]).state == .ready)
+        #expect(IPhoneConnection.classify(["OK"], ocr: [message]).state == state)
+        #expect(IPhoneConnection.classify(["Try Again"], ocr: [message]).state == state)
+        // Without the page's control the same words could be a phone app's,
+        // or the page's: not known, so not ready.
+        #expect(IPhoneConnection.classify([], ocr: [message]).state == .uncertain)
     }
 
-    /// Codex review of #61 / #95: a phone app showing one short line that
-    /// reads like a status title is the phone's screen, not a status page.
+    /// Codex review of #61 / #95, settled by the safety review of #126: a
+    /// phone app showing one short line that reads like a status title
+    /// cannot be told from a status page whose texts were not exposed, so
+    /// it is `uncertain` and refused, never guessed to be the phone. The
+    /// cost: such an app's screen is not handed out.
     @Test(arguments: [
         "Connecting to Wi-Fi", "Timed Out", "Unlock iPhone", "已超时", "正在连接", "解锁iPhone",
         "Connection Interrupted", "iPhone in Use",
     ])
-    func aPhoneAppsShortLineIsNotAStatusPage(line: String) throws {
-        #expect(IPhoneConnection.classify([], ocr: [line]).state == .ready)
-        #expect(IPhoneConnection.classify([], ocr: ["9:41", line, "Settings"]).state == .ready)
-        // So the screenshot is handed out, and a paste's look at the phone
-        // (which uses the same check) is not taken for a status page.
+    func aShortStatusLineOnOCRAloneIsUncertain(line: String) throws {
+        #expect(IPhoneConnection.classify([], ocr: [line]).state == .uncertain)
+        #expect(IPhoneConnection.classify([], ocr: ["9:41", line, "Settings"]).state == .uncertain)
+        // The screenshot is refused, and a paste's look at the phone (which
+        // uses the same check) is not taken for a quiet phone.
         let fake = FakeMirroring()
         fake.ocr = ["9:41", line]
         let phone = IPhoneAgentScreen(screen: "phone", system: fake)
         _ = try phone.frame()
-        #expect(try phone.connectionState().state == .ready)
-        #expect(throws: Never.self) { try phone.screenshot(size: CGSize(width: 330, height: 720)) }
+        #expect(try phone.connectionState().state == .uncertain)
+        do {
+            _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+            Issue.record("an uncertain window was handed out as the phone")
+        } catch let error as IPhoneError {
+            #expect(error.code == "not_connected" && error.reason == "uncertain")
+        }
+        #expect(fake.pressed.isEmpty && fake.delivered.isEmpty)
+    }
+
+    @Test func aScreenshotIsRefusedWhenAccessibilityCannotBeRead() throws {
+        let fake = FakeMirroring()
+        fake.axUnreadable = true
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.frame()
+        #expect(try phone.connectionState().state == .uncertain)
+        #expect(throws: IPhoneError.self) { try phone.screenshot(size: CGSize(width: 330, height: 720)) }
     }
 
     @Test func aStatusTitleInThePictureCountsWithTheStatusPagesControls() throws {
@@ -371,7 +413,7 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         // Controls of another window of the app are no evidence (F6).
         fake.ax = []
         fake.axOtherWindows = ["Try Again"]
-        #expect(try phone.connectionState().state == .ready)
+        #expect(try phone.connectionState().state == .uncertain)
     }
 
     /// F6 (device, 2026-10-08): Mirroring's Settings window, open beside
@@ -429,6 +471,15 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(report.timedOut && report.state == .disconnected)
         #expect(fake.pressed == ["Try Again"])
         #expect(fake.sleeps <= 4)
+    }
+
+    @Test func reconnectPressesNothingWhenUncertain() throws {
+        let fake = FakeMirroring()
+        fake.ocr = ["Connection Paused"]
+        fake.buttonsOtherWindows = ["Resume"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect()
+        #expect(report.state == .uncertain && report.pressed == nil)
+        #expect(fake.pressed.isEmpty)
     }
 
     /// Codex review of #61: once stopped, reconnect presses nothing.
@@ -536,5 +587,69 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         // With no screen after all, it fails with the create's error.
         let alone = try IPhoneLifecycle(system: fake).show(screen: "phone")
         #expect(!alone.ok && alone.error?.contains("already exists") == true)
+    }
+}
+
+/// Safety review of #126: only the phone's own window is bound.
+@Suite struct IPhoneWindowBindingTests {
+    @Test func theSettingsWindowAloneIsNotBound() throws {
+        let fake = FakeMirroring()
+        fake.windowsByPID[42] = [IPhoneWindow(pid: 42, windowID: 9, frame: CGRect(x: 3010, y: 40, width: 480, height: 600),
+                                              title: "iPhone Mirroring Settings")]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        #expect(throws: IPhoneError.self) { try phone.frame() }
+        #expect(phone.binding == nil)
+        #expect(try phone.perform(tap(3100, 300)).ok == false)
+        #expect(fake.inputs.isEmpty)
+    }
+
+    @Test func aLargerSettingsWindowIsNotBoundOverThePhone() throws {
+        let fake = FakeMirroring()
+        fake.windowsByPID[42] = [
+            IPhoneWindow(pid: 42, windowID: 9, frame: CGRect(x: 3010, y: 10, width: 500, height: 980), title: "iPhone镜像设置"),
+            IPhoneWindow(pid: 42, windowID: 7, frame: CGRect(x: 3010, y: 40, width: 330, height: 720), title: "iPhone镜像"),
+        ]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.frame()
+        #expect(phone.binding?.windowID == 7)
+    }
+
+    @Test func anUntitledWindowIsNotTakenForThePhone() throws {
+        let fake = FakeMirroring()
+        fake.windowsByPID[42] = [IPhoneWindow(pid: 42, windowID: 9, frame: CGRect(x: 3010, y: 40, width: 330, height: 720),
+                                              title: "")]
+        #expect(throws: IPhoneError.self) { try IPhoneAgentScreen(screen: "phone", system: fake).frame() }
+    }
+}
+
+/// Safety review of #126: before input, Mirroring's own texts are read
+/// again, so a phone gone since the screenshot is not tapped.
+@Suite struct IPhoneInputStatusRecheckTests {
+    @Test func inputIsRefusedWhenAStatusPageAppearedSinceTheScreenshot() throws {
+        let fake = FakeMirroring()
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        fake.ax = ["Connection Interrupted", "Try Again"]
+        let response = try phone.perform(tap(3100, 300))
+        #expect(response.error?.hasPrefix("not_connected (disconnected)") == true)
+        #expect(fake.inputs.isEmpty)
+    }
+
+    @Test func inputIsRefusedWhenAccessibilityCannotBeRead() throws {
+        let fake = FakeMirroring()
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        fake.axUnreadable = true
+        let response = try phone.perform(tap(3100, 300))
+        #expect(response.error?.hasPrefix("not_connected (uncertain)") == true)
+        #expect(fake.inputs.isEmpty)
+    }
+
+    @Test func inputGoesThroughWhileThePhoneShows() throws {
+        let fake = FakeMirroring()
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        #expect(try phone.perform(tap(3100, 300)).ok)
+        #expect(fake.inputs.count == 1)
     }
 }

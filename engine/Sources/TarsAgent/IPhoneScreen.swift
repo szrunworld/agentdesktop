@@ -80,23 +80,31 @@ public final class IPhoneAgentScreen: AgentScreen {
         return pid
     }
 
-    /// Bind Mirroring's window on the screen and return its frame. Keeps
-    /// the window already bound while it is there; otherwise takes the
-    /// largest. Only reads: it presses nothing, even on a status page.
+    /// Bind Mirroring's phone window on the screen and return its frame.
+    /// Only a window titled exactly as the phone's window
+    /// (`IPhoneWindow.phoneWindowTitles`) is bound, never its Settings or
+    /// another window however large; with none, nothing is bound. Keeps the
+    /// window already bound while it is there. Only reads: it presses
+    /// nothing, even on a status page.
     public func frame() throws -> CGRect {
         guard let bounds = try system.screenFrame(named: screen) else {
             throw AgentError("no screen named \"\(screen)\"; run `agentdesktop iphone show`")
         }
         screenFrame = bounds
         let pid = try currentPID()
-        let candidates = system.windows(pid: pid).filter { bounds.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+        let onScreen = system.windows(pid: pid).filter { bounds.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+        let candidates = onScreen.filter(\.isPhoneWindow)
         let window: IPhoneWindow
         if let bound = binding, bound.pid == pid, let same = candidates.first(where: { $0.windowID == bound.windowID }) {
             window = same
         } else if let largest = candidates.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) {
             window = largest
         } else {
-            throw AgentError("iPhone Mirroring has no window on screen \"\(screen)\"; run `agentdesktop iphone show`")
+            binding = nil
+            observation = nil
+            let seen = onScreen.map { "\"\($0.title ?? "untitled")\"" }.joined(separator: ", ")
+            throw IPhoneError("no_phone_window", "iPhone Mirroring has no phone window on screen \"\(screen)\""
+                + (seen.isEmpty ? "" : " (only \(seen))") + "; run `agentdesktop iphone show`")
         }
         if binding != window { observation = nil }
         binding = window
@@ -171,7 +179,7 @@ public final class IPhoneAgentScreen: AgentScreen {
         var (state, label) = try connectionState()
         var pressed: String?
         switch state {
-        case .ready, .phoneInUse, .authRequired, .needsUser:
+        case .ready, .phoneInUse, .authRequired, .needsUser, .uncertain:
             return ReconnectReport(state: state, label: label, pressed: nil, timedOut: false)
         case .disconnected:
             // Stopped already: press nothing, not even Connect or Resume.
@@ -330,6 +338,15 @@ public final class IPhoneAgentScreen: AgentScreen {
             .first(where: { $0.frame.width >= 2 && $0.frame.height >= 2 && IPhoneObservation.overlaps($0.frame, bound.frame) }) {
             throw IPhoneError.stale("other_window_of_process_in_front",
                                     "iPhone Mirroring window \(front.windowID) lies over the phone window \(bound.windowID)")
+        }
+        // The phone may have gone since the screenshot: then the window is a
+        // status page, and a tap could press Mirroring's own Try Again or
+        // Resume. Its accessibility texts say so cheaply; unread, they say
+        // nothing, which is not ready either.
+        let status = IPhoneConnection.classify(system.accessibilityLabels(pid: pid, windowID: bound.windowID))
+        guard status.state == .ready else {
+            throw IPhoneError("not_connected", reason: status.state.rawValue,
+                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint)")
         }
         return now
     }
