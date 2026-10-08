@@ -1,13 +1,9 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// Agent Desktop: the product app. It links the 2ndscreen engine as a
-// versioned dependency (docs/boundaries.md) and never carries engine code.
-//
-// The dependency is pinned exactly; Package.resolved records the commit.
-// Moving to a new engine release means a new tag upstream, then a change
-// here, never an edit inside .build/checkouts or an editable override.
-let engineVersion: Version = "0.2.0"
+// The product and native core are maintained in this repository: the
+// engine is the local package engine/ (docs/boundaries.md); there is no
+// remote dependency and no Package.resolved.
 
 let package = Package(
     name: "AgentDesktop",
@@ -30,15 +26,15 @@ let package = Package(
         .library(name: "AgentDesktopService", targets: ["AgentDesktopService"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/szrunworld/2ndscreen.git", exact: engineVersion),
+        .package(path: "engine"),
     ],
     targets: [
         // Menu bar host; scripts/bundle-app.sh wraps it in "Agent Desktop.app".
         .executableTarget(
             name: "AgentDesktop",
             dependencies: [
-                .product(name: "SecondScreenCore", package: "2ndscreen"),
-                .product(name: "SecondScreenRuntime", package: "2ndscreen"),
+                .product(name: "SecondScreenCore", package: "engine"),
+                .product(name: "SecondScreenRuntime", package: "engine"),
                 "AgentDesktopRuntime",
                 "AgentDesktopProtocol",
                 "AgentDesktopService",
@@ -105,14 +101,14 @@ let package = Package(
             dependencies: ["AgentDesktopProtocol", "AgentDesktopContracts"]
         ),
         // The only execution authority. PR1 serves the read-only surface.
-        // EnginePlatform drives the 2ndscreen engine in the host process
-        // until its code moves into this repository (AgentDesktopCore).
+        // EnginePlatform drives the engine (the local engine/ package) in
+        // the host process.
         .target(
             name: "AgentDesktopRuntime",
             dependencies: [
                 "AgentDesktopProtocol", "AgentDesktopContracts",
-                .product(name: "SecondScreenCore", package: "2ndscreen"),
-                .product(name: "SecondScreenRuntime", package: "2ndscreen"),
+                .product(name: "SecondScreenCore", package: "engine"),
+                .product(name: "SecondScreenRuntime", package: "engine"),
             ],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
