@@ -1,3 +1,4 @@
+import AgentDesktopClient
 import AgentDesktopProtocol
 import Foundation
 import Testing
@@ -272,4 +273,40 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     let again = Scene(platform: platform, s: s, c: back, desktop: sc.desktop, session: sc.session, snapshot: sc.snapshot)
     #expect(code(act(again, clickContinue, id: "lost-click", runId: runId)) == "action_delivery_unknown")
     #expect(platform.performed.isEmpty)
+}
+
+@Test func aRevokedAppsEventStreamStopsAndCloses() throws {
+    let platform = FakePlatform()
+    let s = platformService(platform)
+    let owner = handshaken(s)
+    let (sc, id, token) = try pairedScene(s, platform)
+    let dir = try socketDirectory()
+    let path = dir + "/runtime.sock"
+    let server = RuntimeServer(path: path, service: s)
+    try server.start()
+    defer { server.stop(); try? FileManager.default.removeItem(atPath: dir) }
+    let watcher = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+                                      timeout: 5, credential: ClientCredential(clientId: id, token: token))
+    defer { watcher.close() }
+    #expect(try watcher.subscribe(runId: nil, after: nil)["subscribed"]?.boolValue == true)
+    let runId = try #require(data(call(s, sc.c, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
+    var before: [JSONValue] = []
+    for _ in 0..<5 where before.isEmpty {
+        if case let .frame(f) = try watcher.nextEvent() { before.append(f) }
+    }
+    #expect(before.first?["event"]?["runId"]?.stringValue == runId)
+    // Revocation stops the Run (more events) but the stream sends none of them.
+    #expect(data(call(s, owner, "hub.clients.revoke", params: #"{"clientId":"\#(id)"}"#)) != nil)
+    var after: [JSONValue] = []
+    var closed = false
+    for _ in 0..<10 where !closed {
+        switch try watcher.nextEvent() {
+        case let .frame(f): after.append(f)
+        case .idle: break
+        case .closed: closed = true
+        }
+    }
+    #expect(closed, "the stream closes once access is gone")
+    #expect(after.allSatisfy { $0["event"]?["type"]?.stringValue == "run.started" }, "no event after the revocation: \(after)")
+    #expect(s.hub.auditEvents().contains { $0["method"]?.stringValue == "events.subscribe" && $0["reason"]?.stringValue == "client_revoked" })
 }

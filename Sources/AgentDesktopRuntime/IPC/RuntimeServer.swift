@@ -167,6 +167,8 @@ public final class RuntimeServer: @unchecked Sendable {
     /// own stream also ends once that Run has ended and was fully sent.
     private func push(_ channel: LineChannel, _ connection: ConnectionState) -> Bool {
         while connection.isSubscribed {
+            // Access withdrawn mid-stream: no more frames, the connection closes.
+            if service.subscriptionRevoked(connection) { return false }
             let frames = service.pendingEventFrames(connection)
             for f in frames {
                 guard channel.writeLine(f.encodedData()) else { return false }

@@ -47,6 +47,8 @@ SDK：Python `RuntimeClient.pair(...)`，TypeScript `client.pair(...)`；CLI：`
 | `hub.grants.set` 收窄范围 | policyEpoch 加 1；新 grant 不再覆盖的 Desktop 上的 Run 立即停止（`grant_narrowed`） |
 | `hub.grants.revoke` | client 保留，但请求返回 `grant_missing`，它的 Run 停止（`grant_revoked`） |
 | `hub.clients.revoke` | 软删除；已打开的连接从下一个请求起返回 `client_revoked`，包括向已存在 Run 发送的新动作；它的所有 Run 停止（`client_revoked`）；旧凭据握手返回 `client_revoked`；重新配对得到新的 clientId |
+| 撤销 / 过期 / 收窄时已打开的事件流 | 推送循环每轮都检查访问权限：一旦失效，不再推送任何事件，连接被关闭，并写入审计（`events.subscribe` denied） |
+| 进行中的 `wait` | 每次轮询都会重新检查，失效后立即返回对应错误，不会等到超时 |
 
 ## 断连
 

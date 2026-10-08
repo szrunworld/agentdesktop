@@ -142,9 +142,19 @@ extension RuntimeService {
 
     /// Right before input goes out: the grant as it is now (a revocation or
     /// expiry while the action waited for the Desktop stops it).
-    func recheckAct(_ c: ConnectionState, desktopId: String) -> RuntimeError? {
+    /// A paired connection's event stream ends once its access is gone
+    /// (revoked, expired, or no longer granted `run`).
+    public func subscriptionRevoked(_ c: ConnectionState) -> Bool {
+        guard c.role == .paired, c.subscription != nil, let e = accessError(c, method: "events.subscribe") else { return false }
+        hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "events.subscribe", decision: "denied",
+                  reason: e.details?["reason"]?.stringValue ?? e.code, runId: c.subscription?.runId)
+        c.subscription = nil
+        return true
+    }
+
+    func recheckAct(_ c: ConnectionState, desktopId: String, method: String = "act") -> RuntimeError? {
         guard c.role == .paired else { return nil }
-        if let e = accessError(c, method: "act") { return e }
+        if let e = accessError(c, method: method) { return e }
         return desktopAllowed(c, desktopId) ? nil
             : RuntimeError("grant_missing", "desktop \(desktopId) left the grant of \(c.clientId)", phase: .handler, notSent: true,
                            details: .obj([("reason", .string("desktop"))]))

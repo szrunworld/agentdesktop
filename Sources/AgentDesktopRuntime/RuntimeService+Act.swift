@@ -247,6 +247,8 @@ extension RuntimeService {
         let deadline = now().addingTimeInterval(Double(request.params["timeoutMs"]?.intValue ?? 1000) / 1000)
         var lastSnapshot: String?
         while true {
+            // Access is checked on every poll: a revoked app stops waiting.
+            if let e = recheckAct(c, desktopId: desk.desktopId, method: "wait") { return .failure(e) }
             // As in observe: checks under the lock, the read on the AX threads
             // without it, then the store under the lock.
             var bound: TargetBinding?
