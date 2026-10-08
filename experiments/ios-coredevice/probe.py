@@ -371,10 +371,10 @@ def build_matrix(r: dict, udid: Optional[str] = None) -> dict:
     entry, RSD service list) is filtered to `udid`, so facts from different phones are never mixed.
     With udid=None (no device known at all) every device-scoped capability is unverified."""
     usb_ok, usb = r["usbmux"]["ok"], r["usbmux"]["result"]
-    usb_devices = [d for d in (usb if usb_ok else []) if d.get("serial") == udid]
-    lockdowns = [x for x in r["lockdown"] if x.get("serial") == udid]
+    usb_devices = [d for d in (usb if usb_ok else []) if _same_id(d.get("serial"), udid)]
+    lockdowns = [x for x in r["lockdown"] if _same_id(x.get("serial"), udid)]
     native_ok, native = r["native_browse"]["ok"], r["native_browse"]["result"]
-    native_devices = [d for d in (native if native_ok else []) or [] if d.get("udid") == udid]
+    native_devices = [d for d in (native if native_ok else []) or [] if _same_id(d.get("udid"), udid)]
     tunneld = r["tunneld"]
     rsd = r.get("rsd_services") or {}
     rsd_devices = [d for d in rsd_entries(r) if _same_id(d.get("udid"), udid)]
@@ -479,7 +479,7 @@ def build_matrix(r: dict, udid: Optional[str] = None) -> dict:
         "host stack present, but no tunnel was opened: it needs a paired iOS 17.4+ device "
         "(and would auto-pair, i.e. raise Trust)" if us_ok else "pmd-pytcp missing",
         "Kevin: allow a --userspace tunnel attempt once the device is paired")
-    if rsd.get("via") == "native" and (rsd_devices or rsd.get("udid") == udid):
+    if rsd.get("via") == "native" and (rsd_devices or _same_id(rsd.get("udid"), udid)):
         m["tunnel_native_remoted"] = (cap(SUPPORTED, "RSD handshake over Apple's remoted tunnel succeeded")
                                       if rsd.get("ok") else cap(UNSUPPORTED, rsd.get("result"),
                                                                 "native tunnel attempt failed"))

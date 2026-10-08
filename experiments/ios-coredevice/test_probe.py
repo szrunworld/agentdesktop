@@ -229,6 +229,23 @@ class TunneldKeysAreNotUdids(unittest.TestCase):
         self.assertEqual(t["evidence"]["rsd_error"], [{"tunnel_key": key, "error": SKIPPED}])
 
 
+class EquivalentIdSpellings(unittest.TestCase):
+    """Codex comment on #133 (round 2): ids that differ only by case/dashes are one device, and every
+    source record of that device is attached to its matrix."""
+
+    def test_usbmux_and_remotepairingd_spellings_share_one_matrix(self):
+        native_id = A.replace("-", "").lower()
+        r = report(usb=[{"serial": A, "connection_type": "USB"}], lockdown=[paired_lockdown(A, "18.0")],
+                   native=[{"udid": native_id, "name": "iPhone"}])
+        probe.attach_matrices(r, None)
+        self.assertEqual(r["devices"], [A])
+        m = r["capabilities"]
+        self.assertEqual(m["discovery_usbmux_usb"]["status"], probe.SUPPORTED)
+        self.assertEqual(m["discovery_remotepairingd"]["status"], probe.SUPPORTED)
+        self.assertEqual(m["discovery_remotepairingd"]["evidence"], [{"udid": native_id, "name": "iPhone"}])
+        self.assertEqual(m["ios_version"]["status"], probe.SUPPORTED)
+
+
 class RsdViaTunneldPerKey(unittest.TestCase):
     """rsd_services_via_tunneld() against a mocked pymobiledevice3.tunneld.api (no tunneld, no device)."""
 
