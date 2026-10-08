@@ -8,6 +8,8 @@ import Foundation
 /// lowered.
 public struct HostFlag: Sendable {
     public let url: URL
+    /// How long a record that cannot be read still counts as raised.
+    public static let unreadableLifetime: TimeInterval = 600
 
     public init(url: URL) {
         self.url = url
@@ -76,6 +78,14 @@ public struct HostFlag: Sendable {
     public func reason(now: Date = Date()) -> String? {
         guard let data = FileManager.default.contents(atPath: url.path) else { return nil }
         guard let record = try? JSONDecoder().decode(Record.self, from: data) else {
+            // Doubt keeps it up, but not for ever: an unreadable record older
+            // than `unreadableLifetime` is dropped, so a corrupt file cannot
+            // block every agent until someone deletes it by hand.
+            let written = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+            if let written, now.timeIntervalSince(written) > Self.unreadableLifetime {
+                lower(ifStill: "unreadable")
+                return nil
+            }
             return "an unreadable record at \(url.path)"
         }
         if let until = record.until, until <= now {

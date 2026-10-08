@@ -155,11 +155,20 @@ public enum PastePrompt: Equatable {
             func near(_ part: PhoneText) -> Bool { abs(part.center.y - allow.center.y) <= alertSpan }
             if denies.contains(where: near), messages.contains(where: near) { return .allow(allow.center) }
         }
-        if seen.contains(where: { line in pastingLabels.contains { clean(line.text).hasPrefix($0) } }) {
+        if seen.contains(where: { line in isProgress(line, before: baseline) }) {
             return .pasting
         }
         if !allows.isEmpty && !allowBefore { return .unverifiedAllow }
         return .none
+    }
+
+    /// A "Pasting from …" / "正在从…" line that was not on screen before
+    /// ⌘V. Chat text such as "正在从公司出发" begins the same way; already
+    /// there, it is page content, not this paste's progress.
+    static func isProgress(_ line: PhoneText, before baseline: [PhoneText]?) -> Bool {
+        let text = clean(line.text)
+        guard pastingLabels.contains(where: { text.hasPrefix($0) }) else { return false }
+        return !(baseline ?? []).contains { clean($0.text) == text }
     }
 
     static func clean(_ text: String) -> String {
@@ -183,6 +192,8 @@ public struct PasteWatcher {
     /// text was put there (the user copied). Checked at every look: the
     /// phone would paste that instead, so the paste is stopped on the phone.
     public var othersWrote: (() -> Bool)?
+    /// Told what was on screen before ⌘V.
+    public var onBaseline: (([PhoneText]?) -> Void)?
 
     public init() {}
 
@@ -249,6 +260,7 @@ public struct PasteWatcher {
     /// confirm it. Without that the best outcome is `.delivered`.
     public func paste(_ text: String, verify: Bool, driver: PhonePasteDriver) -> PasteOutcome {
         let baseline = try? driver.look()
+        onBaseline?(baseline)
         let pressed: ControlResponse
         do {
             pressed = try driver.pressPaste()
@@ -336,7 +348,7 @@ public struct PasteWatcher {
     /// alone prove nothing: a ⌘V that failed on its way out, or a fetch not
     /// yet begun, looks just as quiet; and an Allow Paste prompt that went
     /// away is not a finished transfer, which may start only after it.
-    public func settles(looks: Int, driver: PhonePasteDriver) -> Bool {
+    public func settles(looks: Int, driver: PhonePasteDriver, baseline: [PhoneText]? = nil) -> Bool {
         var transferred = false
         var quiet = 0
         for _ in 0..<looks {
@@ -348,12 +360,10 @@ public struct PasteWatcher {
             let prompting = seen.contains { line in
                 let text = PastePrompt.clean(line.text)
                 return PastePrompt.allowPasteLabels.contains(text) || PastePrompt.denyPasteLabels.contains(text)
-                    || PastePrompt.pastingLabels.contains { text.hasPrefix($0) }
+                    || PastePrompt.isProgress(line, before: baseline)
                     || PastePrompt.promptPhrases.contains { text.range(of: $0, options: .caseInsensitive) != nil }
             }
-            let transferring = seen.contains { line in
-                PastePrompt.pastingLabels.contains { PastePrompt.clean(line.text).hasPrefix($0) }
-            }
+            let transferring = seen.contains { PastePrompt.isProgress($0, before: baseline) }
             if transferring { transferred = true }
             if prompting {
                 quiet = 0
@@ -439,6 +449,9 @@ public struct PasteTransaction {
                                   clipboardRestored: true)
                 }
                 var watcher = self.watcher
+                final class Seen { var baseline: [PhoneText]? }
+                let seen = Seen()
+                watcher.onBaseline = { seen.baseline = $0 }
                 let loan = try PasteboardLoan.with(text, on: pasteboard, restoreAfter: { (outcome: PasteOutcome) -> Bool in
                     // A paste that settled is done with the clipboard. One that
                     // did not may still be fetched (a prompt left up, a slow
@@ -447,7 +460,7 @@ public struct PasteTransaction {
                     // Before the wait below, not after it: meanwhile another
                     // process must not type into a field in an unknown state.
                     driver.blockInput("may hold a half-finished paste")
-                    return watcher.settles(looks: settleLooks, driver: driver)
+                    return watcher.settles(looks: settleLooks, driver: driver, baseline: seen.baseline)
                 }) { () -> PasteOutcome in
                     let ours = pasteboard.changeCount
                     watcher.othersWrote = { pasteboard.changeCount != ours }

@@ -173,8 +173,7 @@ func fast() -> PasteWatcher {
 
     /// Unconfirmed text is `.delivered` only when the phone was seen
     /// fetching and then finished; quiet alone may come before a slow fetch.
-    static let noTransfer = PasteOutcome.unknown("no_transfer_seen: the phone was never seen fetching the clipboard "
-        + "and the text is not on screen, so the fetch may still come")
+    static let noTransfer = PasteFixtures.noTransfer
 
     @Test func textAlreadyOnScreenIsNotConfirmation() {
         let message = [line("see you at 5", y: 0.2)]
@@ -583,19 +582,25 @@ func fast() -> PasteWatcher {
         defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
         pasteboard.setString("secret-token", forType: .string)
-        let prompts = [[PhoneText]?](repeating: keyboard + alert, count: 8)
-        let phone = ScriptedPhone(baseline: keyboard, prompts + [keyboard])
+        // The prompt is pressed (and accepted), then the phone goes quiet
+        // without ever showing the transfer or the text.
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard + alert, keyboard])
         phone.pasteboard = pasteboard
-        phone.tapResponse = .failure("tap refused")
         var paste = transaction(pasteboard, lock)
         paste.settleLooks = 6
         let result = paste.paste("hello", verify: true, driver: phone)
-        guard case .unknown = result.outcome else {
-            Issue.record("expected unknown")
-            return
-        }
+        #expect(phone.taps.count == 1)
+        #expect(result.outcome == PasteFixtures.noTransfer)
         #expect(!result.clipboardRestored)
         #expect(pasteboard.string(forType: .string) == "hello")
+    }
+
+    /// Second review: chat text that begins like the progress line
+    /// ("正在从公司出发") was already there; it is not this paste's progress.
+    @Test func progressWordsAlreadyOnThePageDoNotHoldThePaste() {
+        let chat = [line("正在从公司出发", x: 0.05, y: 0.3, width: 0.5)]
+        let phone = ScriptedPhone(baseline: chat + keyboard, [chat + keyboard + [line("hello", y: 0.4)]])
+        #expect(fast().paste("hello", verify: true, driver: phone) == .confirmed)
     }
 
     /// Codex on #78: input is blocked as soon as the outcome is unknown,
@@ -642,9 +647,10 @@ func fast() -> PasteWatcher {
     }
 
     /// Codex on #127: checking the raising and removing it must not
-    /// interleave with another process raising a new one. Many raisers
-    /// race a lowerer that only ever lowers the first raising; the last
-    /// raising must survive every time.
+    /// interleave with another process raising a new one. One raiser races
+    /// a lowerer of the older raising, 50 times; the newer must survive.
+    /// The window is narrow, so this guards against regressions; it does
+    /// not prove the cross-process lock (a device check covers that).
     @Test func loweringARaisingNeverDeletesANewerOne() throws {
         let (_, lock) = scratch()
         let flag = HostFlag(url: lock.deletingLastPathComponent().appendingPathComponent("barrier"))
@@ -673,7 +679,36 @@ func fast() -> PasteWatcher {
     }
 }
 
+enum PasteFixtures {
+    static let noTransfer = PasteOutcome.unknown("no_transfer_seen: the phone was never seen fetching the clipboard "
+        + "and the text is not on screen, so the fetch may still come")
+}
+
 @Suite struct AgentIndeterminateResults {
+    /// Second review: a paste that went in, then failed (its Return refused),
+    /// stops the run: the model would type the text again.
+    @Test func aFailedPasteThatMayHaveLandedStopsTheRun() {
+        var confirmedButReturnRefused = ControlResponse.failure("not_connected (uncertain): …")
+        confirmedButReturnRefused.route = "paste.confirmed"
+        #expect(TarsAgent.isIndeterminate(confirmedButReturnRefused))
+        var notDelivered = ControlResponse.failure("nothing was pasted")
+        notDelivered.route = "paste.not_delivered"
+        #expect(!TarsAgent.isIndeterminate(notDelivered))
+    }
+
+    @Test func anUnreadableMarkDoesNotStayUpForEver() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesktop-flag-\(UUID().uuidString)/mark")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: url.path, contents: Data("garbage".utf8))
+        let flag = HostFlag(url: url)
+        #expect(flag.reason() != nil)
+        let old = Date().addingTimeInterval(-(HostFlag.unreadableLifetime + 60))
+        try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: url.path)
+        #expect(flag.reason() == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
     @Test func unknownPastesAndDeliveriesStopTheRun() {
         var paste = ControlResponse.failure("the paste did not finish")
         paste.route = "paste.unknown"

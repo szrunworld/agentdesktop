@@ -448,6 +448,11 @@ public final class TarsAgent {
     /// did not settle, or input whose window changed while it was sent.
     static func isIndeterminate(_ response: ControlResponse) -> Bool {
         if response.route?.hasSuffix(".unknown") == true { return true }
+        // A paste that went in (or may have) and then failed, such as its
+        // Return refused: the model, seeing the text, would type it again.
+        if !response.ok, let route = response.route, route.hasPrefix("paste."), route != "paste.not_delivered" {
+            return true
+        }
         guard let error = response.error else { return false }
         return error.hasPrefix("action_delivery_unknown") || error.contains("(delivery_unknown)")
     }

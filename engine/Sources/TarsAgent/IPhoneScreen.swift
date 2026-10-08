@@ -110,6 +110,9 @@ public final class IPhoneAgentScreen: AgentScreen {
         // An input that turns uncertain while this capture is taken raises a
         // barrier this picture predates: only the one already up is lowered.
         let barrierSeen = system.inputBarrier.generation(now: system.now)
+        // Checked before the capture as well as after: a paste under way
+        // while the picture was taken leaves it showing a field in flux.
+        let pasteBefore = system.pasteInProgress
         let capture = try capturedWindow()
         let status = state(of: capture)
         guard status.state == .ready else {
@@ -127,7 +130,7 @@ public final class IPhoneAgentScreen: AgentScreen {
         invalidated = nil
         // Nor while a paste is under way in any process: its outcome is not
         // yet known, so this picture does not show what the field will hold.
-        if let barrierSeen, !system.pasteInProgress { system.inputBarrier.lower(ifStill: barrierSeen) }
+        if let barrierSeen, !pasteBefore, !system.pasteInProgress { system.inputBarrier.lower(ifStill: barrierSeen) }
         return png
     }
 
@@ -373,7 +376,9 @@ public final class IPhoneAgentScreen: AgentScreen {
         let pid: pid_t
 
         func look() throws -> [PhoneText] {
-            try phone.pastePrompt()
+            // Stopped: no more looks count, so the paste ends unknown.
+            if let stop = phone.stopReason() { throw stop }
+            return try phone.pastePrompt()
         }
 
         func pressPaste() throws -> ControlResponse {
@@ -390,7 +395,9 @@ public final class IPhoneAgentScreen: AgentScreen {
             return try phone.send(tap, pid: pid)
         }
 
-        func pause(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+        func pause(_ seconds: TimeInterval) {
+            if phone.stopReason() == nil { Thread.sleep(forTimeInterval: seconds) }
+        }
 
         func blockInput(_ reason: String) { phone.block(reason) }
     }
