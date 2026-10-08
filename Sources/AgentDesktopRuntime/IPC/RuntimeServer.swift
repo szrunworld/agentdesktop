@@ -53,8 +53,15 @@ public final class RuntimeServer: @unchecked Sendable {
         var st = stat()
         guard stat(dir, &st) == 0, st.st_uid == getuid() else { throw StartError.notOwned(dir) }
 
-        let lfd = Darwin.open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        // Never through a link (the mode change and the record below would
+        // land on its target), and only an own regular file.
+        let lfd = Darwin.open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0o600)
         guard lfd >= 0 else { throw StartError.io("open \(lockPath): \(String(cString: strerror(errno)))") }
+        var lst = stat()
+        guard fstat(lfd, &lst) == 0, (lst.st_mode & S_IFMT) == S_IFREG, lst.st_uid == getuid() else {
+            Darwin.close(lfd)
+            throw StartError.notOwned(lockPath)
+        }
         if flock(lfd, LOCK_EX | LOCK_NB) != 0 {
             let parsed = EndpointRecord.read(fd: lfd).map(EndpointRecord.parse)
             Darwin.close(lfd)

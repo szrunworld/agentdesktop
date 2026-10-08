@@ -18,10 +18,13 @@ public protocol RuntimeClient: AnyObject {
     func close()
     /// The process on the other end of this client's own connection.
     var peer: PeerCredentials? { get }
+    /// The peer's audit token on this connection, read now.
+    func peerAuditToken() -> Data?
 }
 
 extension RuntimeClient {
     public var peer: PeerCredentials? { nil }
+    public func peerAuditToken() -> Data? { nil }
 }
 
 /// What an event subscription delivered.
@@ -63,6 +66,7 @@ public final class SocketRuntimeClient: RuntimeClient {
     private var identity: RuntimeIdentity?
     /// The Runtime's process on this client's connection (after handshake).
     public var peer: PeerCredentials? { transport?.peer }
+    public func peerAuditToken() -> Data? { transport?.currentPeerToken() }
 
     public init(endpoint: Endpoint, info: ClientInfo, timeout: Double = 10,
                 contract: RuntimeContract = .shared,

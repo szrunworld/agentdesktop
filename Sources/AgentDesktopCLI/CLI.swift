@@ -17,7 +17,7 @@ struct CLI {
     var executablePath: String = CommandLine.arguments.first.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } ?? ""
     var makeClient: (Endpoint) -> RuntimeClient = { SocketRuntimeClient(endpoint: $0, info: CLI.clientInfo) }
     /// Whether a process is signed as this program (doctor's identity check).
-    var peerSigner: (Int32) -> EndpointInspector.Signer = EndpointInspector.signer(of:)
+    var peerSigner: (Data) -> EndpointInspector.Signer = EndpointInspector.signer(auditToken:)
     /// Ask the OS to start the product; returns an error message on failure.
     var launchProduct: (_ appPath: String?) -> String? = CLI.openProduct
     /// Note a write's requestId, method and endpoint before it is sent, so

@@ -77,6 +77,11 @@ public enum EndpointInspector {
         /// used, from the kernel.
         public var peerPID: Int32?
         public var peerUID: uid_t?
+        /// The pid in the audit token read after the handshake reply: the
+        /// process that answered.
+        public var answeringPID: Int32?
+        /// Others may write the endpoint's directory: not connected.
+        public var directoryUntrusted = false
         public var signer: Signer = .unknown
         /// runtime.capabilities, asked on the same connection, only of a
         /// Runtime whose identity is not contradicted.
@@ -97,7 +102,7 @@ public enum EndpointInspector {
     /// handshake and the read-only service check.
     public static func inspect(_ endpoint: Endpoint, home: String = NSHomeDirectory(),
                                makeClient: (Endpoint) -> RuntimeClient,
-                               signer: (Int32) -> Signer = EndpointInspector.signer(of:)) -> Report {
+                               signer: (Data) -> Signer = EndpointInspector.signer(auditToken:)) -> Report {
         let path = endpoint.path
         var report = Report(path: path, environment: environment(of: path, home: home), socket: .missing,
                             holder: .none, identity: .unverified, identityNotes: [], failures: [])
@@ -129,6 +134,14 @@ public enum EndpointInspector {
             report.holder = .unknown
         }
 
+        // A directory others may write: whoever can replace the socket there
+        // is not to be talked to, so nothing is sent.
+        if report.socket == .ok, let mode = report.directoryMode, mode & 0o022 != 0 {
+            report.failures.append(.connect)
+            report.identityNotes.append("others may write the endpoint's directory; not connected")
+            report.directoryUntrusted = true
+            return report
+        }
         guard report.socket == .ok else {
             report.failures.append(.connect)
             report.identityNotes.append("nothing that may be trusted listens at the path (\(report.socket.rawValue))")
@@ -158,7 +171,14 @@ public enum EndpointInspector {
         } else if case let .success(pid) = peerPID(path) {
             report.peerPID = pid
         }
-        if let pid = report.peerPID { report.signer = signer(pid) }
+        // The signature of the process that wrote the handshake reply, by its
+        // audit token read after the reply: a pid alone could since belong
+        // to a binary exec'd in its place, the token's exec generation not.
+        // Without a token the signer stays unknown.
+        if let token = client.peerAuditToken() {
+            report.answeringPID = auditTokenPID(token)
+            report.signer = signer(token)
+        }
 
         (report.identity, report.identityNotes) = judge(report)
         // A contradicted identity is not asked anything more: what it would
@@ -210,13 +230,15 @@ public enum EndpointInspector {
         } else {
             notes.append("the socket's peer process is unknown")
         }
+        if let answering = r.answeringPID, answering != id.pid {
+            notes.append("pid \(answering) answered, the handshake says \(id.pid)"); contradiction = true
+        }
         if let uid = r.peerUID, uid != getuid() { notes.append("the socket's peer runs as another user"); contradiction = true }
         switch r.signer {
         case .same: break
         case .different: notes.append("the Runtime's process is not signed as this product"); contradiction = true
         case .unknown: notes.append("the Runtime's code signature cannot be compared with this program's")
         }
-        if let mode = r.directoryMode, mode & 0o022 != 0 { notes.append("others may write the endpoint's directory") }
         if let rec = r.record {
             if rec.pid != id.pid || rec.instanceId != id.instanceId {
                 notes.append("the lock file names another instance"); contradiction = true
@@ -279,9 +301,17 @@ public enum EndpointInspector {
         return .success(pid)
     }
 
-    /// Compare the leaf signing certificate of process `pid` with this
-    /// program's. Unsigned or ad-hoc code on either side is `unknown`.
-    public static func signer(of pid: Int32) -> Signer {
+    /// The pid in an audit token (its sixth word), nil if malformed.
+    public static func auditTokenPID(_ token: Data) -> Int32? {
+        guard token.count == MemoryLayout<audit_token_t>.size else { return nil }
+        return token.withUnsafeBytes { Int32(bitPattern: $0.load(fromByteOffset: 5 * 4, as: UInt32.self)) }
+    }
+
+    /// Compare the leaf signing certificate of the process named by an audit
+    /// token with this program's. The token holds the process's exec
+    /// generation: a process that exec'd since is not found (`unknown`).
+    /// Unsigned or ad-hoc code on either side is `unknown`.
+    public static func signer(auditToken: Data) -> Signer {
         func leaf(_ code: SecCode) -> Data? {
             guard SecCodeCheckValidity(code, [], nil) == errSecSuccess else { return nil }
             var staticCode: SecStaticCode?
@@ -296,7 +326,7 @@ public enum EndpointInspector {
         var me: SecCode?
         guard SecCodeCopySelf([], &me) == errSecSuccess, let me, let mine = leaf(me) else { return .unknown }
         var peer: SecCode?
-        let attributes = [kSecGuestAttributePid: pid] as CFDictionary
+        let attributes = [kSecGuestAttributeAudit: auditToken as CFData] as CFDictionary
         guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &peer) == errSecSuccess, let peer else { return .unknown }
         guard let theirs = leaf(peer) else { return .different }
         return theirs == mine ? .same : .different

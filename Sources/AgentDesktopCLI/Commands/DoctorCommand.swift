@@ -55,7 +55,7 @@ extension CLI {
         if let mode = report.directoryMode, mode & 0o022 != 0 {
             // Others could put their own socket in its place.
             checks.append(Check(id: "endpoint.directory", status: .fail,
-                                message: "others may write the endpoint's directory (mode \(Self.octal(mode))); not trusting what listens there",
+                                message: "others may write the endpoint's directory (mode \(Self.octal(mode))); nothing was sent to what listens there",
                                 code: "permission_denied"))
         } else if let mode = report.directoryMode, mode & 0o055 != 0 {
             checks.append(Check(id: "endpoint.directory", status: .warn,

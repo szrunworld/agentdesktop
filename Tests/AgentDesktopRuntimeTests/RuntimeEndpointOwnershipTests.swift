@@ -135,6 +135,23 @@ private func staleSocket(_ path: String) {
     #expect(Date().timeIntervalSince(started) < 2)
 }
 
+// b9's review of 98134e1: a lock path that is a link is not followed (the
+// mode change and the record would land on its target), and the start fails.
+@Test func aLockPathThatIsALinkIsRefusedAndItsTargetUntouched() throws {
+    let dir = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runtime.sock"
+    let target = dir + "/elsewhere"
+    FileManager.default.createFile(atPath: target, contents: Data("keep".utf8), attributes: [.posixPermissions: 0o644])
+    symlink(target, path + ".lock")
+    let server = RuntimeServer(path: path, service: makeService(endpoint: path))
+    #expect(throws: (any Error).self) { try server.start() }
+    var st = stat()
+    #expect(stat(target, &st) == 0 && st.st_mode & 0o777 == 0o644)
+    #expect(try String(contentsOfFile: target, encoding: .utf8) == "keep")
+    #expect(lstat(path, &st) != 0, "no socket was made")
+}
+
 @Test func anExistingLockFileBecomesOwnerOnly() throws {
     let dir = try socketDirectory()
     defer { try? FileManager.default.removeItem(atPath: dir) }

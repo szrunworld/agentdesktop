@@ -9,7 +9,7 @@ import Testing
 // trusted for that alone.
 
 private func doctor(_ path: String, env extra: [String: String] = [:],
-                    signer: @escaping (Int32) -> EndpointInspector.Signer = { _ in .same }) -> (Int32, JSONValue?, String) {
+                    signer: @escaping (Data) -> EndpointInspector.Signer = { _ in .same }) -> (Int32, JSONValue?, String) {
     var out: [String] = []
     var cli = CLI()
     // Test binaries are unsigned; the signature check is exercised on its own below.
@@ -189,4 +189,22 @@ private func snapshot(_ dir: String) -> [String: String] {
     #expect(text.contains("others may write the endpoint's directory"))
     #expect(diagnosis(v)?["identity"]?.stringValue != "verified")
     #expect(code == 4)
+    // b9's review of 98134e1: nothing is sent to what listens there.
+    #expect(diagnosis(v)?["peerPid"] == nil, "no connection was made")
+    #expect(diagnosis(v)?["runsAvailable"] == nil && diagnosis(v)?["signer"]?.stringValue != "same", "nothing was asked")
+}
+
+// b9's review of 98134e1: the signature is checked on the audit token of the
+// process that wrote the handshake reply, read after it, never on a pid.
+@Test func theSignerIsAskedAboutTheProcessThatAnswered() throws {
+    let rt = try LiveRuntime()
+    final class Seen: @unchecked Sendable { var tokens: [Data] = [] }
+    let seen = Seen()
+    let (_, v, _) = doctor(rt.path, signer: { seen.tokens.append($0); return .same })
+    #expect(seen.tokens.count == 1)
+    #expect(seen.tokens.first.flatMap(EndpointInspector.auditTokenPID) == getpid())
+    #expect(diagnosis(v)?["identity"]?.stringValue == "verified")
+    // A token naming no live process (or one that exec'd since) is not compared.
+    #expect(EndpointInspector.signer(auditToken: Data(count: 32)) == .unknown)
+    #expect(EndpointInspector.signer(auditToken: Data(count: 3)) == .unknown)
 }
