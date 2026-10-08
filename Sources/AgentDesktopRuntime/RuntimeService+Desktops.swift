@@ -156,19 +156,19 @@ extension RuntimeService {
 
     func openSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         withDesktop(p["desktopId"]) { d in
-            sessions.open(desktopId: d.desktopId, caller: c.peerUID, at: nowString).json
+            sessions.open(desktopId: d.desktopId, caller: c.clientId, at: nowString).json
         }
     }
 
     func showSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["sessionId"]?.stringValue ?? ""
-        guard let s = sessions.find(id, caller: c.peerUID) else { return .failure(.notFound("no session \(id)")) }
+        guard let s = sessions.find(id, caller: c.clientId) else { return .failure(.notFound("no session \(id)")) }
         return .success(s.json)
     }
 
     func closeSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["sessionId"]?.stringValue ?? ""
-        guard sessions.find(id, caller: c.peerUID) != nil, let s = sessions.close(id, at: nowString) else {
+        guard sessions.find(id, caller: c.clientId) != nil, let s = sessions.close(id, at: nowString) else {
             return .failure(.notFound("no session \(id)"))
         }
         return .success(s.json)
@@ -176,7 +176,7 @@ extension RuntimeService {
 
     func showRequest(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["requestId"]?.stringValue ?? ""
-        guard let r = try? ledger.record(caller: c.peerUID, requestId: id) else {
+        guard let r = try? ledger.record(caller: c.clientId, requestId: id) else {
             return .failure(.notFound("no request \(id) within the last \(RequestLedger.retentionDays) days"))
         }
         var m: [(String, JSONValue)] = [("requestId", .string(r.requestId)), ("method", .string(r.method)),

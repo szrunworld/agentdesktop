@@ -6,7 +6,8 @@ import Foundation
 public struct RuntimeSession: Equatable, Sendable {
     public var sessionId: String
     public var desktopId: String
-    public var caller: uid_t
+    /// The principal (clientId) the session belongs to.
+    public var caller: String
     public var state: String
     public var createdAt: String
     public var closedAt: String?
@@ -25,7 +26,7 @@ public final class SessionManager: @unchecked Sendable {
 
     public init() {}
 
-    func open(desktopId: String, caller: uid_t, at: String) -> RuntimeSession {
+    func open(desktopId: String, caller: String, at: String) -> RuntimeSession {
         let s = RuntimeSession(sessionId: DesktopRegistry.newId(prefix: "s"), desktopId: desktopId, caller: caller,
                                state: "open", createdAt: at)
         lock.withLock { sessions[s.sessionId] = s }
@@ -33,7 +34,7 @@ public final class SessionManager: @unchecked Sendable {
     }
 
     /// The session if `caller` may use it.
-    public func find(_ id: String, caller: uid_t) -> RuntimeSession? {
+    public func find(_ id: String, caller: String) -> RuntimeSession? {
         lock.withLock { sessions[id].flatMap { $0.caller == caller ? $0 : nil } }
     }
 

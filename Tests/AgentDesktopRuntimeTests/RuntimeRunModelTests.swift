@@ -9,7 +9,7 @@ import Testing
 
 /// A Durable Run on the scene's Desktop, as GUI Explorer would start it.
 func durable(_ sc: Scene, origin: RunRecord.Origin = .guiExplorer) throws -> RunRecord {
-    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: getuid(), at: Timestamp.string(Date()))
+    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: "local:\(getuid())", at: Timestamp.string(Date()))
     return try sc.s.execution.startDurable(kind: "unit", session: session, origin: origin).get()
 }
 
@@ -79,7 +79,7 @@ func runJSON(_ sc: Scene, _ id: String, on c: ConnectionState? = nil) -> JSONVal
     }
     #expect(data(call(sc.s, sc.c, "run.list"))?["runs"]?.arrayValue?.isEmpty == true, "nothing was created")
     // And inside the Runtime, an AgentHub origin cannot be made durable.
-    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: getuid(), at: Timestamp.string(Date()))
+    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: "local:\(getuid())", at: Timestamp.string(Date()))
     if case let .failure(e) = sc.s.execution.startDurable(kind: "unit", session: session, origin: .agentHub) {
         #expect(e.code == "ownership_escalation_denied")
     } else { Issue.record("agent_hub origin must not start a durable Run") }

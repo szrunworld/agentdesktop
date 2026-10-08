@@ -142,7 +142,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
         // The original request still replays its own answer.
         let replay = try client.call(RuntimeRequest(requestId: "idem-key-0001", method: "ai.connections.create", params: connParams))
         #expect(replay["connectionId"] == first["connectionId"])
-        #expect(try runtime.ledger.record(caller: getuid(), requestId: "idem-key-0001")?.state == .completed)
+        #expect(try runtime.ledger.record(caller: "local:\(getuid())", requestId: "idem-key-0001")?.state == .completed)
     }
 }
 
@@ -157,7 +157,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
                 Issue.record("a missing connection cannot be disabled")
             } catch let e as RuntimeError { #expect(e.code == "not_found") }
             // Nothing happened, so nothing holds the key.
-            #expect(try runtime.ledger.record(caller: getuid(), requestId: "idem-fail-0001") == nil)
+            #expect(try runtime.ledger.record(caller: "local:\(getuid())", requestId: "idem-fail-0001") == nil)
         }
     }
 }

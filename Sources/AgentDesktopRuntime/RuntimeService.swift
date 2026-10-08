@@ -175,7 +175,7 @@ public final class RuntimeService: @unchecked Sendable {
     private func ledgered(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let begin: RequestLedger.Begin
         do {
-            begin = try ledger.begin(caller: connection.peerUID, request)
+            begin = try ledger.begin(caller: connection.clientId, request)
         } catch {
             execution.auditStorageFailed()
             return .failure(ExecutionCoordinator.auditError(notSent: true))
@@ -190,7 +190,7 @@ public final class RuntimeService: @unchecked Sendable {
                 if case .success = result { result = .failure(ExecutionCoordinator.auditError()) }
             }
             do {
-                try ledger.finish(caller: connection.peerUID, requestId: request.requestId, result)
+                try ledger.finish(caller: connection.clientId, requestId: request.requestId, result)
             } catch {
                 execution.auditStorageFailed()
                 // A failure before dispatch can still say notSent. After

@@ -6,7 +6,7 @@ extension RuntimeService {
     /// desktopId. The Session must belong to the caller.
     func target(of request: RuntimeRequest, _ c: ConnectionState) -> Result<(DesktopRecord, RuntimeSession?), RuntimeError> {
         if let sid = request.context.sessionId {
-            guard let s = sessions.find(sid, caller: c.peerUID) else { return .failure(.notFound("no session \(sid)")) }
+            guard let s = sessions.find(sid, caller: c.clientId) else { return .failure(.notFound("no session \(sid)")) }
             guard s.state == "open" else {
                 return .failure(RuntimeError("conflict", "session \(sid) is closed", phase: .handler))
             }
