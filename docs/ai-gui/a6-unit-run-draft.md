@@ -96,6 +96,10 @@ Run 的 `outcome` 怎么映射：
 
 生命周期事件（phase / outcome 的变化）照用 Runtime 现有的 `run.*` 事件，不另外定义 unit 版本。
 
+可追溯性：每个事件都靠 RunEvent 已有的 `runId`、`sequence`、`at` 定位，`data` 里带对应的标识（observationId、inferenceAttemptId、proposalId、actionId），有错误时带错误码或原因。动作的完整回执只存在 Runtime 的 RequestLedger 里，事件只引用 actionId，不另外建一套事件账本。
+
+结果与验证分开：Run 的 `phase` 表示生命周期，`outcome` 表示运行结果，`unit.verification` 表示目标有没有被新观察证实。只有验证结果是 matched 时 outcome 才是 success；点击送达（回执 confirmed）本身不让 Run 成功。字段名和枚举沿用现有 Run 契约，不另起一套状态体系。
+
 ### 3.3 F40-05 验证谓词迁入 `runtime.schema.json`
 
 把 ai/1 `domain.schema.json#/$defs/GuiVerification` 原样搬过来，作为 `UnitVerification`。`unit_run_params.verification` 改为 `{ "all": [UnitPredicate, …] }`，冻结文档第 5 节已经是这个形状。A6 只带一个谓词，形状不变：
@@ -135,6 +139,8 @@ GX-13…16 的新谓词（not、found、歧义）在 X1 里追加，作为 `oneO
 | 15 | `replay_only` 但没有可用流程（L3 之前恒为此） | `capability_missing` | `replay_not_available` |
 
 运行中出现的错误不走这张表，写进 Run 的 `closingReason` 和事件（见 3.1）。
+
+这张表只是**准入**，只证明创建 Run 时条件满足。运行中每一次观察和输入，仍由 Runtime 在原生入口实时检查：授权（policyEpoch）、绑定窗口身份、遮挡、geometry 和代次。授权被撤销或窗口发生变化后，后续操作一律拒绝，dispatch=0。Explorer 收到拒绝后不切换窗口，也不重放。
 
 ## 4. F40-04 按 runId 汇总用量
 
