@@ -1,0 +1,666 @@
+{
+  "name": "provisional-lifecycle",
+  "description": "F1-01 / 方案 5.1 中 Runtime 今天不发的事件（C-10）：排队、等待批准/回答、单元、拒绝、验证。目录冻结后对齐",
+  "policy": {
+    "screenshots": "off",
+    "pageText": false
+  },
+  "events": [
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 1,
+      "type": "run.accepted",
+      "payload": {}
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 2,
+      "type": "run.queued",
+      "payload": {}
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 3,
+      "type": "run.started",
+      "payload": {
+        "kind": "unit",
+        "origin": "agent_hub",
+        "ownership": "external_client",
+        "lifetime": "connection_scoped",
+        "desktopId": "desk_000000aaaaaa",
+        "sessionId": "sess_000000bbbbbb",
+        "at": "2026-10-08T12:00:00.000Z"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 4,
+      "type": "unit.started",
+      "payload": {
+        "unitType": "calculator.add",
+        "index": 1,
+        "total": 2,
+        "goal": "Add 2 and 3 for 张三 13800138000"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 5,
+      "type": "run.waiting_approval",
+      "payload": {
+        "kind": "submit"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 6,
+      "type": "approval.required",
+      "payload": {
+        "kind": "submit",
+        "summary": "Send offer to example@email.com"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 7,
+      "type": "run.resumed",
+      "payload": {}
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 8,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_0003eeeeffff",
+        "kind": "submit"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 9,
+      "type": "action.refused",
+      "payload": {
+        "requestId": "req_0003eeeeffff",
+        "code": "approval_denied",
+        "message": "denied by reviewer example@email.com"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 10,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_0004aaaa0000",
+        "kind": "click"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 11,
+      "type": "action.completed",
+      "payload": {
+        "receipt": {
+          "receiptId": "rcpt_00aa11bb22cc",
+          "requestId": "req_0004aaaa0000",
+          "runId": "run_0a1b2c3d4e5f",
+          "desktopId": "desk_000000aaaaaa",
+          "sessionId": "sess_000000bbbbbb",
+          "snapshotId": "snap_000000cccccc",
+          "delivery": "dispatched",
+          "execution": "completed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "ax",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 4242,
+              "startedAt": null
+            },
+            "windowId": 813,
+            "elementRef": "el_7",
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T12:00:00.000Z",
+            "dispatchedAt": "2026-10-08T12:00:00.120Z",
+            "completedAt": "2026-10-08T12:00:00.350Z"
+          }
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 12,
+      "type": "action.verified",
+      "payload": {
+        "requestId": "req_0004aaaa0000",
+        "verification": "matched"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 13,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_0005bbbb1111",
+        "kind": "wait"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 14,
+      "type": "action.completed",
+      "payload": {
+        "receipt": {
+          "receiptId": "rcpt_00aa11bb22cc",
+          "requestId": "req_0005bbbb1111",
+          "runId": "run_0a1b2c3d4e5f",
+          "desktopId": "desk_000000aaaaaa",
+          "sessionId": "sess_000000bbbbbb",
+          "snapshotId": "snap_000000cccccc",
+          "delivery": "dispatched",
+          "execution": "completed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "ax",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 4242,
+              "startedAt": null
+            },
+            "windowId": 813,
+            "elementRef": "el_7",
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T12:00:00.000Z",
+            "dispatchedAt": "2026-10-08T12:00:00.120Z",
+            "completedAt": "2026-10-08T12:00:00.350Z"
+          }
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 15,
+      "type": "verification.failed",
+      "payload": {
+        "requestId": "req_0005bbbb1111"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 16,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_0006cccc2222",
+        "kind": "observe"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 17,
+      "type": "verification.succeeded",
+      "payload": {
+        "requestId": "req_0006cccc2222"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 18,
+      "type": "run.waiting_input",
+      "payload": {}
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 19,
+      "type": "question.asked",
+      "payload": {
+        "message": "Which candidate? example@email.com or 13800138000"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 20,
+      "type": "unit.ended",
+      "payload": {
+        "unitType": "calculator.add",
+        "outcome": "success",
+        "verification": "not_requested"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 21,
+      "type": "run.ended",
+      "payload": {
+        "phase": "ended",
+        "outcome": "success",
+        "reason": "finished",
+        "verification": "matched"
+      }
+    }
+  ],
+  "mustNotContain": [
+    "example@email.com",
+    "13800138000",
+    "张三",
+    "Add 2 and 3",
+    "denied by reviewer"
+  ],
+  "mustContain": [
+    "等待批准",
+    "已拒绝",
+    "错误码：approval_denied",
+    "已验证成功",
+    "验证未通过",
+    "任务完成：结果已验证"
+  ],
+  "expected": [
+    [
+      {
+        "agentMessage": "任务已受理（Run run_0a1b2c3d4e5f）"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "pending"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "任务排队中，等待执行"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "pending"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "任务已开始（Run run_0a1b2c3d4e5f）；编辑器断开后将停止输入"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "开始执行单元：calculator.add"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行：calculator.add",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "等待批准（未批准前不会执行）"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "等待批准（未批准前不会执行）"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "任务继续执行"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0003eeeeffff",
+          "title": "提交 — 已受理",
+          "kind": "other",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0003eeeeffff",
+          "title": "提交 — 已拒绝",
+          "kind": "other",
+          "status": "failed",
+          "level": "refused:approval_denied",
+          "detail": [
+            "状态：已拒绝",
+            "错误码：approval_denied"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0004aaaa0000",
+          "title": "点击 — 已受理",
+          "kind": "execute",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0004aaaa0000",
+          "title": "点击 — 已执行，未验证",
+          "kind": "execute",
+          "status": "completed",
+          "level": "executed",
+          "detail": [
+            "状态：已执行，未验证",
+            "投递：已发出",
+            "执行：已完成",
+            "验证：未请求",
+            "业务结果：未评估",
+            "耗时：350 毫秒",
+            "目标：ref-uqfnsihz"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0004aaaa0000",
+          "title": "点击 — 已验证成功",
+          "kind": "execute",
+          "status": "completed",
+          "level": "verified",
+          "detail": [
+            "状态：已验证成功",
+            "验证：已通过"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0005bbbb1111",
+          "title": "等待界面 — 已受理",
+          "kind": "read",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0005bbbb1111",
+          "title": "等待界面 — 已执行，未验证",
+          "kind": "read",
+          "status": "completed",
+          "level": "executed",
+          "detail": [
+            "状态：已执行，未验证",
+            "投递：已发出",
+            "执行：已完成",
+            "验证：未请求",
+            "业务结果：未评估",
+            "耗时：350 毫秒",
+            "目标：ref-uqfnsihz"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0005bbbb1111",
+          "title": "等待界面 — 验证未通过",
+          "kind": "read",
+          "status": "failed",
+          "level": "contradicted",
+          "detail": [
+            "状态：验证未通过",
+            "验证：未通过"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0006cccc2222",
+          "title": "观察界面 — 已受理",
+          "kind": "read",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0006cccc2222",
+          "title": "观察界面 — 已验证成功",
+          "kind": "read",
+          "status": "completed",
+          "level": "verified",
+          "detail": [
+            "状态：已验证成功",
+            "验证：已通过"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "agentMessage": "等待回答一个问题"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "等待回答一个问题"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "执行单元结束（calculator.add）：已执行（业务结果：未评估）"
+      }
+    ],
+    [
+      {
+        "agentMessage": "任务完成：结果已验证"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "completed"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "completed"
+          },
+          {
+            "content": "结果：已验证",
+            "status": "completed"
+          }
+        ]
+      }
+    ]
+  ]
+}
