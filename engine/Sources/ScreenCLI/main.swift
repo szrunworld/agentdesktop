@@ -50,7 +50,8 @@ usage:
   agentdesktop android adb ARGS...   run the bundled adb with these arguments
 
   agentdesktop iphone show [--screen NAME]   iPhone Mirroring on an agent screen ("phone")
-  agentdesktop iphone hide
+  agentdesktop iphone hide [--timeout S] [--no-wait]
+  agentdesktop iphone status|reconnect [--screen NAME]
   agentdesktop iphone screenshot [--screen NAME] --output FILE.png
   agentdesktop iphone tap  [--screen NAME] --x X --y Y
   agentdesktop iphone type [--screen NAME] --text TEXT
@@ -133,7 +134,8 @@ struct Arguments {
                                       "--modifiers", "--ttl", "--idle-timeout", "--owner-pid",
                                       "--serial", "--max-size", "--duration",
                                       "--direction", "--amount", "--by", "--from-x", "--from-y",
-                                      "--to-x", "--to-y", "--duration-ms", "--max-steps"]
+                                      "--to-x", "--to-y", "--duration-ms", "--max-steps",
+                                      "--geometry", "--timeout"]
 
     init(_ words: [String]) {
         var iterator = words.makeIterator()
