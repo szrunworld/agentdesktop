@@ -142,8 +142,9 @@ final class ACPBridgeEventReader: @unchecked Sendable {
         guard let seq = e["sequence"]?.intValue, e["runId"]?.stringValue == runId else { return !isStopped }
         guard seq > last else { return !isStopped }
         last = seq
-        let event = ACPRuntimeEvent(runId: runId, cursor: seq, type: e["type"]?.stringValue ?? "",
-                                    payload: e["data"] ?? .obj([]))
+        // The whole RunEvent ({runId, sequence, at, type, data}) so the
+        // projector has the timestamp and any receipt reference in data.
+        let event = ACPRuntimeEvent(runId: runId, cursor: seq, type: e["type"]?.stringValue ?? "", payload: e)
         if case .terminated = continuation.yield(event) {
             stop()
             return false

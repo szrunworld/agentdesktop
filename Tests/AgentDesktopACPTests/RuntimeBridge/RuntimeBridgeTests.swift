@@ -234,6 +234,20 @@ import Testing
         #expect(server.methodCalls("run.cancel").map(\.requestId) == ["acp-cancel-1", "acp-cancel-1"])
     }
 
+    @Test func lastCursorIsNilUntilTheRuntimeExposesIt() async throws {
+        let server = RTestRuntime()
+        server.addRun("run_c")
+        server.emit("run_c", "a")
+        let port = try RTest.port(server)
+        #expect(try await port.snapshot(runId: "run_c").lastCursor == nil)
+        server.exposeLastCursor = true
+        #expect(try await port.snapshot(runId: "run_c").lastCursor == 1)
+    }
+
+    @Test func callerIsNotVerifiedBeforeA4() async throws {
+        #expect(try await RTest.port(RTestRuntime()).caller().verified == false)
+    }
+
     @Test func snapshotOfUnknownRunThrowsNotFound() async throws {
         let server = RTestRuntime()
         let port = try RTest.port(server)
@@ -295,6 +309,11 @@ import Testing
         let got = try await RTest.collect(port.events(runId: run.runId, after: nil))
         #expect(got.map(\.cursor) == [1, 2, 3, 4])
         #expect(got.last?.type == "run.ended")
+        // The whole RunEvent reaches the projector: timestamp, sequence, data.
+        #expect(got[0].payload["at"] == .string("2026-10-08T00:00:00Z"))
+        #expect(got[0].payload["sequence"]?.intValue == 1)
+        #expect(got[0].payload["runId"] == .string(run.runId))
+        #expect(got[0].payload["data"]?["n"]?.intValue == 1)
         // The control connection was never subscribed (it owns a live Run).
         let control = server.methodCalls("unit.run")[0].connection
         #expect(!server.methodCalls("events.subscribe").contains { $0.connection == control })
@@ -394,53 +413,97 @@ import Testing
 }
 
 @Suite struct RuntimeBridgeExecutorTests {
-    @Test func aBlockedCallTimesOutWithoutBlockingTheCaller() async throws {
+    /// No wall-clock bound: the blocked call cannot finish before the test
+    /// opens its gate, so getting `ACPBridgeTimeout` proves the timeout fired
+    /// while the job queue was still occupied. How late the caller resumes
+    /// depends on the cooperative pool, which other suites may keep busy.
+    @Test func aBlockedCallTimesOutWhileItIsStillBlocked() async throws {
         let ex = ACPBridgeExecutor(label: "rtest")
-        let start = Date()
+        let gate = DispatchSemaphore(value: 0)
+        let finished = RTestFlag(), fired = RTestFlag()
+        ex.onTimeout = { _ in fired.set() }
         do {
-            // The blocked call sleeps far longer than the bound below, so the
-            // check stays meaningful on a loaded machine (0.903 s seen at 1 s).
-            _ = try await ex.run(timeout: 0.1) { Thread.sleep(forTimeInterval: 4); return 1 }
+            _ = try await ex.run(timeout: 0.05) {
+                _ = gate.wait(timeout: .now() + 60)
+                finished.set()
+                return 1
+            }
             Issue.record("no timeout")
         } catch is ACPBridgeTimeout {}
-        #expect(Date().timeIntervalSince(start) < 2.5)
+        #expect(fired.value)
+        #expect(!finished.value)
+        gate.signal()
+        // The queue goes on: the next job runs after the released one.
+        let next = try await ex.run(timeout: 60) { finished.value }
+        #expect(next)
+    }
+
+    @Test func aTimerOfOneExecutorIsNotHeldUpByAnotherBlockedExecutor() async throws {
+        let a = ACPBridgeExecutor(label: "rtest-a"), b = ACPBridgeExecutor(label: "rtest-b")
+        let gate = DispatchSemaphore(value: 0)
+        defer { gate.signal(); gate.signal() }
+        async let blocked: Int? = try? a.run(timeout: 60) { _ = gate.wait(timeout: .now() + 60); return 1 }
+        do {
+            _ = try await b.run(timeout: 0.05) { _ = gate.wait(timeout: .now() + 60); return 2 }
+            Issue.record("no timeout")
+        } catch is ACPBridgeTimeout {}
+        gate.signal(); gate.signal()
+        #expect(await blocked == 1)
     }
 
     @Test func submitThatOutlivesTheTimeoutIsUnconfirmedThenRecovered() async throws {
         let server = RTestRuntime()
         server.methods.append("unit.run")
-        let slow = SlowFactory(server: server)
+        let slow = RTestSlowFactory(server: server)
         var config = ACPBridgeConfiguration()
-        config.callTimeout = 0.1
+        config.callTimeout = 0.05
         config.uid = 501
-        let port = ACPBridgeRuntimePort(makeClient: slow.factory, log: try ACPSubmissionLog(path: RTest.tempLogPath()), config: config)
+        let path = RTest.tempLogPath()
+        let log = try ACPSubmissionLog(path: path)
+        let port = ACPBridgeRuntimePort(makeClient: slow.factory, log: log, config: config)
         #expect(try await port.submit(RTest.submission()) == .unconfirmed)
-        try await Task.sleep(nanoseconds: 1_000_000_000)
-        slow.delay = 0
+        slow.open()
+        // The timed-out job still records the Runtime's answer.
+        for _ in 0..<600 where log.entry("sess-1/prompt-1")?.state != .accepted {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(log.entry("sess-1/prompt-1")?.state == .accepted)
         let r = try await port.submit(RTest.submission())
         guard case .duplicate = r else { Issue.record("\(r)"); return }
         #expect(server.methodCalls("unit.run").count == 1)
     }
 }
 
-/// Clients whose calls block for `delay` seconds first.
-final class SlowFactory: @unchecked Sendable {
+final class RTestFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var on = false
+    func set() { lock.lock(); on = true; lock.unlock() }
+    var value: Bool { lock.lock(); defer { lock.unlock() }; return on }
+}
+
+/// Clients whose calls wait until `open()`.
+final class RTestSlowFactory: @unchecked Sendable {
     let server: RTestRuntime
-    var delay: Double = 0.3
+    private let gate = DispatchSemaphore(value: 0)
+    private let opened = RTestFlag()
     init(server: RTestRuntime) { self.server = server }
+    func open() { opened.set(); gate.signal() }
+    func waitIfClosed() {
+        if !opened.value { _ = gate.wait(timeout: .now() + 60); gate.signal() }
+    }
     var factory: ACPBridgeClientFactory {
         { [self] role in RTestSlowClient(server: server, role: role, owner: self) }
     }
 }
 
 final class RTestSlowClient: RTestClient {
-    let owner: SlowFactory
-    init(server: RTestRuntime, role: ACPBridgeConnectionRole, owner: SlowFactory) {
+    let owner: RTestSlowFactory
+    init(server: RTestRuntime, role: ACPBridgeConnectionRole, owner: RTestSlowFactory) {
         self.owner = owner
         super.init(server: server, role: role)
     }
     override func call(_ request: RuntimeRequest) throws -> JSONValue {
-        if owner.delay > 0 { Thread.sleep(forTimeInterval: owner.delay) }
+        owner.waitIfClosed()
         return try super.call(request)
     }
 }

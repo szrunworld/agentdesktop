@@ -70,7 +70,8 @@ public final class ACPBridgeRuntimePort: ACPRuntimePort, @unchecked Sendable {
             let principal = "local:\(self.config.uid)"
             let conn = self.runConnectionId.flatMap { $0.instanceId == id.instanceId ? $0.connectionId : nil }
                 ?? "unissued:\(id.instanceId)"
-            return ACPCaller(principalId: principal, clientId: principal, connectionId: conn)
+            // Not authenticated by a Runtime-issued principal yet (R4).
+            return ACPCaller(principalId: principal, clientId: principal, connectionId: conn, verified: false)
         }
     }
 
@@ -333,12 +334,17 @@ public final class ACPBridgeRuntimePort: ACPRuntimePort, @unchecked Sendable {
         }
     }
 
+    /// The Run field that carries its last event sequence once the Runtime
+    /// exposes it (07-runtime-requests.md R10); absent today, so nil.
+    static let lastCursorField = "lastEventSequence"
+
     /// The ADR v2.2 axes of a runtime/1 `Run`.
     static func snapshot(_ run: JSONValue) -> ACPRunSnapshot? {
         guard let id = run["runId"]?.stringValue, let phase = run["phase"]?.stringValue,
               let quiescence = run["quiescence"]?.stringValue, let lifetime = run["lifetime"]?.stringValue
         else { return nil }
         return ACPRunSnapshot(runId: id, phase: phase, outcome: run["outcome"]?.stringValue,
-                              quiescence: quiescence, lifetime: lifetime)
+                              quiescence: quiescence, lifetime: lifetime,
+                              lastCursor: run[lastCursorField]?.intValue)
     }
 }
