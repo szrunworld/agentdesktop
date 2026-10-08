@@ -1,6 +1,6 @@
 # ACP 测试与验收（工作线 Q）
 
-状态：2026-10-08 第五轮（acp-skeleton f150e0b）。168 个用例：PASSED 37、FAILED 0、BLOCKED 13、NOT_RUN 118。PASSED 只在 L1（假编辑器对 dev 入口、真 ACP 栈配脚本化 Runtime）与 L2 只读冒烟（测试副本，无 unit.run）上；任何需要 A2/A4/A6 或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4～4.6 节。
+状态：2026-10-08 第六轮（acp-skeleton f70a9f6，A2 之后）。168 个用例：PASSED 40、FAILED 0、BLOCKED 12、NOT_RUN 116。PASSED 只在 L1（假编辑器对 dev 入口、真 ACP 栈配脚本化 Runtime、代码检查）与 L2 只读（测试副本，无 unit.run、不建 Desktop）上；任何需要 A4/A6、真实 GUI 动作或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4～4.7 节。
 
 ## 一、分层（Kevin 裁决附加约束 6）
 
@@ -103,7 +103,7 @@
 
 | 门禁 | 用例 | L1 | L2 | L3 | PASSED | FAILED | BLOCKED |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| G0 | 6 | 2 | 4 | 0 | 0 | 0 | 1 |
+| G0 | 6 | 2 | 4 | 0 | 3 | 0 | 0 |
 | G1 | 56 | 32 | 11 | 13 | 22 | 0 | 0 |
 | G2 | 52 | 36 | 11 | 5 | 9 | 0 | 10 |
 | G3 | 51 | 28 | 12 | 11 | 8 | 0 | 2 |
@@ -212,7 +212,7 @@ AgentDesktop profile 的 `features` 随依赖合入逐项打开：A6（任务入
 | t01b、t02b、t06b | FAIL | 同 L1 的三个问题，真实模式下表现相同 |
 | 其余 | BLOCKED | 缺 task.slow（A6）、审批（PR4）、第二身份（A4） |
 
-另外：测试副本仍同时监听 `side.runtime.sock` 与 `side.ai.sock`（`side/listeners.txt`），A2 之前 ACP-T18-01 保持 BLOCKED。
+另外：测试副本当时仍同时监听 `side.runtime.sock` 与 `side.ai.sock`（`side/listeners.txt`），所以 A2 之前 ACP-T18-01 保持 BLOCKED；A2 之后的结果见 4.7 节。
 
 
 ### 4.5 第三轮：#83、#85、#86 合入后复跑（2026-10-08，acp-skeleton 136eb61）
@@ -277,6 +277,46 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 
 观察（交 S 线，不算失败）：P2 实时过程最后一条轮询状态文字仍是旧措辞「结果待核实（不会自动重试）」，没有统一成裁决 P2 的「结果未知 · 需要核实」（见 p2-unknown-live.ndjson 末尾）。
 
+### 4.7 第六轮：A2 之后的 L2 只读复跑与单一端点核对（2026-10-08，acp-skeleton f70a9f6，含 #84、#94）
+
+宿主包（`scripts/bundle-app.sh`）和 dev 入口都由 f70a9f6 构建，退出码都是 0。测试副本放在 `/tmp/adt-acp-q6`，用 `open -n --env AGENTDESKTOP_SOCKET=…/side.sock` 启动。
+
+- 按协调者的要求，**没有创建 Desktop 或虚拟屏，没有启动任何应用，没有 GUI 输入**。每条 CLI 查询都设了 10 秒超时，全程没有超时或卡住。
+- 测试副本使用文件凭据（`side.runtime/test-credentials`），没有写钥匙串。
+- 结束时 SIGTERM 停止测试副本，进程已退出，目录已删除。
+- 证据在 [evidence/l2-side-readonly-post-a2-2026-10-08](evidence/l2-side-readonly-post-a2-2026-10-08/)。
+
+**L2 只读复跑**（20 个场景，退出码 0）：
+
+- PASS：l2-readonly、t01、t01b、t02、t02b、t02c、t04、t05、t06、t06b。
+- BLOCKED：其余场景，原因不变，缺 task.slow（A6）、审批、第二身份、P1/P2 事件。
+- 跑完后 `desktop list` 与 `run list` 都为空。
+
+**单一端点（G0-01 / ACP-T18）**：
+
+| 观察 | 结果 |
+| --- | --- |
+| `lsof -U -a -p <宿主 pid>`，会话前与会话后各一次 | 两次都只有一个 unix socket：`side.runtime.sock` |
+| `lsof -i -a -p <宿主 pid>` | 没有网络监听 |
+| 测试副本目录 | 只有 `side.runtime.sock`、它的锁文件和记录目录；没有 `side.ai.sock`，没有引擎 `side.sock` |
+| 连接 `side.sock`、`side.ai.sock`、`control.sock` | 都是 ENOENT；只有 `side.runtime.sock` 能连上 |
+| `runtime capabilities` | 64 个方法，`ai.*` 都在 runtime/1 上；仍然没有 `unit.run` |
+
+用例状态变化：
+
+- ACP-T18-01：BLOCKED → **PASSED**（L2）。
+- ACP-T18-03：NOT_RUN → **PASSED**（L2）。
+- ACP-T18-05：NOT_RUN → **PASSED**（代码检查：ACP 源码只引用 Client 与 Protocol，唯一命中的是一行注释）。
+- ACP-T18-02 仍是 **NOT_RUN**：已观察到没有任何旧入口可连，但按用例要求编译旧引擎 CLI 并发点击属于真实 GUI 动作，本轮不做。
+- ACP-T18-04（MCP 写操作进入账本）要等 #29，仍是 NOT_RUN。
+
+**门禁变化**：
+
+- G0-01（单一监听）的 ACP 证据已齐：T18-01、T18-03 通过。是否在 06 中标 PASSED，由 D、协调者对照 G0-01 的原文（「目录里没有 ai.sock、旧引擎 socket」）判定。
+- G0-02 仍缺 T18-02 与 T18-04。
+- G0-09 的代码检查部分由 T18-05 提供。
+- 其余门禁没有变化，仍然没有任何端到端结论。
+
 ## 五、冻结接口一致性测试
 
 `Tests/AgentDesktopACPTests/Conformance/QTestFrozenModelConformanceTests.swift`：9 个 suite、22 个测试，只依赖 `Model/ACPModel.swift` 与 `Ports.swift`，在 `acp-skeleton` 上单独可编译。另有 `QTestStackRulingTests.swift`（2 个 suite、3 个测试）：用整套 ACP 代码、只把 Runtime 换成脚本化端口，验证裁决 P1、P2（见 4.6 节）。它依赖各线的实现，不属于冻结接口一致性。
@@ -305,7 +345,7 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 
 | 06 行 | 用例 |
 | --- | --- |
-| G0-01 单一监听 | ACP-T18-01 |
+| G0-01 单一监听 | ACP-T18-01、ACP-T18-03（A2 后 L2 已 PASSED，见 4.7） |
 | G0-02 MCP / 旧入口不绕过 | ACP-T18-02、ACP-T18-03、ACP-T18-04 |
 | G0-09 不建第二套执行与存储 | ACP-T09-03、ACP-T18-05 |
 | G0-12 协议版本互通 | ACP-T04-01、ACP-T04-02、ACP-T04-03（加 4.3 节对官方 SDK 的互通记录） |

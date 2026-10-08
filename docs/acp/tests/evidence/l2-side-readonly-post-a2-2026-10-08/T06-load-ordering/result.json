@@ -1,0 +1,22 @@
+{
+  "id": "T06-load-ordering",
+  "cases": [
+    "ACP-T06-09"
+  ],
+  "title": "session/load 先回放历史再回复；用户自己的输入以 user_message_chunk 回放（ACP v1 Loading Sessions）",
+  "status": "PASS",
+  "durationMs": 52,
+  "failures": [],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "/help",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 4,
+      "updatesAfterResponse": 0
+    }
+  ]
+}
