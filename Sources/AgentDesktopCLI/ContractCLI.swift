@@ -40,7 +40,7 @@ public struct ContractCLI {
                 stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) },
                 readFile: @escaping (String) throws -> Data = { try Data(contentsOf: URL(fileURLWithPath: $0)) },
                 environment: [String: String] = ProcessInfo.processInfo.environment,
-                send: @escaping (Data, String) -> FrameReader.Result = SocketClient.exchange,
+                send: @escaping (Data, String) -> FrameReader.Result = ContractOverRuntime.exchange,
                 readStdin: @escaping () -> Data = { FileHandle.standardInput.readDataToEndOfFile() },
                 nowMs: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1_000_000 },
                 sleepMs: @escaping (Int) -> Void = { usleep(useconds_t($0 * 1000)) },
@@ -84,12 +84,16 @@ public struct ContractCLI {
           5 cancelled, 6 stopped waiting, 130 interrupted.
     """
 
-    /// The product endpoint, unless AGENTDESKTOP_SOCKET (the side-instance
-    /// variable HostRole reads) names another.
+    /// The Runtime's single endpoint (A2): AGENTDESKTOP_ENDPOINT, else a
+    /// side instance's `<socket>.runtime.sock` from AGENTDESKTOP_SOCKET,
+    /// else the product's.
     public func defaultSocket() -> String {
-        if let p = environment["AGENTDESKTOP_SOCKET"], !p.isEmpty { return p }
+        if let p = environment["AGENTDESKTOP_ENDPOINT"], !p.isEmpty { return p }
+        if let p = environment["AGENTDESKTOP_SOCKET"], !p.isEmpty {
+            return URL(fileURLWithPath: p).deletingPathExtension().appendingPathExtension("runtime.sock").path
+        }
         let home = environment["HOME"] ?? NSHomeDirectory()
-        return home + "/Library/Application Support/AgentDesktop/control.sock"
+        return home + "/Library/Application Support/AgentDesktop/runtime.sock"
     }
 
     public func run(_ args: [String]) -> ExitCode {

@@ -49,6 +49,8 @@ public final class RuntimeService: @unchecked Sendable {
     /// Accessibility reads, off the main thread, the cooperative pool and
     /// every Desktop lock (RT-23A/B).
     public let axReader = AXReader()
+    /// Methods other in-process services answer on this endpoint (ai.*).
+    let extensions = ExtensionRegistry()
     /// How long one element read may take before an observation goes on
     /// with the screenshot alone (RT-23A).
     public var elementReadBudget: TimeInterval = 5
@@ -113,6 +115,21 @@ public final class RuntimeService: @unchecked Sendable {
             return .failure(requestId, .schemaInvalid("request breaks the Request schema", violations: violations))
         }
         let request = RuntimeRequest(validated: value)
+        if let spec = contract.method(request.method), spec.servedBy != nil {
+            guard connection.apiVersion != nil else {
+                return .failure(request.requestId, RuntimeError(
+                    "handshake_required", "send runtime.handshake first on each connection", phase: .handshake))
+            }
+            guard connection.subscription == nil else {
+                return .failure(request.requestId, RuntimeError(
+                    "conflict", "this connection carries an event subscription; use another connection or send events.unsubscribe",
+                    phase: .handler, details: .obj([("reason", .string("subscribed"))])))
+            }
+            guard let handler = extensions.handler(request.method) else {
+                return .failure(request.requestId, .capabilityMissing("\(request.method) is not available: the \(spec.servedBy!) is not running"))
+            }
+            return answerExtension(request, handler, on: connection)
+        }
         guard let spec = contract.method(request.method), let method = RuntimeMethod(rawValue: request.method),
               implemented(method) else {
             return .failure(request.requestId, .capabilityMissing("method \(request.method) is not available in this Runtime"))
@@ -215,8 +232,9 @@ public final class RuntimeService: @unchecked Sendable {
                 runs: execution.activeCount).json.setting("inputAdmission", .string(execution.inputAdmission.rawValue)))
 
         case .capabilities:
+            let served = extensions.names
             let methods = contract.methods
-                .filter { RuntimeMethod(rawValue: $0.method).map(implemented) ?? false }
+                .filter { RuntimeMethod(rawValue: $0.method).map(implemented) ?? served.contains($0.method) }
                 .map { JSONValue.obj([("method", .string($0.method)), ("mutation", .bool($0.mutation)),
                                       ("stage", .string($0.stage))]) }
             let perms = backend.permissions()
@@ -229,7 +247,7 @@ public final class RuntimeService: @unchecked Sendable {
                                           ("accessibility", .string(perms.accessibility.rawValue))])),
                     ("features", .array(backend.features().map(JSONValue.string))),
                 ])),
-            ]))
+            ] + extensions.capabilitySections()))
 
         case .desktopList:
             return .success(.obj([("desktops", .array(desktops.list().map(desktopJSON)))]))

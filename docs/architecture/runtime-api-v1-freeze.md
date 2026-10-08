@@ -85,11 +85,11 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | Run | unit.run | 🧊 | PR2 |
 | 事件 | events.subscribe / unsubscribe | ✅ | PR2e |
 | 产物 | artifact.show / read | ✅ | PR2c |
-| AI 配置 | ai.connections.list / get / create / update / disable / delete；ai.credentials.rotate | 🧊（实现已有，迁信封） | PR2 |
-| AI 模型 | ai.models.list / refresh；ai.modelProfiles.list / get / create / update / disable / delete | 🧊（同上） | PR2 |
-| GUI 参数 | ai.profiles.list / get / create / update / disable / delete / default.get / setDefault | 🧊（同上） | PR2 |
-| 能力检测 | ai.tests.start；ai.operations.get / cancel | 🧊（同上） | PR2 |
-| 用量 | ai.usage.summary | 🧊（同上） | PR2 |
+| AI 配置 | ai.connections.list / get / create / update / disable / delete；ai.credentials.rotate | ✅ PR2b-1（AI 服务经 Runtime 端点应答） | PR2b |
+| AI 模型 | ai.models.list / refresh；ai.modelProfiles.list / get / create / update / disable / delete | ✅ PR2b-1 | PR2b |
+| GUI 参数 | ai.profiles.list / get / create / update / disable / delete / default.get / setDefault | ✅ PR2b-1 | PR2b |
+| 能力检测 | ai.tests.start；ai.operations.get / cancel | ✅ PR2b-1 | PR2b |
+| 用量 | ai.usage.summary | ✅ PR2b-1 | PR2b |
 | Desktop 控制面 | desktop.stop / takeover / handback / closePlan / resize；app.quit；request.list / export | 🔖 | A5 |
 | 身份 | hub.pairing.start / status / approve / deny；hub.clients.list / show / revoke；hub.grants.list / set / revoke；hub.connections.list | 🔖 | PR3 |
 | Inbox | inbox.list / show / resolve；run.reconcile（unknown 核对） | 🔖 | PR4 |
@@ -121,13 +121,13 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | CREDENTIAL_REQUIRED / CREDENTIAL_REVOKED / AUTH_FAILED | model_unavailable（`details.reason` 原样小写） |
 | RATE_LIMITED / UPSTREAM_UNAVAILABLE / UPSTREAM_PROTOCOL_ERROR / MODEL_NOT_FOUND | model_unavailable（`retryable` 按原值，`details.retryAfterMs` 保留） |
 | DEADLINE_EXCEEDED | deadline_exceeded |
-| CANCELLED | 无错误：返回 Run，`outcome: cancelled` |
+| CANCELLED | Run 上：无错误，`outcome: cancelled`；单次请求被取消时：conflict（`details.reason: "cancelled"`） |
 | OPERATION_NOT_CANCELLABLE | conflict（`details.reason: "not_cancellable"`） |
 | DESKTOP_BUSY | control_busy |
 | STALE_OBSERVATION / STALE_GENERATION | stale_observation |
 | INVALID_ACTION / COORDINATE_OUT_OF_BOUNDS | invalid_target |
 | ACTION_OUTCOME_UNKNOWN | action_delivery_unknown |
-| VERIFICATION_FAILED | 无错误：Run `outcome: failed`，事件 `unit.verification` |
+| VERIFICATION_FAILED | Run 上：无错误，`outcome: failed`；单次请求时：execution_failed（`details.reason: "verification_failed"`） |
 | LIMIT_EXCEEDED | 新码 `limit_exceeded` |
 | USAGE_UNAVAILABLE | internal_error（`details.reason`） |
 | AUDIT_UNAVAILABLE | audit_unavailable（docs/plan/03 §3.5 起独立；同时暂停新输入） |
@@ -163,3 +163,15 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | PR2c | 产物按 ID 取：observe 去掉 `path`，实现 artifact.show/read，CLI/MCP/SDK 跟进 |
 | PR2d | `unit.run` 落到 RunStore：GuiExplorer 经 ExecutionCoordinator 执行，撤销 `gui.runs.*` 与 `gui_runs` 权威 |
 | PR2e | `events.subscribe`：同连接推送、主体过滤、游标恢复 |
+
+## 9. PR2b-1 落地说明（2026-10-08）
+
+- 宿主只监听一个端点（目前仍叫 `runtime.sock`；`control.sock` 这个名字等引擎侧不再用它时再改），**不再有 `ai.sock`**。
+- `ai.*` 由宿主里的 AI 服务应答，经 Runtime 注册为 `servedBy: "ai-service"` 的方法：
+  - 走同一信封、同一握手和订阅规则；
+  - 参数和结果按 ai-gui/v1 的定义校验，这些定义就是合同；
+  - 不进 Runtime 请求账本，因为 requestId 就是 AI 服务的幂等键，写操作要求 8–128 个字符；
+  - 错误按 §6 映射成小写码，原始码放在 `details.aiCode`。
+- ai/1 的 `runtime.capabilities` 并入 `runtime.capabilities` 的可选字段 `gui`。
+- `gui.runs.*` 在单一端点上**过渡保留**（`status: transitional`，`removedBy: A6`），unit.run 落地时删除，不是永久别名。
+- CLI 的 `rpc` / `ai` / `gui` 命令组暂时仍按 ai/1 组织请求，在客户端内部转换成 runtime/1 发到同一端点。PR2b-2 会把这些命令改成原生 runtime/1，并删除 CLI 和 Contracts 里的 ai/1 信封。

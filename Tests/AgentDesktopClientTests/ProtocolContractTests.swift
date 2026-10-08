@@ -39,15 +39,30 @@ let contract = RuntimeContract.shared
     }
 }
 
-@Test func methodCatalogMatchesTheImplementedMethods() {
-    #expect(Set(contract.methods.map(\.method)) == Set(RuntimeMethod.allCases.map(\.rawValue)))
-    for m in contract.methods {
+@Test func methodCatalogMatchesTheImplementedMethods() throws {
+    let own = contract.methods.filter { $0.servedBy == nil }
+    #expect(Set(own.map(\.method)) == Set(RuntimeMethod.allCases.map(\.rawValue)))
+    for m in own {
         let holds = !(contract.validate(.obj([]), m.params).contains { $0.contains("$ref") })
         #expect(holds, "\(m.params) missing")
         let writes: Set<String> = ["desktop.create", "desktop.destroy", "app.launch", "window.bind", "window.unbind",
                                    "session.open", "session.close", "act", "run.finish", "run.cancel",
                                    "runtime.stopAll", "runtime.enableInput"]
         #expect(m.mutation == writes.contains(m.method), "\(m.method)")
+    }
+    // Methods the AI service answers on the same endpoint: every ai/1
+    // operation but its runtime.capabilities, each resolvable there.
+    let served = contract.methods.filter { $0.servedBy != nil }
+    let ops = try StrictJSON.parse(Data(contentsOf: repoRoot.appendingPathComponent("contracts/ai-gui/v1/operations.json")))
+    let aiNames = Set((ops["operations"]?.arrayValue ?? []).compactMap { $0["command"]?.stringValue }).subtracting(["runtime.capabilities"])
+    #expect(Set(served.map(\.method)) == aiNames)
+    let aiDefs = try StrictJSON.parse(Data(contentsOf: repoRoot.appendingPathComponent("contracts/ai-gui/v1/rpc.schema.json")))["$defs"]
+    for m in served {
+        for ref in [m.params, m.result] {
+            let def = ref.components(separatedBy: "#/$defs/").last ?? ""
+            #expect(aiDefs?[def] != nil, "\(m.method): \(ref)")
+        }
+        #expect(m.servedBy == "ai-service")
     }
 }
 
@@ -133,7 +148,14 @@ let contract = RuntimeContract.shared
     let withdrawn = Set((doc["withdrawn"]?.arrayValue ?? []).compactMap { $0["method"]?.stringValue })
     #expect(withdrawn.contains("gui.runs.start"))
     #expect(Set(names).isDisjoint(with: withdrawn))
-    #expect(served.isDisjoint(with: withdrawn))
+    // Withdrawn names may still be served only as transitional, with a removal PR.
+    let lingering = served.intersection(withdrawn)
+    let methodsJSON = doc["methods"]?.arrayValue ?? []
+    for name in lingering {
+        let entry = methodsJSON.first { $0["method"]?.stringValue == name }
+        #expect(entry?["status"]?.stringValue == "transitional", "\(name)")
+        #expect(entry?["removedBy"]?.stringValue != nil, "\(name)")
+    }
 
     let aiDefs = try StrictJSON.parse(Data(contentsOf: repoRoot.appendingPathComponent("contracts/ai-gui/v1/rpc.schema.json")))["$defs"]
     for entry in catalog {

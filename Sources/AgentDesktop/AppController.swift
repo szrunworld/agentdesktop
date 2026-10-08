@@ -31,7 +31,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var runtimeServer: RuntimeServer?
     private var runtimeService: RuntimeService?
     /// The AI/GUI service and its endpoint.
-    private var aiServer: RpcSocketServer?
     private var aiService: AgentDesktopService?
     /// The main window and the Store it shows; the Store lives as long as
     /// the host, so closing the window changes nothing in the Runtime.
@@ -85,7 +84,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         store?.stop()
-        aiServer?.stop()
         runtimeServer?.stop()
         runtime.stop()
     }
@@ -103,7 +101,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// get the Runtime's ports only when real GUI input is switched on;
     /// otherwise gui.runs.start answers CAPABILITY_MISMATCH.
     private func startAIService(runtime: RuntimeService, records: String) {
-        let path = role.aiEndpoint.path
         let enabled = role.guiExecutionEnabled
         let credentialBackend = role.credentialBackend
         let ports = RuntimeGuiPorts(service: runtime)
@@ -121,17 +118,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
                     databasePath: records + "/ai.sqlite", credentials: credentials, executionBackend: backend))
-                let me = getuid()
-                let server = RpcSocketServer(path: path) { uid in
-                    uid == me ? service.router(callerScope: "uid:\(uid)", trustedOwner: true) : nil
-                }
-                try server.start()
+                // A2: one endpoint. The AI service answers ai.* through the
+                // Runtime's server; there is no ai.sock any more.
+                let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
+                runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
+                runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
                 await MainActor.run {
-                    self.aiServer = server
                     self.aiService = service
                     // The AI/GUI pages live in Settings and keep their
                     // contract v1 client until U6.
-                    let client = InProcessContractClient(router: service.router(callerScope: "uid:\(me)", trustedOwner: true))
+                    let client = InProcessContractClient(router: service.router(callerScope: "uid:\(getuid())", trustedOwner: true))
                     self.mainWindow.attachAISettings(AISettingsModel(client: client))
                 }
             } catch {
