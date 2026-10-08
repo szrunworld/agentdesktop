@@ -19,6 +19,9 @@
 客户端行为要点：
 
 - 会话：首次调用时 `POST /session`（W3C `capabilities.alwaysMatch/firstMatch`），之后复用；`rebuildSession()` 先尽力 `DELETE` 旧会话再建新会话；`adoptRunnerSession` 可接管 runner 已有会话（默认关闭）。
+- `POST /session` 按“会改变手机状态的命令”对待：`sessionCapabilities` 带 `bundleId` 时，建会话可能启动 App 或把它切到前台。请求发出后超时或断线，报 `delivery = unknown`（不是 `rejected`）；连接被拒等确定没发出的情况仍是 `notSent`。
+- 同一时刻只有一个建会话请求在跑，它只受 `sessionCreateTimeout` 约束，不继承发起者的 deadline；每个等待方（包括发起者）都按自己的 deadline 有界等待，超时报 `timeout / unknown`，建会话本身可能仍会完成并被缓存。
+- 观察 `observe()`：截图、窗口尺寸、scale、方向四次读取固定在同一个会话上，不会中途悄悄换会话；中途会话失效或代次变化，整次观察重拍一次，第二次仍变化则报 `sessionInvalid`，绝不把两个会话的截图和几何拼在一起。
 - 会话失效（W3C `invalid session id` 或旧式 status 6）：客户端丢弃会话。读操作（status、截图、元素树、几何）在新会话上**重试一次**；输入动作**从不重试、从不重放**，直接向调用方报 `sessionInvalid / rejected`，下一次调用自然落在新会话。
 - 手势全部走 W3C Actions（`POST /session/:id/actions`，单个 `touch` 指针 `finger1`）：
   - tap：move(0) → down → pause 50ms → up
@@ -29,7 +32,7 @@
 - 文本：`/wda/keys` 或 `/element/:eid/value`，按字素簇拆成数组（emoji 组合、国旗不会被拆开），请求体 UTF-8。文本里有换行默认拒绝（换行在 iOS 上等于按 Return，可能提交表单）；确需换行显式传 `allowLineBreaks`。
 - 其他：`/wda/apps/launch`（按 bundleId 启动）、`/wda/homescreen`（Home）、`/wda/activeAppInfo`、`/source`、`/screenshot`、`/window/size`、`/wda/screen`、`/orientation`、`/element`、`/element/:eid/click`。
 - 每个请求都有上限：配置的请求超时，被调用方 deadline 进一步缩短；整次往返用任务竞速限时（`URLRequest.timeoutInterval` 只是空闲超时）。deadline 已过则**不发送**。
-- 错误分类 `WDAErrorKind`：`runnerUnreachable`、`sessionInvalid`、`elementNotFound`、`timeout`、`unsupportedEndpoint`、`invalidArgument`、`wdaRejected`、`invalidResponse`。
+- 错误分类 `WDAErrorKind`：`runnerUnreachable`、`sessionInvalid`、`noSession`（没有会话且本次调用不允许新建，如 `probe()`）、`elementNotFound`、`timeout`、`unsupportedEndpoint`、`invalidArgument`、`wdaRejected`、`invalidResponse`。
 - 投递状态 `WDADeliveryState`：`notSent`（没发出去）、`rejected`（WDA 明确拒绝，命令没执行）、`accepted`（WDA 回了成功）、`unknown`（发出后超时/断线，或手势中途报错——**可能已经发生，不得自动重放**）。
 - 成功的输入返回 `WDAActionEvidence`，`delivery = accepted`、`effect = not_verified_by_client`。客户端从不声称效果已确认；是否生效由 Runtime 以新观察判定并写正式 ActionReceipt。
 
@@ -77,12 +80,18 @@
    日志出现 `ServerURLHere->http://<手机IP>:8100<-ServerURLHere` 表示 runner 已监听。
 8. 免费 Team：首次安装后在手机上信任开发者证书，再重复第 7 步。
 9. 把 8100 端口带到 Mac（第 4 节），执行 `curl http://127.0.0.1:8100/status`，应看到 `"ready": true`。
-10. 用本模块做只读探测（不会改变手机）：
+10. 用本模块做只读探测（探测本身不会改变手机；其中 `ensureSession()` 一行会建会话，是否执行由你决定）：
     ```swift
     let client = WDAClient(configuration: WDAConfiguration(
         baseURL: URL(string: "http://127.0.0.1:8100")!, deviceUDID: "<UDID>"))
+    // probe() 自己从不建会话（POST /session 可能启动 App）。没有会话时，
+    // 截图、元素树、手势路由都记为 unverified（证据写 noSession）。
+    // 要探测这些项，先显式建会话（或打开 adoptRunnerSession 接管 runner 已有会话）：
+    try await client.ensureSession()   // 带 bundleId 时可能启动 / 前台化该 App
     let report = await client.probe()
     // report.capabilities: screenshot / elementTree 直接观察到才是 supported；
+    // screenshot 只看截图路由本身；几何端点（window/size、wda/screen、orientation）缺失
+    // 只让 report.observationState 变成 unverified，不影响 screenshot 能力；
     // tap / swipe / drag / longPress / appLaunch 只证明路由存在，仍是 unverified；
     // unicodeText / home 不在探测里发送；audio 恒为 unsupported。
     ```
