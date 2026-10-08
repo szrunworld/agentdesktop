@@ -1,14 +1,14 @@
 # U8 菜单栏与退出：验收记录（2026-10-08）
 
-本分支叠在 U2a（#98）之上：菜单栏的「打开 Desktop 预览」要用 U2a 的预览窗口。
+本记录补充了基于 main fa2222f 的独立重测。#111 已同时整合 U2a（#98）和 U8，菜单栏 Desktop 入口现已接入独立预览窗口；当前组合测试结果见迁移整合记录。
 
 ## 自动化测试
 
 | 命令 | 退出码 | 结果 |
 | --- | --- | --- |
 | `swift build --build-tests` | 0 | — |
-| `swift test --filter 'QuitFlowTests\|MainWindowHostTests'` | 0 | 12 项通过 |
-| 本分支全量 `swift test` | **未跑完** | 跑之前，本机 WindowServer 已经不再接受新进程连接（见下文），任何建窗口或渲染的测试都会卡在连接 WindowServer 这一步 |
+| 全量 `swift test`（基于 main fa2222f，2026-10-08 重启后） | 0 | 479 项通过 |
+| 全量 `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test` | 0 | 479 项通过 |
 
 新增测试：
 
@@ -17,6 +17,7 @@
 | UC51 | `QuitFlowTests.uc51_quitWaitsForQuiescence` | `runtime.stopAll` 受理后，两个 Run 都还是 stopping/pending，退出流程停在「等待」；一个静止后还在等；两个都 ended + confirmed 才进入 quiet；`stopAll` 只调用一次 |
 | UC51 | `nothingRunningIsQuietAtOnce`、`cancelWhileStopping`、`stopFailureCanBeRetried` | 没有运行时立即可退出；取消后输入保持停止，不调用 `enableInput`；`stopAll` 失败可以重试 |
 | UC50 / UC51 | `MainWindowHostTests.quitChoices` | 隐藏主窗口、保留后台、取消：都回答「不退出」，不调用 `runtime.stopAll`，运行不变；停止输入并退出：Run 只在停止中时不回答，全部静止后才回答「退出」 |
+| P32 | `MainWindowHostTests.quitDialogDoesNotWaitForTheRuntime` | run.list 延迟 2 秒时退出对话框不等它：begin 1 秒内返回，运行数显示「正在读取」而不是 0，仍可取消 |
 | P31 | `panelStatusAndRenders`、`menuStatusLines` | 面板状态文字（正在连接 / 运行中 / 输入已停止）、摘要（含「N 个停止中」）；面板与退出对话框能渲染 |
 
 ## 严格协作线程池（LIBDISPATCH_COOPERATIVE_POOL_STRICT=1）
@@ -30,14 +31,13 @@
 | ActionResultTests、RunStatusTests、ProblemAndTokenTests、MockRuntimeTests、ShellStoreTests | 跑完，退出码 0 |
 | StateBadgeTests（以及其他要建窗口或离屏渲染的 suite） | **卡住**。用 `sample` 采样：主线程停在 `NSHostingView.init` → `NSApplication.sharedApplication` → `SLSMainConnection` → `mach_msg`，即进程第一次连接 WindowServer 就没有回应。同一时刻，一个只调用 `CGGetActiveDisplayList` 的小程序也会一直卡住，所以这不是严格模式或测试代码本身的问题，而是本机环境的问题，见下文 |
 
-`AgentDesktopUITests` 整体在严格模式下没有跑完（超过 5 分钟后手动结束），原因同上。环境恢复后需要重跑。
+`AgentDesktopUITests` 整体在严格模式下没有跑完（超过 5 分钟后手动结束），原因同上。机器重启、WindowServer 恢复后已全量重跑，见上表。
 
 ## 真机（测试副本，没有启动任何用户或系统应用）
 
 | 图 | 内容 |
 | --- | --- |
 | [real-p31-panel](real-p31-panel.jpg) | P31 面板：状态「运行中」、2 个 Desktop · 2 个运行进行中、打开主界面、每个 Desktop 的预览入口、停止所有输入、设置、退出 |
-| [real-p31-open-preview](real-p31-open-preview.jpg) | 从面板打开「退出验证 A」的预览窗口 |
 | [real-p31-input-stopped](real-p31-input-stopped.jpg) | 确认停止所有输入后：状态「输入已停止」，两个 exec Run 变为 ended/cancelled/confirmed，出现「恢复输入」 |
 
 **退出（P32 / UC51）没有完成真机验证。** 经过如下：
