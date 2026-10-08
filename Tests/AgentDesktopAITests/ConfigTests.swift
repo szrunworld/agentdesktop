@@ -625,3 +625,41 @@ struct EndpointTests {
         }
     }
 }
+
+// SEC-01: the configuration database and its directory are owner-only,
+// also when an earlier build left them readable.
+@Suite("Config store file modes")
+struct ConfigStoreFileModeTests {
+    func mode(_ path: String) throws -> Int {
+        (try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue ?? -1
+    }
+
+    @Test func newStoreIsOwnerOnly() async throws {
+        let parent = FileManager.default.temporaryDirectory.appendingPathComponent("adsec-\(UUID().uuidString)")
+        let dir = parent.appendingPathComponent("records")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let path = dir.appendingPathComponent("ai.sqlite").path
+        let store = try ConfigStore(path: path, credentials: InMemoryCredentialStore(), digestKey: Data(repeating: 7, count: 32))
+        _ = store
+        #expect(try mode(dir.path) == 0o700)
+        #expect(try mode(path) == 0o600)
+        for suffix in ["-wal", "-shm"] where FileManager.default.fileExists(atPath: path + suffix) {
+            #expect(try mode(path + suffix) == 0o600, "\(suffix)")
+        }
+    }
+
+    @Test func readableLeftoversAreTightened() async throws {
+        let h = try Harness()
+        defer { try? FileManager.default.removeItem(at: h.dir) }
+        let fm = FileManager.default
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: h.dir.path)
+        try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: h.path)
+        let wal = h.path + "-wal"
+        if fm.fileExists(atPath: wal) { try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: wal) }
+        let reopened = try h.reopened()
+        _ = reopened
+        #expect(try mode(h.dir.path) == 0o700)
+        #expect(try mode(h.path) == 0o600)
+        if fm.fileExists(atPath: wal) { #expect(try mode(wal) == 0o600) }
+    }
+}
