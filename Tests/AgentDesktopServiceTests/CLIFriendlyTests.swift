@@ -1,7 +1,7 @@
 import AgentDesktopClient
 import AgentDesktopCLI
 import AgentDesktopProtocol
-import AgentDesktopRuntime
+@testable import AgentDesktopRuntime
 import Foundation
 import Testing
 @testable import AgentDesktopService
@@ -59,9 +59,9 @@ let serviceTestOwner = ClientCredential(clientId: "local:\(getuid())", token: "a
 let ownerSend: @Sendable (JSONValue, String) -> TransportReply = { RuntimeTransport.exchange($0, path: $1, credential: serviceTestOwner) }
 
 func runtimeEndpoint(for service: AgentDesktopService, at path: String) throws -> RuntimeServer {
-    let runtime = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_svc", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_svc", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: NoDesktopBackend(), testSocketOwnerToken: serviceTestOwner.token)
+                                 backend: NoDesktopBackend(), testSocketOwnerToken: serviceTestOwner.token); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
     runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }

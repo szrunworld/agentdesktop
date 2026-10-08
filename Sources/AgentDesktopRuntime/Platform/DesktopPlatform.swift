@@ -166,6 +166,10 @@ public protocol DesktopPlatform: Sendable {
     /// On-screen normal windows that overlap the screen, front to back, as
     /// the window server orders them now.
     func stack(on screen: ScreenHandle) -> [PlatformWindow]
+    /// Write a PNG of the window alone, rendered by the window server
+    /// without anything in front of it, at the display's scale; its size in
+    /// pixels. Nothing else of the screen is captured or written.
+    func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int)
     /// Read the window's accessibility elements. The read replaces the
     /// backend's numbering for that window. Past `deadline` the backend
     /// reads no further node and returns what it has, marked truncated.

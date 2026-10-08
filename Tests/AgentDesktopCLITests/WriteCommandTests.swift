@@ -1,7 +1,7 @@
 import CryptoKit
 import AgentDesktopClient
 import AgentDesktopProtocol
-import AgentDesktopRuntime
+@testable import AgentDesktopRuntime
 import Foundation
 import Testing
 @testable import AgentDesktopCLI
@@ -151,6 +151,12 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
         try Data("png".utf8).write(to: URL(fileURLWithPath: path))
         return (1000, 700)
     }
+    /// Test double: the window alone, as the window's crop of this double's screen.
+    func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
+        return try screenshot(screen, cropTo: w.frame, to: path)
+    }
+
     func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
         try Data("png".utf8).write(to: URL(fileURLWithPath: path))
         return (Int(frame.width), Int(frame.height))
@@ -173,9 +179,9 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
     let path = dir + "/runtime.sock"
     let identity = RuntimeIdentity(instanceId: "rt_e2e", pid: getpid(), startedAt: Timestamp.string(Date()),
                                    endpoint: path, buildSource: "unknown")
-    let service = RuntimeService(identity: identity, backend: StubBackend(), platform: TinyPlatform(),
+    let service = try { let s = RuntimeService(identity: identity, backend: StubBackend(), platform: TinyPlatform(),
                                  ledger: try RequestLedger(path: dir + "/requests.sqlite"),
-                                 artifacts: try ArtifactStore(directory: dir + "/artifacts"), testSocketOwnerToken: cliTestOwner.token)
+                                 artifacts: try ArtifactStore(directory: dir + "/artifacts"), testSocketOwnerToken: cliTestOwner.token); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     try writeOwnerCredential(service, endpoint: path)
     let server = RuntimeServer(path: path, service: service)
     try server.start()

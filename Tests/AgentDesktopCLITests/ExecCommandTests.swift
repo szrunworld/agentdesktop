@@ -1,6 +1,6 @@
 import AgentDesktopClient
 import AgentDesktopProtocol
-import AgentDesktopRuntime
+@testable import AgentDesktopRuntime
 import Foundation
 import Testing
 @testable import AgentDesktopCLI
@@ -199,9 +199,9 @@ import Testing
     defer { try? FileManager.default.removeItem(atPath: dir) }
     let path = dir + "/runtime.sock"
     let platform = TinyPlatform()
-    let service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_exec", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let service = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_exec", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: StubBackend(), platform: platform, testSocketOwnerToken: cliTestOwner.token)
+                                 backend: StubBackend(), platform: platform, testSocketOwnerToken: cliTestOwner.token); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     try writeOwnerCredential(service, endpoint: path)
     let server = RuntimeServer(path: path, service: service)
     try server.start()

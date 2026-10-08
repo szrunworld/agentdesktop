@@ -43,6 +43,12 @@ final class FormPlatform: DesktopPlatform, @unchecked Sendable {
         lock.withLock { placed } && windowId == 11 ? window : nil
     }
     func stack(on screen: ScreenHandle) -> [PlatformWindow] { lock.withLock { placed } ? [window] : [] }
+    /// Test double: the window alone, as the window's crop of this double's screen.
+    func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
+        return try screenshot(screen, cropTo: w.frame, to: path)
+    }
+
     func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
         let w = Int(frame.width) * 2, h = Int(frame.height) * 2
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
@@ -125,9 +131,9 @@ final class Upstream: HTTPTransport, @unchecked Sendable {
 
 @Test func aGuiRunOfTheServiceIsExecutedByTheRuntime() async throws {
     let platform = FormPlatform()
-    let runtime = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_int", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_int", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: "/tmp/int.sock", buildSource: "unknown"),
-                                 backend: Backend(), platform: platform)
+                                 backend: Backend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let c = ConnectionState(peerUID: getuid())
     func rt(_ method: String, _ params: String = "{}") -> JSONValue? {
         let r = runtime.respond(to: Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(RuntimeRequest.newId())","method":"\#(method)","params":\#(params)}"#.utf8), on: c)
