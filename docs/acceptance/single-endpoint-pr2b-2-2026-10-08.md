@@ -71,3 +71,41 @@
 
 - 主窗口设置页没有做人工界面检查。自动化 UI 测试（PagesTests 等）全部通过；宿主启动后 AI 服务正常，`gui` 能力字段可读。
 - Windows 端不在本 PR 范围内。
+
+## 合并前补充：幂等语义检查（Kevin 2026-10-08 要求）
+
+问题：`--idempotency-key` 现在就是 runtime/1 的 requestId。要确认同一个键重复使用时，不会重复执行有副作用的操作；不同操作也不会因为用了同一个键，被错误地当成同一请求。
+
+检查结论：
+- 同键同参：AI 服务只执行一次，第二次返回第一次的结果。
+- 同键、同方法、不同参数：AI 服务返回 idempotency_conflict。
+- **同键用于另一个方法**：AI 服务的幂等表按（调用方, 方法, 键）登记，所以会被当作另一个请求执行。这不算“错误地当成同一请求”，但和 runtime/1 合同不一致：合同规定 requestId 在同一主体下唯一，Runtime 自己的方法遇到这种情况会返回冲突。
+
+修正：servedBy 的写操作也经过 Runtime 请求账本，账本按（uid, requestId）唯一，并对方法、上下文和参数做摘要。
+- 成功的结果记账，重放时直接返回；
+- 同一 requestId 换参数、换方法，或者和 Runtime 自己的写方法（如 `runtime.enableInput`）共用，一律返回 **idempotency_conflict**，不执行；
+- 服务明确失败（说明什么都没发生）时，账本删除这个键，和 AI 服务“失败即遗忘”的规则一致，可以用同一个键重试；
+- 结果未知（`request_acceptance_unknown`，比如 AI 服务超时没有应答）时保留记录，重试只会重放“未知”，**不会再执行**；
+- 并发的同键请求在账本里排队，只有一个真正执行。
+- 读操作不进账本。
+
+新增测试（SingleEndpointTests，全量连跑 3 次都通过）：
+
+| 测试 | 断言 |
+| --- | --- |
+| aKeyReusedForOtherParamsOrAnotherMethodIsRefusedAndRunsNothing | 同键换参数、换成另一个 AI 方法、换成 Runtime 写方法，都返回 idempotency_conflict；连接数仍为 1，模型配置数为 0；原请求仍然重放原来的结果 |
+| aWriteThatFailedCanBeRetriedWithItsKey | 失败的写操作不占用这个键，同键重试会再次执行，账本里没有记录 |
+| concurrentDuplicatesMakeOneWrite | 6 个连接并发发同一个键：只产生一个 connectionId，连接数为 1 |
+| anUnknownOutcomeStaysUnknownAndIsNeverRunAgain | 结果未知后同键重试：两次都返回 request_acceptance_unknown，处理函数只被调用 1 次 |
+
+真机（测试副本 /tmp/adt-idem，CLI）：
+
+| 步骤 | 结果 |
+| --- | --- |
+| `ai connections create … --idempotency-key idem-cli-0001`（A） | 成功，返回 conn_de41… |
+| 同一命令再执行一次 | 成功，返回同一个 conn_de41… |
+| 同一个键创建另一个连接（B，参数不同） | idempotency_conflict，退出码 4 |
+| 同一个键执行 `runtime enable-input --request-id idem-cli-0001` | idempotency_conflict，退出码 5 |
+| `ai connections list` | 只有 “Idem A” 一条 |
+
+测试修正：全量并行跑时，几个新测试在 async 测试里直接做同步 socket 调用，占住了 Swift 协作线程，而 AI 服务的处理也需要这些线程，于是超时。已改为在普通线程上调用，CLI 测试里的 `Task.detached` 也一并替换。产品中主窗口的进程内端口用的是 GCD 串行队列，Runtime 连接用的是专用线程，不受这个问题影响。

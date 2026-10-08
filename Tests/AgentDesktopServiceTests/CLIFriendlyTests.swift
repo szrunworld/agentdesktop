@@ -33,6 +33,12 @@ final class CLIRun: @unchecked Sendable {
     }
 }
 
+/// The CLI blocks on its socket: run it on a plain thread, never on the
+/// cooperative pool the service's async handlers need.
+func onThread<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
+    await withCheckedContinuation { c in Thread { c.resume(returning: body()) }.start() }
+}
+
 /// A Runtime that has no desktops: these tests need only its endpoint.
 struct NoDesktopBackend: RuntimeBackend {
     var platform: AgentDesktopProtocol.Platform { .init(os: "macos", osVersion: "15", arch: "arm64") }
@@ -71,7 +77,7 @@ final class Served: @unchecked Sendable {
     func run(_ r: CLIRun, _ args: [String]) async -> ExitCode {
         let cli = r.cli()
         let socket = socket
-        return await Task.detached { cli.run(["--json", "--socket", socket] + args) }.value
+        return await onThread { cli.run(["--json", "--socket", socket] + args) }
     }
 }
 

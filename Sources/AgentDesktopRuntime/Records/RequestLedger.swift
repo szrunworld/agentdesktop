@@ -107,6 +107,19 @@ public final class RequestLedger: @unchecked Sendable {
                         [.text(Timestamp.string(now())), .int(Int64(caller)), .text(requestId)])
     }
 
+    /// Drop a fresh request that certainly did nothing, so its requestId can
+    /// be retried; duplicates waiting on it then run as fresh.
+    public func forget(caller: uid_t, requestId: String) throws {
+        defer {
+            inFlight.lock()
+            running.remove("\(caller)/\(requestId)")
+            inFlight.broadcast()
+            inFlight.unlock()
+        }
+        try db.execute("DELETE FROM requests WHERE caller = ? AND request_id = ? AND state = 'accepted'",
+                       [.int(Int64(caller)), .text(requestId)])
+    }
+
     /// Store the outcome of a fresh request.
     public func finish(caller: uid_t, requestId: String, _ result: Result<JSONValue, RuntimeError>) throws {
         // Always wake duplicate callers, even when the outcome cannot be saved.
