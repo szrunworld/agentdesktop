@@ -54,7 +54,7 @@ struct NoDesktopBackend: RuntimeBackend {
 func runtimeEndpoint(for service: AgentDesktopService, at path: String) throws -> RuntimeServer {
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_svc", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: NoDesktopBackend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; return s }()
+                                 backend: NoDesktopBackend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; return s }()
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
     runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }

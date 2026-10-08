@@ -42,12 +42,15 @@ public final class ConnectionState: @unchecked Sendable {
 
     /// A connection RuntimeServer accepted on the socket. (A4 #137 adds the
     /// peer's pid and executable; until then they are not used.)
+    /// Until A4 pairing (#137) the socket client is "socket:<uid>": never
+    /// the owner, so it sees only its own Runs, events and artifacts.
     public init(socketPeer uid: uid_t, pid: pid_t? = nil, executable: String? = nil) {
         peerUID = uid
         origin = .socket
         connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
-        clientId = "local:\(uid)"
+        clientId = "socket:\(uid)"
     }
+
 }
 
 /// Turns one request line into one response line. Every method passes the
@@ -107,6 +110,10 @@ public final class RuntimeService: @unchecked Sendable {
     /// a window the user bound in the main window). Reading, cancelling and
     /// following a run stay open. Tests turn this off; the product never does.
     var socketGuiRunRequiresGrant = true
+    /// Until A4 (#137): a socket client is not the owner. It sees and uses
+    /// only the Desktops, Runs, events and artifacts socket clients made,
+    /// never the main window's. Tests turn this off; the product never does.
+    var socketsSeeOnlyTheirOwn = true
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date
@@ -179,7 +186,7 @@ public final class RuntimeService: @unchecked Sendable {
                     phase: .handler, details: .obj([("reason", .string("subscribed"))])))
             }
             // Before the ledger and the service: a refusal has no side effect.
-            if let refusal = extensionGrantRefusal(request.method, connection) {
+            if let refusal = extensionGrantRefusal(request.method, connection) ?? scopeRefusal(request, connection) {
                 return .failure(request.requestId, refusal)
             }
             guard let handler = extensions.handler(request.method) else {
@@ -210,7 +217,7 @@ public final class RuntimeService: @unchecked Sendable {
             return .failure(request.requestId, .schemaInvalid("params break \(spec.params)", violations: paramViolations))
         }
         // Before the ledger and the platform: a refusal has no side effect.
-        if let refusal = grantRefusal(method, connection) {
+        if let refusal = grantRefusal(method, connection) ?? scopeRefusal(request, connection) {
             return .failure(request.requestId, refusal)
         }
         let result: Result<JSONValue, RuntimeError>
@@ -237,7 +244,7 @@ public final class RuntimeService: @unchecked Sendable {
     private func ledgered(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let begin: RequestLedger.Begin
         do {
-            begin = try ledger.begin(caller: connection.peerUID, request)
+            begin = try ledger.begin(caller: callerKey(connection), request)
         } catch {
             execution.auditStorageFailed()
             return .failure(ExecutionCoordinator.auditError(notSent: true))
@@ -252,7 +259,7 @@ public final class RuntimeService: @unchecked Sendable {
                 if case .success = result { result = .failure(ExecutionCoordinator.auditError()) }
             }
             do {
-                try ledger.finish(caller: connection.peerUID, requestId: request.requestId, result)
+                try ledger.finish(caller: callerKey(connection), requestId: request.requestId, result)
             } catch {
                 execution.auditStorageFailed()
                 // A failure before dispatch can still say notSent. After
@@ -274,6 +281,13 @@ public final class RuntimeService: @unchecked Sendable {
         }
     }
 
+    /// The key requests and sessions are kept under: the uid for the host,
+    /// its complement for socket clients, so a socket client never reads the
+    /// host's request outcomes or uses the host's sessions (same uid).
+    func callerKey(_ c: ConnectionState) -> uid_t {
+        c.origin == .socket && socketsSeeOnlyTheirOwn ? ~c.peerUID : c.peerUID
+    }
+
     /// The until-grants refusals for socket clients. The message and details
     /// name no app, window, title or pid.
     func grantRefusal(_ method: RuntimeMethod, _ connection: ConnectionState) -> RuntimeError? {
@@ -292,9 +306,22 @@ public final class RuntimeService: @unchecked Sendable {
         }
     }
 
+    /// A socket client does not see the host's Desktops: one the main
+    /// window created is "not found" to it, before the ledger and the
+    /// handler, whether named in params or in context.
+    func scopeRefusal(_ request: RuntimeRequest, _ connection: ConnectionState) -> RuntimeError? {
+        guard connection.origin == .socket, socketsSeeOnlyTheirOwn else { return nil }
+        for id in [request.params["desktopId"]?.stringValue, request.context.desktopId].compactMap({ $0 }) {
+            if let d = desktops.find(id), d.createdBy == .host { return .notFound("no desktop \(id)") }
+        }
+        return nil
+    }
+
     /// The until-grants refusal for methods other services answer here.
+    /// Every GUI-run method: a socket client cannot start one, and the runs
+    /// that exist are the host's (observed and disclosed on its identity).
     func extensionGrantRefusal(_ method: String, _ connection: ConnectionState) -> RuntimeError? {
-        guard connection.origin == .socket, socketGuiRunRequiresGrant, method == "gui.runs.start" else { return nil }
+        guard connection.origin == .socket, socketGuiRunRequiresGrant, method.hasPrefix("gui.runs.") else { return nil }
         return RuntimeError("permission_denied", "starting a GUI run needs a GUI-run grant, which this client does not have",
                             phase: .handler, notSent: true,
                             details: .obj([("reason", .string("gui_run_requires_grant"))]))
@@ -342,7 +369,8 @@ public final class RuntimeService: @unchecked Sendable {
             ] + extensions.capabilitySections()))
 
         case .desktopList:
-            return .success(.obj([("desktops", .array(desktops.list().map(desktopJSON)))]))
+            let visible = desktops.list().filter { connection.origin == .host || !socketsSeeOnlyTheirOwn || $0.createdBy == .socket }
+            return .success(.obj([("desktops", .array(visible.map(desktopJSON)))]))
 
         case .desktopShow:
             return desktop(p["desktopId"]).map(desktopJSON)
@@ -357,7 +385,13 @@ public final class RuntimeService: @unchecked Sendable {
                                           includeOffscreen: p["includeOffscreen"]?.boolValue ?? false)
             return .success(.obj([("windows", .array(windows.map(\.json)))]))
 
-        case .desktopCreate: return createDesktop(p)
+        case .desktopCreate:
+            return createDesktop(p).map { created in
+                if connection.origin == .socket, let id = created["desktopId"]?.stringValue {
+                    desktops.find(id)?.createdBy = .socket
+                }
+                return created
+            }
         case .desktopDestroy: return destroyDesktop(p)
         case .appLaunch: return launchApp(p)
         case .windowBind: return bindWindow(p)

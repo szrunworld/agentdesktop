@@ -114,9 +114,124 @@ private func namesNothing(_ v: JSONValue) -> Bool {
         #expect(r["error"]?["details"]?["reason"]?.stringValue == "gui_run_requires_grant")
         #expect(r["error"]?["notSent"]?.boolValue == true)
     }
-    #expect(reached.lock.withLock { reached.methods }.isEmpty, "no GUI run was created")
+    // The runs that exist are the host's: reading them is refused too.
+    let get = try exchange(c, requestLine("gui.runs.get", id: "gg_1", params: #"{"runId":"gr_x"}"#))
+    #expect(get["error"]?["details"]?["reason"]?.stringValue == "gui_run_requires_grant")
+    #expect(reached.lock.withLock { reached.methods }.isEmpty, "no GUI service was reached")
     #expect(platform.calls == before, "nothing observed")
-    // Reading stays open.
-    _ = try exchange(c, requestLine("gui.runs.get", id: "gg_1", params: #"{"runId":"gr_x"}"#))
-    #expect(reached.lock.withLock { reached.methods } == ["gui.runs.get"])
+    #expect(try s.ledger.record(caller: ~getuid(), requestId: "gr_1") == nil, "nothing recorded")
+}
+
+/// Counts every backend read (apps, windows), to show a refusal reads none.
+struct CountingBackend: RuntimeBackend {
+    final class Count: @unchecked Sendable { let lock = NSLock(); var n = 0 }
+    var base = FixedBackend()
+    let count = Count()
+    var platform: Platform { base.platform }
+    func permissions() -> BackendPermissions { base.permissions() }
+    func features() -> [String] { base.features() }
+    func applications(includeBackground: Bool) -> [AppSummary] {
+        count.lock.withLock { count.n += 1 }
+        return base.applications(includeBackground: includeBackground)
+    }
+    func processIdentity(_ pid: Int32) -> ProcessIdentity { base.processIdentity(pid) }
+    func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
+        count.lock.withLock { count.n += 1 }
+        return base.windows(pid: pid, bundleId: bundleId, includeOffscreen: includeOffscreen)
+    }
+}
+
+@Test func aRefusalWritesNoLedgerEntryAndReadsNoBackend() throws {
+    let dir = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runtime.sock"
+    let backend = CountingBackend()
+    let platform = FakePlatform()
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_seal", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: path, buildSource: "unknown"),
+                           backend: backend, platform: platform)
+    let server = RuntimeServer(path: path, service: s)
+    try server.start()
+    defer { server.stop() }
+    let c = try RawConnection(path)
+    _ = try exchange(c, handshakeLine)
+    let d = try #require(try exchange(c, requestLine("desktop.create", id: "dc_9", params: "{}"))["data"]?["desktopId"]?.stringValue)
+    let reads = backend.count.lock.withLock { backend.count.n }
+    _ = try exchange(c, requestLine("app.launch", id: "al_9", params: #"{"desktopId":"\#(d)","bundleId":"com.apple.calculator"}"#))
+    _ = try exchange(c, requestLine("window.list", id: "wl_9"))
+    _ = try exchange(c, requestLine("app.list", id: "ap_9"))
+    #expect(backend.count.lock.withLock { backend.count.n } == reads, "no backend read")
+    #expect(try s.ledger.record(caller: ~getuid(), requestId: "al_9") == nil, "the refused write is not in the ledger")
+    #expect(try s.ledger.record(caller: ~getuid(), requestId: "dc_9") != nil, "a socket client's own write is, under its own key")
+}
+
+// b9's B1: what the main window created is not the socket client's.
+@Test func aSocketClientDoesNotSeeOrUseTheHostsDesktopsSessionsRequestsOrRuns() throws {
+    let platform = FakePlatform()
+    let (s, server, path, dir) = try sealedServer(platform)
+    defer { server.stop(); try? FileManager.default.removeItem(atPath: dir) }
+    // The main window, in-process: a Desktop with Notes launched and bound,
+    // a session, an observation, a request in the ledger.
+    let host = handshaken(s)
+    let hostDesk = try created(s, host, name: "main-window")
+    let launched = try #require(data(call(s, host, "app.launch", id: "host-launch",
+                                          params: #"{"desktopId":"\#(hostDesk)","bundleId":"com.apple.Notes"}"#)))
+    let pid = try #require(launched["process"]?["pid"]?.intValue)
+    #expect(data(call(s, host, "window.bind", params: #"{"desktopId":"\#(hostDesk)","pid":\#(pid)}"#)) != nil)
+    let hostSession = try #require(data(call(s, host, "session.open", params: #"{"desktopId":"\#(hostDesk)"}"#))?["sessionId"]?.stringValue)
+    let hostRun = try #require(data(call(s, host, "run.start", context: #"{"sessionId":"\#(hostSession)"}"#))?["run"]?["runId"]?.stringValue)
+
+    let c = try RawConnection(path)
+    _ = try exchange(c, handshakeLine)
+    let mine = try #require(try exchange(c, requestLine("desktop.create", id: "dc_mine", params: #"{"name":"mine"}"#))["data"]?["desktopId"]?.stringValue)
+    let list = try exchange(c, requestLine("desktop.list", id: "dl_1"))
+    let ids = list["data"]?["desktops"]?.arrayValue?.compactMap { $0["desktopId"]?.stringValue } ?? []
+    #expect(ids == [mine], "only its own Desktop: \(ids)")
+    #expect(!String(decoding: list.encodedData(), as: UTF8.self).contains("Notes"))
+
+    let before = platform.calls
+    func refused(_ method: String, _ params: String = "{}", context: String? = nil) throws -> String? {
+        var line = requestLine(method, id: "x_" + UUID().uuidString.prefix(8), params: params)
+        if let context { line = String(line.dropLast()) + #","context":"# + context + "}" }
+        return try exchange(c, line)["error"]?["code"]?.stringValue
+    }
+    let onHost = #"{"desktopId":"\#(hostDesk)"}"#
+    #expect(try refused("desktop.show", onHost) == "not_found")
+    #expect(try refused("session.open", onHost) == "not_found")
+    #expect(try refused("window.unbind", onHost) == "not_found")
+    #expect(try refused("desktop.destroy", onHost) == "not_found")
+    #expect(try refused("window.bind", #"{"desktopId":"\#(hostDesk)","pid":\#(pid)}"#) == "not_found")
+    #expect(try refused("observe", context: onHost) == "not_found")
+    #expect(try refused("observe", context: #"{"sessionId":"\#(hostSession)"}"#) == "not_found")
+    #expect(try refused("act", #"{"snapshotId":"obs_x","action":{"kind":"key","key":"escape"}}"#,
+                        context: #"{"sessionId":"\#(hostSession)"}"#) == "not_found")
+    #expect(try refused("request.show", #"{"requestId":"host-launch"}"#) == "not_found")
+    #expect(try refused("run.show", #"{"runId":"\#(hostRun)"}"#) == "not_found")
+    #expect(try refused("run.events", #"{"runId":"\#(hostRun)"}"#) == "not_found")
+    #expect(try refused("run.cancel", #"{"runId":"\#(hostRun)"}"#) == "not_found")
+    #expect(s.runs.find(hostRun)?.isEnded == false, "the host's run keeps running")
+    #expect(platform.calls == before, "nothing of the host's was touched: \(platform.calls.dropFirst(before.count))")
+    #expect(s.desktops.find(hostDesk)?.binding != nil, "the host's binding stays")
+}
+
+@Test func aBindRefusalDoesNotTellWhetherAPidExists() throws {
+    let platform = FakePlatform()
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_seal", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                           backend: NoSuchProcessBackend(), platform: platform)
+    let c = handshaken(s)
+    let d = try created(s, c)
+    let r = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":99999}"#)
+    #expect(failure(r)?.details?["reason"]?.stringValue == "bind_requires_grant")
+}
+
+/// A backend in which no process exists.
+struct NoSuchProcessBackend: RuntimeBackend {
+    var base = FixedBackend()
+    var platform: Platform { base.platform }
+    func permissions() -> BackendPermissions { base.permissions() }
+    func features() -> [String] { base.features() }
+    func applications(includeBackground: Bool) -> [AppSummary] { [] }
+    func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: nil) }
+    func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] { [] }
 }

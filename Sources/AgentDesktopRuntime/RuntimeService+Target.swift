@@ -20,7 +20,7 @@ extension RuntimeService {
             var details: [(String, JSONValue)] = [("reason", .string(reason)), ("generation", .int(b.generation)),
                                                   ("windowId", .int(Int(b.windowId)))]
             if let covering {
-                details += [("coveringWindowId", .int(Int(covering.windowId))), ("coveringPid", .int(Int(covering.pid)))]
+                details += [("coveringWindowId", .int(Int(covering.windowId)))]
             }
             return RuntimeError("stale_observation", message, phase: .handler, notSent: notSent, details: .obj(details))
         }
@@ -34,7 +34,7 @@ extension RuntimeService {
         let front = stack[..<index]
         if let cover = front.first(where: { Self.overlap($0.frame, window.frame) }) {
             throw refuse("occluded",
-                         "window \(cover.windowId) (\(cover.appName)) covers the bound window \(b.windowId); bind the window you mean, or move it away",
+                         "window \(cover.windowId) covers the bound window \(b.windowId); bind the window you mean, or move it away",
                          covering: cover)
         }
         // Keys go to the app's frontmost window, not to a window id: another
@@ -46,7 +46,7 @@ extension RuntimeService {
             let sibling = PlatformWindow(windowId: first.windowId, pid: b.process.pid, appName: first.appName,
                                          title: first.title ?? "", frame: first.frame)
             throw refuse("other_window_of_process_in_front",
-                         "\(first.appName) window \(first.windowId) is in front of the bound window \(b.windowId); bind it explicitly to use it",
+                         "window \(first.windowId) of the same app is in front of the bound window \(b.windowId); bind it explicitly to use it",
                          covering: sibling)
         }
         // The fingerprint compared around a capture: the windows that share

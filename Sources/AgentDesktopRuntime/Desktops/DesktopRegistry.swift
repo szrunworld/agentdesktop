@@ -41,6 +41,9 @@ public final class DesktopRecord: @unchecked Sendable {
     public internal(set) var state = "ready"
     /// Apps app.launch started here: the agent's, closed with the Desktop.
     public internal(set) var launched: [ProcessIdentity] = []
+    /// Who created it: the host's own window or a socket client. A socket
+    /// client sees and uses only Desktops socket clients created.
+    public internal(set) var createdBy: ConnectionOrigin = .host
 
     init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle, kind: DesktopKind = .virtual) {
         self.desktopId = desktopId
