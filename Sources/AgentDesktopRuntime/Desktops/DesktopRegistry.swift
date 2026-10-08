@@ -43,9 +43,11 @@ public final class DesktopRecord: @unchecked Sendable {
     public internal(set) var launched: [ProcessIdentity] = []
     /// Who created it: the host's own window or a socket client. A socket
     /// client sees and uses only Desktops socket clients created.
-    public internal(set) var createdBy: ConnectionOrigin = .host
+    public let createdBy: ConnectionOrigin
 
-    init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle, kind: DesktopKind = .virtual) {
+    init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle, kind: DesktopKind = .virtual,
+         createdBy: ConnectionOrigin = .host) {
+        self.createdBy = createdBy
         self.desktopId = desktopId
         self.name = name
         self.createdAt = createdAt
@@ -91,8 +93,7 @@ public final class DesktopRegistry: @unchecked Sendable {
     @discardableResult
     func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual,
              createdBy: ConnectionOrigin = .host) -> DesktopRecord {
-        let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen, kind: kind)
-        r.createdBy = createdBy
+        let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen, kind: kind, createdBy: createdBy)
         lock.withLock { desktops.append(r) }
         return r
     }

@@ -114,6 +114,20 @@ public final class RuntimeService: @unchecked Sendable {
     /// only the Desktops, Runs, events and artifacts socket clients made,
     /// never the main window's. Tests turn this off; the product never does.
     var socketsSeeOnlyTheirOwn = true
+    /// Until grants (PR3): a socket client may only read from the services
+    /// that answer on this endpoint (AI configuration and the like), from
+    /// an explicit list. Anything else they serve, including methods added
+    /// later or a write mislabelled as a read, is refused. Tests turn this
+    /// off; the product never does.
+    var socketExtensionsAreReadOnly = true
+    /// What a socket client may call on those services: reads that return
+    /// no secret and nothing of the main window's runs.
+    static let socketReadableExtensions: Set<String> = [
+        "ai.connections.list", "ai.connections.get", "ai.models.list",
+        "ai.modelProfiles.list", "ai.modelProfiles.get",
+        "ai.profiles.list", "ai.profiles.get", "ai.profiles.default.get",
+        "ai.operations.get", "ai.usage.summary",
+    ]
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date
@@ -186,7 +200,7 @@ public final class RuntimeService: @unchecked Sendable {
                     phase: .handler, details: .obj([("reason", .string("subscribed"))])))
             }
             // Before the ledger and the service: a refusal has no side effect.
-            if let refusal = extensionGrantRefusal(request.method, mutation: spec.mutation, connection) ?? scopeRefusal(request, connection) {
+            if let refusal = extensionGrantRefusal(request.method, connection) ?? scopeRefusal(request, connection) {
                 return .failure(request.requestId, refusal)
             }
             guard let handler = extensions.handler(request.method) else {
@@ -318,24 +332,23 @@ public final class RuntimeService: @unchecked Sendable {
     }
 
     /// The until-grants refusal for methods other services answer here.
-    /// Every GUI-run method: a socket client cannot start one, and the runs
-    /// that exist are the host's (observed and disclosed on its identity).
-    ///
-    /// And every change to the AI configuration (connections, model
-    /// profiles, profiles, credentials, tests, operations): it is global, and
-    /// pointing a connection elsewhere would send the main window's next GUI
-    /// run screenshots there. Reading stays open.
-    func extensionGrantRefusal(_ method: String, mutation: Bool, _ connection: ConnectionState) -> RuntimeError? {
-        guard connection.origin == .socket, socketGuiRunRequiresGrant else { return nil }
-        if method.hasPrefix("ai."), mutation {
-            return RuntimeError("permission_denied", "changing the AI configuration needs a grant, which this client does not have",
+    /// A GUI-run method: a socket client cannot start one, and the runs that
+    /// exist are the host's (observed and disclosed on its identity).
+    /// Anything else not on the explicit read list: the AI configuration is
+    /// global, and pointing a connection elsewhere would send the main
+    /// window's next GUI-run screenshots there.
+    func extensionGrantRefusal(_ method: String, _ connection: ConnectionState) -> RuntimeError? {
+        guard connection.origin == .socket else { return nil }
+        if method.hasPrefix("gui.runs.") {
+            guard socketGuiRunRequiresGrant else { return nil }
+            return RuntimeError("permission_denied", "GUI runs need a GUI-run grant, which this client does not have",
                                 phase: .handler, notSent: true,
-                                details: .obj([("reason", .string("ai_config_requires_grant"))]))
+                                details: .obj([("reason", .string("gui_run_requires_grant"))]))
         }
-        guard method.hasPrefix("gui.runs.") else { return nil }
-        return RuntimeError("permission_denied", "starting a GUI run needs a GUI-run grant, which this client does not have",
+        guard socketExtensionsAreReadOnly, !Self.socketReadableExtensions.contains(method) else { return nil }
+        return RuntimeError("permission_denied", "changing the AI configuration needs a grant, which this client does not have",
                             phase: .handler, notSent: true,
-                            details: .obj([("reason", .string("gui_run_requires_grant"))]))
+                            details: .obj([("reason", .string("ai_config_requires_grant"))]))
     }
 
     private func handle(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {

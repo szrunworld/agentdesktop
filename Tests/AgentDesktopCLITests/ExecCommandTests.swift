@@ -201,7 +201,7 @@ import Testing
     let platform = TinyPlatform()
     let service = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_exec", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: StubBackend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; return s }()
+                                 backend: StubBackend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
     let server = RuntimeServer(path: path, service: service)
     try server.start()
     defer { server.stop() }

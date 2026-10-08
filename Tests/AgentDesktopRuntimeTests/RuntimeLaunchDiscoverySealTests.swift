@@ -291,3 +291,58 @@ struct NoSuchProcessBackend: RuntimeBackend {
     #expect(code(call(s, host, "desktop.create", params: #"{"name":"客户资料"}"#)) == "conflict")
     #expect(data(call(s, host, "desktop.create", params: #"{"name":"另一个"}"#)) != nil)
 }
+
+// b9's third review: an allow list of reads, checked against every method
+// other services answer in the contract (a new namespace, or a write
+// mislabelled as a read, is refused to socket clients).
+@Test func everyServiceMethodOutsideTheReadListIsRefusedToSocketClients() throws {
+    let platform = FakePlatform()
+    let (s, server, path, dir) = try sealedServer(platform)
+    defer { server.stop(); try? FileManager.default.removeItem(atPath: dir) }
+    #expect(s.socketExtensionsAreReadOnly, "the product default")
+    let served = s.contract.methods.filter { $0.servedBy != nil }.map(\.method)
+    #expect(served.count >= 31, "\(served.count) service methods in the contract")
+    final class Count: @unchecked Sendable { let lock = NSLock(); var methods: [String] = [] }
+    let reached = Count()
+    let handler: ExtensionMethod = { call in
+        reached.lock.withLock { reached.methods.append(call.method) }
+        return .success(.obj([]))
+    }
+    s.registerExtensions(Dictionary(uniqueKeysWithValues: served.map { ($0, handler) }))
+    let c = try RawConnection(path)
+    _ = try exchange(c, handshakeLine)
+    for (i, method) in served.enumerated() {
+        let r = try exchange(c, requestLine(method, id: "sv_\(i)", params: "{}"))
+        let reason = r["error"]?["details"]?["reason"]?.stringValue
+        if RuntimeService.socketReadableExtensions.contains(method) {
+            #expect(reason == nil, "\(method) is a listed read")
+        } else {
+            #expect(r["error"]?["code"]?.stringValue == "permission_denied", "\(method)")
+            #expect(reason == (method.hasPrefix("gui.runs.") ? "gui_run_requires_grant" : "ai_config_requires_grant"), "\(method)")
+            #expect(try s.ledger.record(caller: ~getuid(), requestId: "sv_\(i)") == nil, "\(method) not recorded")
+        }
+    }
+    let got = Set(reached.lock.withLock { reached.methods })
+    #expect(got.isSubset(of: RuntimeService.socketReadableExtensions), "only listed reads reached a service: \(got)")
+    // Every listed read exists in the contract and is marked as a read.
+    for m in RuntimeService.socketReadableExtensions {
+        #expect(s.contract.method(m).map { $0.servedBy != nil && !$0.mutation } == true, "\(m)")
+    }
+}
+
+@Test func stopAllStopsEveryRunButTellsASocketClientOnlyOfItsOwn() throws {
+    let platform = FakePlatform()
+    let (s, server, path, dir) = try sealedServer(platform)
+    defer { server.stop(); try? FileManager.default.removeItem(atPath: dir) }
+    let host = handshaken(s)
+    let hostDesk = try created(s, host)
+    let hostSession = try #require(data(call(s, host, "session.open", params: #"{"desktopId":"\#(hostDesk)"}"#))?["sessionId"]?.stringValue)
+    let hostRun = try #require(data(call(s, host, "run.start", context: #"{"sessionId":"\#(hostSession)"}"#))?["run"]?["runId"]?.stringValue)
+    let c = try RawConnection(path)
+    _ = try exchange(c, handshakeLine)
+    let r = try exchange(c, requestLine("runtime.stopAll", id: "sa_2", params: #"{"scope":"all_platform_runs"}"#))
+    #expect(r["ok"]?.boolValue == true)
+    #expect(r["data"]?["runs"]?.arrayValue?.isEmpty == true, "the host's run is not listed: \(r)")
+    #expect(!String(decoding: r.encodedData(), as: UTF8.self).contains(hostRun))
+    #expect(s.runs.find(hostRun).map { $0.phase.rawValue != "running" } == true, "but it was stopped")
+}

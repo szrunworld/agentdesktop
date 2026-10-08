@@ -79,9 +79,9 @@ extension RuntimeService {
                     wanted = nil
                 }
                 let screen = try platform.attachDisplay(wanted)
-                if let other = desktops.physical(displayId: screen.displayId) {
-                    return .failure(RuntimeError("conflict", "desktop \(other.desktopId) already attaches display \(screen.displayId)",
-                                                 phase: .handler, details: .obj([("desktopId", .string(other.desktopId))])))
+                if desktops.physical(displayId: screen.displayId) != nil {
+                    return .failure(RuntimeError("conflict", "another desktop already attaches display \(screen.displayId)",
+                                                 phase: .handler))
                 }
                 let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical, createdBy: origin)
                 return .success(desktopJSON(d))

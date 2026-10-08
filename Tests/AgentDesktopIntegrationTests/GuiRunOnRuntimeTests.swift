@@ -133,7 +133,7 @@ final class Upstream: HTTPTransport, @unchecked Sendable {
     let platform = FormPlatform()
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_int", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: "/tmp/int.sock", buildSource: "unknown"),
-                                 backend: Backend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; return s }()
+                                 backend: Backend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
     let c = ConnectionState(peerUID: getuid())
     func rt(_ method: String, _ params: String = "{}") -> JSONValue? {
         let r = runtime.respond(to: Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(RuntimeRequest.newId())","method":"\#(method)","params":\#(params)}"#.utf8), on: c)
