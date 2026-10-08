@@ -414,18 +414,10 @@ enum CurTestReal {
         ProcessInfo.processInfo.environment["CURTEST_REAL_RUN_ID"].flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    struct NotATestCopy: Error, CustomStringConvertible {
-        let path: String
-        var description: String { "refusing \(path): Real cursor tests only connect to a test copy under /tmp/adt-*" }
-    }
+    typealias NotATestCopy = ACPTestEndpointGuard.NotATestCopy
 
-    /// Allowlist, not a denylist, and it throws: a failed check must stop the
-    /// test before any connection (independent review C-1 on #130).
-    static func checkedEndpoint(_ raw: String) throws -> String {
-        let resolved = URL(fileURLWithPath: raw).resolvingSymlinksInPath().standardizedFileURL.path
-        guard resolved.hasPrefix("/tmp/adt-") || resolved.hasPrefix("/private/tmp/adt-") else { throw NotATestCopy(path: raw) }
-        return raw
-    }
+    /// Shared allowlist (ACPTestEndpointGuard); kept as a name for the cursor tests.
+    static func checkedEndpoint(_ raw: String) throws -> String { try ACPTestEndpointGuard.check(raw) }
 
     static func factory() throws -> ACPBridgeClientFactory {
         let path = try checkedEndpoint(try #require(endpoint))

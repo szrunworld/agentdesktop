@@ -23,12 +23,12 @@ final class A4TestLiveConnection {
     private(set) var principal: JSONValue?
 
     static func endpoint() throws -> String {
-        guard let path = ProcessInfo.processInfo.environment["AGENTDESKTOP_A4_TEST_ENDPOINT"],
-              path.hasPrefix("/tmp/adt-") || path.hasPrefix("/private/tmp/adt-") else {
+        guard let path = ProcessInfo.processInfo.environment["AGENTDESKTOP_A4_TEST_ENDPOINT"] else {
             throw RuntimeError("invalid_argument", "set AGENTDESKTOP_A4_TEST_ENDPOINT to a /tmp/adt-* scratch socket",
                                phase: .local)
         }
-        return path
+        // realpath-based allowlist: a /tmp/adt-* symlink or `..` cannot reach the product endpoint.
+        return try ACPTestEndpointGuard.check(path)
     }
 
     init() throws { transport = try UnixSocketTransport(path: try Self.endpoint(), timeout: 5) }

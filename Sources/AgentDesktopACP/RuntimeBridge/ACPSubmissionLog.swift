@@ -78,11 +78,14 @@ public final class ACPSubmissionLog: @unchecked Sendable {
                   let state = item["state"]?.stringValue.flatMap(State.init(rawValue:)),
                   let at = item["updatedAt"]?.stringValue
             else { throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: path]) }
-            if let d = Self.date(at), d < cutoff { continue }
+            // Check sensitive fields before the retention skip, and rewrite
+            // the file whenever an entry is dropped, so nothing expired stays
+            // on disk either (Codex review P1 on #141).
             if item["refusalMessage"] != nil { scrub = true }
             let rawCode = item["refusalCode"]?.stringValue
             let code = rawCode.map(ACPRedactor.errorCode)
             if rawCode != code { scrub = true }
+            if let d = Self.date(at), d < cutoff { scrub = true; continue }
             entries[key] = Entry(submissionKey: key, requestId: rid, method: method, state: state,
                                  runId: item["runId"]?.stringValue, refusalCode: code,
                                  refusalMessage: nil, updatedAt: at)
@@ -171,9 +174,14 @@ public final class ACPSubmissionLog: @unchecked Sendable {
         return f.string(from: d)
     }
 
+    /// Accepts timestamps with or without fractional seconds. An entry whose
+    /// time cannot be read is kept (dropping it could allow a resend), but
+    /// its sensitive fields are still scrubbed on load.
     private static func date(_ s: String) -> Date? {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return d }
+        f.formatOptions = [.withInternetDateTime]
         return f.date(from: s)
     }
 }

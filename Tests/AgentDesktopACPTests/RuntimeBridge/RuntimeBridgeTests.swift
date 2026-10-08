@@ -211,6 +211,21 @@ import Testing
         #expect(log.entry("sess-1/prompt-1")?.refusalCode == "unlisted_error")
     }
 
+    /// Codex review P1 on #141: an expired pre-fix entry must not keep its
+    /// clear text on disk just because the retention check skips it.
+    @Test func anExpiredPreFixEntryIsRemovedFromDisk() throws {
+        let secret = "sk-live-CANARY-expired-5d0e"
+        let path = RTest.tempLogPath()
+        try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let legacy = #"{"version":1,"entries":[{"submissionKey":"old/prompt","requestId":"acp-sub-old","method":"unit.run","state":"refused","refusalCode":"weird_OLD","refusalMessage":"token=\#(secret)","updatedAt":"2000-01-01T00:00:00Z"}]}"#
+        try legacy.write(toFile: path, atomically: true, encoding: .utf8)
+        let log = try ACPSubmissionLog(path: path)
+        #expect(log.entry("old/prompt") == nil)
+        let onDisk = try String(contentsOfFile: path, encoding: .utf8)
+        let leaked = onDisk.contains(secret) || onDisk.contains("weird_OLD") || onDisk.contains("old/prompt")
+        #expect(!leaked, "an expired legacy entry stayed on disk")
+    }
+
     @Test func certainlyNotSentMayBeSentLater() async throws {
         let server = RTestRuntime()
         server.methods.append("unit.run")
