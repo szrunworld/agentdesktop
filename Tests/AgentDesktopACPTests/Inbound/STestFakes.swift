@@ -136,7 +136,13 @@ final class STestRuntime: ACPRuntimePort, @unchecked Sendable {
         return c
     }
 
-    func tasks() async throws -> [ACPExposedTask] { taskList.get() }
+    /// Delay of `tasks()`, e.g. a slow real Runtime.
+    let tasksDelay = STestLocked<Duration>(.zero)
+    func tasks() async throws -> [ACPExposedTask] {
+        let d = tasksDelay.get()
+        if d > .zero { try? await Task.sleep(for: d) }
+        return taskList.get()
+    }
 
     func submit(_ s: ACPSubmission) async throws -> ACPSubmissionReceipt {
         submissions.with { $0.append(s) }
