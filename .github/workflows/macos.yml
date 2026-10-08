@@ -29,8 +29,10 @@ jobs:
       - name: Build
         run: swift build -c release
       - name: Product unit tests
+        timeout-minutes: 8
         run: swift test
       - name: Native core unit tests
+        timeout-minutes: 8
         run: swift test --package-path engine
       - name: Bundle the app
         run: ./scripts/bundle-app.sh
