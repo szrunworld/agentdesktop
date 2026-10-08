@@ -17,6 +17,17 @@ struct ACPHistoryScrubTests {
         "a\nhunter2 b：状态待核实（不会自动重试）",
         "hunter2\n任务 run-1 已结束：阶段 ended：状态待核实（不会自动重试）",
         "任务 run-1 已结束：阶段 ended\nhunter2：阶段 x",
+        // b9, fourth review: a known run id followed by anything.
+        "run-1：状态待核实hunter2",
+        "run-1：阶段 hunter2 secret",
+        "run-1：阶段 ended\u{2028}hunter2：状态待核实（不会自动重试）",
+        "任务 run-1 已结束：阶段 ended，hunter2",
+        "正在停止任务 run-2：阶段 stopping，输入静止 hunter2 x",
+        // Every newline character, not only "\n".
+        "run-1：阶段 ended\r\nhunter2：阶段 x",
+        "run-1：阶段 ended\u{2029}hunter2：阶段 x",
+        "run-1：阶段 ended\u{85}hunter2：阶段 x",
+        "任务 run-1 已结束：阶段 ended\r\nhunter2",
     ])
     func echoedRunsArgumentsNeverSurvive(_ text: String) {
         let out = scrub(text)
@@ -28,6 +39,8 @@ struct ACPHistoryScrubTests {
         #expect(scrub("任务 run-1 已结束：阶段 ended，结果 succeeded") == "任务 run-1 已结束：阶段 ended，结果 succeeded")
         #expect(scrub("正在停止任务 run-2：阶段 stopping") == "正在停止任务 run-2：阶段 stopping")
         #expect(ACPHistoryScrub.legacyAgent("任务 run-1 已结束：阶段 ended", runIds: runs).1 == .kept)
+        #expect(scrub("run-1：阶段 stopping，结果未知 · 需要核实（不会自动重试），输入静止 confirmed")
+            == "run-1：阶段 stopping，结果未知 · 需要核实（不会自动重试），输入静止 confirmed")
         let runsOutput = "run-1：阶段 ended，结果 succeeded\nrun-2：状态待核实（不会自动重试）"
         #expect(scrub(runsOutput) == ACPRedactor.redact(runsOutput))
     }

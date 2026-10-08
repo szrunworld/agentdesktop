@@ -31,24 +31,19 @@ enum ACPHistoryScrub {
         if text.hasPrefix("Runtime 拒绝了这个任务") {
             return ("Runtime 拒绝了这个任务。", .changed)
         }
-        // Status output. The server wrote two single-line forms about its
-        // own Runs ("任务 <run> 已结束：阶段 …", "正在停止任务 <run>：阶段 …");
-        // kept only when the whole text is exactly one such line about a Run
-        // of this session. Anything else that carries a status marker is
-        // treated as /runs output, where an argument could be any text
-        // (with "：" or newlines in it): only lines that are exactly
-        // "<known run>：阶段 …" or "<known run>：状态待核实…" stay (b9).
-        if !text.contains("\n"), let run = Self.ownRunLine(text), runIds.contains(run),
-           !text.contains("：状态待核实") {
-            return (ACPRedactor.redact(text), ACPRedactor.redact(text) == text ? .kept : .changed)
-        }
-        var changed = false
+        // Status output. Every line is matched whole (b9, fourth review):
+        // a /runs argument could be any text after a known run id, with
+        // "：" or any newline character in it. Kept are exactly
+        // "<run>：状态待核实（不会自动重试）", "<run>：<describe>",
+        // "任务 <run> 已结束：<describe>" and "正在停止任务 <run>：<describe>"
+        // for Runs of this session, where <describe> is the server's own
+        // status format with plain tokens. Every other line of a text that
+        // carries a status marker is cleared.
+        let split = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
+        var changed = split.count > 1 && text.contains(where: { $0.isNewline && $0 != "\n" })
         let isStatus = text.contains("：状态待核实") || text.contains("：阶段 ")
-        let lines = !isStatus ? text.components(separatedBy: "\n") : text.components(separatedBy: "\n").map { line -> String in
-            if let sep = line.range(of: "："), runIds.contains(String(line[..<sep.lowerBound])),
-               line[sep.upperBound...].hasPrefix("阶段 ") || line[sep.upperBound...].hasPrefix("状态待核实") {
-                return line
-            }
+        let lines = !isStatus ? split : split.map { line -> String in
+            if Self.isKnownStatusLine(line, runIds: runIds) { return line }
             changed = true
             return "（不属于本会话的任务，已清除）"
         }
@@ -56,21 +51,41 @@ enum ACPHistoryScrub {
         return (out, changed || out != text ? .changed : .kept)
     }
 
-    /// The run id of "任务 <run> 已结束：阶段 …" or "正在停止任务 <run>：阶段 …",
-    /// when the line has exactly that shape (one "：", no spaces in the id).
-    static func ownRunLine(_ line: String) -> String? {
-        guard line.components(separatedBy: "：").count == 2 else { return nil }
-        let head = line.components(separatedBy: "：")[0]
-        let tail = line.components(separatedBy: "：")[1]
-        guard tail.hasPrefix("阶段 ") else { return nil }
+    static let unverified = "状态待核实（不会自动重试）"
+
+    /// One whole line in one of the server's status forms, about a Run of
+    /// this session.
+    static func isKnownStatusLine(_ line: String, runIds: Set<String>) -> Bool {
+        guard let sep = line.firstIndex(of: "：") else { return false }
+        let head = String(line[..<sep])
+        let tail = String(line[line.index(after: sep)...])
+        let run: String
         if head.hasPrefix("任务 "), head.hasSuffix(" 已结束") {
-            let run = String(head.dropFirst(3).dropLast(4))
-            return run.isEmpty || run.contains(" ") ? nil : run
+            run = String(head.dropFirst(3).dropLast(4))
+        } else if head.hasPrefix("正在停止任务 ") {
+            run = String(head.dropFirst(7))
+        } else {
+            run = head
+            if tail == unverified { return runIds.contains(run) }
         }
-        if head.hasPrefix("正在停止任务 ") {
-            let run = String(head.dropFirst(7))
-            return run.isEmpty || run.contains(" ") ? nil : run
+        return runIds.contains(run) && isDescribe(tail)
+    }
+
+    /// `ACPAgentServer.describe` exactly: "阶段 <t>", then optionally
+    /// "，结果未知 · 需要核实（不会自动重试）" or "，结果 <t>", then optionally
+    /// "，输入静止 <t>"; <t> is a plain token (a–z, 0–9, "_").
+    static func isDescribe(_ s: String) -> Bool {
+        func token(_ t: Substring) -> Bool {
+            !t.isEmpty && t.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "_" }
         }
-        return nil
+        var parts = s.components(separatedBy: "，")[...]
+        guard let first = parts.popFirst(), first.hasPrefix("阶段 "), token(first.dropFirst(3)) else { return false }
+        if let p = parts.first, p == "结果未知 · 需要核实（不会自动重试）" || (p.hasPrefix("结果 ") && token(p.dropFirst(3))) {
+            parts = parts.dropFirst()
+        }
+        if let p = parts.first, p.hasPrefix("输入静止 "), token(p.dropFirst(5)) {
+            parts = parts.dropFirst()
+        }
+        return parts.isEmpty
     }
 }
