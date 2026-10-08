@@ -58,15 +58,6 @@ extension RuntimeService {
             func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
                 let artifactId = "art_" + snapshotId.dropFirst(4)
                 let path = artifacts.path(for: artifactId, ext: "png")
-                // Disabled until the window-only capture lands (#143): this path
-                // captures the whole display to a file before cutting the window
-                // out, and on a physical Desktop that display is the user's.
-                guard d.kind == .virtual else {
-                    throw RuntimeError("capability_missing",
-                                       "screenshots on physical Desktops are disabled until window-only capture lands; observe with screenshot:false",
-                                       phase: .handler, notSent: true,
-                                       details: .obj([("reason", .string("physical_screenshot_disabled"))]))
-                }
                 let size = try crop.map { try platform.screenshot(d.screen, cropTo: $0, to: path) }
                     ?? platform.screenshot(d.screen, to: path)
                 let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
