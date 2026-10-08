@@ -2,8 +2,14 @@ name: macOS
 
 on:
   push:
+    branches: [ai-gui-foundation, main]
   pull_request:
   workflow_dispatch:
+
+# One run per PR or branch: a new commit cancels the run of the commit it replaced.
+concurrency:
+  group: macos-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
