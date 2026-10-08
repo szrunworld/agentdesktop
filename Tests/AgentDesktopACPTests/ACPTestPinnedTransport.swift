@@ -12,13 +12,14 @@ import Foundation
 /// process from the kernel (the `LOCAL_PEERTOKEN` audit token on this very
 /// descriptor) and requires that:
 /// 1. it is the Runtime child this test launched and still owns, unreaped
-///    (`ACPTestRuntimeChild.owns`: pid and pid version); no child → refuse.
+///    (`ACPTestRuntimeChild.owns`), and the socket bound at the endpoint is
+///    held by that child alone; no child → refuse.
 ///    There is no pid-only mode (Kevin: never fall back to matching a pid);
 /// 2. it runs as this user;
 /// 3. its executable is readable and not the installed product under
 ///    /Applications;
 /// 4. it has no socket bound in the product data directory (read-only
-///    lookup, never by connecting); unknown → refuse.
+///    lookup, never by connecting); an unreadable socket table → refuse.
 /// Any failure closes the descriptor unused. Because the check is on the
 /// connected descriptor itself, a socket swapped between the path check and
 /// the connect, a reused path after the child exited, or a handshake that
@@ -29,15 +30,15 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         var description: String { "refusing the Real-test connection: \(reason)" }
     }
 
-    /// Who holds the product's sockets; nil when that cannot be determined
-    /// (then the connection is refused). Injectable for tests.
-    typealias ProductHolders = () -> Set<pid_t>?
+    /// Every bound Unix socket name and the pids holding it; nil when that
+    /// cannot be determined (then the connection is refused). Injectable.
+    typealias SocketTable = () -> [(pid: pid_t, name: String)]?
 
     private var channel: LineChannel?
     let peerPid: pid_t
 
     init(path: String, timeout: Double, child: ACPTestRuntimeChild?,
-         productHolders: ProductHolders = ACPTestPinnedTransport.productSocketHolders) throws {
+         socketTable: SocketTable = ACPTestPinnedTransport.unixSocketTable) throws {
         _ = try ACPTestEndpointGuard.check(path)
         guard let child else {
             throw Refused(reason: "no test-launched Runtime child (fail closed)")
@@ -74,7 +75,7 @@ final class ACPTestPinnedTransport: RuntimeTransport {
               pid_t(bitPattern: token.val.5) == pid else {
             throw Refused(reason: "the kernel's audit token does not match the peer pid")
         }
-        guard child.owns(peerPid: pid, peerPidVersion: token.val.7) else {
+        guard child.owns(peerPid: pid) else {
             throw Refused(reason: "peer \(pid) is not the test Runtime child \(child.pid) this test launched")
         }
         // Unknown executable or unknown holders: refuse (fail closed).
@@ -84,11 +85,19 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         if exe.hasPrefix("/Applications/") {
             throw Refused(reason: "peer \(pid) runs the installed product \(exe)")
         }
-        guard let holders = productHolders() else {
-            throw Refused(reason: "the product's socket holders cannot be determined")
+        guard let table = socketTable() else {
+            throw Refused(reason: "the Unix socket table cannot be read")
         }
-        if holders.contains(pid) {
+        if Self.holders(table, productDirs: Self.productDirectories()).contains(pid) {
             throw Refused(reason: "peer \(pid) holds the product's sockets")
+        }
+        // The socket bound at the endpoint must be held by the child alone.
+        // LOCAL_PEERPID is fixed when the socket is created; this closes the
+        // case of a socket made by an earlier holder of the same pid and
+        // inherited by another process (b9, third review).
+        let atEndpoint = Set(table.filter { $0.name == child.runtimeEndpoint }.map(\.pid))
+        guard atEndpoint == [child.pid] else {
+            throw Refused(reason: "the endpoint is held by \(atEndpoint.sorted()), not only the child \(child.pid)")
         }
         SocketOptions.receiveTimeout(fd, seconds: timeout)
         peerPid = pid
@@ -126,11 +135,11 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         return n > 0 ? String(cString: buf) : nil
     }
 
-    /// Processes with a Unix socket bound under the product data directory,
-    /// matched on the socket's bound name from `lsof -U` (read-only; never
-    /// connects), so a socket whose file was renamed or unlinked still
-    /// counts. nil when lsof fails: the caller then refuses.
-    static func productSocketHolders() -> Set<pid_t>? {
+    /// Every Unix socket with a bound name, from `lsof -b -nP -U -F pn`
+    /// (read-only; never connects). Matching on the bound name means a
+    /// socket whose file was renamed or unlinked still counts. nil when lsof
+    /// fails: the caller then refuses.
+    static func unixSocketTable() -> [(pid: pid_t, name: String)]? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         p.arguments = ["-b", "-nP", "-U", "-F", "pn"]
@@ -142,21 +151,23 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         p.waitUntilExit()
         // Any non-zero exit is unknown (b9): with -U there are always sockets.
         guard p.terminationStatus == 0 else { return nil }
-        return holders(lsofFields: String(decoding: data, as: UTF8.self), productDirs: productDirectories())
+        return table(lsofFields: String(decoding: data, as: UTF8.self))
     }
 
-    /// `lsof -F pn` output → pids whose socket name is in a product directory.
-    static func holders(lsofFields text: String, productDirs: [String]) -> Set<pid_t> {
-        var out = Set<pid_t>()
+    /// `lsof -F pn` output → (pid, socket name) rows.
+    static func table(lsofFields text: String) -> [(pid: pid_t, name: String)] {
+        var out: [(pid: pid_t, name: String)] = []
         var current: pid_t?
         for line in text.split(whereSeparator: \.isNewline) {
             if line.hasPrefix("p") { current = pid_t(line.dropFirst()) }
-            else if line.hasPrefix("n"), let pid = current {
-                let name = String(line.dropFirst())
-                if productDirs.contains(where: { name.hasPrefix($0 + "/") }) { out.insert(pid) }
-            }
+            else if line.hasPrefix("n"), let pid = current { out.append((pid, String(line.dropFirst()))) }
         }
         return out
+    }
+
+    /// Pids with a socket bound in a product directory.
+    static func holders(_ table: [(pid: pid_t, name: String)], productDirs: [String]) -> Set<pid_t> {
+        Set(table.filter { row in productDirs.contains { row.name.hasPrefix($0 + "/") } }.map(\.pid))
     }
 
     static func productDirectories() -> [String] {

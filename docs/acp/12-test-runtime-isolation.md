@@ -42,12 +42,13 @@
 
 1. **独立目录：** 每次启动都用 `mkdtemp` 新建 `/tmp/adt-acp-XXXXXX`，权限 0700。子进程只拿到 `AGENTDESKTOP_SOCKET=<目录>/side.sock`，其余 `AGENTDESKTOP_*` 环境变量全部清掉。
 2. **进程由测试掌握：** 用 `posix_spawn` 启动，并清空继承来的信号屏蔽。测试持有 pid，只有测试自己调用 `waitpid` 回收；子进程被回收之前，它的 pid 不可能被别的进程占用。
-3. **启动即取身份：** 启动后立刻通过 `task_name_for_pid` + `TASK_AUDIT_TOKEN` 读取子进程的审计令牌，记下 pidversion。取不到就终止子进程、启动失败。
+3. **启动即确认可识别：** 启动后立刻通过 `task_name_for_pid` + `TASK_AUDIT_TOKEN` 确认内核能识别这个子进程。识别不了就终止子进程、启动失败（fail closed）。
 4. **连接后、发出任何字节前，按顺序检查：**
    - 路径必须正好是该子进程的 endpoint，并通过 `ACPTestEndpointGuard`（socket 类型、属主是当前用户、不是符号链接或硬链接、不在产品目录）；
    - 用 `LOCAL_PEERPID` 和 `LOCAL_PEERTOKEN` 读取对端，两者必须一致；
    - `getpeereid` 必须是当前用户；
-   - `child.owns(pid, pidversion)`：pid 相同、pidversion ≥ 启动时记下的值、子进程尚未被回收；
+   - `child.owns(pid)`：pid 相同，且子进程尚未被回收；
+   - 在 lsof 列出的 Unix socket 表里，绑定在该 endpoint 上的进程只有这个子进程；
    - 对端程序路径必须读得到，且不在 `/Applications`；
    - `lsof -b -nP -U -F pn` 能正常运行，且对端没有在产品目录下绑定 socket。
 
@@ -56,7 +57,9 @@
 6. **握手后再核对一层：** 握手之后再检查 Runtime 自报的 endpoint（`ACPTestVerifiedClient`）。这只是第二层，不作为身份依据。
 7. **清理范围：** `stop()` 回收子进程，并删除它自己的目录，前提是 realpath 以 `/private/tmp/adt-acp-` 开头。不碰其他任何路径。
 
-pidversion 用"≥"而不是"="：exec 会让 pidversion 增大（例如 `/usr/bin/python3` 跳板会再 exec 一次）。比子进程启动时更早的同 pid 持有者，pidversion 一定更小。
+起保护作用的是"pid 相同 + 尚未回收 + endpoint 只由子进程持有"这三条，**不依赖 pidversion**。内核给出的对端审计令牌，是按查询时持有该 pid 的进程现场生成的（b9 实测：exec 之后上报的是新版本号），所以拿 pidversion 做比较没有意义，代码里已删除。
+
+`LOCAL_PEERPID` 记录的是 socket 创建时的 pid。如果一个更早持有同一 pid 的进程先建好监听 socket，把它交给别的进程后退出，之后我们的子进程恰好拿到这个 pid，单看 pid 会误判。endpoint 持有者检查要求这个 socket 名下只有子进程，正是为了堵这种情况。
 
 ### 运行方式
 

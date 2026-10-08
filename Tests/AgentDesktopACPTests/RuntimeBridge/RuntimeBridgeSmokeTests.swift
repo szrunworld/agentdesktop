@@ -9,7 +9,7 @@ import Testing
 /// cases on a real Runtime.
 @Suite(.enabled(if: ACPTestRuntimeChild.binary != nil), .serialized) struct RuntimeBridgeSmokeTests {
     @Test func callerTasksSnapshotReadOnly() async throws {
-        let child = try ACPTestRuntimeChild.launchRuntime()
+        let child = try await offPool { try ACPTestRuntimeChild.launchRuntime() }
         defer { child.stop() }
         let port = ACPBridgeRuntimePort(
             makeClient: try ACPTestPinnedTransport.verifiedFactory(child: child, name: "agentdesktop-acp-smoke"),
@@ -24,19 +24,24 @@ import Testing
         await port.connectionLost()
     }
 
-    @Test func aRealRuntimeThatExitedCannotBeImpersonatedOnItsPath() throws {
-        let child = try ACPTestRuntimeChild.launchRuntime()
-        defer { child.stop() }
-        // Works while it runs…
-        let ok = try ACPTestPinnedTransport(path: child.runtimeEndpoint, timeout: 5, child: child)
-        ok.close()
-        // …then it exits and this process takes over the same path.
-        child.terminate(reap: true)
-        unlink(child.runtimeEndpoint)
-        let impostor = try CurPinnedTransportTests.Listener(path: child.runtimeEndpoint)
-        #expect(throws: ACPTestPinnedTransport.Refused.self) {
-            _ = try ACPTestPinnedTransport(path: child.runtimeEndpoint, timeout: 1, child: child)
+    @Test func aRealRuntimeThatExitedCannotBeImpersonatedOnItsPath() async throws {
+        let (firstOK, refused, bytes) = try await offPool { () -> (Bool, Bool, Int) in
+            let child = try ACPTestRuntimeChild.launchRuntime()
+            defer { child.stop() }
+            // Works while it runs…
+            let ok = try ACPTestPinnedTransport(path: child.runtimeEndpoint, timeout: 5, child: child)
+            ok.close()
+            // …then it exits and this process takes over the same path.
+            child.terminate(reap: true)
+            unlink(child.runtimeEndpoint)
+            let impostor = try CurPinnedTransportTests.Listener(path: child.runtimeEndpoint)
+            var refused = false
+            do { _ = try ACPTestPinnedTransport(path: child.runtimeEndpoint, timeout: 1, child: child) }
+            catch { refused = error is ACPTestPinnedTransport.Refused }
+            return (true, refused, impostor.bytesAfterClose())
         }
-        #expect(impostor.bytesAfterClose() == 0)
+        #expect(firstOK)
+        #expect(refused)
+        #expect(bytes == 0)
     }
 }

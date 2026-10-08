@@ -9,9 +9,10 @@ import Foundation
 ///
 /// Why "unreaped" matters: until this object calls waitpid(2), the child's
 /// pid stays taken (alive or as a zombie), so no other process can hold it.
-/// The pid version in the kernel's audit token only grows (fork and exec
-/// bump it), so a socket created by an earlier holder of the same pid has a
-/// smaller version than the one read right after spawn.
+/// The kernel's peer audit token is built from whoever holds the pid when
+/// it is asked, so its pid version adds nothing (b9, measured); the
+/// transport instead requires the endpoint's socket to be held by the child
+/// alone.
 ///
 /// Test infrastructure only; not a production identity scheme.
 final class ACPTestRuntimeChild: @unchecked Sendable {
@@ -23,8 +24,6 @@ final class ACPTestRuntimeChild: @unchecked Sendable {
     static let directoryPrefix = "/private/tmp/adt-acp-"
 
     let pid: pid_t
-    /// Pid version from the child's audit token right after spawn.
-    let spawnPidVersion: UInt32
     /// realpath of the child's private directory.
     let directory: String
     /// Where the child's Runtime listens (`<socket>.runtime.sock`).
@@ -77,14 +76,15 @@ final class ACPTestRuntimeChild: @unchecked Sendable {
             rmdir(dir)
             throw LaunchFailed(reason: "posix_spawn \(String(cString: strerror(rc)))")
         }
-        guard let token = auditToken(of: pid) else {
+        // The kernel must be able to name the child; otherwise fail closed.
+        guard auditToken(of: pid) != nil else {
             kill(pid, SIGKILL)
             var st: Int32 = 0
             waitpid(pid, &st, 0)
             try? FileManager.default.removeItem(atPath: dir)
             throw LaunchFailed(reason: "the kernel did not give the child's audit token (fail closed)")
         }
-        let child = ACPTestRuntimeChild(pid: pid, spawnPidVersion: token.val.7, directory: dir, endpoint: endpoint)
+        let child = ACPTestRuntimeChild(pid: pid, directory: dir, endpoint: endpoint)
         if waitForEndpoint {
             let deadline = Date().addingTimeInterval(timeout)
             while true {
@@ -104,9 +104,8 @@ final class ACPTestRuntimeChild: @unchecked Sendable {
         return child
     }
 
-    private init(pid: pid_t, spawnPidVersion: UInt32, directory: String, endpoint: String) {
+    private init(pid: pid_t, directory: String, endpoint: String) {
         self.pid = pid
-        self.spawnPidVersion = spawnPidVersion
         self.directory = directory
         self.runtimeEndpoint = endpoint
     }
@@ -123,11 +122,11 @@ final class ACPTestRuntimeChild: @unchecked Sendable {
         return true
     }
 
-    /// Whether a peer audit token (pid, pid version) is this child. Never
-    /// true once the child was reaped, since its pid may then be reused.
-    func owns(peerPid: pid_t, peerPidVersion: UInt32) -> Bool {
+    /// Whether the kernel-reported peer pid is this child. Never true once
+    /// the child was reaped, since its pid may then be reused.
+    func owns(peerPid: pid_t) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return !reaped && peerPid == pid && peerPidVersion >= spawnPidVersion
+        return !reaped && peerPid == pid
     }
 
     /// Signal the child to exit and wait. With `reap: false` it stays a
