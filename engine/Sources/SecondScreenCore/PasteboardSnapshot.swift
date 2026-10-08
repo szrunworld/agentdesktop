@@ -121,6 +121,10 @@ public enum PasteboardLoan {
         /// Whether the user's contents were put back; false when the user
         /// copied something meanwhile, which is then left in place.
         public var restored: Bool
+        /// Something else wrote the pasteboard while `body` ran (the user
+        /// copied, another app): whoever was reading it then may have got
+        /// that instead of `text`.
+        public var othersWrote: Bool = false
     }
 
     /// Fails before touching the pasteboard when its contents cannot be
@@ -141,8 +145,9 @@ public enum PasteboardLoan {
         defer { if !finished { snapshot.restore(to: pasteboard, ifChangeCountIs: ours) } }
         let value = try body()
         finished = true
-        guard restoreAfter(value) else { return Result(value: value, restored: false) }
+        let othersWrote = pasteboard.changeCount != ours
+        guard restoreAfter(value) else { return Result(value: value, restored: false, othersWrote: othersWrote) }
         let restored = snapshot.restore(to: pasteboard, ifChangeCountIs: ours)
-        return Result(value: value, restored: restored)
+        return Result(value: value, restored: restored, othersWrote: othersWrote)
     }
 }

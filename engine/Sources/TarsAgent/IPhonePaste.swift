@@ -122,23 +122,32 @@ public enum PastePrompt: Equatable {
     /// How far apart (in window heights) the alert's parts can be.
     static let alertSpan: CGFloat = 0.3
 
-    /// Reads `seen`. An Allow button is pressed only with the alert's
-    /// structure around it: in the middle of the screen, with the Don't
-    /// Allow button or the alert's message near it. `baseline` is what was
-    /// on screen before ⌘V; an "Allow Paste" already there is page content.
+    /// How far from the middle (in window widths) the alert's lines sit:
+    /// the system alert centres its message and stacked buttons, while page
+    /// text (a note, a chat) runs from the left edge.
+    static let centreTolerance: CGFloat = 0.08
+
+    /// Reads `seen`. An Allow button is pressed only with the whole alert
+    /// around it: in the middle of the screen, horizontally centred, with
+    /// both the Don't Allow button and the alert's message near it. Page
+    /// content can show the button labels (2026-10-08: pasted text holding
+    /// "Allow Paste" and "Don't Allow Paste" was pressed twice); missing a
+    /// real alert costs an unknown outcome, pressing page text costs a tap
+    /// on whatever it is. `baseline` is what was on screen before ⌘V; an
+    /// "Allow Paste" already there is page content.
     public static func read(_ seen: [PhoneText], baseline: [PhoneText]?) -> PastePrompt {
-        let allows = seen.filter { allowPasteLabels.contains(clean($0.text)) }
-        let evidence = seen.filter { line in
-            let text = clean(line.text)
-            return denyPasteLabels.contains(text)
-                || promptPhrases.contains { text.range(of: $0, options: .caseInsensitive) != nil }
+        func centred(_ line: PhoneText) -> Bool {
+            alertRegion.contains(line.center) && abs(line.box.midX - 0.5) <= centreTolerance
         }
-        for allow in allows where alertRegion.contains(allow.center) {
-            let near = evidence.contains { part in
-                alertRegion.contains(part.center) && abs(part.center.y - allow.center.y) <= alertSpan
-                    && part != allow
-            }
-            if near { return .allow(allow.center) }
+        let allows = seen.filter { allowPasteLabels.contains(clean($0.text)) }
+        let denies = seen.filter { denyPasteLabels.contains(clean($0.text)) && centred($0) }
+        let messages = seen.filter { line in
+            let text = clean(line.text)
+            return promptPhrases.contains { text.range(of: $0, options: .caseInsensitive) != nil } && centred(line)
+        }
+        for allow in allows where centred(allow) {
+            func near(_ part: PhoneText) -> Bool { abs(part.center.y - allow.center.y) <= alertSpan }
+            if denies.contains(where: near), messages.contains(where: near) { return .allow(allow.center) }
         }
         if seen.contains(where: { line in pastingLabels.contains { clean(line.text).hasPrefix($0) } }) {
             return .pasting
@@ -165,8 +174,43 @@ public struct PasteWatcher {
     public var quietLooks = 2
     /// Presses of Allow Paste before its coming back counts as a failure.
     public var maxAllowPresses = 2
+    /// Whether something else has written the Mac's clipboard since the
+    /// text was put there (the user copied). Checked at every look: the
+    /// phone would paste that instead, so the paste is stopped on the phone.
+    public var othersWrote: (() -> Bool)?
 
     public init() {}
+
+    /// The centred line reading one of `labels`, as a tap point.
+    static func centredButton(_ labels: Set<String>, in seen: [PhoneText]) -> CGPoint? {
+        seen.first { line in
+            labels.contains(PastePrompt.clean(line.text))
+                && PastePrompt.alertRegion.contains(line.center)
+                && abs(line.box.midX - 0.5) <= PastePrompt.centreTolerance
+        }?.center
+    }
+
+    static let cancelLabels: Set<String> = ["Cancel", "取消"]
+
+    /// The clipboard changed under a paste in progress: stop the phone from
+    /// fetching it (Cancel on its "Pasting from" sheet, Don't Allow on its
+    /// prompt) and say whether that was done. Seen on a device: Cancel kept
+    /// the user's copy out of the field.
+    private func stopForeignPaste(_ seen: [PhoneText], driver: PhonePasteDriver) -> PasteOutcome {
+        let why = "user_copied_during_paste: something else was copied to the Mac's clipboard while the phone was "
+            + "fetching it"
+        let button = Self.centredButton(Self.cancelLabels, in: seen)
+            ?? Self.centredButton(PastePrompt.denyPasteLabels, in: seen)
+        guard let button else {
+            return .unknown(why + "; no Cancel or Don't Allow Paste was on screen to stop it, so the phone may have "
+                + "pasted that, possibly the user's data")
+        }
+        guard let tapped = try? driver.tap(button), tapped.ok else {
+            return .unknown(why + "; stopping the phone's paste failed, so it may have pasted that, possibly the "
+                + "user's data")
+        }
+        return .unknown(why + "; the phone's paste was cancelled")
+    }
 
     /// `verify`: whether the text may be read back off the screen to
     /// confirm it. Without that the best outcome is `.delivered`.
@@ -196,6 +240,12 @@ public struct PasteWatcher {
             }
             let prompt = PastePrompt.read(seen, baseline: baseline)
             last = prompt
+            if othersWrote?() == true {
+                switch prompt {
+                case .allow, .pasting, .unverifiedAllow: return stopForeignPaste(seen, driver: driver)
+                case .none: break  // done or not begun; the transaction reports it
+                }
+            }
             switch prompt {
             case .allow(let point):
                 quiet = 0
@@ -342,21 +392,34 @@ public struct PasteTransaction {
                     return Result(outcome: .notDelivered("clipboard_pending: \(why); nothing was pasted"),
                                   clipboardRestored: true)
                 }
-                let loan = try PasteboardLoan.with(text, on: pasteboard, restoreAfter: { outcome in
+                var watcher = self.watcher
+                let loan = try PasteboardLoan.with(text, on: pasteboard, restoreAfter: { (outcome: PasteOutcome) -> Bool in
                     // A paste that settled is done with the clipboard. One that
                     // did not may still be fetched (a prompt left up, a slow
                     // transfer): restore only once the phone is seen done.
                     guard case .unknown = outcome else { return true }
                     return watcher.settles(looks: settleLooks, driver: driver)
-                }) {
-                    watcher.paste(text, verify: verify, driver: driver)
+                }) { () -> PasteOutcome in
+                    let ours = pasteboard.changeCount
+                    watcher.othersWrote = { pasteboard.changeCount != ours }
+                    return watcher.paste(text, verify: verify, driver: driver)
                 }
                 let restored = loan.restored || pasteboard.string(forType: .string) != text
                 if !restored {
                     try? pending.raise("a paste that did not finish left its text on the clipboard for a phone "
                         + "that may still fetch it", until: Date().addingTimeInterval(pendingSeconds))
                 }
-                return Result(outcome: loan.value, clipboardRestored: restored)
+                var outcome = loan.value
+                var alreadySaid = false
+                if case .unknown(let why) = outcome { alreadySaid = why.hasPrefix("user_copied_during_paste") }
+                if loan.othersWrote, outcome != .confirmed, !alreadySaid {
+                    // 2026-10-08 on a device: a copy made during the paste was
+                    // what the phone pasted. That may be the user's data.
+                    outcome = .unknown("user_copied_during_paste: something else was copied to the Mac's clipboard "
+                        + "while the phone was fetching it, so the phone may have pasted that, possibly the "
+                        + "user's data, instead of the text")
+                }
+                return Result(outcome: outcome, clipboardRestored: restored)
             }
         } catch {
             // The lease or the snapshot failed: the clipboard was not touched.
