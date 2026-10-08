@@ -179,11 +179,6 @@ extension CLI {
             var env = environment
             env[ExecContext.environmentKey] = file
             env[EndpointResolver.environmentKey] = endpoint.path
-            // The child is this caller's own program: it speaks with the
-            // same credential (A4), whichever SDK it uses.
-            if (env["AGENTDESKTOP_CREDENTIAL_FILE"] ?? "").isEmpty {
-                env["AGENTDESKTOP_CREDENTIAL_FILE"] = ClientCredential.ownerFile(forEndpoint: endpoint.path)
-            }
             let status = spawnChild(argv, env)
 
             let wasInterrupted = interrupted()

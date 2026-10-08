@@ -22,6 +22,9 @@ public final class HubStore: @unchecked Sendable {
         public var publisher: String?
         /// What the Runtime saw of the caller when it paired (pid, executable).
         public var callerFacts: JSONValue
+        /// The code identity it paired with (A4 S2), from the socket's audit
+        /// token; a `requirement` binds every later connection to it.
+        public var codeIdentity: JSONValue = .obj([("level", .string("same_user")), ("hardenedRuntime", .bool(false))])
         public var state: String          // active | revoked
         public var registeredAt: String
         public var revokedAt: String?
@@ -29,8 +32,8 @@ public final class HubStore: @unchecked Sendable {
         public var json: JSONValue {
             var m: [(String, JSONValue)] = [("clientId", .string(clientId)), ("agentName", .string(agentName)),
                                             ("publisher", publisher.map(JSONValue.string) ?? .null),
-                                            ("callerFacts", callerFacts), ("state", .string(state)),
-                                            ("registeredAt", .string(registeredAt))]
+                                            ("callerFacts", callerFacts), ("codeIdentity", codeIdentity),
+                                            ("state", .string(state)), ("registeredAt", .string(registeredAt))]
             if let revokedAt { m.append(("revokedAt", .string(revokedAt))) }
             return .obj(m)
         }
@@ -62,6 +65,7 @@ public final class HubStore: @unchecked Sendable {
         public var publisher: String?
         public var requested: JSONValue
         public var callerFacts: JSONValue
+        public var codeIdentity: JSONValue = .obj([("level", .string("same_user")), ("hardenedRuntime", .bool(false))])
         public var state: String          // requested | approved | denied | expired
         public var expiresAt: String
         public var clientId: String?
@@ -69,7 +73,7 @@ public final class HubStore: @unchecked Sendable {
         public var json: JSONValue {
             .obj([("pairingId", .string(pairingId)), ("shortCode", .string(shortCode)),
                   ("agentName", .string(agentName)), ("publisher", publisher.map(JSONValue.string) ?? .null),
-                  ("requested", requested), ("callerFacts", callerFacts), ("state", .string(state)),
+                  ("requested", requested), ("callerFacts", callerFacts), ("codeIdentity", codeIdentity), ("state", .string(state)),
                   ("expiresAt", .string(expiresAt)), ("clientId", clientId.map(JSONValue.string) ?? .null)])
         }
     }
@@ -105,6 +109,11 @@ public final class HubStore: @unchecked Sendable {
               method TEXT NOT NULL, decision TEXT NOT NULL, reason TEXT NOT NULL, run_id TEXT)
             """)
         try db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
+        // S2: the code identity a client paired with (added after the first A4 builds).
+        for table in ["clients", "pairings"] {
+            let cols = (try db.query("PRAGMA table_info(\(table))")).compactMap { $0[1] as? String }
+            if !cols.contains("code_identity") { try db.execute("ALTER TABLE \(table) ADD COLUMN code_identity TEXT") }
+        }
         policyEpoch = Int((try db.query("SELECT value FROM meta WHERE key = 'policy_epoch'").first?[0] as? Int64) ?? 0)
         // An unanswered request does not outlive the process that held its
         // connection: nothing could collect the credential any more.
@@ -158,12 +167,14 @@ public final class HubStore: @unchecked Sendable {
 
     private func clients(where clause: String, _ args: [SQLiteDatabase.Value]) -> [Client] {
         ((try? db.query("""
-            SELECT client_id, agent_name, publisher, caller_facts, state, registered_at, revoked_at FROM clients
+            SELECT client_id, agent_name, publisher, caller_facts, state, registered_at, revoked_at, code_identity FROM clients
             WHERE \(clause) ORDER BY registered_at DESC
             """, args)) ?? []).map { r in
-            Client(clientId: r[0] as! String, agentName: r[1] as! String, publisher: r[2] as? String,
+            var c = Client(clientId: r[0] as! String, agentName: r[1] as! String, publisher: r[2] as? String,
                    callerFacts: (try? StrictJSON.parse(r[3] as! String)) ?? .obj([]), state: r[4] as! String,
                    registeredAt: r[5] as! String, revokedAt: r[6] as? String)
+            if let ci = (r[7] as? String).flatMap({ try? StrictJSON.parse($0) }) { c.codeIdentity = ci }
+            return c
         }
     }
 
@@ -216,18 +227,19 @@ public final class HubStore: @unchecked Sendable {
     // MARK: Pairing
 
     public func startPairing(connectionId: String, agentName: String, publisher: String?, requested: JSONValue,
-                             callerFacts: JSONValue) throws -> Pairing {
-        let p = Pairing(pairingId: DesktopRegistry.newId(prefix: "pair"),
+                             callerFacts: JSONValue, codeIdentity: JSONValue? = nil) throws -> Pairing {
+        var p = Pairing(pairingId: DesktopRegistry.newId(prefix: "pair"),
                         shortCode: String(format: "%06d", Int.random(in: 0..<1_000_000)), connectionId: connectionId,
                         agentName: agentName, publisher: publisher, requested: requested, callerFacts: callerFacts,
                         state: "requested", expiresAt: Timestamp.string(now().addingTimeInterval(Self.pairingWindow)),
                         clientId: nil)
+        if let codeIdentity { p.codeIdentity = codeIdentity }
         try db.execute("""
             INSERT INTO pairings (pairing_id, short_code, connection_id, agent_name, publisher, requested, caller_facts,
-              state, expires_at, client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+              state, expires_at, client_id, code_identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
             """, [.text(p.pairingId), .text(p.shortCode), .text(connectionId), .text(agentName),
                   publisher.map { .text($0) } ?? .null, .text(requested.encoded()), .text(callerFacts.encoded()),
-                  .text(p.state), .text(p.expiresAt)])
+                  .text(p.state), .text(p.expiresAt), .text(p.codeIdentity.encoded())])
         return p
     }
 
@@ -241,13 +253,15 @@ public final class HubStore: @unchecked Sendable {
         try? db.execute("UPDATE pairings SET state = 'expired' WHERE state = 'requested' AND expires_at < ?", [.text(nowString)])
         return ((try? db.query("""
             SELECT pairing_id, short_code, connection_id, agent_name, publisher, requested, caller_facts, state,
-              expires_at, client_id FROM pairings WHERE \(clause) ORDER BY expires_at DESC
+              expires_at, client_id, code_identity FROM pairings WHERE \(clause) ORDER BY expires_at DESC
             """, args)) ?? []).map { r in
-            Pairing(pairingId: r[0] as! String, shortCode: r[1] as! String, connectionId: r[2] as! String,
+            var p = Pairing(pairingId: r[0] as! String, shortCode: r[1] as! String, connectionId: r[2] as! String,
                     agentName: r[3] as! String, publisher: r[4] as? String,
                     requested: (try? StrictJSON.parse(r[5] as! String)) ?? .obj([]),
                     callerFacts: (try? StrictJSON.parse(r[6] as! String)) ?? .obj([]),
                     state: r[7] as! String, expiresAt: r[8] as! String, clientId: r[9] as? String)
+            if let ci = (r[10] as? String).flatMap({ try? StrictJSON.parse($0) }) { p.codeIdentity = ci }
+            return p
         }
     }
 
@@ -258,10 +272,10 @@ public final class HubStore: @unchecked Sendable {
         let token = Self.newToken()
         try db.transaction {
             try db.execute("""
-                INSERT INTO clients (client_id, agent_name, publisher, caller_facts, credential_hash, state, registered_at)
-                VALUES (?, ?, ?, ?, ?, 'active', ?)
+                INSERT INTO clients (client_id, agent_name, publisher, caller_facts, credential_hash, state, registered_at,
+                  code_identity) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
                 """, [.text(clientId), .text(p.agentName), p.publisher.map { .text($0) } ?? .null,
-                      .text(p.callerFacts.encoded()), .text(Self.hash(token)), .text(nowString)])
+                      .text(p.callerFacts.encoded()), .text(Self.hash(token)), .text(nowString), .text(p.codeIdentity.encoded())])
             var g = grant
             g.clientId = clientId
             g.revision = 1

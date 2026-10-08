@@ -16,16 +16,55 @@ extension RuntimeService {
         guard unknown.isEmpty else {
             return .failure(.invalidArgument("unknown capabilities: \(unknown.joined(separator: ", "))"))
         }
+        // What the user will be asked to allow, exactly as it will be applied.
+        let proposed: HubStore.Grant
+        switch grantFrom(requested, requested: requested, clientId: "") {
+        case let .failure(e): return .failure(e)
+        case let .success(g): proposed = g
+        }
         do {
             let pairing = try hub.startPairing(connectionId: c.connectionId, agentName: p["agentName"]?.stringValue ?? "",
                                                publisher: p["publisher"]?.stringValue, requested: requested,
-                                               callerFacts: c.callerFacts)
+                                               callerFacts: c.callerFacts, codeIdentity: c.codeIdentity.json)
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.pairing.start", decision: "requested",
                       reason: pairing.pairingId)
+            // The user answers in the Agent Desktop window; the app polls
+            // hub.pairing.status meanwhile. Off the connection's thread.
+            // Without a trusted window nothing approves it but the host's own
+            // in-process owner, or it expires.
+            if confirmer != nil {
+                let thread = Thread { [self] in self.askToPair(pairing, proposed, c) }
+                thread.name = "agentdesktop.runtime.pairing"
+                thread.start()
+            }
             return .success(.obj([("pairingId", .string(pairing.pairingId)), ("shortCode", .string(pairing.shortCode)),
                                   ("state", .string(pairing.state)), ("expiresAt", .string(pairing.expiresAt))]))
         } catch {
             return .failure(RuntimeError("audit_unavailable", "the pairing store is unavailable", phase: .handler, notSent: true))
+        }
+    }
+
+    /// The user decides a pairing: approved exactly as shown (the grant's
+    /// duration counts from the approval), anything else denies it.
+    func askToPair(_ pairing: HubStore.Pairing, _ proposed: HubStore.Grant, _ c: ConnectionState) {
+        let seconds = pairing.requested["durationSeconds"]?.intValue ?? Int(Self.defaultGrantDuration)
+        let details = JSONValue.obj([("capabilities", .array(proposed.capabilities.map(JSONValue.string))),
+                                     ("desktops", .array(proposed.desktops.map(JSONValue.string))),
+                                     ("apps", .array(proposed.apps.map(JSONValue.string))),
+                                     ("durationSeconds", .int(max(seconds, 1)))])
+        let decision = confirm(.pairing, by: c, action: "hub.pairing.start", details: details, agentName: pairing.agentName,
+                               publisher: pairing.publisher, shortCode: pairing.shortCode)
+        guard let current = hub.pairing(pairing.pairingId), current.state == "requested" else { return }
+        switch decision {
+        case .success:
+            var g = proposed
+            g.expiresAt = Timestamp.string(now().addingTimeInterval(Double(max(seconds, 1))))
+            if let (client, _) = try? hub.approve(current, grant: g) {
+                hub.audit(connectionId: c.connectionId, clientId: client.clientId, method: "hub.pairing.start", decision: "approved",
+                          reason: pairing.pairingId)
+            }
+        case .failure:
+            try? hub.deny(current)
         }
     }
 

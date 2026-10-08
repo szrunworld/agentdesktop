@@ -2,7 +2,7 @@
 
 对象：PR #137 中的客户端凭据与 owner 凭据。目标是逐项写清楚：在当前实现下，一个**同一 macOS 用户下的普通进程**（没有 root，没有调试权限，没有关闭 SIP）能读取、复制或复用哪些凭据。
 
-本文只陈述实测结果，或明确注明依据的平台文档；没有实测的结论都标为「未实测」。推荐方案需要 Kevin 裁决后再实施，本 PR 没有重构身份体系。
+本文只陈述实测结果，或明确注明依据的平台文档；没有实测的结论都标为「未实测」。Kevin 已于 2026-10-09 裁决：S1–S4 组合，分阶段实施；S1–S3 已在本 PR 落地，S4 是正式发布的门槛。实施状态见第五节。
 
 ## 一、实测结果
 
@@ -66,3 +66,31 @@
 - 每个 App 有独立的 clientId 和凭据；撤销后，旧凭据在握手阶段永久返回 `client_revoked`；重新配对得到新的 id 和凭据。
 - Runtime 不存明文；token 不进日志、不进命令行参数、不进环境变量。
 - 撤销 / 收窄 / 撤销授权在 Runtime 内有明确的线性化边界（`docs/security/a4-identity.md`「撤销的线性化边界」）。
+
+## 五、裁决后的实施状态（2026-10-09）
+
+| 方案 | 状态 | 实现 |
+| --- | --- | --- |
+| S1 撤掉 owner 凭据文件 | **已实施** | socket 上不存在 owner；启动时删除遗留的 `owner.credential`；配对和 owner 方法都要经过宿主的可信确认窗口，并通过系统身份验证（LocalAuthentication）；确认结果绑定 digest；不能自我授权 |
+| 最小确认窗口 | **已实施**（提前于 PR4） | `Sources/AgentDesktop/TrustedConfirmationWindow.swift`：默认按钮为拒绝，批准需 Touch ID 或密码，120 秒未回答即拒绝 |
+| S2 代码身份绑定 | **已实施** | `IPC/CodeIdentity.swift`：在实际 IPC 对端上用 audit token 读取并校验签名；verified / shared_interpreter 绑定 designated requirement，same_user 如实标示 |
+| S3 钥匙串 | **已实施**（CLI / MCP；Swift App 可直接用 `KeychainCredentialStore`） | `AgentDesktopClient/CredentialStore.swift`；Python / TS SDK 仍用文件，标为同用户级别 |
+| S4 Developer ID + hardened runtime | **未实施**（发布门槛） | 本产品 CLI 目前是自签名、无 hardened runtime，实测级别为 `same_user` |
+
+### 复测（第一节的攻击）
+
+| # | 攻击 | 修复前 | 修复后（测试副本 `/tmp/adt-a4d`，真实宿主） |
+| --- | --- | --- | --- |
+| F1 | 同用户 Python 进程读取 records 目录中的 token 文件 | 读到 `owner.credential` | 目录中没有任何包含 `adt1_` 的文件；预先放进去的遗留 `owner.credential` 在启动时被删除 |
+| F1 | 用 `local:<uid>` + 遗留 token / 猜测的 token 握手 | 成为 owner | `permission_denied`，reason `owner_not_on_socket` |
+| F1 | 未配对时调用 `hub.clients.list` / `hub.pairing.approve` / `runtime.stopAll` | — | `pairing_required` |
+| F2/F7 | 把团队签名 node（Team HX7739G8FX，hardened runtime）配对得到的凭据交给 python 使用 | 可冒用 | `permission_denied`，reason `code_identity_mismatch`；node 自己仍可使用（自动化测试 `aCredentialPairedFromNodeIsRefusedFromPython`，真实内核与 Security 框架） |
+| — | 自动化程序用辅助功能点击确认窗口的「批准…」 | — | 系统随即弹出身份验证窗口（coreautha：“Touch ID or enter your password to allow this”）；取消后配对被拒绝，reason `user_cancelled` |
+
+### 实测得到的身份级别
+
+| 程序 | 级别 |
+| --- | --- |
+| 官方 node（fnm 安装，Team HX7739G8FX，hardened runtime） | `shared_interpreter`（绑定） |
+| Homebrew node / python（ad-hoc） | `same_user` |
+| 本产品 CLI（自签名，无 Team ID） | `same_user`，需 S4 才能升为 `verified` |

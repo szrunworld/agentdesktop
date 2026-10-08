@@ -175,7 +175,7 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
                                    endpoint: path, buildSource: "unknown")
     let service = RuntimeService(identity: identity, backend: StubBackend(), platform: TinyPlatform(),
                                  ledger: try RequestLedger(path: dir + "/requests.sqlite"),
-                                 artifacts: try ArtifactStore(directory: dir + "/artifacts"))
+                                 artifacts: try ArtifactStore(directory: dir + "/artifacts"), testSocketOwnerToken: cliTestOwner.token)
     try writeOwnerCredential(service, endpoint: path)
     let server = RuntimeServer(path: path, service: service)
     try server.start()
@@ -184,6 +184,7 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
     func run(_ args: [String]) -> (Int32, JSONValue?) {
         var out: [String] = []
         var cli = CLI()
+        cli.credentials = cliTestCredentials
         cli.stdout = { out.append($0) }
         cli.stderr = { _ in }
         cli.environment = ["HOME": "/nonexistent", EndpointResolver.environmentKey: path]

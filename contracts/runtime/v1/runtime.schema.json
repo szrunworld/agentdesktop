@@ -2329,6 +2329,15 @@
         },
         "connectionId": {
           "$ref": "#/$defs/Id"
+        },
+        "codeIdentityLevel": {
+          "enum": [
+            "verified",
+            "shared_interpreter",
+            "same_user",
+            "in_process"
+          ],
+          "description": "how far the Runtime can tell this connection's program from other processes of the user (A4 S2)"
         }
       }
     },
@@ -3241,6 +3250,9 @@
         "callerFacts": {
           "type": "object"
         },
+        "codeIdentity": {
+          "$ref": "#/$defs/CodeIdentity"
+        },
         "state": {
           "enum": [
             "active",
@@ -3302,6 +3314,9 @@
         },
         "callerFacts": {
           "type": "object"
+        },
+        "codeIdentity": {
+          "$ref": "#/$defs/CodeIdentity"
         },
         "state": {
           "enum": [
@@ -3612,6 +3627,38 @@
               }
             }
           }
+        }
+      }
+    },
+    "CodeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "hardenedRuntime"
+      ],
+      "description": "what the Runtime read from the socket peer's kernel audit token (A4 S2), never from anything the client sends. verified: team-signed, hardened runtime, bound by its designated requirement; shared_interpreter: as verified but an interpreter whose every script shares it; same_user: nothing verifiable, only a process of this user; in_process: the host itself",
+      "properties": {
+        "level": {
+          "enum": [
+            "verified",
+            "shared_interpreter",
+            "same_user",
+            "in_process"
+          ]
+        },
+        "identifier": {
+          "type": "string"
+        },
+        "teamId": {
+          "type": "string"
+        },
+        "hardenedRuntime": {
+          "type": "boolean"
+        },
+        "requirement": {
+          "type": "string",
+          "description": "the designated requirement every later connection of this client must satisfy"
         }
       }
     }

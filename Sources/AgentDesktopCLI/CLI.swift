@@ -15,17 +15,30 @@ struct CLI {
     var environment: [String: String] = ProcessInfo.processInfo.environment
     /// Path of this executable, to find the app bundle it ships in.
     var executablePath: String = CommandLine.arguments.first.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } ?? ""
-    var makeClient: (Endpoint) -> RuntimeClient = {
-        SocketRuntimeClient(endpoint: $0, info: CLI.clientInfo, credential: CLI.ownerCredential(for: $0))
+    /// Tests replace the connection; by default it is a socket client with
+    /// this CLI's own credential.
+    var makeClient: ((Endpoint) -> RuntimeClient)?
+    /// Where this CLI keeps the credentials it was issued (A4, S3): the
+    /// keychain, or AGENTDESKTOP_KEYCHAIN's keychain file (test copies).
+    /// Tests use a MemoryCredentialStore.
+    var credentials: CredentialStore?
+
+    /// The CLI is a paired client like any other (A4): it has no owner
+    /// rights. Its credential is the one `agents pair` stored for this
+    /// endpoint under AGENTDESKTOP_PROFILE (default "cli").
+    var profile: String { environment["AGENTDESKTOP_PROFILE"].flatMap { $0.isEmpty ? nil : $0 } ?? "cli" }
+
+    func credentialStore() throws -> CredentialStore {
+        if let credentials { return credentials }
+        return try KeychainCredentialStore(keychainPath: environment["AGENTDESKTOP_KEYCHAIN"].flatMap { $0.isEmpty ? nil : $0 })
     }
 
-    /// The user's own CLI acts as the owner: AGENTDESKTOP_CREDENTIAL_FILE if
-    /// set, else the owner credential beside the endpoint (A4).
-    static func ownerCredential(for endpoint: Endpoint) -> ClientCredential? {
-        if let f = ProcessInfo.processInfo.environment["AGENTDESKTOP_CREDENTIAL_FILE"], !f.isEmpty {
-            return try? ClientCredential.load(file: f)
-        }
-        return try? ClientCredential.load(file: ClientCredential.ownerFile(forEndpoint: endpoint.path))
+    func credential(for endpoint: Endpoint, profile: String? = nil) -> ClientCredential? {
+        (try? credentialStore().load(endpoint: endpoint.path, profile: profile ?? self.profile)) ?? nil
+    }
+
+    func client(_ endpoint: Endpoint) -> RuntimeClient {
+        makeClient?(endpoint) ?? SocketRuntimeClient(endpoint: endpoint, info: CLI.clientInfo, credential: credential(for: endpoint))
     }
     /// Ask the OS to start the product; returns an error message on failure.
     var launchProduct: (_ appPath: String?) -> String? = CLI.openProduct
@@ -49,14 +62,18 @@ struct CLI {
     var now: () -> Date = Date.init
 
     /// Runs the contract v1 groups (rpc, ai, gui).
-    var runContract: ([String]) -> Int32 = { ContractCLI().run($0).rawValue }
+    var runContract: (([String]) -> Int32)?
 
     func run(_ args: [String]) -> Int32 {
         if CommandRouter.isContractCommand(args) {
             // One endpoint (A2): the AI service answers through the Runtime.
-            guard !args.contains("--socket") else { return runContract(args) }
+            let contract = runContract ?? { a in
+                let socket = a.firstIndex(of: "--socket").flatMap { a.indices.contains($0 + 1) ? a[$0 + 1] : nil } ?? ""
+                return ContractCLI(credential: credential(for: Endpoint(path: socket, source: .option))).run(a).rawValue
+            }
+            guard !args.contains("--socket") else { return contract(args) }
             let runtime = EndpointResolver.resolve(option: nil, environment: environment).path
-            return runContract(["--socket", runtime] + args)
+            return contract(["--socket", runtime] + args)
         }
         let invocation: RuntimeInvocation
         do {
@@ -122,19 +139,17 @@ struct CLI {
             return runWait(runId: runId, timeout: timeout, out, endpoint: endpoint)
         case let .runCancel(runId, requestId, wait, timeout):
             return runCancel(runId: runId, requestId: requestId, wait: wait, timeout: timeout, out, endpoint: endpoint)
-        case let .agentsPair(name, publisher, grant, outFile, timeout):
-            return agentsPair(name: name, publisher: publisher, grant: grant, outFile: outFile, timeout: timeout, out, endpoint: endpoint)
-        case let .mcp(credentialFile):
+        case let .agentsPair(name, publisher, grant, profile, timeout):
+            return agentsPair(name: name, publisher: publisher, grant: grant, profile: profile ?? self.profile, timeout: timeout,
+                              out, endpoint: endpoint)
+        case let .mcp(profile):
             // An MCP host is an external agent: it acts as a paired app with
-            // its own credential, never as the owner (A4). Without one it
-            // can only see that it must pair.
-            let file = credentialFile ?? environment["AGENTDESKTOP_CREDENTIAL_FILE"]
-            let credential: ClientCredential?
-            do { credential = try file.map { try ClientCredential.load(file: $0) } } catch let e as RuntimeError {
-                stderr("agentdesktop: \(e.message)")
-                return ExitStatus.of(e)
-            } catch { return ExitStatus.unclassified }
-            if credential == nil { stderr("agentdesktop mcp: no --credential-file; pair first with `agentdesktop agents pair`") }
+            // its own credential (profile "mcp" unless told otherwise), never
+            // as the owner (A4). Without one it can only see that it must pair.
+            let credential = self.credential(for: endpoint, profile: profile ?? "mcp")
+            if credential == nil {
+                stderr("agentdesktop mcp: not paired; run `agentdesktop agents pair --name <host> --profile \(profile ?? "mcp")` first")
+            }
             // stdout carries only MCP messages; diagnostics go to stderr.
             let server = MCPServer(makeClient: {
                 SocketRuntimeClient(endpoint: endpoint, info: CLI.clientInfo, credential: credential)
@@ -166,7 +181,7 @@ struct CLI {
     /// Run one Runtime call, mapping a thrown error to output and exit code.
     func withClient(_ out: ResultWriter, endpoint: Endpoint,
                     _ body: (RuntimeClient) throws -> Int32) -> Int32 {
-        let client = makeClient(endpoint)
+        let client = client(endpoint)
         defer { client.close() }
         do {
             return try body(client)

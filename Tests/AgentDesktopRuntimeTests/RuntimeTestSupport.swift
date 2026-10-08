@@ -46,7 +46,7 @@ func makeService(backend: RuntimeBackend = FixedBackend(), endpoint: String = "/
     RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(),
                                              startedAt: Timestamp.string(Date()), endpoint: endpoint,
                                              buildSource: "unknown"),
-                   backend: backend, desktops: desktops, ownerCredential: testOwnerToken)
+                   backend: backend, desktops: desktops, testSocketOwnerToken: testOwnerToken)
 }
 
 /// The owner credential of every test Runtime made by makeService.
@@ -345,5 +345,5 @@ func pairedClient(_ s: RuntimeService, capabilities: [String], desktops: [String
 
 /// The owner's credential for a socket client of this Runtime (A4).
 func ownerCredential(_ s: RuntimeService) -> ClientCredential {
-    ClientCredential(clientId: "local:\(getuid())", token: s.ownerCredential)
+    ClientCredential(clientId: "local:\(getuid())", token: s.testSocketOwnerToken ?? "")
 }

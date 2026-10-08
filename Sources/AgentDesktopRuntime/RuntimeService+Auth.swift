@@ -27,7 +27,7 @@ extension RuntimeService {
         return m
     }()
 
-    func isOwner(_ c: ConnectionState) -> Bool { c.role == .owner }
+    func isOwner(_ c: ConnectionState) -> Bool { c.role == .owner || c.elevatedFor != nil }
 
     /// Why the caller may not make this request, if it may not.
     func authorization(_ request: RuntimeRequest, _ c: ConnectionState) -> RuntimeError? {
@@ -43,6 +43,11 @@ extension RuntimeService {
                                      phase: .request, notSent: true), "unpaired")
         }
         if let reason = c.cutReason { return deny(Self.cutError(c, reason), "connection_cut") }
+        // An owner-only method a paired client may still ask the user for.
+        if Self.confirmableMethods.contains(method) {
+            if let e = accessError(c, method: "runtime.status") { return deny(e, e.details?["reason"]?.stringValue ?? e.code) }
+            return confirmAdminCall(request, c)
+        }
         if let e = accessError(c, method: method) { return deny(e, e.details?["reason"]?.stringValue ?? e.code) }
         // Attaching one of the user's own displays puts the user's real
         // windows in reach: only the owner does that. An owner may still
@@ -165,7 +170,9 @@ extension RuntimeService {
     /// instead of the answer, audited.
     func accessLost(_ request: RuntimeRequest, _ c: ConnectionState) -> RuntimeError? {
         guard c.role == .paired, !Self.openMethods.contains(request.method) else { return nil }
-        let e = c.cutReason.map { Self.cutError(c, $0) } ?? accessError(c, method: request.method)
+        // A confirmed owner call answers unless the client itself lost access.
+        let method = c.elevatedFor == request.requestId ? "runtime.status" : request.method
+        let e = c.cutReason.map { Self.cutError(c, $0) } ?? accessError(c, method: method)
         guard let e else { return nil }
         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: request.method, decision: "withheld",
                   reason: e.details?["reason"]?.stringValue ?? e.code, runId: request.context.runId)
@@ -205,9 +212,12 @@ extension RuntimeService {
             hub.audit(connectionId: c.connectionId, clientId: claimed, method: "runtime.handshake", decision: "denied", reason: reason)
             return RuntimeError(code, message, phase: .handshake, notSent: true, details: .obj([("reason", .string(reason))]))
         }
-        if claimed == "local:\(c.peerUID)" {
-            guard HubStore.same(HubStore.hash(token), HubStore.hash(ownerCredential)) else {
-                return refuse("permission_denied", "the owner credential does not match", "bad_credential")
+        if claimed.hasPrefix("local:") {
+            // The owner is the Agent Desktop window, never a socket client.
+            guard let owner = testSocketOwnerToken, claimed == "local:\(c.peerUID)",
+                  HubStore.same(HubStore.hash(token), HubStore.hash(owner)) else {
+                return refuse("permission_denied", "no socket client is the owner of AgentDesktop; pair this app (hub.pairing.start)",
+                              "owner_not_on_socket")
             }
             c.clientId = claimed
             c.role = .owner
@@ -215,6 +225,14 @@ extension RuntimeService {
         }
         switch hub.authenticate(clientId: claimed, token: token) {
         case let .client(client):
+            // S2: a client that paired as verified code must be that code now,
+            // as the kernel reports it for this socket; a copied token alone
+            // does not do.
+            if let requirement = CodeIdentity(json: client.codeIdentity).requirement {
+                guard let token = c.peerAuditToken, codeVerifier.satisfies(auditToken: token, requirement: requirement) else {
+                    return refuse("permission_denied", "this program is not the one \(client.clientId) paired as", "code_identity_mismatch")
+                }
+            }
             c.clientId = client.clientId
             c.role = .paired
             return nil
@@ -226,7 +244,8 @@ extension RuntimeService {
     }
 
     func principalJSON(_ c: ConnectionState) -> JSONValue {
-        .obj([("clientId", .string(c.clientId)), ("role", .string(c.role.rawValue)), ("connectionId", .string(c.connectionId))])
+        .obj([("clientId", .string(c.clientId)), ("role", .string(c.role.rawValue)), ("connectionId", .string(c.connectionId)),
+              ("codeIdentityLevel", .string(c.codeIdentity.level.rawValue))])
     }
 }
 

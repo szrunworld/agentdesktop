@@ -18,7 +18,7 @@ func scene(_ platform: FakePlatform = FakePlatform(), backend: FixedBackend = Fi
            ledger: RequestLedger? = nil, runs: RunStore? = nil) throws -> Scene {
     let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                           backend: backend, platform: platform, ledger: ledger, runs: runs, ownerCredential: testOwnerToken)
+                           backend: backend, platform: platform, ledger: ledger, runs: runs, testSocketOwnerToken: testOwnerToken)
     let c = handshaken(s)
     let d = try created(s, c)
     _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)

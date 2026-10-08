@@ -33,7 +33,7 @@ final class LiveRuntime {
         path = dir + "/runtime.sock"
         let identity = RuntimeIdentity(instanceId: "rt_live", pid: getpid(), startedAt: Timestamp.string(Date()),
                                        endpoint: path, buildSource: "unknown")
-        let service = RuntimeService(identity: identity, backend: backend)
+        let service = RuntimeService(identity: identity, backend: backend, testSocketOwnerToken: cliTestOwner.token)
         try writeOwnerCredential(service, endpoint: path)
         server = RuntimeServer(path: path, service: service)
         try server.start()
@@ -48,6 +48,7 @@ final class LiveRuntime {
         var out: [String] = []
         var err: [String] = []
         var cli = CLI()
+        cli.credentials = cliTestCredentials
         cli.stdout = { out.append($0) }
         cli.stderr = { err.append($0) }
         cli.environment = ["HOME": "/nonexistent", EndpointResolver.environmentKey: path]
@@ -111,6 +112,7 @@ final class LiveRuntime {
     var out: [String] = []
     var err: [String] = []
     var cli = CLI()
+    cli.credentials = cliTestCredentials
     cli.stdout = { out.append($0) }
     cli.stderr = { err.append($0) }
     cli.environment = ["HOME": "/nonexistent"]
@@ -123,11 +125,70 @@ final class LiveRuntime {
     #expect(err.joined().contains("agentdesktop runtime start"))
 }
 
-/// Where the host keeps the owner credential for a Runtime at `endpoint`,
-/// so the CLI under test acts as the owner, as on a real install (A4).
+/// The CLI under test speaks to its test Runtime as the owner. That is a
+/// test seam (`testSocketOwnerToken`): the product has no socket owner (A4
+/// S1). The credential sits in memory, never in a file or the keychain.
+let cliTestOwner = ClientCredential(clientId: "local:\(getuid())", token: "adt1_cli-test-owner")
+let cliTestCredentials = MemoryCredentialStore()
+
 func writeOwnerCredential(_ s: RuntimeService, endpoint: String) throws {
-    let file = ClientCredential.ownerFile(forEndpoint: endpoint)
-    try FileManager.default.createDirectory(atPath: (file as NSString).deletingLastPathComponent,
-                                            withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    FileManager.default.createFile(atPath: file, contents: Data(s.ownerCredential.utf8), attributes: [.posixPermissions: 0o600])
+    try cliTestCredentials.save(cliTestOwner, endpoint: endpoint, profile: "cli")
+}
+
+/// The user's window, scripted: approves (A4-SEC-03 CLI test).
+final class WindowSaysYes: TrustedConfirmer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var asked: [String] = []
+    var actions: [String] { lock.withLock { asked } }
+    func confirm(_ request: ConfirmationRequest) -> ConfirmationDecision {
+        lock.withLock { asked.append(request.action) }
+        return .approved(digest: request.digest)
+    }
+}
+
+/// The CLI is a client like any other (A4 S1/S3): it pairs through the
+/// window, keeps its credential in its store (the keychain; here memory),
+/// and every owner call it makes is confirmed in the window.
+@Test func theCLIPairsThroughTheWindowAndKeepsItsCredentialInItsStore() throws {
+    var template = Array("/tmp/adt-XXXXXX".utf8CString)
+    let dir = String(cString: mkdtemp(&template)!)
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runtime.sock"
+    let service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_pair", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                           endpoint: path, buildSource: "unknown"),
+                                 backend: StubBackend(), platform: TinyPlatform())
+    let window = WindowSaysYes()
+    service.confirmer = window
+    let server = RuntimeServer(path: path, service: service)
+    try server.start()
+    defer { server.stop() }
+    let store = MemoryCredentialStore()
+    func run(_ args: [String]) -> (Int32, JSONValue?) {
+        var out: [String] = []
+        var cli = CLI()
+        cli.credentials = store
+        cli.stdout = { out.append($0) }
+        cli.stderr = { _ in }
+        cli.environment = ["HOME": "/nonexistent", EndpointResolver.environmentKey: path]
+        cli.recordRequest = { _, _, _ in }
+        let code = cli.run(args + ["--format", "json"])
+        return (code, try? StrictJSON.parse(out.joined()))
+    }
+    // Not paired: refused, and nothing is the owner.
+    #expect(run(["desktop", "list"]).0 == 4)
+    let (code, paired) = run(["agents", "pair", "--name", "my cli", "--capabilities", "observe,desktop.manage", "--desktops", "created"])
+    #expect(code == 0, "\(paired?.encoded() ?? "")")
+    let clientId = try #require(paired?["data"]?["clientId"]?.stringValue)
+    #expect(try store.load(endpoint: path, profile: "cli")?.clientId == clientId)
+    #expect(paired?.encoded().contains("adt1_") == false, "the token is not printed")
+    #expect(window.actions == ["hub.pairing.start"])
+    #expect(run(["desktop", "list"]).0 == 0)
+    // An owner call: the window is asked, then it runs.
+    let (lc, listed) = run(["agents", "list"])
+    #expect(lc == 0)
+    #expect(listed?["data"]?["clients"]?.arrayValue?.count == 1)
+    #expect(window.actions == ["hub.pairing.start", "hub.clients.list"])
+    // Its own grant: refused without asking.
+    #expect(run(["agents", "grant", clientId, "--capabilities", "observe,act"]).0 == 4)
+    #expect(window.actions.count == 2)
 }

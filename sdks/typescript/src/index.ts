@@ -125,17 +125,12 @@ export function loadExecContext(env: NodeJS.ProcessEnv = process.env): ExecConte
 export interface Credential { clientId: string; token: string }
 
 /**
- * A credential file written by saveCredential or `agentdesktop agents pair`,
- * or the owner's (a bare token, handed to a `session exec` child).
+ * A credential file written by saveCredential. There is no owner credential:
+ * no socket client is ever the owner of AgentDesktop. A file is only as
+ * private as the user account; a signed app should use the keychain.
  */
 export function loadCredential(path: string): Credential {
-  const text = readFileSync(path, "utf8");
-  let v: Obj;
-  try { v = strictParse(text) as Obj; } catch {
-    const token = text.trim();
-    if (!token || token.includes("{")) throw new RuntimeApiError("invalid_argument", `${path} holds no credential`, "local", false, true);
-    return { clientId: `local:${process.getuid!()}`, token };
-  }
+  const v = strictParse(readFileSync(path, "utf8")) as Obj;
   if (!v || typeof v !== "object" || typeof v.clientId !== "string" || typeof v.token !== "string") {
     throw new RuntimeApiError("invalid_argument", `${path} holds no credential`, "local", false, true);
   }

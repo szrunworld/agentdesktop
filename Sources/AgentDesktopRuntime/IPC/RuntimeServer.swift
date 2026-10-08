@@ -210,6 +210,14 @@ public final class RuntimeServer: @unchecked Sendable {
         var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let executable = gotPid && proc_pidpath(pid, &path, UInt32(path.count)) > 0 ? String(cString: path) : nil
         let state = ConnectionState(socketPeer: uid, pid: gotPid ? pid : nil, executable: executable)
+        // S2: who the kernel says is at the other end, for pairing and for
+        // checking a paired client is still the code it paired as.
+        if let token = peerAuditToken(fd) {
+            state.peerAuditToken = token
+            state.codeIdentity = service.codeVerifier.identify(auditToken: token, executable: executable)
+        } else {
+            state.codeIdentity = .unknown
+        }
         state.attachCloser { _ = shutdown(fd, SHUT_RDWR) }
         connection = state
         defer { service.connectionClosed(state) }

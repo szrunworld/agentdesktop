@@ -75,9 +75,11 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     #expect(data(call(s, paired, "runtime.status")) != nil)
     #expect(code(call(s, paired, "desktop.create")) == "grant_missing")
     #expect(errorDetails(call(s, paired, "desktop.create"))?["capability"]?.stringValue == "desktop.manage")
-    // Default deny for everything the owner keeps.
+    // Owner calls the user may confirm: refused without a trusted window.
     #expect(code(call(s, paired, "hub.clients.list")) == "permission_denied")
-    #expect(errorDetails(call(s, paired, "hub.clients.list"))?["reason"]?.stringValue == "owner_only")
+    #expect(errorDetails(call(s, paired, "hub.clients.list"))?["reason"]?.stringValue == "no_trusted_ui")
+    // Default deny for the rest of what the owner keeps.
+    #expect(errorDetails(call(s, paired, "gui.runs.get", params: #"{"runId":"run_x"}"#))?["reason"]?.stringValue == "owner_only")
     #expect(code(call(s, paired, "hub.pairing.approve", params: #"{"pairingId":"\#(pairingId)","grant":{}}"#)) == "permission_denied")
     // Only the hash is stored.
     let stored = try #require(s.hub.client(clientId))

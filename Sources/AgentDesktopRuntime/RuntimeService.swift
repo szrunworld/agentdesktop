@@ -55,6 +55,17 @@ public final class ConnectionState: @unchecked Sendable {
     public func attachCloser(_ close: @escaping @Sendable () -> Void) { closerLock.withLock { closer = close } }
     public func detach(_ close: () -> Void) { closerLock.withLock { closer = nil; close() } }
 
+    /// The kernel's audit token of the socket peer, and the code identity
+    /// the Runtime read from it at connect (A4 S2). In-process: none.
+    public internal(set) var peerAuditToken: Data?
+    public internal(set) var codeIdentity: CodeIdentity = .inProcess
+
+    /// A paired client's one owner-only call the user just confirmed: the
+    /// connection acts as the owner for that request only (respond clears it).
+    private(set) var elevatedFor: String?
+    func elevate(_ requestId: String) { elevatedFor = requestId }
+    func endElevation() { elevatedFor = nil }
+
     func cut(_ reason: String) {
         closerLock.withLock { closer?() }
         sendGate.withLock { if cutBy == nil { cutBy = reason } }
@@ -72,6 +83,7 @@ public final class ConnectionState: @unchecked Sendable {
     /// A socket connection: unpaired until its handshake shows a credential.
     public init(socketPeer uid: uid_t, pid: pid_t?, executable: String?) {
         peerUID = uid
+        codeIdentity = .unknown
         connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
         clientId = "unpaired:" + connectionId
         role = .unpaired
@@ -107,14 +119,23 @@ public final class RuntimeService: @unchecked Sendable {
     let extensions = ExtensionRegistry()
     /// Paired clients, grants, pairing requests and the authorization audit (A4).
     public let hub: HubStore
-    /// What a local client shows in runtime.handshake to act as the owner
-    /// (the CLI reads it from `owner.credential` in the records directory).
-    public let ownerCredential: String
+    /// Tests only. The owner is the host's own window (in-process
+    /// connections); no socket client is ever the owner (A4 S1). A test that
+    /// drives owner-only methods over a socket passes a token here; the
+    /// product (RuntimeService.persistent) never does, so no credential,
+    /// file or environment variable can make a socket client the owner.
+    let testSocketOwnerToken: String?
     /// Open socket connections, for hub.connections.list.
     let openConnections = ConnectionRegistry()
     /// How long one element read may take before an observation goes on
     /// with the screenshot alone (RT-23A).
     public var elementReadBudget: TimeInterval = 5
+    /// The host's trusted confirmation window (A4 S1); nil refuses every
+    /// confirmation. Set before the server starts.
+    public var confirmer: TrustedConfirmer?
+    let confirmationGate = ConfirmationGate()
+    /// Reads socket peers' code identities (A4 S2); tests replace it.
+    public var codeVerifier: CodeIdentityVerifier = SecurityCodeIdentityVerifier()
     /// Tests only: runs on a pushing connection between its access check and
     /// fetching the next frames, to hold a revocation race open.
     var pushCheckpoint: (@Sendable (ConnectionState) -> Void)?
@@ -136,11 +157,11 @@ public final class RuntimeService: @unchecked Sendable {
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
                 ledger: RequestLedger? = nil, runs: RunStore? = nil, artifacts: ArtifactStore? = nil,
-                desktops: DesktopRegistry = DesktopRegistry(), hub: HubStore? = nil, ownerCredential: String? = nil,
+                desktops: DesktopRegistry = DesktopRegistry(), hub: HubStore? = nil, testSocketOwnerToken: String? = nil,
                 contract: RuntimeContract = .shared, now: @escaping @Sendable () -> Date = { Date() }) {
         self.identity = identity
         self.hub = hub ?? (try! HubStore(path: nil, now: now))
-        self.ownerCredential = ownerCredential ?? HubStore.newToken()
+        self.testSocketOwnerToken = testSocketOwnerToken
         self.backend = backend
         self.platform = platform
         self.desktops = desktops
@@ -161,6 +182,8 @@ public final class RuntimeService: @unchecked Sendable {
     var nowString: String { Timestamp.string(now()) }
 
     public func respond(to line: Data, on connection: ConnectionState) -> RuntimeResponse {
+        // An owner call a user confirmed for a paired client ends with it.
+        defer { connection.endElevation() }
         let value: JSONValue
         do {
             value = try StrictJSON.parse(line)

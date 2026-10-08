@@ -22,6 +22,7 @@ final class CLIRun: @unchecked Sendable {
         ContractCLI(stdout: out.add, stderr: err.add,
             readFile: { [files] p in guard let s = files[p] else { throw CocoaError(.fileNoSuchFile) }; return Data(s.utf8) },
             environment: ["HOME": NSHomeDirectory()],
+            send: ownerSend,
             readStdin: { [stdin] in Data(stdin.utf8) },
             nowMs: { [self] in clockMs },
             sleepMs: { [self] ms in polls += 1; clockMs += UInt64(ms); usleep(20_000) },
@@ -52,18 +53,18 @@ struct NoDesktopBackend: RuntimeBackend {
 
 /// The composed service answering through a real Runtime endpoint, as the
 /// host wires it.
+/// The contract CLI under test speaks as the owner of its test Runtime: a
+/// test seam; the product has no socket owner (A4 S1).
+let serviceTestOwner = ClientCredential(clientId: "local:\(getuid())", token: "adt1_service-test-owner")
+let ownerSend: @Sendable (JSONValue, String) -> TransportReply = { RuntimeTransport.exchange($0, path: $1, credential: serviceTestOwner) }
+
 func runtimeEndpoint(for service: AgentDesktopService, at path: String) throws -> RuntimeServer {
     let runtime = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_svc", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: NoDesktopBackend())
+                                 backend: NoDesktopBackend(), testSocketOwnerToken: serviceTestOwner.token)
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
     runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
-    // The CLI under test acts as the owner, as on a real install (A4).
-    let file = ClientCredential.ownerFile(forEndpoint: path)
-    try FileManager.default.createDirectory(atPath: (file as NSString).deletingLastPathComponent,
-                                            withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    FileManager.default.createFile(atPath: file, contents: Data(runtime.ownerCredential.utf8), attributes: [.posixPermissions: 0o600])
     let server = RuntimeServer(path: path, service: runtime)
     try server.start()
     return server

@@ -1043,9 +1043,11 @@
   },
   "serviceSchema": "service.schema.json",
   "authorization": {
-    "principal": "from the handshake credential only: owner (in-process, or the owner credential in <records>/owner.credential), paired app (app:<id> credential from hub.pairing), else unpaired",
+    "principal": "from the handshake credential only: owner (the host's in-process connections; no socket client is ever the owner), paired app (app:<id> credential from hub.pairing; a client that paired as verified code must satisfy its designated requirement, read from the socket's audit token, on every handshake), else unpaired",
     "unpaired": "runtime.handshake, runtime.capabilities, hub.pairing.start, hub.pairing.status; anything else is pairing_required",
-    "paired": "runtime.status, and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps; everything else is the owner's (permission_denied, reason owner_only)",
-    "checked": "every request, against the client and grant as they are now; an action once more right before its input goes out"
+    "paired": "runtime.status, and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.stopAll, runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window (never for the caller's own grant: permission_denied, reason self_grant). Everything else is the owner's (permission_denied, reason owner_only)",
+    "checked": "every request, against the client and grant as they are now; an action once more right before its input goes out",
+    "pairing": "hub.pairing.start asks the user in the host's trusted window (details, short code, user authentication); approved exactly as shown, the grant's duration counting from the approval; denied, cancelled, timed out or no trusted window: denied",
+    "confirmation": "a confirmation is bound to a digest of exactly what will be applied; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch or no_trusted_ui"
   }
 }

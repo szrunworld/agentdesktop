@@ -31,9 +31,10 @@ struct RuntimeInvocation: Equatable {
         /// run cancel, optionally waiting for quiescence.
         case runCancel(runId: String, requestId: String?, wait: Bool, timeout: Double)
         /// mcp: serve MCP on stdio.
-        case mcp(credentialFile: String?)
-        /// An external app pairs: start, wait for the owner, save the credential.
-        case agentsPair(name: String, publisher: String?, grant: JSONValue, out: String, timeout: Double)
+        case mcp(profile: String?)
+        /// This CLI pairs: start, wait for the user to confirm in the Agent
+        /// Desktop window, keep the credential in the keychain.
+        case agentsPair(name: String, publisher: String?, grant: JSONValue, profile: String?, timeout: Double)
         /// session exec: own a Run while a child program acts in it.
         case sessionExec(desktopId: String?, sessionId: String?, argv: [String])
     }
@@ -94,41 +95,41 @@ enum CommandRouter {
     }
 
     static let specs: [Spec] = [
-        Spec(words: ["agents", "list"], summary: "paired apps, their grants, and open pairing requests (owner)",
+        Spec(words: ["agents", "list"], summary: "paired apps, their grants, and open pairing requests (confirmed in the Agent Desktop window)",
              options: [:], positionals: []) { _, _ in .call(RuntimeCall(method: .clientsList)) },
-        Spec(words: ["agents", "show"], summary: "one paired app: grant and open connections (owner)",
+        Spec(words: ["agents", "show"], summary: "one paired app: grant and open connections (confirmed in the Agent Desktop window)",
              options: [:], positionals: ["clientId"]) { _, p in
             .call(RuntimeCall(method: .clientsShow, params: .obj([("clientId", .string(p[0]))])))
         },
-        Spec(words: ["agents", "approve"], summary: "approve a pairing request with a grant within what it asked for (owner)",
+        Spec(words: ["agents", "approve"], summary: "approve another app's pairing request within what it asked for (confirmed in the Agent Desktop window)",
              options: grantOptions.merging(["--request-id": true]) { a, _ in a }, positionals: ["pairingId"]) { o, p in
             try write(.pairingApprove, .obj([("pairingId", .string(p[0])), ("grant", try grant(o))]), o)
         },
-        Spec(words: ["agents", "deny"], summary: "deny a pairing request (owner)",
+        Spec(words: ["agents", "deny"], summary: "deny a pairing request (confirmed in the Agent Desktop window)",
              options: ["--request-id": true], positionals: ["pairingId"]) { o, p in
             try write(.pairingDeny, .obj([("pairingId", .string(p[0]))]), o)
         },
-        Spec(words: ["agents", "grant"], summary: "replace a paired app's grant; narrowing applies at once (owner)",
+        Spec(words: ["agents", "grant"], summary: "replace another app's grant; narrowing applies at once (confirmed in the Agent Desktop window)",
              options: grantOptions.merging(["--request-id": true]) { a, _ in a }, positionals: ["clientId"]) { o, p in
             var params = (try grant(o)).objectMembers ?? []
             params.insert((key: "clientId", value: .string(p[0])), at: 0)
             return try write(.grantsSet, .object(params), o)
         },
-        Spec(words: ["agents", "revoke"], summary: "remove a paired app: its credential stops working and its Runs stop (owner)",
+        Spec(words: ["agents", "revoke"], summary: "remove a paired app: its credential stops working and its Runs stop (confirmed in the Agent Desktop window)",
              options: ["--request-id": true], positionals: ["clientId"]) { o, p in
             try write(.clientsRevoke, .obj([("clientId", .string(p[0]))]), o)
         },
-        Spec(words: ["agents", "connections"], summary: "open connections and who each one is (owner)",
+        Spec(words: ["agents", "connections"], summary: "open connections and who each one is (confirmed in the Agent Desktop window)",
              options: [:], positionals: []) { _, _ in .call(RuntimeCall(method: .connectionsList)) },
-        Spec(words: ["agents", "pair"], summary: "pair this app: shows a code for the owner to compare, saves the credential to --out",
-             options: grantOptions.merging(["--name": true, "--publisher": true, "--out": true, "--wait-timeout": true]) { a, _ in a },
+        Spec(words: ["agents", "pair"], summary: "pair this CLI (or an MCP host, --profile mcp): the user confirms in the Agent Desktop window; the credential goes to the keychain",
+             options: grantOptions.merging(["--name": true, "--publisher": true, "--profile": true, "--wait-timeout": true]) { a, _ in a },
              positionals: []) { o, _ in
-            guard let name = o["--name"], let out = o["--out"] else { throw RuntimeError.invalidArgument("agents pair needs --name and --out") }
-            return .agentsPair(name: name, publisher: o["--publisher"], grant: try grant(o), out: out,
+            guard let name = o["--name"] else { throw RuntimeError.invalidArgument("agents pair needs --name") }
+            return .agentsPair(name: name, publisher: o["--publisher"], grant: try grant(o), profile: o["--profile"],
                                timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 600)
         },
-        Spec(words: ["mcp"], summary: "serve the Runtime as MCP tools on stdio, as the paired app in --credential-file",
-             options: ["--credential-file": true], positionals: []) { o, _ in .mcp(credentialFile: o["--credential-file"]) },
+        Spec(words: ["mcp"], summary: "serve the Runtime as MCP tools on stdio, as the paired app of --profile (default mcp)",
+             options: ["--profile": true], positionals: []) { o, _ in .mcp(profile: o["--profile"]) },
         Spec(words: ["version"], summary: "CLI version, API version and build; no connection",
              options: [:], positionals: []) { _, _ in .version },
         Spec(words: ["runtime", "start"], summary: "start the installed Runtime if needed and wait for its handshake",

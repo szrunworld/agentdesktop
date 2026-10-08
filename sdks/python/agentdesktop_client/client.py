@@ -382,17 +382,14 @@ class Session:
 
 
 def load_credential(path: str) -> dict:
-    """A credential file written by save_credential or `agentdesktop agents pair`,
-    or the owner's (a bare token, handed to a `session exec` child)."""
+    """A credential file written by save_credential. There is no owner
+    credential: no socket client is ever the owner of AgentDesktop.
+
+    A file is only as private as the user account (any process of the user
+    can read it); a signed app should keep its credential in the keychain.
+    """
     with open(path, "r", encoding="utf-8") as f:
-        text = f.read()
-    try:
-        v = json.loads(text)
-    except ValueError:
-        token = text.strip()
-        if not token or "{" in token:
-            raise RuntimeError_("invalid_argument", f"{path} holds no credential", "local", not_sent=True)
-        return {"clientId": f"local:{os.getuid()}", "token": token}
+        v = json.load(f)
     if not isinstance(v, dict) or "clientId" not in v or "token" not in v:
         raise RuntimeError_("invalid_argument", f"{path} holds no credential", "local", not_sent=True)
     return {"clientId": v["clientId"], "token": v["token"]}

@@ -24,7 +24,7 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
     let path = dir + "/runtime.sock"
     let runtime = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_a2", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: Backend(), ownerCredential: "adt1_test-owner-credential")
+                                 backend: Backend(), testSocketOwnerToken: "adt1_test-owner-credential")
     let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
         databasePath: dir + "/ai.sqlite", credentials: InMemoryCredentialStore()))
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
