@@ -378,7 +378,16 @@ public final class IPhoneAgentScreen: AgentScreen {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["zh-Hans", "en-US"]
-        try VNImageRequestHandler(cgImage: windowImage()).perform([request])
+        let capture = try capturedWindow()
+        // A status page ("iPhone in Use") is not a quiet phone: the paste's
+        // fate cannot be read off it (2026-10-08: a paste the phone dropped
+        // when it was picked up was reported delivered).
+        let status = state(of: capture)
+        guard status.state == .ready else {
+            throw IPhoneError("not_connected", reason: status.state.rawValue,
+                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\" during the paste")
+        }
+        try VNImageRequestHandler(cgImage: capture.image).perform([request])
         return (request.results ?? []).compactMap { observation in
             guard let text = observation.topCandidates(1).first?.string else { return nil }
             let box = observation.boundingBox  // normalised, bottom-left origin
