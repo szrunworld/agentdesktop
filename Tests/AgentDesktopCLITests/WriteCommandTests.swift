@@ -1,6 +1,5 @@
 import CryptoKit
 import AgentDesktopClient
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import AgentDesktopRuntime
 import Foundation

@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import CryptoKit
 import Foundation
 
@@ -857,7 +857,7 @@ public actor ConfigStore {
             ("testOperationId", operationId.map(JSONValue.string) ?? .null), ("scope", .obj(scope)),
             ("reasonCode", reasonCode.map(JSONValue.string) ?? .null),
         ])
-        guard try ContractBundle.shared.validateDomain(evidence, "CapabilityEvidence").isEmpty else {
+        guard try ContractBundle.shared.validate(evidence, "CapabilityEvidence").isEmpty else {
             throw ContractError(.validationError, "invalid capability evidence")
         }
         try db.run("INSERT OR REPLACE INTO capability_evidence VALUES(?,?,?,?)",

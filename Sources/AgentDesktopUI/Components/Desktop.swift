@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import SwiftUI
 
 /// Where a Desktop's picture goes. U1a draws a placeholder only: no

@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import AgentDesktopUI
 import SwiftUI
 

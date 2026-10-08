@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// fixture_json_v1: a neutral, strictly-JSON suggestion format for tests and
@@ -62,7 +62,7 @@ public struct FixtureJsonCodec: GuiActionCodec {
 
     func action(_ a: JSONValue, _ context: CodecContext) throws -> GuiAction {
         // Shape first, by the contract's own GuiAction definition.
-        let shape = try ContractBundle.shared.validateDomain(a, "GuiAction")
+        let shape = try ContractBundle.shared.validate(a, "GuiAction")
         guard shape.isEmpty else { throw invalidAction("action does not match the contract") }
         func source() throws -> Point {
             let raw = Point(x: a["x"]!.doubleValue!, y: a["y"]!.doubleValue!)

@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopGUI
@@ -46,7 +46,7 @@ final class SQLiteRunHarness: @unchecked Sendable {
     let audit: RecordingAudit
     let repository: SQLiteGuiRunRepository
     let service: GuiRunService
-    let owner: RpcRouter
+    let owner: ServiceRouter
 
     init(_ replies: [StubAiService.Reply], path: String? = nil) throws {
         if let path {
@@ -73,7 +73,7 @@ final class SQLiteRunHarness: @unchecked Sendable {
                                 newId: { prefix in "\(prefix)-\(counter.next())" })
         var handlers = ConfigApplicationService(store: store).handlers(callerScope: "owner")
         handlers.merge(service.handlers(callerScope: "owner", trustedOwner: true)) { a, _ in a }
-        owner = RpcRouter(handlers: handlers)
+        owner = ServiceRouter(handlers: handlers)
     }
 
     static func openStore(_ path: String) throws -> ConfigStore {
@@ -82,18 +82,14 @@ final class SQLiteRunHarness: @unchecked Sendable {
 
     static let sharedCredentials = InMemoryCredentialStore()
 
-    func call(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: RpcRouter? = nil) async throws -> JSONValue {
-        var m: [(String, JSONValue)] = [
-            ("schemaVersion", .string("agentdesktop.ai/1")), ("requestId", .string(UUID().uuidString.lowercased())),
-            ("command", .string(command)), ("params", params),
-        ]
-        if let key { m.append(("context", .obj([("idempotencyKey", .string(key))]))) }
-        var line = await (router ?? owner).respond(toBody: JSONValue.obj(m).encodedData())
-        line.removeLast()
-        return try StrictJSON.parse(line)
+    func call(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: ServiceRouter? = nil) async throws -> JSONValue {
+        switch await (router ?? owner).answer(method: command, params: params, idempotencyKey: key) {
+        case let .success(v): return .obj([("ok", .bool(true)), ("result", v)])
+        case let .failure(e): return .obj([("ok", .bool(false)), ("error", e.json)])
+        }
     }
 
-    func ok(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: RpcRouter? = nil) async throws -> JSONValue {
+    func ok(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: ServiceRouter? = nil) async throws -> JSONValue {
         let r = try await call(command, params, key: key, router: router)
         guard r["ok"]?.boolValue == true, let result = r["result"] else {
             Issue.record("\(command) failed: \(r.encoded())")
@@ -141,17 +137,17 @@ final class SQLiteRunHarness: @unchecked Sendable {
 
     func finished(_ runId: String) async { await service.task(for: runId)?.value }
 
-    func run(_ runId: String, router: RpcRouter? = nil) async throws -> JSONValue {
+    func run(_ runId: String, router: ServiceRouter? = nil) async throws -> JSONValue {
         try await ok("gui.runs.get", .obj([("runId", .string(runId))]), router: router)
     }
 
     /// A gui.runs.get router over a freshly opened store on the same file,
     /// as a restarted Runtime would have (no execution backend).
-    func reopenedRouter() throws -> (ConfigStore, RpcRouter) {
+    func reopenedRouter() throws -> (ConfigStore, ServiceRouter) {
         let s = try Self.openStore(path)
         let svc = GuiRunService(repository: SQLiteGuiRunRepository(store: s), resolver: ConfigBindingResolver(store: s),
                                 backend: nil, aiService: ai)
-        return (s, RpcRouter(handlers: svc.handlers(callerScope: "owner", trustedOwner: true)))
+        return (s, ServiceRouter(handlers: svc.handlers(callerScope: "owner", trustedOwner: true)))
     }
 }
 

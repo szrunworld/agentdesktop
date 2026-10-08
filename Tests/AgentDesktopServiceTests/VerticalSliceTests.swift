@@ -1,6 +1,6 @@
 import AgentDesktopAI
 import AgentDesktopCLI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import AgentDesktopGUI
 import Foundation
 import Testing
@@ -51,7 +51,7 @@ final class NeutralForm: @unchecked Sendable {
 
 let formTarget = TargetIdentity(appId: "com.agentdesktop.neutral-form", processId: 4242, processStartId: "ps-1",
                                 windowId: "win-1", windowGeometryRevision: 1, backendId: "stand-in",
-                                windowFrameDesktopLogical: Rect(x: 0, y: 0, width: 500, height: 400))
+                                windowFrameDesktopLogical: GuiRect(x: 0, y: 0, width: 500, height: 400))
 
 /// The model sees the 1000×800 source shrunk to 500×400 (a real transform).
 func formTransform() throws -> ScreenshotTransform {
@@ -199,7 +199,7 @@ final class Slice: @unchecked Sendable {
     let audit = CountingAudit()
     let credentials: InMemoryCredentialStore
     let service: AgentDesktopService
-    let router: RpcRouter
+    let router: ServiceRouter
 
     init(backend: Bool = true, reopening dir: URL? = nil, credentials: InMemoryCredentialStore? = nil) async throws {
         self.dir = dir ?? URL(fileURLWithPath: "/tmp/ads-\(UUID().uuidString.prefix(8))")
@@ -217,15 +217,12 @@ final class Slice: @unchecked Sendable {
         router = service.router(callerScope: "owner", trustedOwner: true)
     }
 
+    /// One call through the router, as `{ok, result | error}` (test shape).
     func call(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil) async throws -> JSONValue {
-        var m: [(String, JSONValue)] = [
-            ("schemaVersion", .string("agentdesktop.ai/1")), ("requestId", .string(UUID().uuidString.lowercased())),
-            ("command", .string(command)), ("params", params),
-        ]
-        if let key { m.append(("context", .obj([("idempotencyKey", .string(key))]))) }
-        var out = await router.respond(toBody: JSONValue.obj(m).encodedData())
-        out.removeLast()
-        return try StrictJSON.parse(out)
+        switch await router.answer(method: command, params: params, idempotencyKey: key) {
+        case let .success(v): return .obj([("ok", .bool(true)), ("result", v)])
+        case let .failure(e): return .obj([("ok", .bool(false)), ("error", e.json)])
+        }
     }
 
     func ok(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil) async throws -> JSONValue {
@@ -337,7 +334,7 @@ struct VerticalSliceTests {
         #expect(s.form.submissions == 1)
         #expect(await s.executor.executed.count == 3, "click, type, click")
         #expect(run["binding"]?["primary"]?["guiProfile"]?["guiProfileId"] == gui["guiProfileId"])
-        #expect(try ContractBundle.shared.validateRpc(run, "gui_runs_get_result").isEmpty)
+        #expect(try ContractBundle.shared.validate(run, "gui_runs_get_result").isEmpty)
 
         // The run used the shared model service. The check after Apply
         // already sees the saved state, so no finish turn is needed (§06.3):
@@ -429,12 +426,8 @@ struct VerticalSliceTests {
         #expect(usage["unknownActionOutcomes"]?.intValue == 1)
         // Another caller sees none of it.
         let stranger = s.service.router(callerScope: "stranger", trustedOwner: false)
-        let req = JSONValue.obj([("schemaVersion", .string("agentdesktop.ai/1")), ("requestId", .string(UUID().uuidString.lowercased())),
-                                 ("command", .string("ai.usage.summary")),
-                                 ("params", .obj([("from", .string("2026-01-01T00:00:00Z")), ("to", .string("2099-01-01T00:00:00Z"))]))]).encodedData()
-        var out = await stranger.respond(toBody: req)
-        out.removeLast()
-        let other = try StrictJSON.parse(out)
+        let other: JSONValue = .obj([("result", try await stranger.answer(method: "ai.usage.summary", params: .obj([
+            ("from", .string("2026-01-01T00:00:00Z")), ("to", .string("2099-01-01T00:00:00Z"))])).get())])
         #expect(other["result"]?["confirmedActions"]?.intValue == 0)
         #expect(other["result"]?["unknownActionOutcomes"]?.intValue == 0)
     }
@@ -451,9 +444,10 @@ struct VerticalSliceTests {
             return r["state"]?.stringValue == "succeeded"
         }
         var seen: [String] = []
-        for cmd in ["ai.connections.list", "ai.modelProfiles.list", "ai.profiles.list", "runtime.capabilities"] {
+        for cmd in ["ai.connections.list", "ai.modelProfiles.list", "ai.profiles.list"] {
             seen.append(try await s.call(cmd).encoded())
         }
+        seen.append(s.service.runs.capabilities().encoded())
         seen.append(try await s.call("ai.usage.summary", .obj([("from", .string("2026-01-01T00:00:00Z")),
                                                                ("to", .string("2099-01-01T00:00:00Z"))])).encoded())
         seen.append(try await s.call("gui.runs.get", .obj([("runId", .string(runId))])).encoded())
@@ -471,39 +465,43 @@ struct VerticalSliceTests {
         let s = try await Slice(backend: false)
         let (_, test) = try await s.configure()
         #expect(test["state"]?.stringValue == "succeeded")
-        let caps = try await s.ok("runtime.capabilities")
+        let caps = s.service.runs.capabilities()
         #expect(caps["features"]?["nativeIsolationEvidence"]?.stringValue == "NOT_RUN")
         let r = try await s.call("gui.runs.start", Slice.startParams(), key: "no-backend-1")
         #expect(r["error"]?["code"]?.stringValue == "CAPABILITY_MISMATCH")
         #expect(s.form.inputCount == 0)
     }
 
-    // The CLI talks to the composed service over a real Unix socket.
-    @Test func cliOverTheSocketServer() async throws {
+    // The CLI reaches the composed service through the Runtime's one
+    // endpoint, in runtime/1.
+    @Test func cliOverTheRuntimeEndpoint() async throws {
         let s = try await Slice()
-        let path = s.dir.appendingPathComponent("rpc.sock").path
-        let server = RpcSocketServer(path: path, router: s.router)
-        try server.start()
+        let path = s.dir.appendingPathComponent("runtime.sock").path
+        let server = try runtimeEndpoint(for: s.service, at: path)
         defer { server.stop() }
 
         var mode = stat()
         #expect(stat(path, &mode) == 0)
         #expect(mode.st_mode & 0o777 == 0o600)
-        #expect(stat(s.dir.path, &mode) == 0)
-        #expect(mode.st_mode & 0o077 == 0, "the socket directory is private")
 
         let out = LinesBox()
-        let request = #"{"schemaVersion":"agentdesktop.ai/1","requestId":"44444444-4444-4444-8444-444444444444","command":"runtime.capabilities","params":{}}"#
+        let request = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"cli-caps-0001","method":"runtime.capabilities","params":{}}"#
         let cli = ContractCLI(stdout: out.add, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
-                      environment: ["HOME": NSHomeDirectory()], send: SocketClient.exchange)
+                              environment: ["HOME": NSHomeDirectory()])
         let code = await Task.detached { cli.run(["--json", "--socket", path, "rpc", "--request-file", "r.json"]) }.value
         #expect(code == .ok)
         let reply = try StrictJSON.parse(try #require(out.lines.first))
-        #expect(reply["result"]?["implementedAiProtocols"] == .array([.string("openai_chat")]))
+        #expect(reply["apiVersion"]?.stringValue == RuntimeAPI.version)
+        #expect(reply["requestId"]?.stringValue == "cli-caps-0001")
+        #expect(reply["data"]?["gui"]?["implementedAiProtocols"] == .array([.string("openai_chat")]))
 
-        // A second server cannot take over a live endpoint, and its probe
-        // does not disturb the first.
-        #expect(throws: ContractError.self) { try RpcSocketServer(path: path, router: s.router).start() }
+        // A request in the retired ai/1 envelope is refused before sending.
+        let old = #"{"schemaVersion":"agentdesktop.ai/1","requestId":"44444444-4444-4444-8444-444444444444","command":"ai.connections.list","params":{}}"#
+        let out3 = LinesBox()
+        let cli3 = ContractCLI(stdout: out3.add, stderr: { _ in }, readFile: { _ in Data(old.utf8) },
+                               environment: ["HOME": NSHomeDirectory()])
+        #expect(await Task.detached { cli3.run(["--socket", path, "rpc", "--request-file", "r.json"]) }.value == .localValidation)
+        #expect(try StrictJSON.parse(try #require(out3.lines.first))["error"]?["code"]?.stringValue == "invalid_argument")
 
         // A client that sends a request and leaves before the answer does not
         // end the server; the next request still succeeds.
@@ -520,8 +518,14 @@ struct VerticalSliceTests {
         try await Task.sleep(nanoseconds: 100_000_000)
         let out2 = LinesBox()
         let cli2 = ContractCLI(stdout: out2.add, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
-                       environment: ["HOME": NSHomeDirectory()], send: SocketClient.exchange)
+                               environment: ["HOME": NSHomeDirectory()])
         #expect(await Task.detached { cli2.run(["--socket", path, "rpc", "--request-file", "r.json"]) }.value == .ok)
+
+        // Nothing listens: the CLI says the runtime is unavailable (exit 3).
+        let cli4 = ContractCLI(stdout: { _ in }, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
+                               environment: ["HOME": NSHomeDirectory()])
+        let none = s.dir.appendingPathComponent("none.sock").path
+        #expect(await Task.detached { cli4.run(["--socket", none, "rpc", "--request-file", "r.json"]) }.value == .runtimeUnavailable)
     }
 }
 

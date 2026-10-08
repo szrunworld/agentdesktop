@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import SwiftUI
 
 /// Component sheets laid out like Design v2.0 P01, P06, P19 and P21, for

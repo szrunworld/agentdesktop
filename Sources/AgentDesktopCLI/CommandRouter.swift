@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 
@@ -540,7 +539,7 @@ enum CommandRouter {
         lines += [
             "",
             "--format json prints one JSON object on stdout; diagnostics go to stderr.",
-            "AI/GUI (contract agentdesktop.ai/1): agentdesktop rpc|ai|gui …; see agentdesktop ai --help.",
+            "AI/GUI service methods (runtime/1): agentdesktop rpc|ai|gui …; see agentdesktop ai --help.",
             "--endpoint (or AGENTDESKTOP_ENDPOINT) selects a Runtime other than the installed product's.",
             "Exit codes: 0 done, 2 arguments, 3 Runtime offline, 4 permission, 5 conflict,",
             "6 version/capability, 7 known failure, 8 wait timeout, 9 result unknown.",

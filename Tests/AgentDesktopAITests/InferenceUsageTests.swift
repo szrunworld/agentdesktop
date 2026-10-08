@@ -1,12 +1,12 @@
 import Foundation
 import Testing
 @testable import AgentDesktopAI
-@testable import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 
 @Suite("Usage and ledger")
 struct InferenceUsageTests {
     func validates(_ summary: JSONValue) throws {
-        let v = try ContractBundle.shared.validateRpc(summary, "ai_usage_summary_result")
+        let v = try ContractBundle.shared.validate(summary, "ai_usage_summary_result")
         #expect(v.isEmpty, "\(v)")
     }
 

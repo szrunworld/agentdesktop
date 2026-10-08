@@ -98,7 +98,7 @@ public struct ContractError: Error, Equatable, Sendable, CustomStringConvertible
         let candidate = JSONValue.obj(out)
         let probe = JSONValue.obj([("code", .string(code.rawValue)), ("message", .string("x")),
                                    ("retryable", .bool(retryable)), ("details", candidate)])
-        guard (try? ContractBundle.shared.validateDomain(probe, "RpcError"))?.isEmpty == true else { return nil }
+        guard (try? ContractBundle.shared.validate(probe, "RpcError"))?.isEmpty == true else { return nil }
         return candidate
     }
 
@@ -108,84 +108,43 @@ public struct ContractError: Error, Equatable, Sendable, CustomStringConvertible
     }
 }
 
-/// One entry of contracts/ai-gui/v1/operations.json.
+/// One method the AI service answers, as methods.json lists it.
 public struct OperationSpec: Equatable, Sendable {
     public let command: String
     public let mutation: Bool
     public let asynchronous: Bool
     public let requiresIdempotencyKey: Bool
-    public let paramsRef: String
-    public let resultRef: String
 
-    /// The rpc.schema.json $defs prefix for this command: "gui.runs.start" → "gui_runs_start".
+    /// The service.schema.json $defs prefix: "gui.runs.start" → "gui_runs_start".
     public var defPrefix: String { command.replacingOccurrences(of: ".", with: "_") }
 }
 
-/// The contract files bundled with the target: both schemas and the
-/// operation catalog, loaded once.
+/// The service side of the runtime/1 contract: the methods marked
+/// `servedBy` in methods.json and their definitions in service.schema.json,
+/// embedded in the build like the rest of the contract (no resource bundle
+/// to lose when the app is packaged).
 public final class ContractBundle: Sendable {
-    public static let schemaVersion = "agentdesktop.ai/1"
-    public static let domainSchemaId = "https://schemas.agentdesktop.invalid/ai-gui/v1/domain.schema.json"
-    public static let rpcSchemaId = "https://schemas.agentdesktop.invalid/ai-gui/v1/rpc.schema.json"
-
     public let registry: SchemaRegistry
     public let operations: [OperationSpec]
     private let byCommand: [String: OperationSpec]
 
     /// The contract shipped in this build.
-    public static let shared: ContractBundle = {
-        do { return try ContractBundle(loadingFrom: Bundle.module) } catch {
-            fatalError("AI/GUI contract files are missing or invalid: \(error)")
-        }
-    }()
+    public static let shared = ContractBundle(RuntimeContract.shared)
 
-    public convenience init(loadingFrom bundle: Bundle) throws {
-        func read(_ name: String) throws -> Data {
-            guard let url = bundle.url(forResource: name, withExtension: "json") else {
-                throw SchemaError.unknownDocument(name)
-            }
-            return try Data(contentsOf: url)
+    public init(_ contract: RuntimeContract) {
+        registry = contract.registry
+        operations = contract.methods.filter { $0.servedBy != nil }.map {
+            OperationSpec(command: $0.method, mutation: $0.mutation, asynchronous: $0.asynchronous,
+                          requiresIdempotencyKey: $0.requiresIdempotencyKey)
         }
-        try self.init(domain: read("domain.schema"), rpc: read("rpc.schema"), operations: read("operations"))
-    }
-
-    public init(domain: Data, rpc: Data, operations: Data) throws {
-        let registry = SchemaRegistry()
-        _ = try registry.add(jsonData: domain)
-        _ = try registry.add(jsonData: rpc)
-        self.registry = registry
-
-        let catalog = try StrictJSON.parse(operations)
-        guard catalog["schemaVersion"]?.stringValue == Self.schemaVersion,
-              let list = catalog["operations"]?.arrayValue else {
-            throw SchemaError.invalidSchema("operations.json is not for \(Self.schemaVersion)")
-        }
-        var specs: [OperationSpec] = []
-        for item in list {
-            guard let command = item["command"]?.stringValue,
-                  let mutation = item["mutation"]?.boolValue,
-                  let asynchronous = item["asynchronous"]?.boolValue,
-                  let idem = item["requiresIdempotencyKey"]?.boolValue,
-                  let paramsRef = item["paramsRef"]?.stringValue,
-                  let resultRef = item["resultRef"]?.stringValue else {
-                throw SchemaError.invalidSchema("operations.json entry is incomplete: \(item.encoded())")
-            }
-            specs.append(OperationSpec(command: command, mutation: mutation, asynchronous: asynchronous,
-                                       requiresIdempotencyKey: idem, paramsRef: paramsRef, resultRef: resultRef))
-        }
-        self.operations = specs
-        self.byCommand = Dictionary(uniqueKeysWithValues: specs.map { ($0.command, $0) })
+        byCommand = Dictionary(uniqueKeysWithValues: operations.map { ($0.command, $0) })
     }
 
     public func operation(_ command: String) -> OperationSpec? { byCommand[command] }
 
-    /// Validate against a domain type, e.g. `validateDomain(x, "AiConnection")`.
-    public func validateDomain(_ instance: JSONValue, _ def: String) throws -> [SchemaViolation] {
-        try registry.validate(instance, documentId: Self.domainSchemaId, pointer: "/$defs/\(def)")
-    }
-
-    /// Validate against an rpc.schema.json definition, e.g. "gui_runs_start_result".
-    public func validateRpc(_ instance: JSONValue, _ def: String) throws -> [SchemaViolation] {
-        try registry.validate(instance, documentId: Self.rpcSchemaId, pointer: "/$defs/\(def)")
+    /// Validate against a service.schema.json definition, e.g. "AiConnection"
+    /// or "gui_runs_start_result".
+    public func validate(_ instance: JSONValue, _ def: String) throws -> [SchemaViolation] {
+        try registry.validate(instance, documentId: RuntimeContract.serviceSchemaId, pointer: "/$defs/\(def)")
     }
 }

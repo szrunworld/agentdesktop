@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // Results of the PR1 methods (runtime.schema.json). Each type writes the

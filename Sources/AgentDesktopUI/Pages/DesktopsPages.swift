@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import SwiftUI
 
 /// Desktops › 总览 (P01, P03), read-only: what desktop.list and the active

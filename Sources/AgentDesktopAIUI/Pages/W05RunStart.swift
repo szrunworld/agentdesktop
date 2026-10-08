@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import SwiftUI
 
@@ -35,7 +35,7 @@ public final class RunStartModel: ObservableObject {
     /// Read-only: capabilities and enabled, non-fixture profiles.
     public func load() async {
         do {
-            let caps = try await client.send("runtime.capabilities")
+            let caps = try await client.guiCapabilities()
             supportedActions = caps["actions"]?.arrayValue?.compactMap(\.stringValue) ?? []
             predicates = caps["verificationPredicates"]?.arrayValue?.compactMap(\.stringValue) ?? []
             isolationEvidence = caps["features"]?["nativeIsolationEvidence"]?.stringValue ?? "NOT_RUN"

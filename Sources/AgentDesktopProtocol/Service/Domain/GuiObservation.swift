@@ -10,10 +10,10 @@ public struct TargetIdentity: Equatable, Sendable {
     public let windowId: String
     public let windowGeometryRevision: UInt64
     public let backendId: String
-    public let windowFrameDesktopLogical: Rect
+    public let windowFrameDesktopLogical: GuiRect
 
     public init(appId: String, processId: Int, processStartId: String, windowId: String,
-                windowGeometryRevision: UInt64, backendId: String, windowFrameDesktopLogical: Rect) {
+                windowGeometryRevision: UInt64, backendId: String, windowFrameDesktopLogical: GuiRect) {
         self.appId = appId; self.processId = processId; self.processStartId = processStartId
         self.windowId = windowId; self.windowGeometryRevision = windowGeometryRevision
         self.backendId = backendId; self.windowFrameDesktopLogical = windowFrameDesktopLogical
@@ -37,7 +37,7 @@ public struct TargetIdentity: Equatable, Sendable {
 /// crop, resize, then letterbox padding.
 public struct ScreenshotTransform: Equatable, Sendable {
     public let sourceSize: Size
-    public let crop: Rect
+    public let crop: GuiRect
     public let resizedSize: Size
     public let letterbox: Insets
     public let modelInputSize: Size
@@ -46,7 +46,7 @@ public struct ScreenshotTransform: Equatable, Sendable {
 
     /// Builds and checks a transform. The two affine maps must be finite,
     /// invertible and each other's inverse; sizes must be consistent.
-    public init(sourceSize: Size, crop: Rect, resizedSize: Size, letterbox: Insets,
+    public init(sourceSize: Size, crop: GuiRect, resizedSize: Size, letterbox: Insets,
                 modelInputSize: Size, sourceToModel: GuiAffineTransform, modelToSource: GuiAffineTransform) throws {
         self.sourceSize = sourceSize; self.crop = crop; self.resizedSize = resizedSize
         self.letterbox = letterbox; self.modelInputSize = modelInputSize
@@ -56,9 +56,9 @@ public struct ScreenshotTransform: Equatable, Sendable {
 
     /// The transform for the pipeline itself: crop, scale to `resizedSize`,
     /// offset by the letterbox.
-    public static func pipeline(sourceSize: Size, crop: Rect? = nil, resizedSize: Size? = nil,
+    public static func pipeline(sourceSize: Size, crop: GuiRect? = nil, resizedSize: Size? = nil,
                                 letterbox: Insets = .zero) throws -> ScreenshotTransform {
-        let crop = crop ?? Rect(origin: Point(x: 0, y: 0), size: sourceSize)
+        let crop = crop ?? GuiRect(origin: Point(x: 0, y: 0), size: sourceSize)
         let resized = resizedSize ?? crop.size
         let toModel = GuiAffineTransform.translate(-crop.origin.x, -crop.origin.y)
             .then(.scale(resized.width / crop.size.width, resized.height / crop.size.height))
@@ -91,8 +91,8 @@ public struct ScreenshotTransform: Equatable, Sendable {
     }
 
     /// The part of the model canvas that shows the image (letterbox excluded).
-    public var contentRegion: Rect {
-        Rect(x: letterbox.left, y: letterbox.top, width: resizedSize.width, height: resizedSize.height)
+    public var contentRegion: GuiRect {
+        GuiRect(x: letterbox.left, y: letterbox.top, width: resizedSize.width, height: resizedSize.height)
     }
 
     public init(json: JSONValue) throws {
@@ -109,7 +109,7 @@ public struct ScreenshotTransform: Equatable, Sendable {
               let s2m = json["sourceToModel"], let m2s = json["modelToSource"] else {
             throw ContractError(.validationError, "screenshot transform is incomplete")
         }
-        try self.init(sourceSize: size(json["sourceSize"]), crop: Rect(x: x, y: y, width: w, height: h),
+        try self.init(sourceSize: size(json["sourceSize"]), crop: GuiRect(x: x, y: y, width: w, height: h),
                       resizedSize: size(json["resizedSize"]), letterbox: Insets(left: ll, top: lt, right: lr, bottom: lb),
                       modelInputSize: size(json["modelInputSize"]),
                       sourceToModel: GuiAffineTransform(json: s2m), modelToSource: GuiAffineTransform(json: m2s))

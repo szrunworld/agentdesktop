@@ -1,7 +1,6 @@
-import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 import Foundation
 import Testing
-@testable import AgentDesktopProtocol
 
 // contracts/runtime/v1 is the single source for enums, error codes and
 // shapes; Swift, C# and the SDKs are checked against the same fixtures.
@@ -12,7 +11,8 @@ let contract = RuntimeContract.shared
 
 @Test func embeddedContractEqualsTheRepositoryCopy() throws {
     let embedded = RuntimeContract.embedded
-    for (name, text) in [("runtime.schema", embedded.schema), ("methods", embedded.methods), ("errors", embedded.errors)] {
+    for (name, text) in [("runtime.schema", embedded.schema), ("service.schema", embedded.service),
+                         ("methods", embedded.methods), ("errors", embedded.errors)] {
         let repo = try String(contentsOf: repoRoot.appendingPathComponent("contracts/runtime/v1/\(name).json"), encoding: .utf8)
         // The generator writes the file followed by the closing delimiter's line.
         #expect(repo == text + "\n" || repo == text,
@@ -50,19 +50,19 @@ let contract = RuntimeContract.shared
                                    "runtime.stopAll", "runtime.enableInput"]
         #expect(m.mutation == writes.contains(m.method), "\(m.method)")
     }
-    // Methods the AI service answers on the same endpoint: every ai/1
-    // operation but its runtime.capabilities, each resolvable there.
+    // Methods the AI service answers on the same endpoint: every operation
+    // the service had but its capabilities (now runtime.capabilities `gui`),
+    // each with params and result in service.schema.json.
     let served = contract.methods.filter { $0.servedBy != nil }
-    let ops = try StrictJSON.parse(Data(contentsOf: repoRoot.appendingPathComponent("contracts/ai-gui/v1/operations.json")))
-    let aiNames = Set((ops["operations"]?.arrayValue ?? []).compactMap { $0["command"]?.stringValue }).subtracting(["runtime.capabilities"])
-    #expect(Set(served.map(\.method)) == aiNames)
-    let aiDefs = try StrictJSON.parse(Data(contentsOf: repoRoot.appendingPathComponent("contracts/ai-gui/v1/rpc.schema.json")))["$defs"]
+    #expect(served.count == 31)
     for m in served {
-        for ref in [m.params, m.result] {
-            let def = ref.components(separatedBy: "#/$defs/").last ?? ""
-            #expect(aiDefs?[def] != nil, "\(m.method): \(ref)")
-        }
         #expect(m.servedBy == "ai-service")
+        for ref in [m.params, m.result] {
+            #expect(ref.hasPrefix("service.schema.json#/$defs/"), "\(m.method): \(ref)")
+            let holds = !(contract.validate(.obj([]), ref).contains { $0.contains("$ref") })
+            #expect(holds, "\(m.method): \(ref) does not resolve")
+        }
+        #expect(m.requiresIdempotencyKey == m.mutation, "\(m.method)")
     }
 }
 

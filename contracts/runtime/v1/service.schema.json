@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agentdesktop.invalid/ai-gui/v1/domain.schema.json",
-  "title": "AgentDesktop AI/GUI v1 domain contracts (proposal; offline schema)",
-  "description": "No hosted endpoint is implied by this reserved .invalid schema identifier. Semantic invariants are specified in docs/contracts.md.",
+  "$id": "https://schemas.agentdesktop.invalid/runtime/v1/service.schema.json",
+  "title": "AgentDesktop runtime/1: params, results and domain types of the methods the AI service answers",
+  "$comment": "Derived 2026-10-08 from contracts/ai-gui/v1 without its ai/1 envelope (A2, PR2b-2). This file is the contract for servedBy methods; contracts/ai-gui/v1 stays only for the Windows layer until it migrates.",
   "$defs": {
     "ResourceId": {
       "type": "string",
@@ -3077,19 +3077,1394 @@
         }
       ]
     },
-    "RuntimeCapabilities": {
+    "UsageSummary": {
       "type": "object",
       "properties": {
-        "schemaVersions": {
+        "from": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "inferenceAttempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "confirmedActions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "unknownActionOutcomes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "attemptsMissingUsage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "reportedTokens": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageTokens"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "knownCostSubtotal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CostEstimate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "costCoverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "isFinalBill": {
+          "const": false
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "inferenceAttempts",
+        "confirmedActions",
+        "unknownActionOutcomes",
+        "attemptsMissingUsage",
+        "reportedTokens",
+        "knownCostSubtotal",
+        "costCoverage",
+        "isFinalBill"
+      ],
+      "additionalProperties": false
+    },
+    "ai_connections_list_params": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "includeDisabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ai_connections_list_result": {
+      "type": "object",
+      "properties": {
+        "items": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
+            "$ref": "#/$defs/AiConnection"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false
+    },
+    "ai_connections_get_params": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      },
+      "required": [
+        "connectionId"
+      ],
+      "additionalProperties": false
+    },
+    "ai_connections_get_result": {
+      "$ref": "#/$defs/AiConnection"
+    },
+    "ai_connections_create_params": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "protocol": {
+          "const": "openai_chat"
+        },
+        "baseUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "format": "uri",
+          "pattern": "^(https://[^/?#@]+(?:/[^?#]*)?|http://(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]{1,5})?(?:/[^?#]*)?)$"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 120000
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialWrite"
+        }
+      },
+      "required": [
+        "name",
+        "protocol",
+        "baseUrl",
+        "timeoutMs",
+        "credential"
+      ],
+      "additionalProperties": false
+    },
+    "ai_connections_create_result": {
+      "$ref": "#/$defs/AiConnection"
+    },
+    "ai_connections_update_params": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "patch": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "protocol": {
+              "const": "openai_chat"
+            },
+            "baseUrl": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "format": "uri",
+              "pattern": "^(https://[^/?#@]+(?:/[^?#]*)?|http://(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]{1,5})?(?:/[^?#]*)?)$"
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 120000
+            },
+            "state": {
+              "enum": [
+                "enabled",
+                "disabled"
+              ]
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "minProperties": 1
+        }
+      },
+      "required": [
+        "connectionId",
+        "expectedRevision",
+        "patch"
+      ],
+      "additionalProperties": false
+    },
+    "ai_connections_update_result": {
+      "$ref": "#/$defs/AiConnection"
+    },
+    "ai_connections_disable_params": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "connectionId",
+        "expectedRevision"
+      ],
+      "additionalProperties": false
+    },
+    "ai_connections_disable_result": {
+      "$ref": "#/$defs/AiConnection"
+    },
+    "ai_connections_delete_params": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "connectionId",
+        "expectedRevision"
+      ],
+      "additionalProperties": false
+    },
+    "ai_connections_delete_result": {
+      "$ref": "#/$defs/Tombstone"
+    },
+    "ai_credentials_rotate_params": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialWrite"
+        }
+      },
+      "required": [
+        "connectionId",
+        "expectedRevision",
+        "credential"
+      ],
+      "additionalProperties": false
+    },
+    "ai_credentials_rotate_result": {
+      "$ref": "#/$defs/AiConnection"
+    },
+    "ai_models_list_params": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "connectionId"
+      ],
+      "additionalProperties": false
+    },
+    "ai_models_list_result": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "connectionRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModelCatalogEntry"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "refreshedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "connectionId",
+        "connectionRevision",
+        "items",
+        "nextCursor",
+        "refreshedAt"
+      ],
+      "additionalProperties": false
+    },
+    "ai_models_refresh_params": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "connectionId",
+        "expectedRevision"
+      ],
+      "additionalProperties": false
+    },
+    "ai_models_refresh_result": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "state": {
+          "const": "queued"
+        }
+      },
+      "required": [
+        "operationId",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "ai_modelProfiles_list_params": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "includeDisabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ai_modelProfiles_list_result": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AiModelProfile"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false
+    },
+    "ai_modelProfiles_get_params": {
+      "type": "object",
+      "properties": {
+        "modelProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      },
+      "required": [
+        "modelProfileId"
+      ],
+      "additionalProperties": false
+    },
+    "ai_modelProfiles_get_result": {
+      "$ref": "#/$defs/AiModelProfile"
+    },
+    "ai_modelProfiles_create_params": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "connectionRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "requestOptions": {
+          "$ref": "#/$defs/RequestOptions"
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        }
+      },
+      "required": [
+        "name",
+        "connectionId",
+        "connectionRevision",
+        "modelId",
+        "requestOptions",
+        "maxOutputTokens"
+      ],
+      "additionalProperties": false
+    },
+    "ai_modelProfiles_create_result": {
+      "$ref": "#/$defs/AiModelProfile"
+    },
+    "ai_modelProfiles_update_params": {
+      "type": "object",
+      "properties": {
+        "modelProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "patch": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "connectionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "connectionRevision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "modelId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "requestOptions": {
+              "$ref": "#/$defs/RequestOptions"
+            },
+            "maxOutputTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1024
+            },
+            "state": {
+              "enum": [
+                "enabled",
+                "disabled"
+              ]
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "minProperties": 1
+        }
+      },
+      "required": [
+        "modelProfileId",
+        "expectedRevision",
+        "patch"
+      ],
+      "additionalProperties": false
+    },
+    "ai_modelProfiles_update_result": {
+      "$ref": "#/$defs/AiModelProfile"
+    },
+    "ai_modelProfiles_disable_params": {
+      "type": "object",
+      "properties": {
+        "modelProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "modelProfileId",
+        "expectedRevision"
+      ],
+      "additionalProperties": false
+    },
+    "ai_modelProfiles_disable_result": {
+      "$ref": "#/$defs/AiModelProfile"
+    },
+    "ai_modelProfiles_delete_params": {
+      "type": "object",
+      "properties": {
+        "modelProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "modelProfileId",
+        "expectedRevision"
+      ],
+      "additionalProperties": false
+    },
+    "ai_modelProfiles_delete_result": {
+      "$ref": "#/$defs/Tombstone"
+    },
+    "ai_profiles_list_params": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "includeDisabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ai_profiles_list_result": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GuiAiProfile"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false
+    },
+    "ai_profiles_get_params": {
+      "type": "object",
+      "properties": {
+        "guiProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      },
+      "required": [
+        "guiProfileId"
+      ],
+      "additionalProperties": false
+    },
+    "ai_profiles_get_result": {
+      "$ref": "#/$defs/GuiAiProfile"
+    },
+    "ai_profiles_create_params": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "modelProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "modelProfileRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "adapterId": {
+          "enum": [
+            "uitars_v1",
+            "fixture_json_v1"
+          ]
+        },
+        "adapterVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "promptVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "parserVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "coordinateProtocol": {
+          "enum": [
+            "normalized_1000",
+            "image_pixels"
+          ]
+        },
+        "limits": {
+          "$ref": "#/$defs/GuiLimits"
+        },
+        "allowedFallbackProfileRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GuiProfileRef"
+          },
+          "minItems": 0,
+          "maxItems": 1
+        }
+      },
+      "required": [
+        "name",
+        "modelProfileId",
+        "modelProfileRevision",
+        "adapterId",
+        "adapterVersion",
+        "promptVersion",
+        "parserVersion",
+        "coordinateProtocol",
+        "limits",
+        "allowedFallbackProfileRefs"
+      ],
+      "additionalProperties": false
+    },
+    "ai_profiles_create_result": {
+      "$ref": "#/$defs/GuiAiProfile"
+    },
+    "ai_profiles_update_params": {
+      "type": "object",
+      "properties": {
+        "guiProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "patch": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "modelProfileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "modelProfileRevision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "adapterId": {
+              "enum": [
+                "uitars_v1",
+                "fixture_json_v1"
+              ]
+            },
+            "adapterVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "promptVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "parserVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "coordinateProtocol": {
+              "enum": [
+                "normalized_1000",
+                "image_pixels"
+              ]
+            },
+            "limits": {
+              "$ref": "#/$defs/GuiLimits"
+            },
+            "allowedFallbackProfileRefs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/GuiProfileRef"
+              },
+              "minItems": 0,
+              "maxItems": 1
+            },
+            "state": {
+              "enum": [
+                "enabled",
+                "disabled"
+              ]
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "minProperties": 1
+        }
+      },
+      "required": [
+        "guiProfileId",
+        "expectedRevision",
+        "patch"
+      ],
+      "additionalProperties": false
+    },
+    "ai_profiles_update_result": {
+      "$ref": "#/$defs/GuiAiProfile"
+    },
+    "ai_profiles_disable_params": {
+      "type": "object",
+      "properties": {
+        "guiProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "guiProfileId",
+        "expectedRevision"
+      ],
+      "additionalProperties": false
+    },
+    "ai_profiles_disable_result": {
+      "$ref": "#/$defs/GuiAiProfile"
+    },
+    "ai_profiles_delete_params": {
+      "type": "object",
+      "properties": {
+        "guiProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "guiProfileId",
+        "expectedRevision"
+      ],
+      "additionalProperties": false
+    },
+    "ai_profiles_delete_result": {
+      "$ref": "#/$defs/Tombstone"
+    },
+    "ai_profiles_default_get_params": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "ai_profiles_default_get_result": {
+      "$ref": "#/$defs/DefaultGuiProfileResult"
+    },
+    "ai_profiles_setDefault_params": {
+      "type": "object",
+      "properties": {
+        "guiProfileId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expectedDefaultRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "expectedProfileRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "guiProfileId",
+        "expectedDefaultRevision"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "guiProfileId": {
+                "type": "string"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "expectedProfileRevision"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "guiProfileId": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "expectedProfileRevision"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ai_profiles_setDefault_result": {
+      "$ref": "#/$defs/DefaultGuiProfileResult"
+    },
+    "ai_tests_start_params": {
+      "type": "object",
+      "properties": {
+        "guiProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "fixtureId": {
+          "const": "synthetic_gui_v1"
+        }
+      },
+      "required": [
+        "guiProfileId",
+        "expectedRevision",
+        "fixtureId"
+      ],
+      "additionalProperties": false
+    },
+    "ai_tests_start_result": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "state": {
+          "const": "queued"
+        }
+      },
+      "required": [
+        "operationId",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "ai_operations_get_params": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      },
+      "required": [
+        "operationId"
+      ],
+      "additionalProperties": false
+    },
+    "ai_operations_get_result": {
+      "$ref": "#/$defs/AiOperation"
+    },
+    "ai_operations_cancel_params": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      },
+      "required": [
+        "operationId"
+      ],
+      "additionalProperties": false
+    },
+    "ai_operations_cancel_result": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "cancelling",
+            "cancelled",
+            "succeeded",
+            "failed"
+          ]
+        },
+        "terminal": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operationId",
+        "accepted",
+        "state",
+        "terminal"
+      ],
+      "additionalProperties": false
+    },
+    "gui_runs_start_params": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "desktopId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "guiProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedProfileRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "verification": {
+          "$ref": "#/$defs/GuiVerification"
+        },
+        "allowedActions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "click",
+              "type",
+              "key",
+              "scroll"
+            ]
           },
           "minItems": 1,
-          "maxItems": 10
+          "maxItems": 4,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "desktopId",
+        "goal",
+        "verification",
+        "allowedActions"
+      ],
+      "additionalProperties": false,
+      "dependentRequired": {
+        "guiProfileId": [
+          "expectedProfileRevision"
+        ],
+        "expectedProfileRevision": [
+          "guiProfileId"
+        ]
+      }
+    },
+    "gui_runs_start_result": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
         },
+        "state": {
+          "const": "queued"
+        },
+        "binding": {
+          "$ref": "#/$defs/GuiRunBinding"
+        }
+      },
+      "required": [
+        "runId",
+        "state",
+        "binding"
+      ],
+      "additionalProperties": false
+    },
+    "gui_runs_get_params": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "additionalProperties": false
+    },
+    "gui_runs_get_result": {
+      "$ref": "#/$defs/GuiRun"
+    },
+    "gui_runs_cancel_params": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "additionalProperties": false
+    },
+    "gui_runs_cancel_result": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "cancelling",
+            "cancelled",
+            "succeeded",
+            "failed",
+            "waiting_user"
+          ]
+        },
+        "terminal": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "runId",
+        "accepted",
+        "state",
+        "terminal"
+      ],
+      "additionalProperties": false
+    },
+    "gui_runs_events_params": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "afterSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "runId",
+        "afterSequence"
+      ],
+      "additionalProperties": false
+    },
+    "gui_runs_events_result": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RunEvent"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "nextAfterSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "runId",
+        "events",
+        "nextAfterSequence",
+        "hasMore"
+      ],
+      "additionalProperties": false
+    },
+    "ai_usage_summary_params": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "ai_usage_summary_result": {
+      "$ref": "#/$defs/UsageSummary"
+    },
+    "GuiCapabilities": {
+      "type": "object",
+      "properties": {
         "implementedAiProtocols": {
           "type": "array",
           "items": {
@@ -3171,7 +4546,6 @@
         }
       },
       "required": [
-        "schemaVersions",
         "implementedAiProtocols",
         "verificationPredicates",
         "guiAdapters",
@@ -3179,83 +4553,8 @@
         "limits",
         "features"
       ],
-      "additionalProperties": false
-    },
-    "UsageSummary": {
-      "type": "object",
-      "properties": {
-        "from": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "to": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "inferenceAttempts": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2147483647
-        },
-        "confirmedActions": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2147483647
-        },
-        "unknownActionOutcomes": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2147483647
-        },
-        "attemptsMissingUsage": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2147483647
-        },
-        "reportedTokens": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/UsageTokens"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "knownCostSubtotal": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CostEstimate"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "costCoverage": {
-          "enum": [
-            "complete",
-            "partial",
-            "unknown"
-          ]
-        },
-        "isFinalBill": {
-          "const": false
-        }
-      },
-      "required": [
-        "from",
-        "to",
-        "inferenceAttempts",
-        "confirmedActions",
-        "unknownActionOutcomes",
-        "attemptsMissingUsage",
-        "reportedTokens",
-        "knownCostSubtotal",
-        "costCoverage",
-        "isFinalBill"
-      ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "what the GUI execution backend supports: runtime.capabilities `gui`"
     }
   }
 }

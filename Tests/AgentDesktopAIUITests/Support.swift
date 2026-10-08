@@ -1,6 +1,6 @@
 import AgentDesktopAI
 import AgentDesktopAIUI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import AgentDesktopGUI
 import AgentDesktopService
 import Foundation
@@ -42,7 +42,7 @@ final class NeutralForm: @unchecked Sendable {
 
 let formTarget = TargetIdentity(appId: "com.agentdesktop.neutral-form", processId: 4242, processStartId: "ps-1",
                                 windowId: "win-1", windowGeometryRevision: 1, backendId: "stand-in",
-                                windowFrameDesktopLogical: Rect(x: 0, y: 0, width: 500, height: 400))
+                                windowFrameDesktopLogical: GuiRect(x: 0, y: 0, width: 500, height: 400))
 
 actor FormObservation: GuiObservationPort {
     let form: NeutralForm
@@ -178,6 +178,11 @@ final class SpyClient: ContractClient, @unchecked Sendable {
     func fail(_ command: String, _ on: Bool = true) { lock.withLock { if on { failing.insert(command) } else { failing.remove(command) } } }
     var commands: [String] { lock.withLock { calls } }
     func count(_ command: String) -> Int { commands.filter { $0 == command }.count }
+    func guiCapabilities() async throws -> JSONValue {
+        let fails = lock.withLock { calls.append("runtime.capabilities"); return failing.contains("runtime.capabilities") }
+        if fails { throw ContractError(.upstreamUnavailable, "spy failure", retryable: true) }
+        return try await inner.guiCapabilities()
+    }
     func send(_ command: String, _ params: JSONValue, idempotencyKey: String?) async throws -> JSONValue {
         let fails = lock.withLock { calls.append(command); return failing.contains(command) }
         if fails { throw ContractError(.upstreamUnavailable, "service unreachable", retryable: true) }
@@ -192,7 +197,7 @@ final class Harness: @unchecked Sendable {
     let observation: FormObservation
     let executor: FormExecutor
     let service: AgentDesktopService
-    let router: RpcRouter
+    let router: ServiceRouter
     let client: InProcessContractClient
 
     init(backend: Bool = true) async throws {
@@ -208,7 +213,8 @@ final class Harness: @unchecked Sendable {
             databasePath: dir.appendingPathComponent("config.sqlite").path,
             credentials: InMemoryCredentialStore(), http: upstream, executionBackend: backend ? be : nil))
         router = service.router(callerScope: "owner", trustedOwner: true)
-        client = InProcessContractClient(router: router)
+        let runs = service.runs
+        client = InProcessContractClient(router: router, guiCapabilities: { runs.capabilities() })
     }
 
     /// Every String reachable from a model's stored properties, to prove

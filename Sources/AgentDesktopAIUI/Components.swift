@@ -1,7 +1,7 @@
 import SwiftUI
 import AgentDesktopUI
 
-/// An ai/1 failure in the shell's ProblemView. EmptyState and LabeledValue
+/// A service failure in the shell's ProblemView. EmptyState and LabeledValue
 /// now come from AgentDesktopUI; this adapter goes when the pages move to
 /// runtime/1 (U6b).
 struct ProblemBanner: View {

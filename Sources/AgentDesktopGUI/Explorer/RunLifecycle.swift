@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// The state machine of one GUI run (spec §07.1–07.2), kept apart from the

@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 
@@ -6,8 +5,8 @@ import Foundation
 /// saying what happened and what the user can do. Never a secret, typed
 /// text or a parameter value (runtime/1 errors carry none).
 ///
-/// The wording follows AgentDesktopAIUI's `UIProblem` (ai/1); codes follow
-/// `contracts/runtime/v1/errors.json` and the ai/1 → runtime/1 map in the
+/// The wording follows AgentDesktopAIUI's `UIProblem`; codes follow
+/// `contracts/runtime/v1/errors.json` and the service → runtime/1 map in the
 /// freeze document §6. RuntimeProblemTests checks every code has text.
 public struct RuntimeProblem: Equatable, Sendable {
     public let code: String

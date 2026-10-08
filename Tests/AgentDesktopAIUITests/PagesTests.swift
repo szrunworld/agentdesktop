@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import AgentDesktopGUI
 import AgentDesktopService
 import AppKit
@@ -386,24 +386,24 @@ struct PagesTests {
         #expect(Format.tokens(.null) == "未知 / 未报告")
     }
 
-    @Test func socketClientRoundTrip() async throws {
+    // The pages reach the service in process only; no socket of its own.
+    @Test func inProcessClientPassesServiceErrorsThrough() async throws {
         let h = try await Harness()
-        let path = h.dir.appendingPathComponent("ui.sock").path
-        let server = RpcSocketServer(path: path, router: h.router)
-        try server.start()
-        defer { server.stop() }
-        let c = SocketContractClient(path: path)
-        let caps = try await c.send("runtime.capabilities")
-        #expect(caps["implementedAiProtocols"] == .array([.string("openai_chat")]))
-        await #expect(throws: ContractError.self) {
-            _ = try await c.send("ai.connections.get", .obj([("connectionId", .string("nope"))]))
-        }
-        let unreachable = SocketContractClient(path: h.dir.appendingPathComponent("none.sock").path)
+        let c = InProcessContractClient(router: h.router, guiCapabilities: { .obj([]) })
+        let list = try await c.send("ai.connections.list")
+        #expect(list["items"] != nil)
         do {
-            _ = try await unreachable.send("runtime.capabilities")
-            Issue.record("expected an error")
+            _ = try await c.send("ai.connections.get", .obj([("connectionId", .string("nope"))]))
+            Issue.record("expected NOT_FOUND")
         } catch let e as ContractError {
-            #expect(e.code == .upstreamUnavailable)
+            #expect(e.code == .notFound)
+        }
+        // runtime.capabilities is the Runtime's own method now.
+        do {
+            _ = try await c.send("runtime.capabilities")
+            Issue.record("expected UNSUPPORTED_COMMAND")
+        } catch let e as ContractError {
+            #expect(e.code == .unsupportedCommand)
         }
     }
 

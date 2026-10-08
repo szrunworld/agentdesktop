@@ -1,10 +1,9 @@
 import AgentDesktopAI
 import AgentDesktopClient
-import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 import AgentDesktopService
 import Foundation
 import Testing
-@testable import AgentDesktopProtocol
 @testable import AgentDesktopRuntime
 
 // A2 (PR2b): the AI service's ai.* methods on the Runtime's one endpoint,
@@ -53,7 +52,7 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
         Issue.record("a missing connection must be refused")
     } catch let e as RuntimeError {
         #expect(e.code == "not_found")
-        #expect(e.details?["aiCode"]?.stringValue == "NOT_FOUND")
+        #expect(e.details?["serviceCode"]?.stringValue == "NOT_FOUND")
     }
     do {
         _ = try client.call(RuntimeRequest(requestId: RuntimeRequest.newId(), method: "ai.connections.list",

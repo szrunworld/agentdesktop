@@ -297,315 +297,377 @@
       "method": "ai.connections.list",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_list_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_list_result",
+      "params": "service.schema.json#/$defs/ai_connections_list_params",
+      "result": "service.schema.json#/$defs/ai_connections_list_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "ai.connections.get",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_get_result",
+      "params": "service.schema.json#/$defs/ai_connections_get_params",
+      "result": "service.schema.json#/$defs/ai_connections_get_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "ai.connections.create",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_create_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_create_result",
+      "params": "service.schema.json#/$defs/ai_connections_create_params",
+      "result": "service.schema.json#/$defs/ai_connections_create_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.connections.update",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_update_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_update_result",
+      "params": "service.schema.json#/$defs/ai_connections_update_params",
+      "result": "service.schema.json#/$defs/ai_connections_update_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.connections.disable",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_disable_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_disable_result",
+      "params": "service.schema.json#/$defs/ai_connections_disable_params",
+      "result": "service.schema.json#/$defs/ai_connections_disable_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.connections.delete",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_delete_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_delete_result",
+      "params": "service.schema.json#/$defs/ai_connections_delete_params",
+      "result": "service.schema.json#/$defs/ai_connections_delete_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.credentials.rotate",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_credentials_rotate_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_credentials_rotate_result",
+      "params": "service.schema.json#/$defs/ai_credentials_rotate_params",
+      "result": "service.schema.json#/$defs/ai_credentials_rotate_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.models.list",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_list_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_list_result",
+      "params": "service.schema.json#/$defs/ai_models_list_params",
+      "result": "service.schema.json#/$defs/ai_models_list_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "ai.models.refresh",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_refresh_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_refresh_result",
+      "params": "service.schema.json#/$defs/ai_models_refresh_params",
+      "result": "service.schema.json#/$defs/ai_models_refresh_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": true,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.modelProfiles.list",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_list_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_list_result",
+      "params": "service.schema.json#/$defs/ai_modelProfiles_list_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_list_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "ai.modelProfiles.get",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_get_result",
+      "params": "service.schema.json#/$defs/ai_modelProfiles_get_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_get_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "ai.modelProfiles.create",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_create_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_create_result",
+      "params": "service.schema.json#/$defs/ai_modelProfiles_create_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_create_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.modelProfiles.update",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_update_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_update_result",
+      "params": "service.schema.json#/$defs/ai_modelProfiles_update_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_update_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.modelProfiles.disable",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_disable_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_disable_result",
+      "params": "service.schema.json#/$defs/ai_modelProfiles_disable_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_disable_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.modelProfiles.delete",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_delete_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_delete_result",
+      "params": "service.schema.json#/$defs/ai_modelProfiles_delete_params",
+      "result": "service.schema.json#/$defs/ai_modelProfiles_delete_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.profiles.list",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_list_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_list_result",
+      "params": "service.schema.json#/$defs/ai_profiles_list_params",
+      "result": "service.schema.json#/$defs/ai_profiles_list_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "ai.profiles.get",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_get_result",
+      "params": "service.schema.json#/$defs/ai_profiles_get_params",
+      "result": "service.schema.json#/$defs/ai_profiles_get_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "ai.profiles.create",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_create_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_create_result",
+      "params": "service.schema.json#/$defs/ai_profiles_create_params",
+      "result": "service.schema.json#/$defs/ai_profiles_create_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.profiles.update",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_update_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_update_result",
+      "params": "service.schema.json#/$defs/ai_profiles_update_params",
+      "result": "service.schema.json#/$defs/ai_profiles_update_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.profiles.disable",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_disable_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_disable_result",
+      "params": "service.schema.json#/$defs/ai_profiles_disable_params",
+      "result": "service.schema.json#/$defs/ai_profiles_disable_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.profiles.delete",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_delete_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_delete_result",
+      "params": "service.schema.json#/$defs/ai_profiles_delete_params",
+      "result": "service.schema.json#/$defs/ai_profiles_delete_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.profiles.default.get",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_default_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_default_get_result",
+      "params": "service.schema.json#/$defs/ai_profiles_default_get_params",
+      "result": "service.schema.json#/$defs/ai_profiles_default_get_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "ai.profiles.setDefault",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_setDefault_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_setDefault_result",
+      "params": "service.schema.json#/$defs/ai_profiles_setDefault_params",
+      "result": "service.schema.json#/$defs/ai_profiles_setDefault_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.tests.start",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_tests_start_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_tests_start_result",
+      "params": "service.schema.json#/$defs/ai_tests_start_params",
+      "result": "service.schema.json#/$defs/ai_tests_start_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": true,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.operations.get",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_get_result",
+      "params": "service.schema.json#/$defs/ai_operations_get_params",
+      "result": "service.schema.json#/$defs/ai_operations_get_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "ai.operations.cancel",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_cancel_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_cancel_result",
+      "params": "service.schema.json#/$defs/ai_operations_cancel_params",
+      "result": "service.schema.json#/$defs/ai_operations_cancel_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "ai.usage.summary",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_usage_summary_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_usage_summary_result",
+      "params": "service.schema.json#/$defs/ai_usage_summary_params",
+      "result": "service.schema.json#/$defs/ai_usage_summary_result",
       "status": "implemented",
       "servedBy": "ai-service",
-      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+      "note": "answered by the AI service inside the host; params and results are the service.schema.json definitions named here; requestId is the idempotency key (8–128 characters for writes)",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "gui.runs.start",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_start_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_start_result",
+      "params": "service.schema.json#/$defs/gui_runs_start_params",
+      "result": "service.schema.json#/$defs/gui_runs_start_result",
       "status": "transitional",
       "servedBy": "ai-service",
       "removedBy": "A6 (unit.run + run.*)",
-      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias"
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
+      "asynchronous": true,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "gui.runs.get",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_get_result",
+      "params": "service.schema.json#/$defs/gui_runs_get_params",
+      "result": "service.schema.json#/$defs/gui_runs_get_result",
       "status": "transitional",
       "servedBy": "ai-service",
       "removedBy": "A6 (unit.run + run.*)",
-      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias"
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     },
     {
       "method": "gui.runs.cancel",
       "stage": "P0",
       "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_cancel_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_cancel_result",
+      "params": "service.schema.json#/$defs/gui_runs_cancel_params",
+      "result": "service.schema.json#/$defs/gui_runs_cancel_result",
       "status": "transitional",
       "servedBy": "ai-service",
       "removedBy": "A6 (unit.run + run.*)",
-      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias"
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
+      "asynchronous": false,
+      "requiresIdempotencyKey": true
     },
     {
       "method": "gui.runs.events",
       "stage": "P0",
       "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_events_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_events_result",
+      "params": "service.schema.json#/$defs/gui_runs_events_params",
+      "result": "service.schema.json#/$defs/gui_runs_events_result",
       "status": "transitional",
       "servedBy": "ai-service",
       "removedBy": "A6 (unit.run + run.*)",
-      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias"
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
+      "asynchronous": false,
+      "requiresIdempotencyKey": false
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -947,5 +1009,6 @@
       ],
       "pr": "A6/L1"
     }
-  }
+  },
+  "serviceSchema": "service.schema.json"
 }

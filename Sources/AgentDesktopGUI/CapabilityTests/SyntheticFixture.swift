@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -17,7 +17,7 @@ public enum SyntheticGuiFixture {
 
     /// gui_contract: one blue button on a light grey canvas.
     public static let screenSize = (width: 800, height: 500)
-    public static let buttonRect = Rect(x: 520, y: 360, width: 160, height: 60)
+    public static let buttonRect = GuiRect(x: 520, y: 360, width: 160, height: 60)
     public static let guiTask = "Click the blue button."
 
     public static let authPrompt = "Reply with the single word OK."

@@ -1,5 +1,5 @@
-import enum AgentDesktopContracts.StrictJSON
-import enum AgentDesktopContracts.JSONValue
+import enum AgentDesktopProtocol.StrictJSON
+import enum AgentDesktopProtocol.JSONValue
 import AgentDesktopProtocol
 import CryptoKit
 import Foundation

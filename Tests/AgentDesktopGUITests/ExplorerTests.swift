@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopGUI
@@ -12,7 +12,7 @@ import Testing
 let contract = ContractBundle.shared
 
 func schemaClean(_ v: JSONValue, _ def: String, domain: Bool = true) throws -> Bool {
-    let violations = domain ? try contract.validateDomain(v, def) : try contract.validateRpc(v, def)
+    let violations = domain ? try contract.validate(v, def) : try contract.validate(v, def)
     if !violations.isEmpty { Issue.record("\(def): \(violations.prefix(6))") }
     return violations.isEmpty
 }
@@ -349,8 +349,8 @@ struct ExplorerTests {
         let h = try GuiHarness([], backend: false)
         try await h.setUpProfile()
         #expect(try await h.err("gui.runs.start", h.startParams(), key: "run-key-nob1") == "CAPABILITY_MISMATCH")
-        let caps = try await h.ok("runtime.capabilities")
-        #expect(try schemaClean(caps, "runtime_capabilities_result", domain: false))
+        let caps = h.service.capabilities()
+        #expect(try schemaClean(caps, "GuiCapabilities", domain: false))
         #expect(caps["verificationPredicates"]?.arrayValue?.isEmpty == true)
         #expect(caps["features"]?["nativeIsolationEvidence"]?.stringValue == "NOT_RUN")
         #expect(caps["guiAdapters"] == .array([.string("uitars_v1")]))

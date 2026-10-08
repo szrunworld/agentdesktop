@@ -164,14 +164,20 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | PR2d | `unit.run` 落到 RunStore：GuiExplorer 经 ExecutionCoordinator 执行，撤销 `gui.runs.*` 与 `gui_runs` 权威 |
 | PR2e | `events.subscribe`：同连接推送、主体过滤、游标恢复 |
 
-## 9. PR2b-1 落地说明（2026-10-08）
+## 9. 单一端点落地说明（PR2b-1、PR2b-2，2026-10-08）
 
-- 宿主只监听一个端点（目前仍叫 `runtime.sock`；`control.sock` 这个名字等引擎侧不再用它时再改），**不再有 `ai.sock`**。
-- `ai.*` 由宿主里的 AI 服务应答，经 Runtime 注册为 `servedBy: "ai-service"` 的方法：
-  - 走同一信封、同一握手和订阅规则；
-  - 参数和结果按 ai-gui/v1 的定义校验，这些定义就是合同；
-  - 不进 Runtime 请求账本，因为 requestId 就是 AI 服务的幂等键，写操作要求 8–128 个字符；
-  - 错误按 §6 映射成小写码，原始码放在 `details.aiCode`。
-- ai/1 的 `runtime.capabilities` 并入 `runtime.capabilities` 的可选字段 `gui`。
-- `gui.runs.*` 在单一端点上**过渡保留**（`status: transitional`，`removedBy: A6`），unit.run 落地时删除，不是永久别名。
-- CLI 的 `rpc` / `ai` / `gui` 命令组暂时仍按 ai/1 组织请求，在客户端内部转换成 runtime/1 发到同一端点。PR2b-2 会把这些命令改成原生 runtime/1，并删除 CLI 和 Contracts 里的 ai/1 信封。
+- 宿主只监听一个端点（目前仍叫 `runtime.sock`；`control.sock` 这个名字等引擎侧不再用它时再改），**没有 `ai.sock`**。
+- `ai.*` 与过渡保留的 `gui.runs.*` 由宿主里的 AI 服务应答，在 `methods.json` 里标为 `servedBy: "ai-service"`：
+  - 同一信封、握手和订阅规则；
+  - params 与 result 的定义在 **`contracts/runtime/v1/service.schema.json`**，由 Runtime 合同统一加载；
+  - 不进 Runtime 请求账本，requestId 就是 AI 服务的幂等键（写操作 8–128 个字符）；
+  - 错误按 §6 映射成小写码，服务自己的分类放在 `details.serviceCode`。
+- ai/1 的 `runtime.capabilities` 并入 `runtime.capabilities` 的可选字段 `gui`（定义 `GuiCapabilities`）。
+- `gui.runs.*` 在单一端点上过渡保留（`status: transitional`，`removedBy: A6`），unit.run 落地时删除。
+- **PR2b-2 起，Swift 端已没有 ai/1 信封**：
+  - 不再编码或解码 `schemaVersion` / `command` / `context.idempotencyKey`；
+  - 服务内部用 `ServiceRouter.answer(method:params:deadline:idempotencyKey:)` 直接调度；
+  - 主窗口在进程内调用同一路由；
+  - CLI 的 `rpc` / `ai` / `gui` 命令直接发 runtime/1 请求，输出 runtime/1 应答；`rpc --request-file` 只接受 runtime/1 请求，旧信封在本地即被拒绝；
+  - `AgentDesktopContracts` 模块已并入 `AgentDesktopProtocol`，GUI 几何的 `Rect` 改名为 `GuiRect`。
+- `contracts/ai-gui/v1` 只剩 Windows 的 C# 合同层在用，待 Windows 线迁移到 runtime/1 后删除。

@@ -1,7 +1,6 @@
-import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 import Foundation
 import Testing
-@testable import AgentDesktopProtocol
 @testable import AgentDesktopRuntime
 
 // G0 (MAC-001): what is observed and what receives input is the bound

@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import CryptoKit
 import Foundation
 
@@ -44,7 +44,7 @@ public struct GuiExecutionBackend: Sendable {
 /// §05.4, §07.2). Runs are scoped to their caller; start is idempotent per
 /// (caller, key) and binds the configuration once.
 public actor GuiRunService {
-    public static let commands = ["gui.runs.start", "gui.runs.get", "gui.runs.cancel", "gui.runs.events", "runtime.capabilities"]
+    public static let commands = ["gui.runs.start", "gui.runs.get", "gui.runs.cancel", "gui.runs.events"]
 
     let repository: GuiRunRepository
     let resolver: GuiBindingResolver
@@ -70,18 +70,17 @@ public actor GuiRunService {
 
     /// Handlers for one caller. `trustedOwner` is the owner UI/CLI, the only
     /// caller that may omit sessionId.
-    public nonisolated func handlers(callerScope: String, trustedOwner: Bool) -> [String: RpcHandler] {
-        var out: [String: RpcHandler] = [:]
+    public nonisolated func handlers(callerScope: String, trustedOwner: Bool) -> [String: ServiceHandler] {
+        var out: [String: ServiceHandler] = [:]
         for command in Self.commands {
             out[command] = { req in try await self.handle(req, callerScope: callerScope, trustedOwner: trustedOwner) }
         }
         return out
     }
 
-    public func handle(_ req: RpcRequest, callerScope: String, trustedOwner: Bool) async throws -> JSONValue {
+    public func handle(_ req: ServiceRequest, callerScope: String, trustedOwner: Bool) async throws -> JSONValue {
         let p = req.params
-        switch req.command {
-        case "runtime.capabilities": return capabilities()
+        switch req.method {
         case "gui.runs.start": return try await start(p, key: req.idempotencyKey, callerScope: callerScope, trustedOwner: trustedOwner)
         case "gui.runs.get": return try await get(p["runId"]?.stringValue ?? "", callerScope: callerScope)
         case "gui.runs.cancel": return try await cancel(p["runId"]?.stringValue ?? "", callerScope: callerScope)
@@ -95,7 +94,6 @@ public actor GuiRunService {
     public nonisolated func capabilities() -> JSONValue {
         let f = backend?.features
         return .obj([
-            ("schemaVersions", .array([.string(ContractBundle.schemaVersion)])),
             ("implementedAiProtocols", .array([.string(AiProtocol.openaiChat.rawValue)])),
             ("verificationPredicates", .array((f?.verificationPredicates ?? []).map(JSONValue.string))),
             ("guiAdapters", .array(codecs.availableAdapters.map { .string($0.rawValue) })),
