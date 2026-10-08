@@ -102,6 +102,15 @@ public final class RuntimeService: @unchecked Sendable {
         self.contract = contract
         self.startedAt = Timestamp.date(identity.startedAt) ?? now()
         self.now = now
+        // The sweep never removes what the Runtime still uses: the
+        // screenshot of an observation it holds, or anything of a Run that
+        // has not ended. A Runtime already gone keeps everything.
+        self.artifacts.retained = { [weak self] artifactId, runId in
+            guard let self else { return true }
+            if self.observations.find("obs_" + artifactId.dropFirst("art_".count)) != nil { return true }
+            if let runId, self.runs.find(runId)?.phase != .ended { return true }
+            return false
+        }
     }
 
     func implemented(_ m: RuntimeMethod) -> Bool { platform != nil || !Self.platformMethods.contains(m) }

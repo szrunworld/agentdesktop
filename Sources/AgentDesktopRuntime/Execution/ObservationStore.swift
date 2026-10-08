@@ -81,10 +81,24 @@ public final class ArtifactStore: @unchecked Sendable {
     private let clock: () -> Date
     private let lock = NSLock()
     private var lastSweep: Date
+    /// At most one periodic sweep queued or running: a sweep slower than
+    /// the interval does not let another pile up behind it.
+    private var sweeping = false
     /// Sweeps after the first run here, off the caller: `register` is
     /// called under a Desktop's lock (observe step 1), and a day of
     /// preview screenshots takes seconds to scan.
     private let sweeper = DispatchQueue(label: "agentdesktop.artifacts.sweep", qos: .utility)
+    /// Artifacts kept whatever their age, asked per artifact with its Run:
+    /// the Runtime keeps the screenshot of an observation it still holds
+    /// and everything of a Run that has not ended (RuntimeService sets
+    /// this). The start-up sweep runs before it is set; by then every Run
+    /// left from before has ended (RunStore, runtime_restarted) and no
+    /// observation is held.
+    var retained: @Sendable (_ artifactId: String, _ runId: String?) -> Bool {
+        get { lock.withLock { _retained } }
+        set { lock.withLock { _retained = newValue } }
+    }
+    private var _retained: @Sendable (String, String?) -> Bool = { _, _ in false }
     /// Tests: runs on the sweeper before each background sweep.
     var beforeSweep: (@Sendable () -> Void)?
 
@@ -97,30 +111,66 @@ public final class ArtifactStore: @unchecked Sendable {
         sweep(at: lastSweep)
     }
 
-    /// Removes files older than the retention period (methods.json
-    /// `transport.artifacts.retentionHours`).
+    /// Removes artifacts older than the retention period (methods.json
+    /// `transport.artifacts.retentionHours`), each with its record, unless
+    /// the Runtime still needs them. Only the store's own files are
+    /// touched: names this store gives ("<id>.<ext>", "<id>.meta.json"),
+    /// as regular files directly in its directory; anything else there,
+    /// a directory, or a link is left alone.
     func sweep(at now: Date) {
         let cutoff = now.addingTimeInterval(-Double(Self.retentionHours) * 3600)
+        var files: [String: [String]] = [:]
         for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [] {
-            let p = directory + "/" + name
-            if let d = (try? FileManager.default.attributesOfItem(atPath: p))?[.modificationDate] as? Date, d < cutoff {
-                try? FileManager.default.removeItem(atPath: p)
-            }
+            if let id = Self.artifactId(ofFile: name) { files[id, default: []].append(name) }
         }
+        let keep = retained
+        for (id, names) in files {
+            var newest: Date?
+            var regular = true
+            for name in names {
+                var st = stat()
+                guard lstat(directory + "/" + name, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { regular = false; break }
+                let m = Date(timeIntervalSince1970: TimeInterval(st.st_mtimespec.tv_sec))
+                newest = max(newest ?? m, m)
+            }
+            // An artifact goes when all of its files are old, never half.
+            guard regular, let newest, newest < cutoff else { continue }
+            let runId = FileManager.default.contents(atPath: metaPath(id))
+                .flatMap { try? StrictJSON.parse($0) }?["runId"]?.stringValue
+            if keep(id, runId) { continue }
+            for name in names { unlink(directory + "/" + name) }
+        }
+    }
+
+    /// The artifact a file in the store belongs to, if the store named it.
+    static func artifactId(ofFile name: String) -> String? {
+        let id: Substring
+        if name.hasSuffix(".meta.json") {
+            id = name.dropLast(".meta.json".count)
+        } else if let dot = name.lastIndex(of: "."), extensions.values.contains(String(name[name.index(after: dot)...])) {
+            id = name[..<dot]
+        } else {
+            return nil
+        }
+        return validId(String(id)) ? String(id) : nil
     }
 
     private func sweepIfDue() {
         let now = clock()
         let due: Bool = lock.withLock {
-            guard now.timeIntervalSince(lastSweep) >= Self.sweepInterval else { return false }
+            guard !sweeping, now.timeIntervalSince(lastSweep) >= Self.sweepInterval else { return false }
             lastSweep = now
+            sweeping = true
             return true
         }
         guard due else { return }
         let hook = beforeSweep
+        // The closure holds the store, so a Runtime that stops meanwhile
+        // leaves the sweep a valid directory and record to finish with.
         sweeper.async { [self] in
             hook?()
             sweep(at: now)
+            lock.withLock { sweeping = false }
         }
     }
 
