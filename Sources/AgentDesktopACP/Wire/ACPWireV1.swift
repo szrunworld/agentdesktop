@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// ACP protocol version 1 (stable schema v1.24.1, spec commit 1c2b84c7;

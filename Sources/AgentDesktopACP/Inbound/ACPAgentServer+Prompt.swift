@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // Prompt turns, cancel, approvals and questions (plan §4.6, §4.7, §5.4, §6).

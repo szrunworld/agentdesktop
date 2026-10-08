@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // Runtime events → ACP session updates (docs/acp/08-event-mapping.md).

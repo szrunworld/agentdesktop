@@ -33,7 +33,7 @@ let package = Package(
         // RuntimeClient only. No GUI executor, run store or lease here.
         .target(
             name: "AgentDesktopACP",
-            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
         ),
         .executableTarget(
             name: "agentdesktop-acp-dev",
@@ -41,7 +41,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentDesktopACPTests",
-            dependencies: ["AgentDesktopACP", "AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"],
+            dependencies: ["AgentDesktopACP", "AgentDesktopClient", "AgentDesktopProtocol"],
             exclude: ["Fixtures"]
         ),
 

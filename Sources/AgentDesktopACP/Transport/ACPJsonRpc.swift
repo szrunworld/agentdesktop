@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // JSON-RPC 2.0 as ACP uses it: single messages (no batches), ids that are

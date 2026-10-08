@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // The Runtime event types the projector knows (docs/acp/08-event-mapping.md §二、§三).

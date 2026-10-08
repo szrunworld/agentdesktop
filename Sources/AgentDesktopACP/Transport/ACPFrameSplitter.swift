@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // ACP stdio framing (docs/acp/02-protocol-version.md §3): one JSON-RPC

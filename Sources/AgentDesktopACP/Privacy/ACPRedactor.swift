@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // Field-level redaction (docs/acp/08-event-mapping.md §四, plan v1.0 §6.4).

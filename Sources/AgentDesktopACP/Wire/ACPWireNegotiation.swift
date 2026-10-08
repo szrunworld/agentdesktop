@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// Version negotiation in `initialize` (spec v1 initialization.mdx,

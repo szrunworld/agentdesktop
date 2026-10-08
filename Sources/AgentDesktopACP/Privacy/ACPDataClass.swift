@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // Data classification for Runtime payload fields (docs/acp/08-event-mapping.md §二、§四).

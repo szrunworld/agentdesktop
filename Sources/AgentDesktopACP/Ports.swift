@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // The seams between the parallel ACP lanes (docs/acp/03-lanes.md).

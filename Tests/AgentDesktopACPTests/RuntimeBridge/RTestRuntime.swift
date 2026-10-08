@@ -1,5 +1,4 @@
 import AgentDesktopClient
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 @testable import AgentDesktopACP
