@@ -1,0 +1,279 @@
+{
+  "passed": 54,
+  "total": 54,
+  "checks": [
+    {
+      "name": "总览显示三个 Desktop",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "两个 Agent 独立运行",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "创建必填校验",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "创建中状态存在",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "创建后获得新 desktopId",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "新 Desktop 等待接入",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "新连接成为写控制者",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "停止请求不是立即终态",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "停止确认后才结束",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "停止新桌面不影响微信",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "接管前经过 stopping",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "确认后人工控制",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "人工接管不影响 B",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "隐藏预览不停止控制",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "交还后不重放旧 Agent",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "关闭后总览不显示资源",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "关闭保留记录",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "关闭 A 不影响 B",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "搜索有无结果状态",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "清除筛选恢复列表",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "网格可切换列表",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "CLI 示例绑定 desktopId",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "MCP 配置为有效 JSON",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "检查连接有可见结果",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "只读检查不接管写控制者",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "回执包含三种定位标识",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "回执不宣称业务已成功",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "实际可导出 JSON 文件",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "未知结果初始禁止跳过核对",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "新观察不更改原回执",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "结束未知连接保持原始记录",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "缺权限时不进入创建",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "两项授权后可继续",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "权限后直接进入创建",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "AI 表单必填有错误信息",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "拒绝非本地明文 HTTP",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "AI 配置可保存",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "API 密钥没有写入状态",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "能力测试可以取消",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "四层测试单独显示通过",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "诊断范围需要确认",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "诊断绑定目标 Desktop",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "运行快照不被默认配置修改",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "诊断流完整完成",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "诊断不影响其他 Agent",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "诊断取消等待执行停止",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "诊断取消终态",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "被取消 Desktop 仍保留",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "预览缩放不改变 frameId",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "关闭主窗默认后台继续",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "退出等待停止后完成",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "空 Desktop 不显示示例应用",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "浏览器没有未捕获 JS 异常",
+      "passed": true,
+      "detail": "[]"
+    },
+    {
+      "name": "没有真实 HTTP 模型或网络请求",
+      "passed": true,
+      "detail": "[]"
+    }
+  ],
+  "console_errors": [],
+  "http_requests": [],
+  "scope": "HTML 原型浏览器交互；不包含原生 Runtime、真实 MCP/ACP 或模型验证"
+}
