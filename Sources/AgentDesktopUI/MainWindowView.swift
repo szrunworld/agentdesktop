@@ -1,30 +1,50 @@
 import AgentDesktopContracts
 import SwiftUI
 
-/// The main window's content: frame, navigation and one page container per
-/// first-level entry, fed by a ShellStore. Pages arrive with U2–U9; until
-/// then each entry shows the Runtime state it depends on and which delivery
-/// fills it, never sample content presented as real.
+/// The one main window's content (docs/plan/06 §6.1): frame, six entries,
+/// and per entry its page or a clear "not yet" state. Desktops and Runs
+/// read the Runtime through the Store; Settings shows what the host gives
+/// it for each second-level entry; Inbox is not enabled before U9; Agents
+/// and GUI Explorer wait for U4 / U7. Nothing here keeps execution state.
 public struct MainWindowView: View {
     @ObservedObject var store: ShellStore
-    @State private var selection: MainSection
-    let stopAll: (() -> Void)?
+    @ObservedObject var navigation: ShellNavigation
+    /// Settings content the host supplies (the AI/GUI pages until U6);
+    /// nil for an entry shows that it is pending.
+    let settings: (SettingsPage) -> AnyView?
+    @State private var confirmStop = false
 
-    public init(store: ShellStore, initial: MainSection = .desktops, stopAll: (() -> Void)? = nil) {
+    public init(store: ShellStore, navigation: ShellNavigation,
+                settings: @escaping (SettingsPage) -> AnyView? = { _ in nil }) {
         self.store = store
-        _selection = State(initialValue: initial)
-        self.stopAll = stopAll
+        self.navigation = navigation
+        self.settings = settings
+    }
+
+    /// Convenience for previews and renders: a fresh navigation.
+    public init(store: ShellStore, initial: MainSection = .desktops) {
+        self.init(store: store, navigation: ShellNavigation(section: initial))
     }
 
     public var body: some View {
-        MainFrame(selection: $selection, runtime: runtimeText, stopAll: connected ? stopAll : nil,
+        MainFrame(selection: Binding(get: { navigation.section }, set: { navigation.open($0) }),
+                  runtime: runtimeText, stopAll: connected ? { confirmStop = true } : nil,
                   desktopNames: store.desktops.map { d in
                       (id: d["desktopId"]?.stringValue ?? "", name: d["name"]?.stringValue ?? "—",
                        active: store.activeRuns.contains { $0["desktopId"] == d["desktopId"] })
                   },
-                  counts: connected ? [.desktops: store.desktops.count] : [:],
-                  statusLeft: statusLeft, statusRight: statusRight, isSample: store.isSample) {
-            page(selection)
+                  counts: connected ? [.desktops: store.desktops.count, .runs: store.activeRuns.count] : [:],
+                  statusLeft: statusLeft, statusRight: statusRight, isSample: store.isSample,
+                  inputStopped: store.inputAdmission == "stopped",
+                  enableInput: connected ? { Task { await store.enableInput() } } : nil,
+                  openDesktop: { navigation.showDesktop($0) }) {
+            page(navigation.section)
+        }
+        .confirmationDialog("停止所有输入？", isPresented: $confirmStop) {
+            Button("停止所有输入", role: .destructive) { Task { await store.stopAllInput() } }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("所有平台运行立即不再接受新输入，并进入停止流程；已经开始的动作要等执行端确认静止。外部 Agent 应用本身不会被结束。")
         }
     }
 
@@ -33,8 +53,12 @@ public struct MainWindowView: View {
     var runtimeText: StatusText {
         switch store.connection {
         case .connecting: return StatusText("正在连接本机服务", .idle)
-        case .connected: return store.inputAdmission == "stopped" ? StatusText("输入已停止", .attention)
-            : StatusText("本机服务就绪", .running)
+        case .connected:
+            switch store.inputAdmission {
+            case "stopped": return StatusText("输入已停止", .attention)
+            case "stopping": return StatusText("正在停止输入", .attention)
+            default: return StatusText("本机服务就绪", .running)
+            }
         case .disconnected: return StatusText("Runtime 未连接", .danger)
         }
     }
@@ -44,17 +68,12 @@ public struct MainWindowView: View {
         return "\(store.desktops.count) 个 Desktop · \(store.activeRuns.count) 个运行进行中"
     }
 
+    /// The bar names the data's freshness, not how it travels.
     var statusRight: String {
-        let mode: String
-        switch store.runUpdates {
-        case .subscription: mode = "运行状态：事件订阅"
-        case .polling: mode = "运行状态：轮询"
-        case .none: mode = "运行状态：未更新"
-        }
-        return mode
+        guard let t = store.runsSyncedAt ?? store.desktopsSyncedAt else { return "尚未同步" }
+        return "同步于 \(PageContainer<EmptyView, EmptyView>.time(t))"
     }
 
-    /// Connection-level state for entries that read no list yet.
     var connectionState: PageState {
         switch store.connection {
         case .connecting: return .loading
@@ -66,36 +85,88 @@ public struct MainWindowView: View {
     @ViewBuilder
     func page(_ section: MainSection) -> some View {
         switch section {
-        case .inbox:
-            InboxNotEnabledView()
-        case .desktops:
-            PageContainer(state: store.desktopsState, emptyTitle: "还没有 Desktop",
-                          emptyDetail: "Desktop 是 Agent 的独立桌面；创建入口随 Desktops 页面（U2）提供。",
-                          syncedAt: store.desktopsSyncedAt, retry: { Task { await store.refreshDesktops() } },
-                          header: { header(section) }) { pending(section) }
-        case .runs:
-            PageContainer(state: store.runsState, emptyTitle: "还没有运行",
-                          emptyDetail: "外部 Agent 或 GUI Explorer 发起的执行会出现在这里。",
-                          syncedAt: store.runsSyncedAt, retry: { Task { await store.refreshRuns() } },
-                          header: { header(section) }) { pending(section) }
-        default:
-            PageContainer(state: connectionState, retry: { Task { await store.start() } },
-                          header: { header(section) }) { pending(section) }
+        case .desktops: DesktopsPage(store: store, navigation: navigation)
+        case .runs: RunsPage(store: store, navigation: navigation)
+        case .inbox: InboxNotEnabledView()
+        case .settings: SettingsPageView(navigation: navigation, content: settings)
+        case .agents, .explorer:
+            PageContainer(state: connectionState, retry: { Task { await store.start() } }, header: {
+                PageHeader(eyebrow: section.eyebrow, title: section.title, subtitle: section.subviews.joined(separator: " · "))
+            }) { PendingSection(delivery: section.delivery) }
         }
     }
+}
 
-    func header(_ section: MainSection) -> some View {
-        PageHeader(eyebrow: section.eyebrow, title: section.title, subtitle: section.subviews.joined(separator: " · "))
-    }
-
-    func pending(_ section: MainSection) -> some View {
+/// A first-level entry whose pages come with a later delivery.
+public struct PendingSection: View {
+    let delivery: String
+    public init(delivery: String) { self.delivery = delivery }
+    public var body: some View {
         VStack(alignment: .leading, spacing: ADSpace.s) {
-            StateBadge("页面待接入（\(section.delivery)）", tone: .idle)
-            Text("这个入口的页面在 \(section.delivery) 交付。导航位置已固定，内容只会来自 Runtime。")
+            StateBadge("页面待接入（\(delivery)）", tone: .idle)
+            Text("这个入口的页面在 \(delivery) 交付。导航位置已固定，内容只会来自 Runtime。")
                 .font(ADFont.note).foregroundStyle(ADColor.muted)
         }
         .padding(ADSpace.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .adPanel()
+    }
+}
+
+/// Settings: second-level list on the left, the selected entry's content
+/// on the right (P21 layout).
+public struct SettingsPageView: View {
+    @ObservedObject var navigation: ShellNavigation
+    let content: (SettingsPage) -> AnyView?
+
+    public init(navigation: ShellNavigation, content: @escaping (SettingsPage) -> AnyView?) {
+        self.navigation = navigation
+        self.content = content
+    }
+
+    public var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: ADSpace.xs) {
+                PageHeader(eyebrow: "Agent Desktop", title: "设置").padding(.bottom, ADSpace.l)
+                ForEach(SettingsPage.allCases) { p in
+                    let on = navigation.settingsPage == p
+                    Button { navigation.settingsPage = p } label: {
+                        Text(p.rawValue).font(on ? ADFont.bodyStrong : ADFont.body)
+                            .foregroundStyle(on ? ADColor.primary : ADColor.ink)
+                            .padding(.horizontal, ADSpace.m).frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: ADRadius.button).fill(on ? ADColor.selected : .clear))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(on ? .isSelected : [])
+                }
+                Spacer()
+            }
+            .padding(ADLayout.contentPadding)
+            .frame(width: 240)
+            Rectangle().fill(ADColor.line).frame(width: 1)
+            Group {
+                if let view = content(navigation.settingsPage) {
+                    view
+                } else if navigation.settingsPage == .verification {
+                    notEnabled
+                } else {
+                    VStack(alignment: .leading) { PendingSection(delivery: navigation.settingsPage.delivery) }
+                        .padding(ADLayout.contentPadding)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(ADColor.canvas)
+    }
+
+    var notEnabled: some View {
+        VStack(alignment: .leading, spacing: ADSpace.m) {
+            StateBadge("尚未启用", tone: .idle)
+            Text("尚未启用：结果未知动作的核实将在后续版本提供").font(ADFont.sectionTitle).foregroundStyle(ADColor.ink)
+            Text("核实只追加记录，原结果保持「结果未知」，不会重发动作。").font(ADFont.note).foregroundStyle(ADColor.muted)
+        }
+        .padding(ADSpace.xl).frame(maxWidth: .infinity, alignment: .leading).adPanel()
+        .padding(ADLayout.contentPadding)
     }
 }

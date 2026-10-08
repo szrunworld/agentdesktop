@@ -18,13 +18,13 @@ if case .product = role, ControlProtocol.isListening(role.runtimeEndpoint) {
     exit(0)
 }
 
-// Menu bar only for now: no Dock icon, no main window. The product's main
-// window and Dock entry come with the task workspace (roadmap F04).
-// Top-level code runs on the main thread, so it may assume main-actor isolation.
+// The product has a Dock icon and the one main window; a test copy keeps to
+// the background. Top-level code runs on the main thread, so it may assume
+// main-actor isolation.
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     let controller = AppController(role: role)
     app.delegate = controller
-    app.setActivationPolicy(.accessory)
+    app.setActivationPolicy(role.activationPolicy)
     app.run()
 }

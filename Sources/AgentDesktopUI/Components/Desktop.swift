@@ -54,13 +54,15 @@ public struct DesktopCard: View {
     let control: DesktopControlPresentation
     let openPreview: (() -> Void)?
     let stop: (() -> Void)?
+    let openDetail: (() -> Void)?
 
     public init(desktop: JSONValue, control: DesktopControlPresentation,
-                openPreview: (() -> Void)? = nil, stop: (() -> Void)? = nil) {
+                openPreview: (() -> Void)? = nil, stop: (() -> Void)? = nil, openDetail: (() -> Void)? = nil) {
         self.desktop = desktop
         self.control = control
         self.openPreview = openPreview
         self.stop = stop
+        self.openDetail = openDetail
     }
 
     public var body: some View {
@@ -73,6 +75,11 @@ public struct DesktopCard: View {
                     Text(desktop["desktopId"]?.stringValue ?? "—").font(ADFont.identifier).foregroundStyle(ADColor.muted)
                 }
                 Spacer()
+                if let openDetail {
+                    Button(action: openDetail) { Label("详情", systemImage: "chevron.right") }
+                        .buttonStyle(ADButtonStyle(.quiet))
+                        .accessibilityLabel("打开 \(desktop["name"]?.stringValue ?? "Desktop") 的详情")
+                }
             }
             .padding(ADSpace.l)
             DesktopViewport(desktop: desktop).frame(height: 210)
