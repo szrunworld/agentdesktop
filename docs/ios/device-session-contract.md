@@ -103,12 +103,12 @@ Mirroring 当前声明（摘要，详见代码）：
 | delivered | `delivery=dispatched` |
 | 未投递 | `delivery=not_dispatched`（拒绝、取消在投递前） |
 | 投递未知 | `delivery=unknown`（可能已发出但证据丢失） |
-| confirmed | **增量**：`verification` 从常量放宽为 `not_requested \| confirmed \| not_confirmed \| unknown`，并加 `confirmationSnapshotId`（与 `docs/ai-gui/interfaces` 的 `confirmationObservationId` 对应） |
+| confirmed | **增量**（f1 2026-10-08 裁决：不放宽已冻结的 `verification`，它仍只表示调用方是否请求验证）：新增可选字段 `postCondition{state: confirmed \| not_confirmed \| unknown, observationId?, checkedAt?}`，挂在 plannedFields 下，由 f1 纳入目录；`observationId` 与 `docs/ai-gui/interfaces` 的 `confirmationObservationId` 对应 |
 | unknown 效果 | `execution=unknown`；只能追加 `reconciliations`，不得自动重放 |
 
 - **后端只给证据**：`BackendEvidence = {route, backendSessionId, dispatchedAt?, steps[{what, at, ok}], beforeArtifactId?, afterArtifactId?, notes}`，由 Runtime 写入回执（**增量** `ActionReceipt.evidence`，或放进现有 `route` + 产物引用，f1 决定）。
 - Mirroring `route` 已能区分宿主影响：`event.click`（借焦点）、`event.key.menu`（瞬时激活）、`event.key.held`（粘贴 ⌘V）、`event.key`。建议冻结这些值的含义。
-- 粘贴的回执规则：⌘V 已发出 → `delivery=dispatched`；粘贴提示超时、许可点按失败、OCR 未识别 → `execution=unknown`、`verification=not_confirmed`，**不再发 Return、不重贴**；只有核对输入框可见内容（非敏感字段）后才 `confirmed`。
+- 粘贴的回执规则：⌘V 已发出 → `delivery=dispatched`；粘贴提示超时、许可点按失败、OCR 未识别 → `execution=unknown`、`postCondition.state=unknown`，**不再发 Return、不重贴**，并在重新观察前拒绝该目标的后续输入；只有核对输入框可见内容（非敏感字段）后才 `postCondition.state=confirmed`。`verification` 保持冻结语义不变。
 
 ## 6. 每设备串行租约
 
@@ -134,7 +134,7 @@ Mirroring 当前声明（摘要，详见代码）：
 | 3 | `ImageTransform.space = host_global \| device_points` | 可选字段，缺省 host_global | WDA/CoreDevice 需要 |
 | 4 | 能力条目结构（support / evidence / basis / conditions / hostEffects） | 新对象 | 以 `IPhoneCapabilities` 为参照 |
 | 5 | 设备导航键名 `home \| app_switcher \| spotlight`；`press` 是否带 `durationMs` 表达长按；`drag` 的时长 | Action 计划字段的语义 | — |
-| 6 | `ActionReceipt.verification` 放宽为 `not_requested \| confirmed \| not_confirmed \| unknown` + `confirmationSnapshotId` | 改常量为枚举（需确认不违反冻结规则 1；按“加取值”处理） | 关键 |
+| 6 | 新增可选 `ActionReceipt.postCondition{state: confirmed \| not_confirmed \| unknown, observationId?, checkedAt?}`（plannedFields） | 新增可选字段；**不**改 `verification`（f1 2026-10-08 裁决：冻结规则 1 不允许扩大已冻结枚举） | 关键 |
 | 7 | `ActionReceipt.evidence`（后端证据）与 `cancelGeneration` | 可选字段 | — |
 | 8 | 冻结 `route` 取值含义：`event.click` / `event.key` / `event.key.menu` / `event.key.held` | 文档 | — |
 | 9 | 不支持动作的错误码：`unsupported_backend`（预留）与 `capability_missing`（已有）分工 | 错误码语义 | 见第 3 节 |
