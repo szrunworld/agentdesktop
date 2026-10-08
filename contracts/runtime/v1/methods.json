@@ -679,7 +679,7 @@
       "mutation": true,
       "params": "unit_run_params",
       "result": "Run",
-      "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process, never over the wire"
+      "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process. Params unit_run_params (verification is UnitVerification); lifetime/ownership/origin are accepted only to be refused with ownership_escalation_denied; the Run carries unit (RunUnit). The handler arrives with A6."
     },
     {
       "method": "hub.pairing.start",
@@ -966,26 +966,24 @@
     },
     "ActionReceipt": {
       "add": [
-        "businessResult (always \"not_evaluated\")",
         "elapsedMs",
         "clientId",
         "origin",
         "geometryRevision",
         "dispatchSequence",
-        "proposalId",
-        "inferenceAttemptId",
         "reconciliations"
       ],
-      "pr": "A3/A5"
+      "pr": "A3/A5",
+      "note": "businessResult (G0) and reason (F1-03) are in; proposalId/inferenceAttemptId dropped (A6 review: unit.step.proposed carries the requestId instead)"
     },
     "Observation": {
       "add": [
         "targetKind",
         "geometryRevision",
-        "captureSequence",
-        "coverage{ax,screenshot,ocr}"
+        "captureSequence"
       ],
-      "pr": "A3"
+      "pr": "A3/A5",
+      "note": "coverage{screenshot, ax, axReason} is in (AX)"
     },
     "Desktop": {
       "add": [
@@ -1003,11 +1001,11 @@
     },
     "Run": {
       "add": [
-        "unit{mode,goalHash,guiProfileRevision,inferenceAttempts,steps}",
         "episodeEligible",
         "excludedReason"
       ],
-      "pr": "A6/L1"
+      "pr": "L1",
+      "note": "Run.unit is in (RunUnit)"
     }
   },
   "serviceSchema": "service.schema.json"

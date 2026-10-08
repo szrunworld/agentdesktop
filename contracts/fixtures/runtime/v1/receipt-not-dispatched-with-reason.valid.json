@@ -1,0 +1,35 @@
+{
+  "def": "ActionReceipt",
+  "instance": {
+    "receiptId": "rcpt_1",
+    "requestId": "req_1",
+    "runId": "run_1",
+    "desktopId": "d_1",
+    "sessionId": "s_1",
+    "snapshotId": "obs_1",
+    "delivery": "not_dispatched",
+    "execution": "failed",
+    "verification": "not_requested",
+    "businessResult": "not_evaluated",
+    "reason": {
+      "code": "execution_failed",
+      "message": "the app refused"
+    },
+    "route": null,
+    "target": {
+      "generation": 1,
+      "process": {
+        "pid": 1,
+        "startedAt": "2026-10-08T01:00:00.000Z"
+      },
+      "windowId": 2,
+      "elementRef": "el_0",
+      "point": null
+    },
+    "timing": {
+      "acceptedAt": "2026-10-08T01:00:00.000Z",
+      "dispatchedAt": null,
+      "completedAt": "2026-10-08T01:00:00.100Z"
+    }
+  }
+}

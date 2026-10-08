@@ -1,0 +1,14 @@
+{
+  "def": "RunUnit",
+  "instance": {
+    "mode": "explore",
+    "goalHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "guiProfileId": "gp_1",
+    "guiProfileRevision": 3,
+    "verification": {
+      "status": "matched",
+      "observationId": "obs_9",
+      "checkedAt": "2026-10-08T01:00:00.000Z"
+    }
+  }
+}
