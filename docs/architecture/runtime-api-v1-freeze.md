@@ -214,6 +214,7 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
   - F2 / F3 / F4：拒绝（`function_key`），因为它们是 Office for Mac 的剪切、拷贝、粘贴。Shift+Forward Delete：拒绝（`shortcut`），因为它在 Windows 虚拟机和远程桌面里是剪切。
   - 任何带修饰键的组合，或单独按下的功能键，只要和菜单栏里"粘贴 / 拷贝 / 剪切"类菜单项的当前快捷键相同，就拒绝；包括不带 cmd 的快捷键（option+P、F6、cmd+F5）。命名键的快捷键优先按菜单项的虚拟键码读取；菜单里显示为符号或功能键码的（Safari 的方向键 U+F700、Finder 的 Delete U+0008、Chrome 的 Esc U+238B）换算成引擎的键名再比较。键名别名（enter 和 return、esc 和 escape、backspace 和 delete）视为同一个键。
   - 单独按下的移动或编辑键（Return、Tab、空格、Esc、Delete、方向键、Home、End、翻页键）不查菜单栏，否则每按一次都要读一次菜单；把粘贴改到这类键上属于残余风险。
+  - Return、Enter 和空格会"按下"当前有焦点的控件（先用 Tab 把焦点移到"拷贝代码"按钮再按回车，等于点它）。所以按这三个键前，先现场读取该应用当前有焦点的元素：如果它不是文本输入框或可编辑文本，并且它或它的上级名称是"粘贴 / 拷贝 / 剪切"类，或者它的快捷键是剪贴板快捷键，就拒绝（`focused_control`）；读不出焦点也拒绝（`focused_unverified`）。没有任何焦点时放行。
   - 菜单栏在**取得 Desktop 锁之前**读取，每个应用最多每 5 秒重新读一次，一次最多 1 秒；超过 3,000 项或超时就当作读不到，判为 `menu_unverified` 拒绝，不按读到的一部分放行。
   - 读取时，任何辅助功能错误（超时、应用无法应答）都会让整次探测作废；只有"没有这个值"或"不支持这个属性"才算属性不存在。
 - **点击**，无论按元素还是按坐标：发送前在点击位置**重新读取**那里的元素，不用快照里的旧信息。
@@ -221,7 +222,7 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
   - 不在绑定窗口里、又不是菜单的元素（弹出框、浮层、别的窗口）：拒绝（`outside_bound_window`）。
   - 辅助功能读不出元素：拒绝（`hit_unavailable`）。
   - 任何控件，只要它的标题、描述或帮助文字以粘贴 / 拷贝 / 剪切开头：拒绝（`control`）。词表覆盖 macOS 提供的各种语言，"Copy Link""Paste as Plain Text"这类变体也算在内。
-- 打字（辅助功能写值或 unicode 按键事件）和滚动不使用剪贴板。但如果打字指定了元素，引擎可能要先点击它（网页里没有焦点的输入框），所以先在该元素位置现场检查：必须是已有焦点的元素（这时引擎不会点击），或者是文本输入框（AXTextField、AXTextArea、AXSearchField、AXComboBox、AXSecureTextField），或者是网页标记为可编辑的富文本（contenteditable），并且在绑定窗口里，否则拒绝（`type_target_not_text`）。
+- 打字（辅助功能写值或 unicode 按键事件）和滚动不使用剪贴板。但如果打字指定了元素，引擎可能要先点击它（网页里没有焦点的输入框），所以先在该元素位置现场检查：不再因为"已有焦点"而放行（焦点可能在拷贝按钮上），必须是文本输入框（AXTextField、AXTextArea、AXSearchField、AXComboBox、AXSecureTextField），或者是网页标记为可编辑的富文本（contenteditable），并且在绑定窗口里，否则拒绝（`type_target_not_text`）。按钮、链接、菜单项等可按下的角色永远不算可编辑。目标或其上级名称是"粘贴 / 拷贝 / 剪切"类的也拒绝（`control`）。
 - 点击时，除了被点元素本身，还检查它上面三层控件的名称：按钮里的图标没有名字，要看所在按钮的名字。有测试保证：除了主窗口里用户自己点的复制按钮，以及没链接进 Runtime 的 iPhone 路径，产品和引擎代码都不碰剪贴板 API。
 - 应答：`permission_denied`，`notSent: true`，`details.reason = "clipboard_path_refused"`，`details.path` 是上面括号里的取值之一。Run 历史里记 `action.refused`。一次性 Run 以 failed 结束；exec Run 被拒后可以继续。未知的动作类型也拒绝，不再默认当作点击。
 - 每次读取对每个辅助功能元素都单独设 0.3 秒超时（超时设置不会从父元素继承；对一个应用的第一次查询实测约需 0.1 秒），整次探测另有 1 秒总时限，超时就当作读不到。
