@@ -10,6 +10,8 @@ final class FakeWDA: @unchecked Sendable {
         let path: String
         let query: [String: String]
         let body: Data?
+        /// The URLRequest's own timeout: which limit the client applied.
+        var timeout: TimeInterval = 0
         var json: [String: Any]? {
             body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         }
@@ -195,8 +197,9 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         var query: [String: String] = [:]
         for item in components?.queryItems ?? [] { query[item.name] = item.value ?? "" }
-        let recorded = FakeWDA.Request(method: request.httpMethod ?? "GET", path: url.path, query: query,
+        var recorded = FakeWDA.Request(method: request.httpMethod ?? "GET", path: url.path, query: query,
                                        body: Self.body(of: request))
+        recorded.timeout = request.timeoutInterval
         deliver(fake.handle(recorded))
     }
 
