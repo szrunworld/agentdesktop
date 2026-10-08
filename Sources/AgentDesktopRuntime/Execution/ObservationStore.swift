@@ -73,12 +73,27 @@ public final class ObservationStore: @unchecked Sendable {
 /// by path; never inlined in responses or events.
 public final class ArtifactStore: @unchecked Sendable {
     public static let retentionHours = 24
+    /// How often a long-running Runtime looks for expired files again; a
+    /// client that observes every few seconds would otherwise fill the
+    /// disk between restarts.
+    public static let sweepInterval: TimeInterval = 600
     public let directory: String
+    private let clock: () -> Date
+    private let lock = NSLock()
+    private var lastSweep: Date
 
-    public init(directory: String, now: Date = Date()) throws {
+    public init(directory: String, now: @escaping () -> Date = Date.init) throws {
         self.directory = directory
+        self.clock = now
+        self.lastSweep = now()
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
+        sweep(at: lastSweep)
+    }
+
+    /// Removes files older than the retention period (methods.json
+    /// `transport.artifacts.retentionHours`).
+    func sweep(at now: Date) {
         let cutoff = now.addingTimeInterval(-Double(Self.retentionHours) * 3600)
         for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [] {
             let p = directory + "/" + name
@@ -86,6 +101,16 @@ public final class ArtifactStore: @unchecked Sendable {
                 try? FileManager.default.removeItem(atPath: p)
             }
         }
+    }
+
+    private func sweepIfDue() {
+        let now = clock()
+        let due: Bool = lock.withLock {
+            guard now.timeIntervalSince(lastSweep) >= Self.sweepInterval else { return false }
+            lastSweep = now
+            return true
+        }
+        if due { sweep(at: now) }
     }
 
     public func path(for artifactId: String, ext: String) -> String { "\(directory)/\(artifactId).\(ext)" }
@@ -120,6 +145,7 @@ public final class ArtifactStore: @unchecked Sendable {
     @discardableResult
     public func register(_ artifactId: String, mediaType: String, clientId: String, runId: String?,
                          createdAt: String) throws -> Info {
+        sweepIfDue()
         guard Self.validId(artifactId), let ext = Self.extensions[mediaType] else {
             throw RuntimeError("internal_error", "artifact \(artifactId) of \(mediaType) cannot be stored", phase: .handler)
         }
