@@ -44,6 +44,7 @@ let package = Package(
                 "AgentDesktopService",
                 "AgentDesktopGUI",
                 "AgentDesktopAI",
+                "AgentDesktopAIUI",
                 "AgentDesktopContracts",
             ]
         ),
