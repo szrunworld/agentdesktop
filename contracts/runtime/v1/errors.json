@@ -170,6 +170,69 @@
       "description": "The request's deadline passed before dispatch; nothing was sent."
     },
     {
+      "code": "pairing_required",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The client is not paired; pair it in AgentDesktop before calling this method."
+    },
+    {
+      "code": "client_revoked",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The client was removed; its credential no longer works."
+    },
+    {
+      "code": "grant_missing",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The capability, Desktop or app is not in the client's grant."
+    },
+    {
+      "code": "grant_expired",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The grant that covered this has expired."
+    },
+    {
+      "code": "permit_expired",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The approval permit expired, was used, or belongs to an older generation."
+    },
+    {
+      "code": "target_moved",
+      "exitCode": 5,
+      "phase": "handler",
+      "reserved": true,
+      "description": "At dispatch the target's geometry or binding generation no longer matched the observation; nothing was sent."
+    },
+    {
+      "code": "audit_unavailable",
+      "exitCode": 7,
+      "phase": "handler",
+      "reserved": true,
+      "description": "Evidence could not be recorded; input is paused until it can be."
+    },
+    {
+      "code": "unsupported_backend",
+      "exitCode": 6,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The backend cannot do this action in the background; it is not done in the foreground instead."
+    },
+    {
+      "code": "capability_mismatch",
+      "exitCode": 6,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The GUI profile and the fallback model speak different action protocols."
+    },
+    {
       "code": "connection_lost",
       "exitCode": 9,
       "phase": "transport",
