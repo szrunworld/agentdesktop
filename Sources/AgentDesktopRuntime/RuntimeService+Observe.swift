@@ -46,7 +46,10 @@ extension RuntimeService {
         // or another caller's runId neither gets a fresh quota nor spends
         // someone else's); otherwise the session, else the Desktop.
         let bucket: String
-        if let runId = request.context.runId {
+        if let gui = takeQuotaBucket(requestId: request.requestId, connection: c) {
+            // The GUI ports' own observation for a GUI Run: its own bucket.
+            bucket = gui
+        } else if let runId = request.context.runId {
             if case let .failure(e) = execution.authorized(runId: runId, connection: c) { return .failure(e) }
             bucket = "run:" + runId
         } else if let session {
@@ -232,5 +235,18 @@ extension RuntimeService {
                   ("coverage", .obj(coverage))]
             return .obj(m)
         }
+    }
+}
+
+extension RuntimeService {
+    /// A quota bucket set in process for one request of one connection (the
+    /// GUI ports' observation of a GUI Run). Nothing on the socket can set
+    /// one: only code in this module calls `setQuotaBucket`.
+    func setQuotaBucket(_ bucket: String, requestId: String, connection: ConnectionState) {
+        quotaBucketLock.withLock { quotaBuckets[connection.connectionId + "|" + requestId] = bucket }
+    }
+
+    func takeQuotaBucket(requestId: String, connection: ConnectionState) -> String? {
+        quotaBucketLock.withLock { quotaBuckets.removeValue(forKey: connection.connectionId + "|" + requestId) }
     }
 }

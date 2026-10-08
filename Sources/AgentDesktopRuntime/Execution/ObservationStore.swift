@@ -127,6 +127,8 @@ public final class ArtifactStore: @unchecked Sendable {
     static let freeSpaceInterval: TimeInterval = 10
     private var free: (bytes: Int64?, at: Date)?
     private var refreshingFree = false
+    private let freeSpaceQueue = DispatchQueue(label: "agentdesktop.artifacts.freespace", qos: .utility)
+    private var refreshStarted: Date?
     /// Usage by quota bucket ("run:<id>", "session:<id>", "desktop:<id>"):
     /// each artifact counts from the moment it is admitted (a reservation),
     /// its bytes once it is registered.
@@ -157,6 +159,8 @@ public final class ArtifactStore: @unchecked Sendable {
     /// Run's history (events, receipts) is never affected.
     public func admit(bucket: String) throws {
         let stale = lock.withLock { () -> Bool in
+            // A refresh stuck for long (a hung volume query) may be tried again.
+            if refreshingFree, let started = refreshStarted, clock().timeIntervalSince(started) > 30 { refreshingFree = false }
             guard let f = free else { return true }
             return clock().timeIntervalSince(f.at) >= Self.freeSpaceInterval && !refreshingFree
         }
@@ -169,18 +173,32 @@ public final class ArtifactStore: @unchecked Sendable {
             let u = usage[bucket] ?? (0, 0)
             if u.count >= limits.perRunArtifacts || u.bytes >= limits.perRunBytes {
                 throw refuse("run_artifact_quota",
-                             "\(bucket) already holds \(u.count) screenshots (\(u.bytes) bytes); at most \(limits.perRunArtifacts) or \(limits.perRunBytes) bytes")
+                             "this run (or session) already holds \(u.count) screenshots (\(u.bytes) bytes); at most \(limits.perRunArtifacts) or \(limits.perRunBytes) bytes")
             }
             if usageTotal >= limits.totalBytes {
                 throw refuse("artifact_store_full", "the artifact store holds \(usageTotal) bytes, its limit is \(limits.totalBytes)")
             }
-            guard let freeBytes = free?.bytes else {
+            // An answer older than a minute is no answer.
+            guard let f = free, let freeBytes = f.bytes, clock().timeIntervalSince(f.at) < 60 else {
                 throw refuse("disk_unknown", "the free space on the artifact volume is unknown")
             }
             if freeBytes < limits.minFreeBytes {
                 throw refuse("disk_low", "only \(freeBytes) bytes are free on the artifact volume; the store leaves at least \(limits.minFreeBytes)")
             }
             usage[bucket] = (u.count + 1, u.bytes)
+        }
+    }
+
+    /// Whether `count` more artifacts of `bucket` would fit now, without
+    /// reserving: for a caller that makes several in a row and must not make
+    /// the first if the last would be refused.
+    public func available(bucket: String, count: Int) throws {
+        try lock.withLock {
+            let u = usage[bucket] ?? (0, 0)
+            if u.count + count > limits.perRunArtifacts || u.bytes >= limits.perRunBytes {
+                throw RuntimeError("limit_exceeded", "the screenshot limit of this run is reached; observe without a screenshot still works",
+                                   phase: .handler, details: .obj([("reason", .string("run_artifact_quota"))]))
+            }
         }
     }
 
@@ -199,9 +217,15 @@ public final class ArtifactStore: @unchecked Sendable {
     }
 
     private func scheduleFreeSpace() {
-        let go = lock.withLock { () -> Bool in defer { refreshingFree = true }; return !refreshingFree }
+        let go = lock.withLock { () -> Bool in
+            guard !refreshingFree else { return false }
+            refreshingFree = true
+            refreshStarted = clock()
+            return true
+        }
         guard go else { return }
-        sweeper.async { [self] in refreshFreeSpace() }
+        // Its own queue: a long sweep must not leave the answer to age out.
+        freeSpaceQueue.async { [self] in refreshFreeSpace() }
     }
 
     /// Usage from the records on disk, once, at start (nothing else runs yet).

@@ -85,8 +85,17 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
 
     public func observe(runId: String, expectedGeneration: UInt64) async throws -> ObservationBundle {
         let rb = try binding(runId)
+        // A GUI Run's screenshots count against the Run itself, never the
+        // caller's session; both of this step's (the window capture and the
+        // model's copy) must fit before the first is taken.
+        let bucket = "gui:" + runId
+        do {
+            try service.artifacts.available(bucket: bucket, count: 2)
+        } catch let e as RuntimeError { throw Self.contractError(e) }
+        let observeId = RuntimeRequest.newId(prefix: "gui")
+        service.setQuotaBucket(bucket, requestId: observeId, connection: connection)
         let data: JSONValue
-        switch await call(.observe, context: RequestContext(sessionId: rb.sessionId), params: .obj([])) {
+        switch await call(.observe, id: observeId, context: RequestContext(sessionId: rb.sessionId), params: .obj([])) {
         case let .failure(e): throw Self.contractError(e)
         case let .success(v): data = v
         }
@@ -115,9 +124,6 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         let factor = longSide > Self.maxModelSide ? Self.maxModelSide / longSide : 1
         let resized = Size(width: (crop.size.width * factor).rounded(), height: (crop.size.height * factor).rounded())
         let modelPNG = try Self.render(source: source, crop: crop, to: resized)
-        // The model's copy counts against the same session bucket the
-        // window capture above was admitted to (the GUI Run's own session).
-        let bucket = "session:" + rb.sessionId
         let sha: String
         do {
             try service.artifacts.admit(bucket: bucket)
@@ -292,7 +298,10 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         case "capability_missing": code = .capabilityMismatch
         case "action_delivery_unknown", "request_acceptance_unknown": code = .actionOutcomeUnknown
         case "schema_invalid", "invalid_argument": code = .invalidAction
-        case "limit_exceeded": code = .limitExceeded
+        case "limit_exceeded":
+            // The reason, never the bucket's name.
+            return ContractError(.limitExceeded,
+                                 "screenshot limit reached (\(e.details?["reason"]?.stringValue ?? "limit")); observing without a screenshot still works")
         default: code = .internalError
         }
         return ContractError(code, e.message)

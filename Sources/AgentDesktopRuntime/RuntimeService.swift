@@ -40,6 +40,8 @@ public final class RuntimeService: @unchecked Sendable {
     public let desktops: DesktopRegistry
     public let sessions = SessionManager()
     public let observations = ObservationStore()
+    let quotaBucketLock = NSLock()
+    var quotaBuckets: [String: String] = [:]
     public let ledger: RequestLedger
     public let runs: RunStore
     let execution: ExecutionCoordinator

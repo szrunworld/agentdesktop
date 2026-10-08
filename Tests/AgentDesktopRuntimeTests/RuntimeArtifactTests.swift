@@ -149,6 +149,7 @@ private func aged(_ store: ArtifactStore, _ id: String, hours: Int, now: Date) t
     _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
     let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
     clock.now = clock.now.addingTimeInterval(ArtifactStore.sweepInterval)
+    store.refreshFreeSpace()  // the test clock jumps; a real one lets the 10 s refresh run
     // This observation starts the sweep, which then stays held.
     var t0 = Date()
     let first = try #require(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)))
@@ -161,6 +162,8 @@ private func aged(_ store: ArtifactStore, _ id: String, hours: Int, now: Date) t
     // queues a second sweep.
     for _ in 0..<3 {
         clock.now = clock.now.addingTimeInterval(ArtifactStore.sweepInterval)
+        // The test clock jumps ten minutes; a real one lets the 10 s refresh run.
+        store.refreshFreeSpace()
         #expect(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) != nil)
     }
     #expect(Date().timeIntervalSince(t0) < 2)
@@ -363,14 +366,47 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
     let (platform, s, ports, d) = try guiScene()
     s.artifacts.limits.perRunArtifacts = 3
     _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
-    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)  // window capture + model copy: 2
+    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)  // window capture + model copy: 2 of 3
     do {
-        _ = try await ports.observe(runId: "r1", expectedGeneration: 1)  // window capture 3, model copy refused
+        // Both of a step's screenshots must fit: refused before the window capture.
+        _ = try await ports.observe(runId: "r1", expectedGeneration: 1)
         Issue.record("the GUI run went past its limit")
     } catch let e as ContractError {
         #expect(e.code == .limitExceeded)
+        #expect(!e.message.contains("gui:") && !e.message.contains("session:"), "no bucket names in messages")
     }
     let files = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".png") }
     #expect(files.filter { $0.hasPrefix("art_gui_") }.count == 1, "\(files)")
+    #expect(files.filter { !$0.hasPrefix("art_gui_") }.count == 1, "no extra window capture at the limit: \(files)")
     _ = platform
+}
+
+// A GUI Run counts against itself, not the session it was given: a caller
+// running several in one session is not refused because of earlier ones.
+@Test func eachGuiRunHasItsOwnQuota() async throws {
+    let (_, s, ports, d) = try guiScene()
+    s.artifacts.limits.perRunArtifacts = 2
+    let first = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)
+    _ = try await ports.authorize(sessionId: first.sessionId, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r2")
+    _ = try await ports.observe(runId: "r2", expectedGeneration: 1)
+}
+
+// A free-space answer that is too old, or a query that hangs, refuses.
+@Test func aStaleOrHungFreeSpaceAnswerRefuses() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Clock: @unchecked Sendable { var now = Date() }
+    let clock = Clock()
+    let store = try ArtifactStore(directory: dir, now: { clock.now })
+    store.freeBytes = { 100 << 30 }
+    store.refreshFreeSpace()
+    try store.admit(bucket: "session:s")
+    store.release(bucket: "session:s")
+    // The volume stops answering: the old answer ages out.
+    let gate = DispatchSemaphore(value: 0)
+    store.freeBytes = { gate.wait(); return 100 << 30 }
+    clock.now = clock.now.addingTimeInterval(61)
+    #expect(throws: RuntimeError.self) { try store.admit(bucket: "session:s") }
+    gate.signal(); gate.signal()
 }
