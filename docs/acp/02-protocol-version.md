@@ -57,7 +57,7 @@
 ## 四、传输与帧（已实现）
 
 - 规范：v1 `docs/protocol/v1/transports.mdx`「stdio」：UTF-8；**一行一条 JSON-RPC 消息，以 `\n` 分隔，消息内不得有换行**；agent 的 stdout 只能写合法 ACP 消息，日志写 stderr。
-- `ACPFrameSplitter`：按 `\n` 切帧，容忍 `\r\n`，跳过空行；**单帧上限默认 16 MiB**（`ACPStdioConnectionOptions.maxFrameBytes`；官方 TS SDK 默认 32 MiB）。超长行一越线就报一次，后续字节直接丢弃，内存始终有界。
+- `ACPFrameSplitter`：按 `\n` 切帧，容忍 `\r\n`，跳过空行；**单帧上限默认 16 MiB**（`ACPStdioConnectionOptions.maxFrameBytes`；官方 TS SDK 默认 32 MiB）。超长行一越线就报一次，后续字节直接丢弃到下一个换行，内存始终有界；连接不断开（见下表与 README 第六节）。
 - 编码：`JSONValue.encoded()` 转义所有行终止符（含 U+2028/2029），每帧恰好一行。
 - 解析：复用 `AgentDesktopContracts.StrictJSON`（拒绝重复键、深度 > 64、非法 UTF-8、尾随数据）。
 - JSON-RPC 2.0：不支持批量（数组回 -32600）；请求 id 只接受整数或字符串（`null`、小数回 -32600）；`params` 必须是对象。
@@ -70,11 +70,13 @@
 | 未知方法、未声明能力的方法 | 回 -32601 |
 | 参数不合法（含 cwd 不是绝对路径、未声明的内容类型） | 回 -32602 |
 | `initialize` 之前的请求、重复 `initialize`、重复 id | 回 -32600 |
-| 超长帧 | 回 -32600（id null）后断开，`.closed("frame_too_large")` |
-| stdin 关闭 | `.closed("input_closed")`；半帧时 `.closed("input_closed_mid_frame")` |
+| 超长帧 | 回 -32600（「frame exceeds N bytes … skipped to the next line」）。若该行开头 4 KiB 里能完整读出顶层 `"id"`（整数或字符串），错误就用这个 id 回，编辑器不会一直等下去；读不出则 id 为 null，丢弃到下一个换行，**连接与进程照常运行**（协调者决定，README 第六节：断开会停掉这条连接上所有 connection_scoped Run）；超长帧不计入畸形帧次数 |
+| stdin 关闭 | `.closed("input_closed")`；半帧时 `.closed("input_closed_mid_frame")`。stdin 关闭即编辑器离开（ADR v2.2，README 第六节）：之后**不再写任何回复或更新**，未回复的请求不补写，未决的 agent→编辑器请求得到 `.unavailable` |
 | stdout 写失败 | `.closed("output_closed")`；输出描述符设了 `F_SETNOSIGPIPE`，不会被 SIGPIPE 杀掉 |
 | 未知通知（含 `$/cancel_request`） | 忽略，不回 |
 | 对不存在 id 的响应 | 忽略 |
+
+**输出顺序**：所有帧经同一个串行写出器发出。调用方先 `await send(sessionId:_:)`、再 `await reply(to:_:)`，线上顺序就是调用顺序（例如 `session/load` 先回放历史更新、再回复 load；测试 `t01UpdatesThenReplyKeepCallOrder` 用 200 条更新验证）。没有先后等待的并发调用之间不保证顺序。
 
 **流水线（pipelining）规则**：JSON-RPC 允许不等回复连续发送。连接按到达顺序处理一切：`initialize` 被接受（协商成功）后、它的回复写出之前，后续到达的请求与通知全部暂存；回复写出后按原顺序处理暂存项（服务器接受了 `initialize` 就照常交给服务器，服务器拒绝了就逐个回 -32600「connection not initialized」），处理完暂存项之前新到的消息继续排队，任何消息都不会越过更早的消息。只有在**任何 `initialize` 之前**到达的请求才会被拒绝（-32600），守序的客户端不会遇到。注意 stdin 关闭即视为编辑器断开（ADR v2.2），之后不再写回复，所以用 `printf … | agentdesktop-acp-dev --demo` 复现时要让 stdin 保持打开（如 `(printf …; sleep 2) | …`）。
 
