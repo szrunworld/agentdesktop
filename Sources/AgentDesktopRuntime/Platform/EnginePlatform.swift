@@ -151,20 +151,27 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         }
     }
 
-    public func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?) throws
-        -> (window: PlatformWindow, elements: [PlatformElement]) {
-        var r = ControlRequest(command: .windowState)
-        r.screen = screen.name
-        r.pid = pid
-        r.windowID = windowId
-        r.query = query
-        let response = try check(handle(r))
+    /// Runs on the calling thread (one of the Runtime's AX threads), straight
+    /// into the engine's input engine: not through `handle`, whose detached
+    /// task would put the uninterruptible AX calls on the cooperative pool.
+    public func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?, deadline: Date) throws
+        -> ElementRead {
+        let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
+        guard let window = WindowMover.windows(ofPID: pid).first(where: { $0.windowID == windowId }),
+              bounds.contains(CGPoint(x: window.frame.midX, y: window.frame.midY))
+        else { throw PlatformError(.notFound, "window \(windowId) of pid \(pid) is not on screen \(screen.name)") }
+        let response: ControlResponse
+        do {
+            response = try engine.input.state(window, query: query, deadline: deadline)
+        } catch {
+            throw Self.classify(error.localizedDescription)
+        }
         guard let w = response.window else { throw PlatformError(.notFound, "the window is gone") }
         let elements = (response.elements ?? []).map {
             PlatformElement(index: $0.index, role: $0.role, label: $0.label, value: $0.value,
                             actions: $0.actions ?? [], frame: $0.frame.map(Self.rect))
         }
-        return (Self.window(w), elements)
+        return ElementRead(window: Self.window(w), elements: elements, truncated: response.elementsTruncated)
     }
 
     /// Engine refusals that happen before any event is posted: target

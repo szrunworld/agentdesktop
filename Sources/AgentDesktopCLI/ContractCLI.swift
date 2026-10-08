@@ -1,4 +1,5 @@
-import AgentDesktopContracts
+import AgentDesktopClient
+import AgentDesktopProtocol
 import Foundation
 
 /// Exit codes of the CLI contract (spec §13.2).
@@ -12,24 +13,24 @@ public enum ExitCode: Int32 {
     case interrupted = 130
 }
 
-/// The `rpc`, `ai …` and `gui …` groups of `agentdesktop`, which speak the
-/// AI/GUI contract v1 (agentdesktop.ai/1, DEV-SPEC §13) to its own service.
-/// CommandRouter hands these words over unchanged; the exit codes of these
-/// groups follow DEV-SPEC §13.2 until the two plans settle on one table.
-///
-/// The part of the product CLI that speaks contract v1 directly:
+/// The `rpc`, `ai …` and `gui …` groups of `agentdesktop`: runtime/1
+/// requests for the methods the AI service answers on the Runtime's single
+/// endpoint. CommandRouter hands these words over unchanged; the exit codes
+/// of these groups follow DEV-SPEC §13.2 until the two plans settle on one
+/// table. Output is the runtime/1 response.
 ///
 ///     agentdesktop [--json] [--socket PATH] rpc --request-file FILE [--dry-run]
 ///     agentdesktop [--json] [--socket PATH] ai capabilities [--dry-run]
 ///
-/// `rpc` sends a complete versioned envelope after validating it locally,
-/// so all 32 operations are reachable before their friendly aliases exist.
+/// `rpc` sends a complete runtime/1 request after validating it locally.
 public struct ContractCLI {
     public var stdout: (String) -> Void
     public var stderr: (String) -> Void
     public var readFile: (String) throws -> Data
     public var environment: [String: String]
-    public var send: (Data, String) -> FrameReader.Result
+    /// One runtime/1 request to the endpoint at the path, after a handshake
+    /// on the same connection; the raw response, or why there is none.
+    public var send: (JSONValue, String) -> TransportReply
     public var readStdin: () -> Data
     public var nowMs: () -> UInt64
     public var sleepMs: (Int) -> Void
@@ -40,7 +41,7 @@ public struct ContractCLI {
                 stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) },
                 readFile: @escaping (String) throws -> Data = { try Data(contentsOf: URL(fileURLWithPath: $0)) },
                 environment: [String: String] = ProcessInfo.processInfo.environment,
-                send: @escaping (Data, String) -> FrameReader.Result = SocketClient.exchange,
+                send: @escaping (JSONValue, String) -> TransportReply = RuntimeTransport.exchange,
                 readStdin: @escaping () -> Data = { FileHandle.standardInput.readDataToEndOfFile() },
                 nowMs: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1_000_000 },
                 sleepMs: @escaping (Int) -> Void = { usleep(useconds_t($0 * 1000)) },
@@ -59,8 +60,8 @@ public struct ContractCLI {
     public static let usage = """
     usage: agentdesktop [--json] [--socket PATH] COMMAND [options]
 
-      rpc --request-file FILE                      a complete versioned envelope
-      ai capabilities                               contract v1 runtime.capabilities
+      rpc --request-file FILE                      a complete runtime/1 request
+      ai capabilities                               runtime.capabilities (the GUI part is `gui`)
       ai connections list|get|create|update|disable|delete
            create: --params-file F --credential-stdin; get/disable/delete: --id ID --expected-revision N;
            update: --id ID --expected-revision N --params-file PATCH
@@ -77,19 +78,23 @@ public struct ContractCLI {
       gui status|cancel --run-id ID
       gui events --run-id ID --after-sequence N [--follow]
 
-    Every command that changes state needs --idempotency-key K; reuse K when retrying.
+    Every command that changes state needs --idempotency-key K (8 to 128 characters; it is the requestId); reuse K when retrying.
     Common: --dry-run (validate only, nothing sent), --wait-timeout-ms N, --deadline-at TIME.
     Keys are read from stdin only; there is no --api-key.
     Exit: 0 ok, 2 local validation, 3 runtime unreachable/incompatible, 4 rejected or failed,
           5 cancelled, 6 stopped waiting, 130 interrupted.
     """
 
-    /// The product endpoint, unless AGENTDESKTOP_SOCKET (the side-instance
-    /// variable HostRole reads) names another.
+    /// The Runtime's single endpoint (A2): AGENTDESKTOP_ENDPOINT, else a
+    /// side instance's `<socket>.runtime.sock` from AGENTDESKTOP_SOCKET,
+    /// else the product's.
     public func defaultSocket() -> String {
-        if let p = environment["AGENTDESKTOP_SOCKET"], !p.isEmpty { return p }
+        if let p = environment["AGENTDESKTOP_ENDPOINT"], !p.isEmpty { return p }
+        if let p = environment["AGENTDESKTOP_SOCKET"], !p.isEmpty {
+            return URL(fileURLWithPath: p).deletingPathExtension().appendingPathExtension("runtime.sock").path
+        }
         let home = environment["HOME"] ?? NSHomeDirectory()
-        return home + "/Library/Application Support/AgentDesktop/control.sock"
+        return home + "/Library/Application Support/AgentDesktop/runtime.sock"
     }
 
     public func run(_ args: [String]) -> ExitCode {
@@ -139,55 +144,67 @@ public struct ContractCLI {
         return .localValidation
     }
 
-    func localFailure(_ error: ContractError) -> ExitCode {
-        stdout(Envelope.failure(requestId: nil, error: error).encoded())
+    func localFailure(_ message: String, violations: [String] = []) -> ExitCode {
+        let details: JSONValue? = violations.isEmpty ? nil : .obj([("violations", .array(violations.prefix(20).map(JSONValue.string)))])
+        stdout(RuntimeResponse.failure(nil, RuntimeError("invalid_argument", message, phase: .local, notSent: true,
+                                                         details: details)).json.encoded())
         return .localValidation
     }
 
     /// Validate locally, then (unless dry-run) send and map the answer.
     func submit(_ data: Data, socket: String, dryRun: Bool) -> ExitCode {
-        let request: RpcRequest
-        switch Envelope.decode(data) {
-        case let .request(r): request = r
-        case let .rejected(_, error): return localFailure(error)
-        case .legacy: return localFailure(ContractError(.validationError, "the request file must be a versioned envelope"))
-        }
+        guard let request = try? StrictJSON.parse(data) else { return localFailure("the request file is not one strict JSON object") }
+        if let problem = Self.problems(request) { return localFailure(problem.0, violations: problem.1) }
         if dryRun {
             stdout(JSONValue.obj([("dryRun", .bool(true)), ("valid", .bool(true)),
-                                  ("request", Self.redacted(request.raw))]).encoded())
+                                  ("request", Self.redacted(request))]).encoded())
             return .ok
         }
-        var frame = request.raw.encodedData()
-        frame.append(0x0A)
-        let reply: Data
-        switch send(frame, socket) {
-        case let .frame(body): reply = body
-        case .tooLarge:
-            stderr("agentdesktop: the runtime answered with an oversized frame")
-            return .runtimeUnavailable
-        case let .ioError(code):
-            stderr("agentdesktop: cannot reach the runtime at \(socket): \(String(cString: strerror(code)))")
-            return .runtimeUnavailable
-        case .truncated, .trailingData:
-            stderr("agentdesktop: the runtime closed without one complete response line")
-            return .runtimeUnavailable
+        let (response, code) = exchange(request, socket: socket)
+        if let response { stdout(response.encoded()) }
+        return code
+    }
+
+    /// Why a runtime/1 request would be refused before it is sent, if it
+    /// would: the envelope, then a servedBy method's params.
+    static func problems(_ request: JSONValue) -> (String, [String])? {
+        let v = RuntimeContract.shared.validate(request, "Request")
+        if !v.isEmpty { return ("the request does not match the runtime/1 envelope", v) }
+        let method = request["method"]?.stringValue ?? ""
+        if let op = ContractBundle.shared.operation(method) {
+            let pv = (try? ContractBundle.shared.validate(request["params"] ?? .obj([]), "\(op.defPrefix)_params"))?.map(\.description) ?? []
+            if !pv.isEmpty { return ("params do not match \(method)", pv) }
+            if op.requiresIdempotencyKey, (request["requestId"]?.stringValue?.count ?? 0) < 8 {
+                return ("\(method) changes state: its requestId is the idempotency key and needs 8 to 128 characters", [])
+            }
         }
-        guard let response = try? StrictJSON.parse(reply),
-              (try? ContractBundle.shared.validateRpc(response, "Response"))?.isEmpty == true else {
-            stderr("agentdesktop: the runtime answered outside contract \(ContractBundle.schemaVersion)")
-            return .runtimeUnavailable
+        return nil
+    }
+
+    /// Send one request; nil reply means the exit code says why.
+    func exchange(_ request: JSONValue, socket: String) -> (JSONValue?, ExitCode) {
+        switch send(request, socket) {
+        case let .unreachable(why):
+            stderr("agentdesktop: cannot reach the runtime at \(socket): \(why)")
+            return (nil, .runtimeUnavailable)
+        case let .reply(response):
+            guard RuntimeContract.shared.validate(response, "Response").isEmpty else {
+                stderr("agentdesktop: the runtime answered outside \(RuntimeAPI.version)")
+                return (nil, .runtimeUnavailable)
+            }
+            guard response["requestId"] == request["requestId"] else {
+                stderr("agentdesktop: the response does not belong to this request")
+                return (nil, .runtimeUnavailable)
+            }
+            return (response, response["ok"]?.boolValue == true ? .ok : Self.exitCode(response))
         }
-        guard response["requestId"]?.stringValue == request.requestId else {
-            stderr("agentdesktop: the response does not belong to this request")
-            return .runtimeUnavailable
-        }
-        stdout(response.encoded())
-        if response["ok"]?.boolValue == true { return .ok }
+    }
+
+    /// The groups' exit classes (§13.2) for a runtime/1 error.
+    public static func exitCode(_ response: JSONValue) -> ExitCode {
         switch response["error"]?["code"]?.stringValue {
-        case ErrorCode.unsupportedSchema.rawValue, ErrorCode.unsupportedCommand.rawValue:
-            return .runtimeUnavailable
-        default:
-            return .rejected
+        case "capability_missing", "version_mismatch", "handshake_required", "runtime_offline": return .runtimeUnavailable
+        default: return .rejected
         }
     }
 
@@ -206,39 +223,33 @@ public struct ContractCLI {
     }
 }
 
-/// One request per connection over a Unix socket (spec §05.1).
-public enum SocketClient {
-    public static func exchange(_ frame: Data, path: String) -> FrameReader.Result {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return .ioError(errno) }
-        defer { close(fd) }
-        var on: Int32 = 1
-        guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
-            return .ioError(errno)
+/// What one request to the endpoint came back with.
+public enum TransportReply: Sendable {
+    case reply(JSONValue)
+    case unreachable(String)
+}
+
+/// A runtime/1 exchange on a fresh connection: handshake, then the request.
+public enum RuntimeTransport {
+    public static func exchange(_ request: JSONValue, path: String) -> TransportReply {
+        let transport: UnixSocketTransport
+        do { transport = try UnixSocketTransport(path: path, timeout: 120) } catch let e as RuntimeError {
+            return .unreachable(e.message)
+        } catch { return .unreachable("\(error)") }
+        defer { transport.close() }
+        let hello = RuntimeRequest(.handshake, params: .obj([
+            ("apiVersions", .array(RuntimeAPI.supportedVersions.map(JSONValue.string))),
+            ("client", .obj([("name", .string("agentdesktop-cli")), ("version", .string(RuntimeAPI.productVersion))])),
+        ]))
+        do {
+            let ack = try StrictJSON.parse(transport.exchange(hello.json.encodedData()))
+            guard ack["ok"]?.boolValue == true else { return .reply(ack.setting("requestId", request["requestId"] ?? .null)) }
+            return .reply(try StrictJSON.parse(transport.exchange(request.encodedData())))
+        } catch let e as RuntimeError {
+            return .unreachable(e.message)
+        } catch {
+            return .unreachable("the runtime answered with something that is not JSON")
         }
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        let capacity = MemoryLayout.size(ofValue: addr.sun_path)
-        guard bytes.count < capacity else { return .ioError(ENAMETOOLONG) }
-        withUnsafeMutableBytes(of: &addr.sun_path) { buf in
-            buf.copyBytes(from: bytes)
-            buf[bytes.count] = 0
-        }
-        let rc = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard rc == 0 else { return .ioError(errno) }
-        var sent = 0
-        while sent < frame.count {
-            let n = frame.withUnsafeBytes { write(fd, $0.baseAddress! + sent, frame.count - sent) }
-            if n < 0 && errno == EINTR { continue }
-            guard n > 0 else { return .ioError(errno) }
-            sent += n
-        }
-        return FrameReader.read(fd: fd)
     }
 }
 

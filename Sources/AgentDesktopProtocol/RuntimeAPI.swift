@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// The Runtime API every entry speaks: CLI, MCP, SDKs, the app's own
@@ -58,14 +58,23 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
 /// The machine-readable contract: schema, method catalog and error table.
 public final class RuntimeContract: Sendable {
     public static let schemaId = "https://schemas.agentdesktop.invalid/runtime/v1/runtime.schema.json"
+    public static let serviceSchemaId = "https://schemas.agentdesktop.invalid/runtime/v1/service.schema.json"
 
     public struct MethodSpec: Equatable, Sendable {
         public let method: String
         public let stage: String
         public let mutation: Bool
-        /// `$defs` names in runtime.schema.json.
+        /// `$defs` names in runtime.schema.json, or for a method served by
+        /// another service a `service.schema.json#/$defs/…` reference.
         public let params: String
         public let result: String
+        /// The service that answers it inside the Runtime ("ai-service"),
+        /// nil for the Runtime's own methods.
+        public var servedBy: String? = nil
+        /// For a servedBy method: answered with an operation to poll.
+        public var asynchronous = false
+        /// For a servedBy write: the requestId doubles as its idempotency key.
+        public var requiresIdempotencyKey = false
     }
 
     public struct ErrorSpec: Equatable, Sendable {
@@ -83,28 +92,32 @@ public final class RuntimeContract: Sendable {
 
     /// The contract as embedded at build time (RuntimeContractData.swift).
     public static let embedded = (schema: RuntimeContractData.runtimeSchema,
+                                  service: RuntimeContractData.serviceSchema,
                                   methods: RuntimeContractData.methods,
                                   errors: RuntimeContractData.errors)
 
     public static let shared: RuntimeContract = {
         do {
-            return try RuntimeContract(schema: Data(embedded.schema.utf8), methods: Data(embedded.methods.utf8),
-                                       errors: Data(embedded.errors.utf8))
+            return try RuntimeContract(schema: Data(embedded.schema.utf8), service: Data(embedded.service.utf8),
+                                       methods: Data(embedded.methods.utf8), errors: Data(embedded.errors.utf8))
         } catch {
             fatalError("the embedded runtime contract is invalid: \(error)")
         }
     }()
 
-    public init(schema: Data, methods: Data, errors: Data) throws {
+    public init(schema: Data, service: Data? = nil, methods: Data, errors: Data) throws {
         registry = SchemaRegistry()
         _ = try registry.add(jsonData: schema)
+        if let service { _ = try registry.add(jsonData: service) }
         let m = try StrictJSON.parse(methods)
         self.methods = try (m["methods"]?.arrayValue ?? []).map { v in
             guard let method = v["method"]?.stringValue, let stage = v["stage"]?.stringValue,
                   let mutation = v["mutation"]?.boolValue, let params = v["params"]?.stringValue,
                   let result = v["result"]?.stringValue
             else { throw SchemaError.invalidSchema("methods.json entry \(v.encoded())") }
-            return MethodSpec(method: method, stage: stage, mutation: mutation, params: params, result: result)
+            return MethodSpec(method: method, stage: stage, mutation: mutation, params: params, result: result,
+                              servedBy: v["servedBy"]?.stringValue, asynchronous: v["asynchronous"]?.boolValue ?? false,
+                              requiresIdempotencyKey: v["requiresIdempotencyKey"]?.boolValue ?? false)
         }
         let e = try StrictJSON.parse(errors)
         self.errors = try (e["codes"]?.arrayValue ?? []).map { v in
@@ -120,10 +133,13 @@ public final class RuntimeContract: Sendable {
     public func method(_ name: String) -> MethodSpec? { methodsByName[name] }
     public func error(_ code: String) -> ErrorSpec? { errorsByCode[code] }
 
-    /// Violations of `#/$defs/<def>`, as text; empty means valid.
+    /// Violations of `#/$defs/<def>`, as text; empty means valid. A def
+    /// written `service.schema.json#/$defs/<name>` is looked up there.
     public func validate(_ instance: JSONValue, _ def: String) -> [String] {
+        let (doc, name) = def.hasPrefix("service.schema.json#/$defs/")
+            ? (Self.serviceSchemaId, String(def.dropFirst("service.schema.json#/$defs/".count))) : (Self.schemaId, def)
         do {
-            return try registry.validate(instance, documentId: Self.schemaId, pointer: "/$defs/\(def)")
+            return try registry.validate(instance, documentId: doc, pointer: "/$defs/\(name)")
                 .map(\.description)
         } catch {
             return ["/: $ref: \(error)"]

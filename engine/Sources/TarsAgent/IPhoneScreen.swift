@@ -17,21 +17,53 @@ import Vision
 ///   keyboard turns every character into "a". Text is pasted instead: ⌘V
 ///   with ⌘ pressed as a key of its own, in the background (a ⌘V through
 ///   the menus, even with Mirroring in front, types "v"). The phone may ask
-///   to "Allow Paste", which is pressed. The user's clipboard is put back.
+///   to "Allow Paste", pressed only when it is the system's alert, then
+///   fetches the clipboard over the air for seconds. The whole paste holds
+///   a clipboard lease against other agent processes, saves every item and
+///   type on the clipboard (or refuses to paste if it cannot) and puts them
+///   back. It reports `paste.confirmed` only when the text is read back off
+///   the screen, `paste.delivered` when the phone went quiet but the text
+///   was not seen, and fails as `paste.unknown` when the paste never
+///   settled. A trailing newline presses Return only after a confirmed paste.
 /// - Without the phone the window shows a status page ("iPhone in Use",
-///   "Connection Paused") or a Connect / Try Again / Resume button.
+///   "连接暂停", …); see `IPhoneConnectionState`.
+///
+/// Observation and input are bound to one window: `frame()` binds
+/// Mirroring's window by pid and window ID, a screenshot captures that
+/// window alone and records an `IPhoneObservation`, and every input names
+/// the window and is refused (`stale_observation`, nothing sent) when the
+/// window is gone or has moved or resized since it was read. When the
+/// window changes while input is being sent the result is
+/// `action_delivery_unknown`, and further input is refused until the
+/// window is read again. Reading never presses anything: reconnecting is
+/// `reconnect(timeout:)` of its own.
 ///
 /// Points are global; the screenshot is the mirroring window alone.
 public final class IPhoneAgentScreen: AgentScreen {
     public static let bundleID = "com.apple.ScreenContinuity"
 
     public let screen: String
+    public let system: IPhoneMirroringSystem
 
     private var screenFrame: CGRect = .zero
     private var windowFrame: CGRect = .zero
+    /// The window `frame()` bound, with the frame it had then.
+    public private(set) var binding: IPhoneWindow?
+    /// What the last screenshot showed.
+    public private(set) var observation: IPhoneObservation?
+    /// Set when input may have reached something else; input is refused
+    /// until the window is read again.
+    private var invalidated: String?
 
-    public init(screen: String) {
+    /// Checked before each input and during each wait in here; once true,
+    /// nothing more is sent.
+    public var isCancelled: () -> Bool = { false }
+    /// After it, nothing more is sent and waits end.
+    public var deadline: Date?
+
+    public init(screen: String, system: IPhoneMirroringSystem = LiveIPhoneMirroringSystem()) {
         self.screen = screen
+        self.system = system
     }
 
     public static func pid() throws -> pid_t {
@@ -41,54 +73,149 @@ public final class IPhoneAgentScreen: AgentScreen {
         return app.processIdentifier
     }
 
+    private func currentPID() throws -> pid_t {
+        guard let pid = system.mirroringPIDs().first else {
+            throw AgentError("iPhone Mirroring is not running; run `agentdesktop iphone show`")
+        }
+        return pid
+    }
+
+    /// Bind Mirroring's window on the screen and return its frame. Keeps
+    /// the window already bound while it is there; otherwise takes the
+    /// largest. Only reads: it presses nothing, even on a status page.
     public func frame() throws -> CGRect {
-        var request = ControlRequest(command: .screenList)
-        request.screen = screen
-        let response = try sendControlRequest(request)
-        guard let info = response.screens?.first(where: { $0.name == screen }) else {
+        guard let bounds = try system.screenFrame(named: screen) else {
             throw AgentError("no screen named \"\(screen)\"; run `agentdesktop iphone show`")
         }
-        screenFrame = CGRect(info.frame)
-        let pid = try Self.pid()
-        guard let window = WindowMover.windows(ofPID: pid)
-            .filter({ screenFrame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) })
-            .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
-        else {
+        screenFrame = bounds
+        let pid = try currentPID()
+        let candidates = system.windows(pid: pid).filter { bounds.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+        let window: IPhoneWindow
+        if let bound = binding, bound.pid == pid, let same = candidates.first(where: { $0.windowID == bound.windowID }) {
+            window = same
+        } else if let largest = candidates.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) {
+            window = largest
+        } else {
             throw AgentError("iPhone Mirroring has no window on screen \"\(screen)\"; run `agentdesktop iphone show`")
         }
-        try Self.reconnectIfAsked(pid: pid)
+        if binding != window { observation = nil }
+        binding = window
         windowFrame = window.frame
+        // Geometry is not a look at the phone: an input barrier stays up
+        // until a screenshot shows what the last input left behind.
         return window.frame
     }
 
     public func screenshot(size: CGSize) throws -> Data {
-        let image = try windowImage()
-        if let status = Self.statusPage(in: image) {
-            throw AgentError("iPhone Mirroring shows \"\(status)\": lock the phone and leave it near the Mac")
+        let capture = try capturedWindow()
+        let status = state(of: capture)
+        guard status.state == .ready else {
+            throw IPhoneError("not_connected", reason: status.state.rawValue,
+                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint)")
         }
-        return try Images.png(Images.scaled(image, to: size))
+        guard !IPhoneFrames.isBlank(capture.image) else {
+            throw IPhoneError("capture_failed", reason: "blank_frame",
+                              "the capture of window \(capture.windowID) is one flat colour, not the phone")
+        }
+        let png = try Images.png(Images.scaled(capture.image, to: size))
+        observation = IPhoneObservation(pid: binding?.pid ?? 0, windowID: capture.windowID, frame: capture.frame,
+                                        pixelSize: size, capturedAt: system.now)
+        // Whoever took it can now see what an uncertain input left.
+        invalidated = nil
+        system.inputBarrier.lower()
+        return png
     }
 
     /// The mirroring window alone, at the screen's pixels.
     private func windowImage() throws -> CGImage {
-        let scratch = NSTemporaryDirectory() + "agentdesktop-iphone-agent-\(getpid()).png"
-        let cropped = scratch + ".window.png"
-        defer {
-            try? FileManager.default.removeItem(atPath: scratch)
-            try? FileManager.default.removeItem(atPath: cropped)
+        try capturedWindow().image
+    }
+
+    /// The bound window captured on its own, still where it was bound.
+    private func capturedWindow() throws -> IPhoneWindowCapture {
+        if binding == nil { _ = try frame() }
+        guard let bound = binding else { throw IPhoneError("no_observation", "iPhone Mirroring's window is not bound") }
+        let capture = try system.captureWindow(screen: screen, pid: bound.pid, windowID: bound.windowID)
+        guard capture.windowID == bound.windowID, IPhoneObservation.sameFrame(capture.frame, bound.frame) else {
+            throw IPhoneError.stale("moved", "window \(bound.windowID) moved or resized since it was read")
         }
-        var request = ControlRequest(command: .screenshot)
-        request.screen = screen
-        request.output = scratch
-        request.windowsOnly = true
-        let response = try sendControlRequest(request)
-        guard response.ok else { throw AgentError(response.error ?? "screenshot failed") }
-        try Images.crop(scratch, to: cropped, frame: Frame(windowFrame), screenFrame: Frame(screenFrame))
-        return try Images.load(cropped)
+        return capture
+    }
+
+    // MARK: Connection
+
+    private func state(of capture: IPhoneWindowCapture) -> (state: IPhoneConnectionState, label: String?) {
+        IPhoneConnection.classify(system.accessibilityLabels(pid: binding?.pid ?? 0),
+                                  ocr: system.recognizedText(in: capture.image))
+    }
+
+    /// What the window shows now. Reads only.
+    public func connectionState() throws -> (state: IPhoneConnectionState, label: String?) {
+        _ = try frame()
+        return state(of: try capturedWindow())
+    }
+
+    public struct ReconnectReport {
+        public var state: IPhoneConnectionState
+        public var label: String?
+        /// The button pressed, if one was.
+        public var pressed: String?
+        public var timedOut: Bool
+    }
+
+    /// Ask a disconnected Mirroring to connect again and wait, until
+    /// `timeout` or `deadline`, for it to settle. Presses nothing when the
+    /// phone is in use, locked or needs the user: those are for the user.
+    public func reconnect(timeout: TimeInterval = 20) throws -> ReconnectReport {
+        let until = min(deadline ?? .distantFuture, system.now.addingTimeInterval(timeout))
+        var (state, label) = try connectionState()
+        var pressed: String?
+        switch state {
+        case .ready, .phoneInUse, .authRequired, .needsUser:
+            return ReconnectReport(state: state, label: label, pressed: nil, timedOut: false)
+        case .disconnected:
+            guard let pid = binding?.pid,
+                  let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid)
+            else { return ReconnectReport(state: state, label: label, pressed: nil, timedOut: false) }
+            pressed = title
+        case .reconnecting:
+            break
+        }
+        while true {
+            if let stop = stopReason() { throw stop }
+            let left = until.timeIntervalSince(system.now)
+            if left <= 0 { return ReconnectReport(state: state, label: label, pressed: pressed, timedOut: true) }
+            system.sleep(min(1, left))
+            // The window may be gone or remade while it connects.
+            if let now = try? connectionState() { (state, label) = now }
+            if state != .reconnecting && state != .disconnected {
+                return ReconnectReport(state: state, label: label, pressed: pressed, timedOut: false)
+            }
+        }
+    }
+
+    // MARK: Cancellation
+
+    private func stopReason() -> IPhoneError? {
+        if isCancelled() { return IPhoneError("cancelled", "stopped; nothing more is sent") }
+        if let deadline, system.now >= deadline {
+            return IPhoneError("deadline_exceeded", "the deadline passed; nothing more is sent")
+        }
+        return nil
+    }
+
+    /// Sleep up to `seconds`, ending early when stopped.
+    private func pause(_ seconds: TimeInterval) {
+        let end = system.now.addingTimeInterval(seconds)
+        while stopReason() == nil {
+            let left = end.timeIntervalSince(system.now)
+            if left <= 0 { return }
+            system.sleep(min(0.1, left))
+        }
     }
 
     public func perform(_ action: InputAction) throws -> ControlResponse {
-        let pid = try Self.pid()
+        let pid = try currentPID()
         switch action.kind {
         case .scroll, .drag:
             return .failure("iPhone Mirroring ignores swipes and scrolling from the Mac; "
@@ -103,12 +230,16 @@ public final class IPhoneAgentScreen: AgentScreen {
             guard var text = action.value, !text.isEmpty else { return ControlResponse() }
             let submit = text.hasSuffix("\n")
             if submit { text.removeLast() }
-            if !text.isEmpty {
-                if let failure = try paste(text, pid: pid) { return .failure(failure) }
+            if text.isEmpty { return try send(key("return", []), pid: pid) }
+            let pasted = try paste(text, pid: pid)
+            if case .unknown = pasted.outcome {
+                // Whatever acts next depends on what the field holds, which
+                // nobody knows: no input until the phone is read again.
+                block("may hold a half-finished paste")
             }
-            if submit { return try send(key("return", []), pid: pid) }
-            Thread.sleep(forTimeInterval: 0.4)
-            return ControlResponse()
+            return try pasted.outcome.response(submit: submit, clipboardRestored: pasted.clipboardRestored) {
+                try send(key("return", []), pid: pid)
+            }
         default:
             return try send(action, pid: pid)
         }
@@ -127,131 +258,141 @@ public final class IPhoneAgentScreen: AgentScreen {
         return action
     }
 
+    /// Send `action` to the bound window, after checking it is still the
+    /// window and geometry last read; a refusal sends nothing.
     private func send(_ action: InputAction, pid: pid_t) throws -> ControlResponse {
+        if let stop = stopReason() { return .failure(stop.localizedDescription) }
+        let window: IPhoneWindow
+        do {
+            window = try verifiedTarget(pid: pid)
+        } catch let refusal as IPhoneError {
+            return .failure(refusal.localizedDescription)
+        }
         var request = ControlRequest(command: .input)
         request.screen = screen
         request.pid = pid
+        request.windowID = window.windowID
         request.input = action
-        let response = try sendControlRequest(request)
+        let response = try system.deliver(request)
+        // Checking and sending cannot be one step: if the window changed
+        // around the send, the input may have gone elsewhere. Unknown, not
+        // success, and nothing more until the window is read again.
+        if let changed = changedAfterSend(window, response) {
+            block(changed)
+            var unknown = ControlResponse.failure(IPhoneError(
+                "action_delivery_unknown", reason: "target_changed_during_dispatch",
+                "window \(window.windowID) \(changed) while input was sent; it may have reached something else. "
+                    + "Take a new screenshot before deciding on another action", notSent: false).localizedDescription)
+            unknown.route = response.route
+            unknown.window = response.window
+            return unknown
+        }
         // Let the phone draw the result before the next screenshot.
-        Thread.sleep(forTimeInterval: 0.6)
+        pause(0.6)
         return response
     }
 
-    /// Paste `text` into the phone's focused field. Returns why not, if not.
-    private func paste(_ text: String, pid: pid_t) throws -> String? {
-        let pasteboard = NSPasteboard.general
-        let backup = pasteboard.string(forType: .string)
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        let ours = pasteboard.changeCount
-        defer {
-            // Put the user's clipboard back, unless they copied something
-            // meanwhile.
-            if pasteboard.changeCount == ours {
-                pasteboard.clearContents()
-                if let backup { pasteboard.setString(backup, forType: .string) }
-            }
+    /// No more input to this phone, from this or any process, until a
+    /// screenshot of it is taken.
+    private func block(_ reason: String) {
+        do {
+            try system.inputBarrier.raise(reason)
+        } catch {
+            // Kept here at least, for this process.
+            invalidated = reason
         }
-        var paste = key("v", ["cmd"])
-        paste.holdModifiers = true
-        let response = try send(paste, pid: pid)
-        guard response.ok else { return response.error ?? "⌘V failed" }
-        // The phone asks whether to allow the paste, then fetches the
-        // clipboard over the air, which can take seconds; it stays ours
-        // until the phone stops saying it is pasting.
-        var quiet = 0
-        for _ in 0..<25 where quiet < 2 {
-            Thread.sleep(forTimeInterval: 0.5)
-            switch try pastePrompt() {
-            case .allow(let point):
-                quiet = 0
-                var tap = InputAction(.click)
-                tap.x = point.x
-                tap.y = point.y
-                _ = try send(tap, pid: pid)
-            case .pasting:
-                quiet = 0
-            case .none:
-                quiet += 1
-            }
-        }
-        return nil
     }
 
-    private enum PastePrompt { case allow(CGPoint), pasting, none }
+    /// The bound window as it is now, if input may still go to it.
+    private func verifiedTarget(pid: pid_t) throws -> IPhoneWindow {
+        if let reason = invalidated ?? system.inputBarrier.reason(now: system.now) {
+            throw IPhoneError.stale("delivery_unknown", "the window \(reason) after an earlier input; "
+                + "take a screenshot before any more input")
+        }
+        guard let bound = binding else {
+            throw IPhoneError("no_observation", "read iPhone Mirroring's window first (frame or screenshot)")
+        }
+        guard bound.pid == pid else {
+            throw IPhoneError.stale("process_restarted", "iPhone Mirroring restarted (pid \(bound.pid) → \(pid))")
+        }
+        let windows = system.windows(pid: pid)
+        guard let now = windows.first(where: { $0.windowID == bound.windowID }) else {
+            throw IPhoneError.stale("window_gone", "window \(bound.windowID) is gone")
+        }
+        guard IPhoneObservation.sameFrame(now.frame, bound.frame) else {
+            throw IPhoneError.stale("moved", "window \(bound.windowID) moved or resized since it was read")
+        }
+        // A click goes to a window of the same app lying over the point
+        // (Mirroring's settings, a sheet): refuse rather than tap it.
+        if let front = windows.prefix(while: { $0.windowID != bound.windowID })
+            .first(where: { $0.frame.width >= 2 && $0.frame.height >= 2 && IPhoneObservation.overlaps($0.frame, bound.frame) }) {
+            throw IPhoneError.stale("other_window_of_process_in_front",
+                                    "iPhone Mirroring window \(front.windowID) lies over the phone window \(bound.windowID)")
+        }
+        return now
+    }
 
-    /// What the phone shows of a paste from the Mac: its "Allow Paste"
-    /// button, in global points, or its "Pasting from" progress.
-    private func pastePrompt() throws -> PastePrompt {
+    /// How the window changed while input was sent, or nil.
+    private func changedAfterSend(_ window: IPhoneWindow, _ response: ControlResponse) -> String? {
+        if let acted = response.window, acted.windowID != window.windowID { return "was not the window acted on" }
+        guard let now = system.windows(pid: window.pid).first(where: { $0.windowID == window.windowID }) else {
+            return "went away"
+        }
+        return IPhoneObservation.sameFrame(now.frame, window.frame) ? nil : "moved"
+    }
+
+    /// Paste `text` into the phone's focused field (see `PasteTransaction`).
+    private func paste(_ text: String, pid: pid_t) throws -> PasteTransaction.Result {
+        PasteTransaction().paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
+    }
+
+    /// The phone for a paste: Vision reads the window, input goes to Mirroring.
+    private struct PhoneDriver: PhonePasteDriver {
+        let phone: IPhoneAgentScreen
+        let pid: pid_t
+
+        func look() throws -> [PhoneText] {
+            try phone.pastePrompt()
+        }
+
+        func pressPaste() throws -> ControlResponse {
+            var paste = phone.key("v", ["cmd"])
+            paste.holdModifiers = true
+            return try phone.send(paste, pid: pid)
+        }
+
+        func tap(_ point: CGPoint) throws -> ControlResponse {
+            let frame = phone.windowFrame
+            var tap = InputAction(.click)
+            tap.x = frame.minX + point.x * frame.width
+            tap.y = frame.minY + point.y * frame.height
+            return try phone.send(tap, pid: pid)
+        }
+
+        func pause(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+    }
+
+    /// The text on the mirroring window, for `PastePrompt.read` and for
+    /// checking the pasted text, boxes normalised with the origin top left.
+    private func pastePrompt() throws -> [PhoneText] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["zh-Hans", "en-US"]
-        try VNImageRequestHandler(cgImage: windowImage()).perform([request])
-        var pasting = false
-        for observation in request.results ?? [] {
-            guard let text = observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespaces)
-            else { continue }
-            if Self.allowPasteLabels.contains(text) {
-                let box = observation.boundingBox  // normalised, bottom-left origin
-                return .allow(CGPoint(x: windowFrame.minX + box.midX * windowFrame.width,
-                                      y: windowFrame.minY + (1 - box.midY) * windowFrame.height))
-            }
-            if Self.pastingLabels.contains(where: text.hasPrefix) { pasting = true }
+        let capture = try capturedWindow()
+        // A status page ("iPhone in Use") is not a quiet phone: the paste's
+        // fate cannot be read off it (2026-10-08: a paste the phone dropped
+        // when it was picked up was reported delivered).
+        let status = state(of: capture)
+        guard status.state == .ready else {
+            throw IPhoneError("not_connected", reason: status.state.rawValue,
+                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\" during the paste")
         }
-        return pasting ? .pasting : .none
-    }
-
-    static let pastingLabels = ["Pasting from", "正在从"]
-    static let allowPasteLabels: Set<String> = ["Allow Paste", "允许粘贴"]
-
-    /// Press Connect, Try Again or Resume when the window offers one, and
-    /// say so: the phone needs a moment to come back.
-    static func reconnectIfAsked(pid: pid_t) throws {
-        let app = AXUIElementCreateApplication(pid)
-        var windows: AnyObject?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows) == .success,
-              let list = windows as? [AXUIElement] else { return }
-        for window in list {
-            for button in buttons(in: window) {
-                // SwiftUI buttons carry their text as the title or the description.
-                let names = [kAXTitleAttribute, kAXDescriptionAttribute].compactMap { attribute -> String? in
-                    var value: AnyObject?
-                    AXUIElementCopyAttributeValue(button, attribute as CFString, &value)
-                    return value as? String
-                }
-                if let title = names.first(where: { ["Connect", "Try Again", "Resume"].contains($0) }) {
-                    AXUIElementPerformAction(button, kAXPressAction as CFString)
-                    throw AgentError("iPhone Mirroring was disconnected; asked it to reconnect (\(title)). "
-                        + "Lock the phone and try again shortly")
-                }
-            }
+        try VNImageRequestHandler(cgImage: capture.image).perform([request])
+        return (request.results ?? []).compactMap { observation in
+            guard let text = observation.topCandidates(1).first?.string else { return nil }
+            let box = observation.boundingBox  // normalised, bottom-left origin
+            return PhoneText(text, CGRect(x: box.minX, y: 1 - box.maxY, width: box.width, height: box.height))
         }
     }
 
-    private static func buttons(in element: AXUIElement, depth: Int = 0) -> [AXUIElement] {
-        guard depth < 8 else { return [] }
-        var children: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
-              let list = children as? [AXUIElement] else { return [] }
-        return list.flatMap { child -> [AXUIElement] in
-            var role: AnyObject?
-            AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &role)
-            return (role as? String) == kAXButtonRole ? [child] : buttons(in: child, depth: depth + 1)
-        }
-    }
-
-    static let statusPages = ["iPhone in Use", "Connection Paused", "iPhone Not Found", "Unable to Connect"]
-
-    /// The title of a status page iPhone Mirroring shows without the phone.
-    static func statusPage(in image: CGImage) -> String? {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
-        // The message sits in the middle third of the window.
-        request.regionOfInterest = CGRect(x: 0, y: 0.33, width: 1, height: 0.34)
-        try? VNImageRequestHandler(cgImage: image).perform([request])
-        let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
-        return statusPages.first { text.contains($0) }
-    }
 }
-

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import AgentDesktopAI
-@testable import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 
 @Suite("Model service")
 struct InferenceServiceTests {

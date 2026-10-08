@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopAI
@@ -30,7 +30,7 @@ struct Harness {
     let key = Data(repeating: 7, count: 32)
     let store: ConfigStore
     let service: ConfigApplicationService
-    let router: RpcRouter
+    let router: ServiceRouter
     let responses = Recorder()
 
     init(options: ConfigOptions = ConfigOptions(allowLoopbackHTTP: true), creds: InMemoryCredentialStore = InMemoryCredentialStore(),
@@ -45,7 +45,7 @@ struct Harness {
         self.store = try ConfigStore(path: path, credentials: creds, digestKey: Data(repeating: 7, count: 32),
                                      clock: clock, options: options)
         self.service = ConfigApplicationService(store: store)
-        self.router = RpcRouter(handlers: service.handlers(callerScope: "owner"))
+        self.router = ServiceRouter(handlers: service.handlers(callerScope: "owner"))
     }
 
     /// A second store over the same files: a restarted host.
@@ -55,20 +55,16 @@ struct Harness {
 
     @discardableResult
     func call(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil,
-              router: RpcRouter? = nil) async throws -> JSONValue {
-        var m: [(String, JSONValue)] = [
-            ("schemaVersion", .string("agentdesktop.ai/1")), ("requestId", .string(UUID().uuidString.lowercased())),
-            ("command", .string(command)), ("params", params),
-        ]
+              router: ServiceRouter? = nil) async throws -> JSONValue {
         let op = ContractBundle.shared.operation(command)!
-        if op.requiresIdempotencyKey || key != nil {
-            m.append(("context", .obj([("idempotencyKey", .string(key ?? "k-\(UUID().uuidString)"))])))
+        let k = op.requiresIdempotencyKey || key != nil ? (key ?? "k-\(UUID().uuidString)") : nil
+        let out: JSONValue
+        switch await (router ?? self.router).answer(method: command, params: params, idempotencyKey: k) {
+        case let .success(v): out = .obj([("ok", .bool(true)), ("result", v)])
+        case let .failure(e): out = .obj([("ok", .bool(false)), ("error", e.json)])
         }
-        let out = await (router ?? self.router).respond(toBody: JSONValue.obj(m).encodedData())
-        let text = String(decoding: out, as: UTF8.self)
-        responses.add(text)
-        var body = out; body.removeLast()
-        return try StrictJSON.parse(body)
+        responses.add(out.encoded())
+        return out
     }
 
     /// The result of a successful call, checked against `<command>_result`.
@@ -79,7 +75,7 @@ struct Harness {
             throw CancellationError()
         }
         let op = ContractBundle.shared.operation(command)!
-        #expect(try ContractBundle.shared.validateRpc(r, "\(op.defPrefix)_result").isEmpty)
+        #expect(try ContractBundle.shared.validate(r, "\(op.defPrefix)_result").isEmpty)
         return r
     }
 
@@ -378,7 +374,7 @@ struct IdempotencyTests {
         ]), key: "shared-key-1") == "IDEMPOTENCY_CONFLICT")
         #expect(try await h.ok("ai.connections.list")["items"]?.arrayValue?.count == 1)
 
-        let other = RpcRouter(handlers: h.service.handlers(callerScope: "other-caller"))
+        let other = ServiceRouter(handlers: h.service.handlers(callerScope: "other-caller"))
         let mine = try await h.call("ai.connections.create", .obj([
             ("name", .string("theirs")), ("protocol", .string("openai_chat")), ("baseUrl", .string("https://x.example/v1")),
             ("timeoutMs", .int(30000)), ("credential", .obj([("apiKey", .string("sk-other"))])),

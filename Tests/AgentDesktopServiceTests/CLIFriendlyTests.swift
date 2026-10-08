@@ -1,11 +1,12 @@
 import AgentDesktopCLI
-import AgentDesktopContracts
+import AgentDesktopProtocol
+import AgentDesktopRuntime
 import Foundation
 import Testing
 @testable import AgentDesktopService
 
-// T11 against the composed service over a real socket: CLI-001..004 and the
-// exit codes of spec §13.2.
+// T11 against the composed service behind the Runtime's single endpoint
+// (A2): CLI-001..004 and the exit codes of spec §13.2.
 
 final class CLIRun: @unchecked Sendable {
     let out = LinesBox()
@@ -20,7 +21,6 @@ final class CLIRun: @unchecked Sendable {
         ContractCLI(stdout: out.add, stderr: err.add,
             readFile: { [files] p in guard let s = files[p] else { throw CocoaError(.fileNoSuchFile) }; return Data(s.utf8) },
             environment: ["HOME": NSHomeDirectory()],
-            send: SocketClient.exchange,
             readStdin: { [stdin] in Data(stdin.utf8) },
             nowMs: { [self] in clockMs },
             sleepMs: { [self] ms in polls += 1; clockMs += UInt64(ms); usleep(20_000) },
@@ -33,22 +33,51 @@ final class CLIRun: @unchecked Sendable {
     }
 }
 
+/// The CLI blocks on its socket: run it on a plain thread, never on the
+/// cooperative pool the service's async handlers need.
+func onThread<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
+    await withCheckedContinuation { c in Thread { c.resume(returning: body()) }.start() }
+}
+
+/// A Runtime that has no desktops: these tests need only its endpoint.
+struct NoDesktopBackend: RuntimeBackend {
+    var platform: AgentDesktopProtocol.Platform { .init(os: "macos", osVersion: "15", arch: "arm64") }
+    func permissions() -> BackendPermissions { .init(screenRecording: .granted, accessibility: .granted) }
+    func features() -> [String] { [] }
+    func applications(includeBackground: Bool) -> [AppSummary] { [] }
+    func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] { [] }
+    func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: nil) }
+}
+
+/// The composed service answering through a real Runtime endpoint, as the
+/// host wires it.
+func runtimeEndpoint(for service: AgentDesktopService, at path: String) throws -> RuntimeServer {
+    let runtime = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_svc", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                           endpoint: path, buildSource: "unknown"),
+                                 backend: NoDesktopBackend())
+    let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
+    runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
+    runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
+    let server = RuntimeServer(path: path, service: runtime)
+    try server.start()
+    return server
+}
+
 final class Served: @unchecked Sendable {
     let slice: Slice
-    let server: RpcSocketServer
+    let server: RuntimeServer
     let socket: String
 
     init(backend: Bool = true) async throws {
         slice = try await Slice(backend: backend)
-        socket = slice.dir.appendingPathComponent("rpc.sock").path
-        server = RpcSocketServer(path: socket, router: slice.router)
-        try server.start()
+        socket = slice.dir.appendingPathComponent("runtime.sock").path
+        server = try runtimeEndpoint(for: slice.service, at: socket)
     }
 
     func run(_ r: CLIRun, _ args: [String]) async -> ExitCode {
         let cli = r.cli()
         let socket = socket
-        return await Task.detached { cli.run(["--json", "--socket", socket] + args) }.value
+        return await onThread { cli.run(["--json", "--socket", socket] + args) }
     }
 }
 
@@ -63,15 +92,15 @@ struct CLIFriendlyTests {
         r.stdin = canary + "\n"
         #expect(await s.run(r, ["ai", "connections", "create", "--params-file", "conn.json", "--credential-stdin",
                                 "--idempotency-key", "cli-conn-1"]) == .ok)
-        let created = try r.json()["result"]!
+        let created = try r.json()["data"]!
         let id = created["connectionId"]!.stringValue!
 
         let r2 = CLIRun()
         #expect(await s.run(r2, ["ai", "connections", "get", "--id", id]) == .ok)
-        #expect(try r2.json()["result"]?["revision"] == created["revision"])
+        #expect(try r2.json()["data"]?["revision"] == created["revision"])
         let r3 = CLIRun()
         #expect(await s.run(r3, ["ai", "connections", "list"]) == .ok)
-        #expect(try r3.json()["result"]?["items"]?.arrayValue?.count == 1)
+        #expect(try r3.json()["data"]?["items"]?.arrayValue?.count == 1)
         for box in [r, r2, r3] {
             #expect(box.out.lines.count == 1, "stdout is exactly one JSON line")
             #expect(!(box.out.lines + box.err.lines).contains { $0.contains(canary) })
@@ -81,7 +110,8 @@ struct CLIFriendlyTests {
         let r4 = CLIRun()
         #expect(await s.run(r4, ["ai", "connections", "disable", "--id", id, "--expected-revision", "9",
                                  "--idempotency-key", "cli-disable-1"]) == .rejected)
-        #expect(try r4.json()["error"]?["code"]?.stringValue == "CONFIG_CONFLICT")
+        #expect(try r4.json()["error"]?["code"]?.stringValue == "conflict")
+        #expect(try r4.json()["error"]?["details"]?["serviceCode"]?.stringValue == "CONFIG_CONFLICT")
     }
 
     // CLI-002: no plaintext key in argv, ever.
@@ -101,7 +131,7 @@ struct CLIFriendlyTests {
                                  "--idempotency-key", "cli-conn-3"]) == .localValidation)
         let list = CLIRun()
         #expect(await s.run(list, ["ai", "connections", "list"]) == .ok)
-        #expect(try list.json()["result"]?["items"]?.arrayValue?.isEmpty == true)
+        #expect(try list.json()["data"]?["items"]?.arrayValue?.isEmpty == true)
     }
 
     @Test func localRulesExit2WithoutSending() async throws {
@@ -141,15 +171,15 @@ struct CLIFriendlyTests {
         let r = CLIRun(); files(r)
         #expect(await s.run(r, runArgs("cli-run-1", wait: true)) == .ok, "\(r.err.lines)")
         let final = try r.json()
-        #expect(final["result"]?["state"]?.stringValue == "succeeded")
+        #expect(final["data"]?["state"]?.stringValue == "succeeded")
         #expect(r.err.lines.contains { $0.contains("accepted runId") }, "the acceptance goes to stderr")
         #expect(r.out.lines.count == 1)
-        let runId = final["result"]!["runId"]!.stringValue!
+        let runId = final["data"]!["runId"]!.stringValue!
 
         // Without --wait the id comes back at once; the same key gives the same run.
         let again = CLIRun(); files(again)
         #expect(await s.run(again, runArgs("cli-run-1", wait: false)) == .ok)
-        #expect(try again.json()["result"]?["runId"]?.stringValue == runId)
+        #expect(try again.json()["data"]?["runId"]?.stringValue == runId)
         #expect(await s.slice.executor.executed.count == 3)
 
         let ev = CLIRun()
@@ -157,13 +187,13 @@ struct CLIFriendlyTests {
         var seq: [Int] = []
         for line in ev.out.lines {
             let v = try StrictJSON.parse(line)
-            seq += v["result"]?["events"]?.arrayValue?.compactMap { $0["sequence"]?.intValue } ?? []
+            seq += v["data"]?["events"]?.arrayValue?.compactMap { $0["sequence"]?.intValue } ?? []
         }
         #expect(!seq.isEmpty && seq == Array(seq.sorted()) && Set(seq).count == seq.count)
 
         let after = CLIRun()
         #expect(await s.run(after, ["gui", "events", "--run-id", runId, "--after-sequence", String(seq.last!)]) == .ok)
-        #expect(try after.json()["result"]?["events"]?.arrayValue?.isEmpty == true)
+        #expect(try after.json()["data"]?["events"]?.arrayValue?.isEmpty == true)
     }
 
     // CLI-004: dry-run validates and shows what would be sent, and sends nothing.
@@ -191,7 +221,7 @@ struct CLIFriendlyTests {
         #expect(await s.slice.executor.executed.isEmpty)
         let list = CLIRun()
         #expect(await s.run(list, ["ai", "connections", "list"]) == .ok)
-        #expect(try list.json()["result"]?["items"]?.arrayValue?.isEmpty == true, "dry-run created nothing")
+        #expect(try list.json()["data"]?["items"]?.arrayValue?.isEmpty == true, "dry-run created nothing")
     }
 
     // Exit 6: the client stops waiting; exit 130: Ctrl-C cancels the run first.

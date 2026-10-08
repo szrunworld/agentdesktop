@@ -1,5 +1,5 @@
 import Foundation
-import AgentDesktopContracts
+import AgentDesktopProtocol
 
 /// Prices for estimating cost from reported tokens. An estimate, never a bill.
 public struct AiPriceTable: Sendable {

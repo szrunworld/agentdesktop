@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SecondScreenCore
 
@@ -12,10 +13,10 @@ import SecondScreenCore
 /// product hosts started at once could both pass. Real ownership, with a
 /// version handshake, comes with the shared coordinator (roadmap C02).
 enum HostRole {
-    /// The user's Agent Desktop: menu bar, primary virtual display, hot key.
+    /// The user's Agent Desktop: main window, Dock icon and menu bar entry.
     case product
-    /// A copy run on its own socket to test a build: background only, no
-    /// primary display, quits when idle.
+    /// A copy run on its own socket to test a build: background only (no
+    /// Dock icon, no menu bar entry), quits when idle.
     case sideInstance(socket: URL)
 
     static var current: HostRole {
@@ -56,17 +57,6 @@ enum HostRole {
         }
     }
 
-    /// The AI/GUI service (contract agentdesktop.ai/1): `ai.sock` beside
-    /// `runtime.sock`, `<socket>.ai.sock` for a side instance.
-    var aiEndpoint: URL {
-        switch self {
-        case .product:
-            return Self.productEndpoint.deletingLastPathComponent().appendingPathComponent("ai.sock")
-        case .sideInstance(let socket):
-            return socket.deletingPathExtension().appendingPathExtension("ai.sock")
-        }
-    }
-
     /// Real GUI input by model-driven runs is off until switched on:
     /// `defaults write com.agentdesktop.app guiExecution -bool true`, or
     /// AGENTDESKTOP_GUI_EXECUTION=1 for a side instance under test.
@@ -103,6 +93,28 @@ enum HostRole {
         case .sideInstance: return .files(directory: runtimeRecordsDirectory.appendingPathComponent("test-credentials"))
         }
     }
+
+    /// A test copy normally shows no window. For acceptance screenshots it
+    /// can be asked to show the main window without activating, on one of
+    /// its own virtual displays: AGENTDESKTOP_MAIN_WINDOW=1 and optionally
+    /// AGENTDESKTOP_MAIN_WINDOW_DISPLAY=<CGDirectDisplayID>. The product
+    /// ignores both.
+    struct TestWindowRequest: Equatable {
+        var displayID: CGDirectDisplayID?
+    }
+
+    var mainWindowForTest: TestWindowRequest? {
+        mainWindowForTest(environment: ProcessInfo.processInfo.environment)
+    }
+
+    func mainWindowForTest(environment env: [String: String]) -> TestWindowRequest? {
+        guard isSideInstance, env["AGENTDESKTOP_MAIN_WINDOW"] == "1" else { return nil }
+        return TestWindowRequest(displayID: env["AGENTDESKTOP_MAIN_WINDOW_DISPLAY"].flatMap { UInt32($0) })
+    }
+
+    /// Regular (Dock icon, main window) for the product; accessory for a
+    /// test copy.
+    var activationPolicy: NSApplication.ActivationPolicy { isSideInstance ? .accessory : .regular }
 
     var isSideInstance: Bool {
         if case .sideInstance = self { return true }

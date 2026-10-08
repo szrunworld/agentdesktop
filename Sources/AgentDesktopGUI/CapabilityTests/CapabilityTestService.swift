@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// `ai.tests.start` (spec §11, §18.1, TRN-008): four layers against one GUI
@@ -39,17 +39,17 @@ public final class CapabilityTestService: Sendable {
         self.clock = clock
     }
 
-    public func handlers(callerScope: String) -> [String: RpcHandler] {
+    public func handlers(callerScope: String) -> [String: ServiceHandler] {
         ["ai.tests.start": { req in try await self.start(req, callerScope: callerScope) }]
     }
 
     /// Create the operation (once per idempotency key) and start its work.
-    public func start(_ req: RpcRequest, callerScope: String) async throws -> JSONValue {
+    public func start(_ req: ServiceRequest, callerScope: String) async throws -> JSONValue {
         let p = req.params
         let profileId = p["guiProfileId"]?.stringValue ?? ""
         let revision = p["expectedRevision"]?.intValue ?? 0
         let codecs = self.codecs
-        let result = try await store.runIdempotent(scope: callerScope, command: req.command, key: req.idempotencyKey,
+        let result = try await store.runIdempotent(scope: callerScope, command: req.method, key: req.idempotencyKey,
                                                    semantic: p) { store in
             let resolved = try store.resolveGuiProfile(profileId, revision: revision, callerScope: callerScope)
             _ = try codecs.codec(adapterId: resolved.adapterId, coordinateProtocol: resolved.coordinateProtocol)
@@ -169,7 +169,7 @@ public final class CapabilityTestService: Sendable {
                     ("capabilities", (try? await skippedCapabilities(profileId: profileId, revision: revision)) ?? .null),
                     ("performedDesktopInput", .bool(false)),
                 ])
-                let usable = (try? ContractBundle.shared.validateDomain(skipped, "AiTestResult"))?.isEmpty == true
+                let usable = (try? ContractBundle.shared.validate(skipped, "AiTestResult"))?.isEmpty == true
                 _ = try? await store.setOperation(operationId, state: .failed, result: usable ? skipped : nil, error: e)
             }
         }

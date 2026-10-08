@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import AgentDesktopAI
-@testable import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 
 // Test doubles for the model service. Nothing here touches a real network
 // or a real key: the stub captures requests, the loopback server listens

@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import CryptoKit
 import Foundation
@@ -103,26 +102,42 @@ public final class RequestLedger: @unchecked Sendable {
 
     /// The delivery boundary of an act: from here on, input may reach the
     /// app, so an interruption leaves the outcome unknown.
-    public func markDispatching(caller: uid_t, requestId: String) {
-        try? db.execute("UPDATE requests SET dispatch_started_at = ? WHERE caller = ? AND request_id = ?",
+    public func markDispatching(caller: uid_t, requestId: String) throws {
+        try db.execute("UPDATE requests SET dispatch_started_at = ? WHERE caller = ? AND request_id = ?",
                         [.text(Timestamp.string(now())), .int(Int64(caller)), .text(requestId)])
     }
 
+    /// Drop a fresh request that certainly did nothing, so its requestId can
+    /// be retried; duplicates waiting on it then run as fresh.
+    public func forget(caller: uid_t, requestId: String) throws {
+        defer {
+            inFlight.lock()
+            running.remove("\(caller)/\(requestId)")
+            inFlight.broadcast()
+            inFlight.unlock()
+        }
+        try db.execute("DELETE FROM requests WHERE caller = ? AND request_id = ? AND state = 'accepted'",
+                       [.int(Int64(caller)), .text(requestId)])
+    }
+
     /// Store the outcome of a fresh request.
-    public func finish(caller: uid_t, requestId: String, _ result: Result<JSONValue, RuntimeError>) {
+    public func finish(caller: uid_t, requestId: String, _ result: Result<JSONValue, RuntimeError>) throws {
+        // Always wake duplicate callers, even when the outcome cannot be saved.
+        defer {
+            inFlight.lock()
+            running.remove("\(caller)/\(requestId)")
+            inFlight.broadcast()
+            inFlight.unlock()
+        }
         let (state, outcome): (State, JSONValue) = {
             switch result {
             case let .success(d): return (.completed, .obj([("data", d)]))
             case let .failure(e): return (.failed, .obj([("error", e.json)]))
             }
         }()
-        try? db.execute("UPDATE requests SET state = ?, finished_at = ?, outcome = ? WHERE caller = ? AND request_id = ?",
+        try db.execute("UPDATE requests SET state = ?, finished_at = ?, outcome = ? WHERE caller = ? AND request_id = ?",
                         [.text(state.rawValue), .text(Timestamp.string(now())), .text(outcome.encoded()),
                          .int(Int64(caller)), .text(requestId)])
-        inFlight.lock()
-        running.remove("\(caller)/\(requestId)")
-        inFlight.broadcast()
-        inFlight.unlock()
     }
 
     public func record(caller: uid_t, requestId: String) throws -> Record? {

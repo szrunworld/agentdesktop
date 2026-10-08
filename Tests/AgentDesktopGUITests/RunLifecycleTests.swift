@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopGUI
@@ -24,7 +24,7 @@ func lifecycle(to state: S) async throws -> RunLifecycle {
 @Suite("Run lifecycle")
 struct RunLifecycleTests {
     @Test func stateNamesMatchTheContract() throws {
-        let schema = try ContractBundle.shared.registry.schema(documentId: ContractBundle.domainSchemaId, pointer: "/$defs/GuiRunState")
+        let schema = try ContractBundle.shared.registry.schema(documentId: RuntimeContract.serviceSchemaId, pointer: "/$defs/GuiRunState")
         #expect(Set(schema["enum"]?.arrayValue?.compactMap(\.stringValue) ?? []) == Set(S.allCases.map(\.rawValue)))
     }
 

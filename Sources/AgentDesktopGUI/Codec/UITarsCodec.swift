@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 // Migrated from 2ndscreen da5677c Sources/TarsAgent/ActionParser.swift and

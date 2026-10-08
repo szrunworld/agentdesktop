@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// Keeps a run's public record in step with its lifecycle: every lifecycle

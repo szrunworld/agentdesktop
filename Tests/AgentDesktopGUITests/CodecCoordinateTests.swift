@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopGUI
@@ -38,7 +38,7 @@ struct CoordinateTests {
 
     @Test func coo003CropAndResize() throws {
         let t = try ScreenshotTransform.pipeline(sourceSize: Size(width: 1600, height: 1000),
-                                                 crop: Rect(x: 200, y: 100, width: 1000, height: 600),
+                                                 crop: GuiRect(x: 200, y: 100, width: 1000, height: 600),
                                                  resizedSize: Size(width: 500, height: 300))
         #expect(t.modelToSource.isClose(to: affine([2, 0, 0, 2, 200, 100])), "\(t.modelToSource)")
         let s = try CoordinateMapper.sourcePixel(fromModel: Point(x: 250, y: 150), protocol: .imagePixels, transform: t)
@@ -64,7 +64,7 @@ struct CoordinateTests {
 
     @Test func coo005FullChainEqualsExplicitAffine() throws {
         let t = try ScreenshotTransform.pipeline(sourceSize: Size(width: 2400, height: 1600),
-                                                 crop: Rect(x: 200, y: 300, width: 1200, height: 800),
+                                                 crop: GuiRect(x: 200, y: 300, width: 1200, height: 800),
                                                  resizedSize: Size(width: 600, height: 400),
                                                  letterbox: Insets(left: 20, top: 40, right: 20, bottom: 40))
         #expect(t.modelInputSize == Size(width: 640, height: 480))
@@ -133,7 +133,7 @@ struct CoordinateTests {
         #expect(code { _ = try GuiAffineTransform(array: [1, 0, 0, 1, 0]) } == .validationError)
         // A transform pair that are not each other's inverse is refused.
         #expect(code {
-            _ = try ScreenshotTransform(sourceSize: Size(width: 100, height: 100), crop: Rect(x: 0, y: 0, width: 100, height: 100),
+            _ = try ScreenshotTransform(sourceSize: Size(width: 100, height: 100), crop: GuiRect(x: 0, y: 0, width: 100, height: 100),
                                         resizedSize: Size(width: 100, height: 100), letterbox: .zero,
                                         modelInputSize: Size(width: 100, height: 100),
                                         sourceToModel: .identity, modelToSource: affine([2, 0, 0, 2, 0, 0]))
@@ -159,10 +159,10 @@ struct CoordinateTests {
 
     @Test func screenshotTransformRoundTripsThroughJSON() throws {
         let t = try ScreenshotTransform.pipeline(sourceSize: Size(width: 2400, height: 1600),
-                                                 crop: Rect(x: 200, y: 300, width: 1200, height: 800),
+                                                 crop: GuiRect(x: 200, y: 300, width: 1200, height: 800),
                                                  resizedSize: Size(width: 600, height: 400),
                                                  letterbox: Insets(left: 20, top: 40, right: 20, bottom: 40))
-        #expect(try ContractBundle.shared.validateDomain(t.json, "ScreenshotTransform").isEmpty)
+        #expect(try ContractBundle.shared.validate(t.json, "ScreenshotTransform").isEmpty)
         #expect(try ScreenshotTransform(json: t.json) == t)
     }
 }

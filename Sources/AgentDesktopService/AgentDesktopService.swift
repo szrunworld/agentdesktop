@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import AgentDesktopGUI
 import Foundation
 
@@ -46,7 +46,7 @@ public struct AgentDesktopServiceOptions: Sendable {
 
 /// The composition of contract v1: one configuration store, one model
 /// service (shared by capability tests and GUI runs, spec §18.1), one run
-/// service, and the 32 command handlers on top of them. Nothing here takes
+/// service, and the handlers of its runtime/1 methods on top of them. Nothing here takes
 /// input; GUI runs reach a desktop only through the injected backend.
 public final class AgentDesktopService: Sendable {
     public let store: ConfigStore
@@ -99,16 +99,15 @@ public final class AgentDesktopService: Sendable {
 
     /// Every command of the contract for one caller. `trustedOwner` is the
     /// owner UI/CLI, the only caller that may start a run without a session.
-    public func handlers(callerScope: String, trustedOwner: Bool) -> [String: RpcHandler] {
+    public func handlers(callerScope: String, trustedOwner: Bool) -> [String: ServiceHandler] {
         var out = aiHandlers.handlers(callerScope: callerScope, extra: capabilityTests.handlers(callerScope: callerScope))
         out.merge(runs.handlers(callerScope: callerScope, trustedOwner: trustedOwner)) { _, run in run }
         return out
     }
 
     public func router(callerScope: String, trustedOwner: Bool,
-                       legacy: (@Sendable (JSONValue) async -> Data)? = nil,
-                       onInternalFault: (@Sendable (String, String) -> Void)? = nil) -> RpcRouter {
-        RpcRouter(handlers: handlers(callerScope: callerScope, trustedOwner: trustedOwner),
-                  legacy: legacy, onInternalFault: onInternalFault)
+                       onInternalFault: (@Sendable (String, String) -> Void)? = nil) -> ServiceRouter {
+        ServiceRouter(handlers: handlers(callerScope: callerScope, trustedOwner: trustedOwner),
+                      onInternalFault: onInternalFault)
     }
 }

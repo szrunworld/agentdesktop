@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import AgentDesktopAI
-@testable import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 
 // Case IDs refer to docs/ai-gui/tests/cases.csv.
 

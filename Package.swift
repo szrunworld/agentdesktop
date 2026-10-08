@@ -20,7 +20,6 @@ let package = Package(
         .library(name: "AgentDesktopProtocol", targets: ["AgentDesktopProtocol"]),
         .library(name: "AgentDesktopClient", targets: ["AgentDesktopClient"]),
         .library(name: "AgentDesktopRuntime", targets: ["AgentDesktopRuntime"]),
-        .library(name: "AgentDesktopContracts", targets: ["AgentDesktopContracts"]),
         .library(name: "AgentDesktopAI", targets: ["AgentDesktopAI"]),
         .library(name: "AgentDesktopGUI", targets: ["AgentDesktopGUI"]),
         .library(name: "AgentDesktopService", targets: ["AgentDesktopService"]),
@@ -58,49 +57,37 @@ let package = Package(
                 "AgentDesktopGUI",
                 "AgentDesktopAI",
                 "AgentDesktopAIUI",
-                "AgentDesktopContracts",
+                "AgentDesktopUI",
             ]
         ),
         .testTarget(
             name: "AgentDesktopTests",
-            dependencies: ["AgentDesktop"]
+            dependencies: ["AgentDesktop", "AgentDesktopUI", "AgentDesktopRuntime", "AgentDesktopProtocol"]
         ),
 
-        // AI/GUI contract v1 (docs/ai-gui/implementation-spec.md §03.1):
-        // wire envelope, strict JSON, schema validation, operation catalog.
-        // The JSON files under Resources are byte copies of
-        // contracts/ai-gui/v1; ContractBundleTests keeps them equal.
-        .target(
-            name: "AgentDesktopContracts",
-            resources: [
-                .copy("Resources/domain.schema.json"),
-                .copy("Resources/rpc.schema.json"),
-                .copy("Resources/operations.json"),
-            ]
-        ),
         .testTarget(
             name: "AgentDesktopContractsTests",
-            dependencies: ["AgentDesktopContracts"],
+            dependencies: ["AgentDesktopProtocol"],
             exclude: ["Fixtures"]
         ),
-        // Dependency direction is fixed: GUI may import AI and Contracts,
-        // AI only Contracts, and neither imports a Runtime or engine target.
+        // Dependency direction is fixed: GUI may import AI and Protocol,
+        // AI only Protocol, and neither imports a Runtime or engine target.
         .target(
             name: "AgentDesktopAI",
-            dependencies: ["AgentDesktopContracts"],
+            dependencies: ["AgentDesktopProtocol"],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .testTarget(
             name: "AgentDesktopAITests",
-            dependencies: ["AgentDesktopAI", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopAI", "AgentDesktopProtocol"]
         ),
         .target(
             name: "AgentDesktopGUI",
-            dependencies: ["AgentDesktopContracts", "AgentDesktopAI"]
+            dependencies: ["AgentDesktopProtocol", "AgentDesktopAI"]
         ),
         .testTarget(
             name: "AgentDesktopGUITests",
-            dependencies: ["AgentDesktopGUI", "AgentDesktopAI", "AgentDesktopContracts"],
+            dependencies: ["AgentDesktopGUI", "AgentDesktopAI", "AgentDesktopProtocol"],
             exclude: ["Fixtures"]
         ),
         // Runtime API agentdesktop.runtime/1 (CLI plan v1.2 §02, §05).
@@ -110,12 +97,11 @@ let package = Package(
         // embedded as code (scripts/generate-runtime-contract.sh): binaries
         // inside the app bundle cannot locate a SwiftPM resource bundle.
         .target(
-            name: "AgentDesktopProtocol",
-            dependencies: ["AgentDesktopContracts"]
+            name: "AgentDesktopProtocol"
         ),
         .target(
             name: "AgentDesktopClient",
-            dependencies: ["AgentDesktopProtocol", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopProtocol"]
         ),
         // The only execution authority. PR1 serves the read-only surface.
         // EnginePlatform drives the engine (the local engine/ package) in
@@ -123,7 +109,7 @@ let package = Package(
         .target(
             name: "AgentDesktopRuntime",
             dependencies: [
-                "AgentDesktopProtocol", "AgentDesktopContracts",
+                "AgentDesktopProtocol",
                 .product(name: "SecondScreenCore", package: "engine"),
                 .product(name: "SecondScreenRuntime", package: "engine"),
             ],
@@ -131,50 +117,68 @@ let package = Package(
         ),
         .executableTarget(
             name: "AgentDesktopCLI",
-            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
         ),
         .testTarget(
             name: "AgentDesktopClientTests",
-            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
         ),
         .testTarget(
             name: "AgentDesktopRuntimeTests",
-            dependencies: ["AgentDesktopRuntime", "AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopRuntime", "AgentDesktopClient", "AgentDesktopProtocol"]
         ),
         // The GUI service driving the Runtime's ports: explorer → Runtime
         // executor → platform, with a scripted model.
         .testTarget(
             name: "AgentDesktopIntegrationTests",
-            dependencies: ["AgentDesktopRuntime", "AgentDesktopService", "AgentDesktopGUI", "AgentDesktopAI",
-                           "AgentDesktopProtocol", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopRuntime", "AgentDesktopService", "AgentDesktopGUI", "AgentDesktopAI", "AgentDesktopProtocol"]
         ),
         // End-to-end tests run the CLI against a real RuntimeServer.
         .testTarget(
             name: "AgentDesktopCLITests",
-            dependencies: ["AgentDesktopCLI", "AgentDesktopRuntime", "AgentDesktopClient",
-                           "AgentDesktopProtocol", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopCLI", "AgentDesktopRuntime", "AgentDesktopClient", "AgentDesktopProtocol"]
         ),
         // Composition of contract v1 (spec §03.1): wires AI and GUI into the
         // 32 handlers. Takes input only through an injected backend.
         .target(
             name: "AgentDesktopService",
-            dependencies: ["AgentDesktopContracts", "AgentDesktopAI", "AgentDesktopGUI"]
+            dependencies: ["AgentDesktopProtocol", "AgentDesktopAI", "AgentDesktopGUI"]
         ),
         .testTarget(
             name: "AgentDesktopServiceTests",
-            dependencies: ["AgentDesktopService", "AgentDesktopGUI", "AgentDesktopAI",
-                           "AgentDesktopContracts", "AgentDesktopCLI"]
+            dependencies: ["AgentDesktopService", "AgentDesktopGUI", "AgentDesktopAI", "AgentDesktopProtocol", "AgentDesktopCLI",
+                           "AgentDesktopRuntime"]
         ),
         // AI/GUI pages W01–W08 (spec §12): SwiftUI over a contract client;
         // knows the service only through contract v1.
         .target(
             name: "AgentDesktopAIUI",
-            dependencies: ["AgentDesktopContracts"]
+            dependencies: ["AgentDesktopProtocol", "AgentDesktopUI"]
+        ),
+        // Main window shell (docs/plan/10 U1a): design tokens, components,
+        // page states, navigation, the async Runtime port, a contract-only
+        // Mock and the Store. Consumes runtime/1 through RuntimeAPI only;
+        // it links no Runtime, engine, AI or GUI target.
+        .target(
+            name: "AgentDesktopUI",
+            dependencies: ["AgentDesktopProtocol"]
+        ),
+        .testTarget(
+            name: "AgentDesktopUITests",
+            dependencies: ["AgentDesktopUI", "AgentDesktopProtocol"]
         ),
         .testTarget(
             name: "AgentDesktopAIUITests",
-            dependencies: ["AgentDesktopAIUI", "AgentDesktopContracts", "AgentDesktopService",
-                           "AgentDesktopAI", "AgentDesktopGUI"]
+            dependencies: ["AgentDesktopAIUI", "AgentDesktopProtocol", "AgentDesktopService", "AgentDesktopAI", "AgentDesktopGUI"]
+        ),
+        // iPhone backends (review 2026-10-08 §6.1). WDA/: HTTP client for a
+        // WebDriverAgent runner on a real iPhone; Foundation only, no engine.
+        .target(
+            name: "AgentDesktopIOS"
+        ),
+        .testTarget(
+            name: "AgentDesktopIOSTests",
+            dependencies: ["AgentDesktopIOS"]
         ),
     ]
 )

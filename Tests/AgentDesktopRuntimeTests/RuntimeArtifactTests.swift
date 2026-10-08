@@ -1,8 +1,7 @@
-import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 import CryptoKit
 import Foundation
 import Testing
-@testable import AgentDesktopProtocol
 @testable import AgentDesktopRuntime
 
 // runtime-api-v1-freeze §5: an observation names its screenshot by id; the

@@ -1,33 +1,15 @@
 import Foundation
 import Testing
-@testable import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 
 // Case IDs refer to docs/ai-gui/tests/cases.csv. These tests cover the
-// contract layer only (framing, parsing, schema, routing); service-level
-// parts of the same cases (CAS, idempotency, executor counts against a
-// real Runtime) are proven elsewhere.
+// service side of the runtime/1 contract only (parsing, schema, routing);
+// the envelope, transport and idempotency against a real Runtime are
+// proven in AgentDesktopClientTests and AgentDesktopIntegrationTests.
 
 let contract = ContractBundle.shared
 let repoRoot = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-
-func uuid() -> String { UUID().uuidString.lowercased() }
-
-func request(_ command: String, params: JSONValue = .obj([]), id: String = uuid(),
-             context: JSONValue? = nil) -> JSONValue {
-    var m: [(String, JSONValue)] = [
-        ("schemaVersion", .string("agentdesktop.ai/1")),
-        ("requestId", .string(id)),
-        ("command", .string(command)),
-        ("params", params),
-    ]
-    if let context { m.append(("context", context)) }
-    return .obj(m)
-}
-
-func idem(_ key: String = "key-\(UUID().uuidString.prefix(8))") -> JSONValue {
-    .obj([("idempotencyKey", .string(key))])
-}
 
 let goodConnection: JSONValue = .obj([
     ("connectionId", .string("conn-1")),
@@ -42,53 +24,35 @@ let goodConnection: JSONValue = .obj([
     ("updatedAt", .string("2026-10-08T03:00:00Z")),
 ])
 
-func errorCode(_ response: Data) throws -> String? {
-    var body = response
-    #expect(body.last == 0x0A)
-    body.removeLast()
-    #expect(!body.contains(0x0A), "a response is exactly one line")
-    let v = try StrictJSON.parse(body)
-    return v["error"]?["code"]?.stringValue
-}
-
-func decodeLine(_ response: Data) throws -> JSONValue {
-    var body = response
-    body.removeLast()
-    return try StrictJSON.parse(body)
-}
-
 @Suite("Contract files")
 struct ContractBundleTests {
-    @Test func bundledCopiesMatchTheContractDirectory() throws {
-        for name in ["domain.schema.json", "rpc.schema.json", "operations.json"] {
-            let canonical = try Data(contentsOf: repoRoot.appendingPathComponent("contracts/ai-gui/v1/\(name)"))
-            let bundled = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/AgentDesktopContracts/Resources/\(name)"))
-            #expect(canonical == bundled, "\(name) in Resources differs from contracts/ai-gui/v1")
-        }
-    }
-
-    @Test func catalogHasThe32OperationsWithSchemas() throws {
-        #expect(contract.operations.count == 32)
-        #expect(Set(contract.operations.map(\.command)).count == 32)
+    // The service methods: every ai/1 operation but its capabilities (now
+    // runtime.capabilities `gui`), each with params and result definitions.
+    @Test func catalogHasTheServiceMethodsWithSchemas() throws {
+        #expect(contract.operations.count == 31)
+        #expect(Set(contract.operations.map(\.command)).count == 31)
         for op in contract.operations {
-            for suffix in ["params", "result", "request"] {
-                _ = try contract.registry.schema(documentId: ContractBundle.rpcSchemaId,
+            for suffix in ["params", "result"] {
+                _ = try contract.registry.schema(documentId: RuntimeContract.serviceSchemaId,
                                                  pointer: "/$defs/\(op.defPrefix)_\(suffix)")
             }
-            // Every mutation needs an idempotency key in context.
-            let req = try contract.registry.schema(documentId: ContractBundle.rpcSchemaId,
-                                                   pointer: "/$defs/\(op.defPrefix)_request")
-            let required = req["properties"]?["context"]?["required"]?.arrayValue ?? []
-            if op.requiresIdempotencyKey {
-                #expect(required.contains(.string("idempotencyKey")), "\(op.command) must require idempotencyKey")
-            }
+            #expect(op.requiresIdempotencyKey == op.mutation, "\(op.command): every write is keyed")
         }
     }
 
     @Test func errorCodesMatchTheSchemaEnum() throws {
-        let schema = try contract.registry.schema(documentId: ContractBundle.domainSchemaId, pointer: "/$defs/ErrorCode")
+        let schema = try contract.registry.schema(documentId: RuntimeContract.serviceSchemaId, pointer: "/$defs/ErrorCode")
         let fromSchema = Set(schema["enum"]?.arrayValue?.compactMap(\.stringValue) ?? [])
         #expect(fromSchema == Set(ErrorCode.allCases.map(\.rawValue)))
+    }
+
+    // Nothing of the ai/1 envelope is left in the contract this build uses.
+    @Test func noEnvelopeDefinitionsRemain() throws {
+        let text = RuntimeContract.embedded.service
+        #expect(text.contains("agentdesktop.ai/1") == false)
+        let defs = try StrictJSON.parse(Data(text.utf8))["$defs"]?.objectMembers?.map(\.key) ?? []
+        #expect(defs.allSatisfy { !$0.hasSuffix("_request") && !$0.hasSuffix("_response") })
+        #expect(!defs.contains("Request") && !defs.contains("Response") && !defs.contains("ErrorResponse"))
     }
 }
 
@@ -132,11 +96,11 @@ struct StrictJSONTests {
 @Suite("Schema validation")
 struct SchemaTests {
     @Test func validConnectionPasses() throws {
-        #expect(try contract.validateDomain(goodConnection, "AiConnection").isEmpty)
+        #expect(try contract.validate(goodConnection, "AiConnection").isEmpty)
     }
 
     @Test func unknownMembersAreRefused() throws {
-        let v = try contract.validateDomain(goodConnection.setting("apiKey", .string("sk-canary")), "AiConnection")
+        let v = try contract.validate(goodConnection.setting("apiKey", .string("sk-canary")), "AiConnection")
         #expect(v.contains { $0.keyword == "additionalProperties" && $0.path == "/apiKey" })
     }
 
@@ -154,7 +118,7 @@ struct SchemaTests {
         ("https://", false),
     ])
     func endpointRule(url: String, ok: Bool) throws {
-        let v = try contract.validateDomain(goodConnection.setting("baseUrl", .string(url)), "AiConnection")
+        let v = try contract.validate(goodConnection.setting("baseUrl", .string(url)), "AiConnection")
         #expect(v.isEmpty == ok, "\(url): \(v)")
     }
 
@@ -166,14 +130,14 @@ struct SchemaTests {
             ("maxScreenshots", 5), ("maxImageEncodedBytes", 8_388_608),
         ]
         let defaults: JSONValue = .obj(ceiling.map { ($0.0, JSONValue.int($0.1)) } + [("requireReportedUsage", .bool(false))])
-        #expect(try contract.validateDomain(defaults, "GuiLimits").isEmpty)
+        #expect(try contract.validate(defaults, "GuiLimits").isEmpty)
         for (key, max) in ceiling {
             for bad: JSONValue in [.int(max + 1), .int(-1), .double(1.5), .string("1")] {
-                let v = try contract.validateDomain(defaults.setting(key, bad), "GuiLimits")
+                let v = try contract.validate(defaults.setting(key, bad), "GuiLimits")
                 #expect(!v.isEmpty, "\(key)=\(bad.encoded()) must be refused")
             }
         }
-        #expect(!(try contract.validateDomain(defaults.setting("maxSteps", .int(0)), "GuiLimits")).isEmpty)
+        #expect(!(try contract.validate(defaults.setting("maxSteps", .int(0)), "GuiLimits")).isEmpty)
     }
 
     @Test func dependentRequiredOnRunStart() throws {
@@ -184,13 +148,13 @@ struct SchemaTests {
                                    ("text", .string("已保存：Ada / MAC-001-A / 提交次数 1"))])),
             ("allowedActions", .array([.string("click"), .string("type")])),
         ])
-        #expect(try contract.validateRpc(base, "gui_runs_start_params").isEmpty)
+        #expect(try contract.validate(base, "gui_runs_start_params").isEmpty)
         let half = base.setting("guiProfileId", .string("gp-1"))
-        #expect(try contract.validateRpc(half, "gui_runs_start_params").contains { $0.keyword == "dependentRequired" })
+        #expect(try contract.validate(half, "gui_runs_start_params").contains { $0.keyword == "dependentRequired" })
         let dup = base.setting("allowedActions", .array([.string("click"), .string("click")]))
-        #expect(try contract.validateRpc(dup, "gui_runs_start_params").contains { $0.keyword == "uniqueItems" })
+        #expect(try contract.validate(dup, "gui_runs_start_params").contains { $0.keyword == "uniqueItems" })
         let drag = base.setting("allowedActions", .array([.string("drag")]))
-        #expect(!(try contract.validateRpc(drag, "gui_runs_start_params")).isEmpty)
+        #expect(!(try contract.validate(drag, "gui_runs_start_params")).isEmpty)
     }
 
     @Test func formats() {
@@ -208,8 +172,8 @@ struct SchemaTests {
     }
 }
 
-@Suite("Envelope and routing")
-struct EnvelopeTests {
+@Suite("Service routing")
+struct ServiceRouterTests {
     final class Counter: @unchecked Sendable {
         private let lock = NSLock()
         private var n = 0
@@ -217,175 +181,90 @@ struct EnvelopeTests {
         var value: Int { lock.lock(); defer { lock.unlock() }; return n }
     }
 
-    func router(_ calls: Counter, legacy: Bool = true) -> RpcRouter {
-        let list: RpcHandler = { _ in
+    func router(_ calls: Counter) -> ServiceRouter {
+        let list: ServiceHandler = { _ in
             calls.bump()
             return .obj([("items", .array([goodConnection])), ("nextCursor", .null)])
         }
-        let broken: RpcHandler = { _ in
+        let broken: ServiceHandler = { _ in
             calls.bump()
             return .obj([("items", .array([goodConnection.setting("apiKey", .string("sk-canary"))])), ("nextCursor", .null)])
         }
-        let legacyHandler: (@Sendable (JSONValue) async -> Data)? = legacy ? { @Sendable _ in Data("{\"ok\":true}\n".utf8) } : nil
-        return RpcRouter(handlers: ["ai.connections.list": list, "ai.modelProfiles.list": broken], legacy: legacyHandler)
-    }
-
-    // RPC-001: correlation, single line, ok/result vs ok/error exclusive.
-    @Test func successCorrelatesAndIsOneLine() async throws {
-        let calls = Counter()
-        let id = uuid()
-        let out = await router(calls).respond(toBody: request("ai.connections.list", params: .obj([("limit", .int(20))]), id: id).encodedData())
-        let v = try decodeLine(out)
-        #expect(v["schemaVersion"]?.stringValue == "agentdesktop.ai/1")
-        #expect(v["requestId"]?.stringValue == id)
-        #expect(v["ok"]?.boolValue == true)
-        #expect(v["error"] == nil)
-        #expect(try contract.validateRpc(v, "SuccessResponse").isEmpty)
-        #expect(calls.value == 1)
-    }
-
-    // RPC-002: version routing.
-    @Test func versionRouting() async throws {
-        let calls = Counter()
-        let r = router(calls)
-        // Legacy ControlRequest (no schemaVersion) goes to the legacy decoder.
-        let legacy = await r.respond(toBody: Data(#"{"command":"screen.list"}"#.utf8))
-        #expect(String(decoding: legacy, as: UTF8.self) == "{\"ok\":true}\n")
-        // Unknown version.
-        var req = request("ai.connections.list").setting("schemaVersion", .string("agentdesktop.ai/2"))
-        #expect(try errorCode(await r.respond(toBody: req.encodedData())) == "UNSUPPORTED_SCHEMA")
-        // `op` in place of `command`.
-        req = .obj([("schemaVersion", .string("agentdesktop.ai/1")), ("requestId", .string(uuid())),
-                    ("op", .string("ai.connections.list")), ("params", .obj([]))])
-        #expect(try errorCode(await r.respond(toBody: req.encodedData())) == "VALIDATION_ERROR")
-        #expect(calls.value == 0)
-        // Without a legacy decoder, a version-less frame is refused.
-        let strict = router(calls, legacy: false)
-        #expect(try errorCode(await strict.respond(toBody: Data(#"{"command":"screen.list"}"#.utf8))) == "UNSUPPORTED_SCHEMA")
-    }
-
-    // RPC-003: hostile inputs are refused, nothing is called, and the next
-    // valid request still succeeds.
-    @Test func hostileInputsThenAValidOne() async throws {
-        let calls = Counter()
-        let r = router(calls)
-        let id = uuid()
-        let start = request("gui.runs.start", params: .obj([
-            ("desktopId", .string("desk-a")), ("goal", .string("x")),
-            ("allowedActions", .array([.string("click")])),
-        ]), context: idem())
-        let cases: [(String, Data, String)] = [
-            ("malformed", Data("{\"schemaVersion\":".utf8), "VALIDATION_ERROR"),
-            ("duplicate command", Data(#"{"schemaVersion":"agentdesktop.ai/1","requestId":"\#(id)","command":"ai.connections.list","command":"gui.runs.cancel","params":{}}"#.utf8), "VALIDATION_ERROR"),
-            ("bad uuid", request("ai.connections.list", id: "not-a-uuid").encodedData(), "VALIDATION_ERROR"),
-            ("unknown command", request("gui.runs.resume").encodedData(), "UNSUPPORTED_COMMAND"),
-            ("extra control field", request("ai.connections.list").setting("lease", .string("forged")).encodedData(), "VALIDATION_ERROR"),
-            ("start without verification", start.encodedData(), "VALIDATION_ERROR"),
-            ("model script as verification", start.setting("params", start["params"]!.setting("verification", .obj([("kind", .string("script")), ("code", .string("return true"))]))).encodedData(), "VALIDATION_ERROR"),
-            ("mutation without idempotency key", request("ai.connections.disable", params: .obj([("connectionId", .string("c")), ("expectedRevision", .int(1))])).encodedData(), "VALIDATION_ERROR"),
-            ("array frame", Data("[]".utf8), "VALIDATION_ERROR"),
-        ]
-        for (name, body, code) in cases {
-            #expect(try errorCode(await r.respond(toBody: body)) == code, "\(name)")
+        let create: ServiceHandler = { req in
+            calls.bump()
+            #expect(req.idempotencyKey == "conn-create-0001")
+            return goodConnection
         }
-        #expect(calls.value == 0, "no handler runs for a refused request")
-        let ok = try decodeLine(await r.respond(toBody: request("ai.connections.list").encodedData()))
-        #expect(ok["ok"]?.boolValue == true)
+        return ServiceRouter(handlers: ["ai.connections.list": list, "ai.modelProfiles.list": broken,
+                                        "ai.connections.create": create])
+    }
+
+    @Test func aValidCallReachesItsHandlerOnce() async throws {
+        let calls = Counter()
+        let r = try await router(calls).answer(method: "ai.connections.list", params: .obj([("limit", .int(20))])).get()
+        #expect(r["items"]?.arrayValue?.count == 1)
         #expect(calls.value == 1)
     }
 
-    // RPC-003: a refused request echoes its id when it was readable.
-    @Test func correlatableErrorsEchoTheRequestId() async throws {
+    // Params outside the contract never reach a handler; the refusal names
+    // the pointer and the keyword, never the value.
+    @Test func badParamsAreRefusedWithoutValues() async throws {
         let calls = Counter()
-        let id = uuid()
-        let out = try decodeLine(await router(calls).respond(toBody: request("gui.runs.resume", id: id).encodedData()))
-        #expect(out["requestId"]?.stringValue == id)
-        let malformed = try decodeLine(await router(calls).respond(toBody: Data("{".utf8)))
-        #expect(malformed["requestId"]?.isNull == true)
-    }
-
-    // RPC-004: frame size boundary, and screenshots never travel inline.
-    @Test func frameBoundary() async throws {
-        let calls = Counter()
-        let r = router(calls)
-        let base = request("ai.connections.list", params: .obj([("cursor", .string("c"))]))
-        let baseLen = base.encodedData().count
-        // Pad with insignificant whitespace before the closing brace so the
-        // frame (body + LF) is exactly the limit.
-        func padded(_ total: Int) -> Data {
-            var text = base.encoded()
-            text.removeLast()
-            text += String(repeating: " ", count: total - 1 - baseLen) + "}"
-            return Data(text.utf8)
-        }
-        let exact = padded(Envelope.maxFrameBytes)
-        #expect(exact.count + 1 == Envelope.maxFrameBytes)
-        var framed = exact; framed.append(0x0A)
-        guard case let .frame(body) = FrameReader.split(framed) else { Issue.record("exact frame refused"); return }
-        #expect(try decodeLine(await r.respond(toBody: body))["ok"]?.boolValue == true)
-
-        var over = padded(Envelope.maxFrameBytes + 1); over.append(0x0A)
-        #expect(FrameReader.split(over) == .tooLarge)
-        #expect(try errorCode(await r.respond(to: .tooLarge)) == "IPC_FRAME_TOO_LARGE")
-
-        let inline = request("ai.connections.list", params: .obj([("screenshot", .string(String(repeating: "A", count: 1000)))]))
-        #expect(try errorCode(await r.respond(toBody: inline.encodedData())) == "VALIDATION_ERROR")
-        #expect(calls.value == 1)
-    }
-
-    @Test func frameReaderOnASocketPair() throws {
-        var fds: [Int32] = [0, 0]
-        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
-        defer { close(fds[0]); close(fds[1]) }
-        let payload = Data((request("ai.connections.list").encoded() + "\n").utf8)
-        _ = payload.withUnsafeBytes { write(fds[1], $0.baseAddress, payload.count) }
-        shutdown(fds[1], SHUT_WR)
-        guard case let .frame(body) = FrameReader.read(fd: fds[0]) else { Issue.record("no frame"); return }
-        #expect(body.count + 1 == payload.count)
-    }
-
-    @Test func multipleRequestsInOneConnectionAreRefused() async throws {
-        let calls = Counter()
-        let two = Data((request("ai.connections.list").encoded() + "\n" + request("ai.connections.list").encoded() + "\n").utf8)
-        let read = FrameReader.split(two)
-        #expect(try errorCode(await router(calls).respond(to: read)) == "VALIDATION_ERROR")
+        let r = await router(calls).answer(method: "ai.connections.create", params: .obj([
+            ("name", .string("x")), ("protocol", .string("openai_chat")),
+            ("baseUrl", .string("http://evil.example.com")), ("timeoutMs", .int(1000)),
+            ("credential", .obj([("apiKey", .string("sk-canary-123"))])), ("extra", .string("sk-canary-456")),
+        ]), idempotencyKey: "conn-create-0001")
+        guard case let .failure(e) = r else { Issue.record("must be refused"); return }
+        #expect(e.code == .validationError)
+        let text = e.json.encoded()
+        #expect(!text.contains("sk-canary"))
+        #expect(!text.contains("evil.example.com"))
+        #expect(text.contains("baseUrl"))
         #expect(calls.value == 0)
+    }
+
+    // A write needs its key (the runtime/1 requestId) of 8–128 characters.
+    @Test func aWriteWithoutItsKeyIsRefused() async throws {
+        let calls = Counter()
+        let params: JSONValue = .obj([("name", .string("Ark")), ("protocol", .string("openai_chat")),
+                                      ("baseUrl", .string("https://ark.cn-beijing.volces.com/api/v3")), ("timeoutMs", .int(30000)),
+                                      ("credential", .obj([("apiKey", .string("sk-x"))]))])
+        for key in [nil, "short", String(repeating: "k", count: 129), "has space 1"] as [String?] {
+            guard case let .failure(e) = await router(calls).answer(method: "ai.connections.create", params: params, idempotencyKey: key)
+            else { Issue.record("\(key ?? "nil") must be refused"); continue }
+            #expect(e.code == .validationError)
+        }
+        #expect(calls.value == 0)
+        _ = try await router(calls).answer(method: "ai.connections.create", params: params, idempotencyKey: "conn-create-0001").get()
+        #expect(calls.value == 1)
     }
 
     // A handler result that breaks the contract (here: a secret field)
     // never reaches the caller.
     @Test func resultsAreCheckedAgainstTheContract() async throws {
         let calls = Counter()
-        let out = await router(calls).respond(toBody: request("ai.modelProfiles.list").encodedData())
-        #expect(try errorCode(out) == "INTERNAL_ERROR")
-        #expect(!String(decoding: out, as: UTF8.self).contains("sk-canary"))
+        guard case let .failure(e) = await router(calls).answer(method: "ai.modelProfiles.list", params: .obj([])) else {
+            Issue.record("a result outside the contract must not pass"); return
+        }
+        #expect(e.code == .internalError)
+        #expect(!e.json.encoded().contains("sk-canary"))
     }
 
-    @Test func knownCommandWithoutHandler() async throws {
+    @Test func unknownAndUnhandledMethods() async throws {
         let calls = Counter()
-        #expect(try errorCode(await router(calls).respond(toBody: request("runtime.capabilities").encodedData())) == "UNSUPPORTED_COMMAND")
-    }
-
-    // Validation details name the failing pointer, never the value.
-    @Test func validationDetailsCarryNoValues() async throws {
-        let calls = Counter()
-        let req = request("ai.connections.create", params: .obj([
-            ("name", .string("x")), ("protocol", .string("openai_chat")),
-            ("baseUrl", .string("http://evil.example.com")), ("timeoutMs", .int(1000)),
-            ("credential", .obj([("apiKey", .string("sk-canary-123"))])), ("extra", .string("sk-canary-456")),
-        ]), context: idem())
-        let out = await router(calls).respond(toBody: req.encodedData())
-        let text = String(decoding: out, as: UTF8.self)
-        #expect(try errorCode(out) == "VALIDATION_ERROR")
-        #expect(!text.contains("sk-canary"))
-        #expect(!text.contains("evil.example.com"))
-        #expect(text.contains("/params/baseUrl"))
+        for m in ["ai.connections.purge", "runtime.capabilities", "ai.connections.get"] {
+            guard case let .failure(e) = await router(calls).answer(method: m, params: .obj([("connectionId", .string("c"))]))
+            else { Issue.record("\(m) must be refused"); continue }
+            #expect(e.code == .unsupportedCommand, "\(m)")
+        }
+        #expect(calls.value == 0)
     }
 }
 
-// The complete request and success examples printed for each of the 32
-// operations in the implementation plan, extracted verbatim into
-// Fixtures/spec-examples.json. They must all pass this validator.
+// The params and success results printed for each operation in the
+// implementation plan (Fixtures/spec-examples.json, which still holds them
+// in the old envelope): the params and results must pass this contract.
 @Suite("Specification examples")
 struct SpecExampleTests {
     let examples: JSONValue = {
@@ -393,153 +272,37 @@ struct SpecExampleTests {
         return try! StrictJSON.parse(Data(contentsOf: url))
     }()
 
-    @Test func everyRequestExampleDecodes() throws {
-        let pairs = examples["pairs"]?.arrayValue ?? []
-        let requests = pairs.compactMap { $0["request"] } + (examples["extraRequests"]?.arrayValue ?? [])
-        #expect(Set(pairs.compactMap { $0["command"]?.stringValue }).count == 32)
-        for r in requests {
-            switch Envelope.decode(r.encodedData()) {
-            case .request: break
-            case let .rejected(_, e): Issue.record("\(r["command"]?.stringValue ?? "?"): \(e) \(e.details?.encoded() ?? "")")
-            case .legacy: Issue.record("example decoded as legacy")
-            }
-        }
-    }
-
-    @Test func everySuccessExampleMatchesItsResultSchema() throws {
-        let pairs = examples["pairs"]?.arrayValue ?? []
-        #expect(pairs.count == 32)
+    @Test func everyExampleMatchesItsParamsAndResult() throws {
+        let pairs = (examples["pairs"]?.arrayValue ?? []).filter { $0["command"]?.stringValue != "runtime.capabilities" }
+        #expect(pairs.count == 31)
         for p in pairs {
             let command = p["command"]!.stringValue!
-            let s = p["success"]!
-            #expect(s["requestId"] == p["request"]!["requestId"], "\(command): example ids differ")
-            #expect(try contract.validateRpc(s, "SuccessResponse").isEmpty)
             guard let op = contract.operation(command) else { Issue.record("unknown \(command)"); continue }
-            let v = try contract.validateRpc(s["result"]!, "\(op.defPrefix)_result")
-            #expect(v.isEmpty, "\(command): \(v)")
-        }
-    }
-
-    @Test func errorExampleMatchesTheErrorEnvelope() throws {
-        for e in examples["errors"]?.arrayValue ?? [] {
-            #expect(try contract.validateRpc(e, "ErrorResponse").isEmpty)
+            let pv = try contract.validate(p["request"]!["params"] ?? .obj([]), "\(op.defPrefix)_params")
+            #expect(pv.isEmpty, "\(command) params: \(pv)")
+            let rv = try contract.validate(p["success"]!["result"]!, "\(op.defPrefix)_result")
+            #expect(rv.isEmpty, "\(command) result: \(rv)")
         }
     }
 }
 
-// The same frames the C# contract layer decodes
-// (windows/tests/AgentDesktop.Contracts.Tests/Fixtures/cross-platform-envelope.json):
-// both platforms must reach the same verdict for each, and every refusal
-// must itself be a valid ErrorResponse.
-@Suite("Cross-platform envelope fixture")
-struct CrossPlatformEnvelopeTests {
-    let fixture: JSONValue = {
-        let url = repoRoot.appendingPathComponent("windows/tests/AgentDesktop.Contracts.Tests/Fixtures/cross-platform-envelope.json")
-        return try! StrictJSON.parse(Data(contentsOf: url))
-    }()
-
-    func bytes(_ c: JSONValue) -> Data {
-        if let b64 = c["frameBase64"]?.stringValue { return Data(base64Encoded: b64)! }
-        var text = c["frame"]?.stringValue ?? c["data"]?.stringValue ?? ""
-        if let pad = c["padToBodyBytes"]?.intValue {
-            text.removeLast()
-            text += String(repeating: " ", count: pad - text.utf8.count - 1) + "}"
-        }
-        if c["appendLF"]?.boolValue == true { text += "\n" }
-        return Data(text.utf8)
-    }
-
-    @Test func envelopeVerdicts() throws {
-        let cases = fixture["envelope"]?.arrayValue ?? []
-        #expect(cases.count >= 20)
-        for c in cases {
-            let name = c["name"]?.stringValue ?? "?"
-            let expect = c["expect"]!
-            let decoded = Envelope.decode(bytes(c))
-            var response: JSONValue?
-            switch (expect["kind"]?.stringValue, decoded) {
-            case let ("request", .request(r)):
-                if let cmd = expect["command"]?.stringValue { #expect(r.command == cmd, "\(name)") }
-                if let key = expect["idempotencyKey"]?.stringValue { #expect(r.idempotencyKey == key, "\(name)") }
-            case ("legacy", .legacy):
-                break
-            case let ("rejected", .rejected(resp, error)):
-                response = resp
-                #expect(error.code.rawValue == expect["code"]?.stringValue, "\(name)")
-                if let id = expect["requestId"] { #expect(resp["requestId"] == id, "\(name)") }
-                if let rc = expect["reasonCode"]?.stringValue { #expect(resp["error"]?["details"]?["reasonCode"]?.stringValue == rc, "\(name)") }
-                let paths = Set(resp["error"]?["details"]?["fieldErrors"]?.arrayValue?.compactMap { $0["path"]?.stringValue } ?? [])
-                for p in expect["fieldErrorPaths"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
-                    #expect(paths.contains(p), "\(name): missing fieldError \(p) in \(paths)")
-                }
-                #expect(try contract.validateRpc(resp, "ErrorResponse").isEmpty, "\(name): refusal is not a valid ErrorResponse")
-            default:
-                Issue.record("\(name): expected \(expect["kind"]?.stringValue ?? "?"), got \(decoded)")
-            }
-            if let response {
-                let text = response.encoded()
-                for s in expect["mustNotContain"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
-                    #expect(!text.contains(s), "\(name): response leaks \(s)")
-                }
-            }
-        }
-    }
-
-    @Test func frameVerdicts() throws {
-        for c in fixture["frames"]?.arrayValue ?? [] {
-            let name = c["name"]?.stringValue ?? "?"
-            let want = c["expect"]?.stringValue ?? "?"
-            func kind(_ r: FrameReader.Result) -> String {
-                switch r {
-                case .frame: return "frame"
-                case .truncated: return "truncated"
-                case .trailingData: return "trailingData"
-                case .tooLarge: return "tooLarge"
-                case .ioError: return "ioError"
-                }
-            }
-            let data = bytes(c)
-            #expect(kind(FrameReader.split(data)) == want, "\(name) via split")
-            var fds: [Int32] = [0, 0]
-            #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
-            let writer = Thread {
-                data.withUnsafeBytes { buf in
-                    var off = 0
-                    while off < buf.count {
-                        let n = write(fds[1], buf.baseAddress! + off, min(65536, buf.count - off))
-                        if n <= 0 { break }
-                        off += n
-                    }
-                }
-                shutdown(fds[1], SHUT_WR)
-            }
-            writer.start()
-            #expect(kind(FrameReader.read(fd: fds[0])) == want, "\(name) via socket")
-            close(fds[0]); close(fds[1])
-        }
-    }
-}
-
-@Suite("Wire errors")
-struct WireErrorTests {
-    // Internal detail members never reach the wire; the message is cut to
-    // the contract's length; a refusal is always a valid ErrorResponse.
+@Suite("Service errors")
+struct ServiceErrorTests {
+    // Internal detail members never leave the service; the message is cut
+    // to the contract's length.
     @Test func internalDetailsAreProjected() throws {
         let long = String(repeating: "长", count: 600)
         let e = ContractError(.upstreamUnavailable, long, details: .obj([
             ("httpStatus", .int(503)), ("retryAfterMs", .int(2000)), ("encodedBytes", .int(9)), ("field", .string("baseUrl")),
         ]))
-        let resp = Envelope.failure(requestId: uuid(), error: e)
-        #expect(try contract.validateRpc(resp, "ErrorResponse").isEmpty)
-        let d = resp["error"]?["details"]
+        let j = e.json
+        #expect(try contract.validate(j, "RpcError").isEmpty)
+        let d = j["details"]
         #expect(d?["httpStatus"] == nil)
         #expect(d?["retryAfterMs"]?.intValue == 2000)
         #expect(d?["fieldErrors"]?.arrayValue?.first?["path"]?.stringValue == "/params/baseUrl")
-        #expect((resp["error"]?["message"]?.stringValue?.unicodeScalars.count ?? 0) <= 512)
-        // Invalid allowed members are dropped rather than sent.
+        #expect((j["message"]?.stringValue?.unicodeScalars.count ?? 0) <= 512)
         let bad = ContractError(.notFound, "x", details: .obj([("runId", .string("bad id with spaces"))]))
-        let r2 = Envelope.failure(requestId: uuid(), error: bad)
-        #expect(r2["error"]?["details"] == nil)
-        #expect(try contract.validateRpc(r2, "ErrorResponse").isEmpty)
+        #expect(bad.json["details"] == nil)
     }
 }

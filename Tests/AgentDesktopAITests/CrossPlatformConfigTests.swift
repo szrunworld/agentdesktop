@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopAI
@@ -49,7 +49,7 @@ struct CrossPlatformConfigTests {
         let steps = try #require(fixture["steps"]?.arrayValue)
         #expect(steps.count >= 30)
         let h = try Harness(options: ConfigOptions(allowLoopbackHTTP: true))
-        let other = RpcRouter(handlers: h.service.handlers(callerScope: "other"))
+        let other = ServiceRouter(handlers: h.service.handlers(callerScope: "other"))
         var saved: [String: JSONValue] = [:]
         var secrets: [String] = []
         for step in steps {

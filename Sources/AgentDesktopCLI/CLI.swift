@@ -1,5 +1,4 @@
 import AgentDesktopClient
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 
@@ -42,10 +41,10 @@ struct CLI {
 
     func run(_ args: [String]) -> Int32 {
         if CommandRouter.isContractCommand(args) {
-            // The AI/GUI service listens beside the Runtime: ai.sock.
+            // One endpoint (A2): the AI service answers through the Runtime.
             guard !args.contains("--socket") else { return runContract(args) }
             let runtime = EndpointResolver.resolve(option: nil, environment: environment).path
-            return runContract(["--socket", CLI.aiEndpoint(forRuntime: runtime)] + args)
+            return runContract(["--socket", runtime] + args)
         }
         let invocation: RuntimeInvocation
         do {
@@ -114,12 +113,6 @@ struct CLI {
         case let .sessionExec(desktopId, sessionId, argv):
             return sessionExec(desktopId: desktopId, sessionId: sessionId, argv: argv, out, endpoint: endpoint)
         }
-    }
-
-    /// `…/runtime.sock` → `…/ai.sock`; `…/x.runtime.sock` → `…/x.ai.sock`.
-    static func aiEndpoint(forRuntime path: String) -> String {
-        if path.hasSuffix("runtime.sock") { return String(path.dropLast("runtime.sock".count)) + "ai.sock" }
-        return (path as NSString).deletingLastPathComponent + "/ai.sock"
     }
 
     /// Contents/Resources of the app this CLI ships in, if it does.

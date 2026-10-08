@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopGUI
@@ -162,7 +162,7 @@ final class NeutralForm: @unchecked Sendable {
 
 let target = TargetIdentity(appId: "com.agentdesktop.neutral-form", processId: 4242, processStartId: "ps-1", windowId: "win-1",
                             windowGeometryRevision: 1, backendId: "spy",
-                            windowFrameDesktopLogical: Rect(x: 0, y: 0, width: 500, height: 400))
+                            windowFrameDesktopLogical: GuiRect(x: 0, y: 0, width: 500, height: 400))
 
 actor SpyObservation: GuiObservationPort {
     let form: NeutralForm
@@ -289,7 +289,7 @@ final class IdCounter: @unchecked Sendable {
     func next() -> Int { lock.withLock { n += 1; return n } }
 }
 
-/// Config store + GUI run service behind real RpcRouters, as a caller sees them.
+/// Config store + GUI run service behind real ServiceRouters, as a caller sees them.
 final class GuiHarness: @unchecked Sendable {
     let form = NeutralForm()
     let store: ConfigStore
@@ -300,8 +300,8 @@ final class GuiHarness: @unchecked Sendable {
     let audit = SpyAudit()
     let repository = InMemoryGuiRunRepository()
     let service: GuiRunService
-    let owner: RpcRouter
-    let stranger: RpcRouter
+    let owner: ServiceRouter
+    let stranger: ServiceRouter
     var profile: JSONValue = .null
 
     init(_ replies: [StubAiService.Reply], backend: Bool = true, limits: [(String, JSONValue)] = [],
@@ -327,8 +327,8 @@ final class GuiHarness: @unchecked Sendable {
         let config = ConfigApplicationService(store: store)
         var ownerHandlers = config.handlers(callerScope: "owner")
         ownerHandlers.merge(service.handlers(callerScope: "owner", trustedOwner: true)) { a, _ in a }
-        owner = RpcRouter(handlers: ownerHandlers)
-        stranger = RpcRouter(handlers: service.handlers(callerScope: "stranger", trustedOwner: false))
+        owner = ServiceRouter(handlers: ownerHandlers)
+        stranger = ServiceRouter(handlers: service.handlers(callerScope: "stranger", trustedOwner: false))
         self.limitOverrides = limits
         self.fixture = fixture
     }
@@ -336,18 +336,15 @@ final class GuiHarness: @unchecked Sendable {
     let limitOverrides: [(String, JSONValue)]
     let fixture: Bool
 
-    func call(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: RpcRouter? = nil) async throws -> JSONValue {
-        var m: [(String, JSONValue)] = [
-            ("schemaVersion", .string("agentdesktop.ai/1")), ("requestId", .string(UUID().uuidString.lowercased())),
-            ("command", .string(command)), ("params", params),
-        ]
-        if let key { m.append(("context", .obj([("idempotencyKey", .string(key))]))) }
-        var line = await (router ?? owner).respond(toBody: JSONValue.obj(m).encodedData())
-        line.removeLast()
-        return try StrictJSON.parse(line)
+    /// One call through the router, as `{ok, result | error}` (test shape).
+    func call(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: ServiceRouter? = nil) async throws -> JSONValue {
+        switch await (router ?? owner).answer(method: command, params: params, idempotencyKey: key) {
+        case let .success(v): return .obj([("ok", .bool(true)), ("result", v)])
+        case let .failure(e): return .obj([("ok", .bool(false)), ("error", e.json)])
+        }
     }
 
-    func ok(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: RpcRouter? = nil) async throws -> JSONValue {
+    func ok(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: ServiceRouter? = nil) async throws -> JSONValue {
         let r = try await call(command, params, key: key, router: router)
         guard r["ok"]?.boolValue == true, let result = r["result"] else {
             Issue.record("\(command) failed: \(r.encoded())")
@@ -356,7 +353,7 @@ final class GuiHarness: @unchecked Sendable {
         return result
     }
 
-    func err(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: RpcRouter? = nil) async throws -> String? {
+    func err(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: ServiceRouter? = nil) async throws -> String? {
         try await call(command, params, key: key, router: router)["error"]?["code"]?.stringValue
     }
 
@@ -405,7 +402,7 @@ final class GuiHarness: @unchecked Sendable {
         return .obj(m)
     }
 
-    func start(_ params: JSONValue? = nil, key: String = "run-key-0001", router: RpcRouter? = nil) async throws -> String {
+    func start(_ params: JSONValue? = nil, key: String = "run-key-0001", router: ServiceRouter? = nil) async throws -> String {
         try await ok("gui.runs.start", params ?? startParams(), key: key, router: router)["runId"]!.stringValue!
     }
 

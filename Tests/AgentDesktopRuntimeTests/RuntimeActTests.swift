@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 import Testing
@@ -203,7 +202,7 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
         let runs = try RunStore(path: dir + "/runs.sqlite")
         _ = try ledger.begin(caller: getuid(), RuntimeRequest(requestId: "queued", method: "act", params: .obj([])))
         _ = try ledger.begin(caller: getuid(), RuntimeRequest(requestId: "sent", method: "act", params: .obj([])))
-        ledger.markDispatching(caller: getuid(), requestId: "sent")
+        try ledger.markDispatching(caller: getuid(), requestId: "sent")
         runs.create(testRun("run_x", lifetime: .connectionScoped))
         // A durable Run whose action crossed its delivery boundary unanswered.
         runs.create(testRun("run_y", lifetime: .platformDurable))

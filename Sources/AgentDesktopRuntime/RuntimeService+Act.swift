@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 
@@ -59,7 +58,7 @@ extension RuntimeService {
         }
         let action = request.params["action"] ?? .obj([])
 
-        let result = withDesktop(.string(desk.desktopId)) { d -> JSONValue in
+        let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date)) { d -> JSONValue in
             guard let b = d.binding else {
                 throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler, notSent: true)
             }
@@ -88,9 +87,16 @@ extension RuntimeService {
                 if let stopped = execution.beginAction(runId: runId) { throw stopped }
 
                 // Delivery boundary: from here an interruption is unknown.
-                ledger.markDispatching(caller: c.peerUID, requestId: request.requestId)
+                do {
+                    try ledger.markDispatching(caller: c.peerUID, requestId: request.requestId)
+                    runs.appendEvent(runId, "action.dispatched", .obj([("requestId", .string(request.requestId))]))
+                    try runs.checkWritable()
+                } catch {
+                    self.execution.endAction(runId: runId, receiptId: nil, deliveryUnknown: false)
+                    self.execution.auditStorageFailed()
+                    throw ExecutionCoordinator.auditError(notSent: true)
+                }
                 let dispatchedAt = nowString
-                runs.appendEvent(runId, "action.dispatched", .obj([("requestId", .string(request.requestId))]))
                 let receiptId = DesktopRegistry.newId(prefix: "rcpt")
                 var delivery = "dispatched", execution = "completed"
                 var route: String?
@@ -218,32 +224,58 @@ extension RuntimeService {
         let deadline = now().addingTimeInterval(Double(request.params["timeoutMs"]?.intValue ?? 1000) / 1000)
         var lastSnapshot: String?
         while true {
-            let poll = withDesktop(.string(desk.desktopId)) { d -> JSONValue in
+            // As in observe: checks under the lock, the read on the AX threads
+            // without it, then the store under the lock.
+            var bound: TargetBinding?
+            let checked = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
                 guard let b = d.binding else {
                     throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler)
                 }
                 guard backend.processIdentity(b.process.pid) == b.process else {
                     throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler)
                 }
-                let read = try platform.elements(on: d.screen, pid: b.process.pid, windowId: b.windowId, query: nil)
+                bound = b
+                observations.invalidateElementRefs(desktopId: d.desktopId)
+                return .null
+            }
+            if case let .failure(e) = checked { return .failure(e) }
+            guard let b = bound else { return .failure(RuntimeError("internal_error", "no binding", phase: .handler)) }
+            let readBy = min(deadline, now().addingTimeInterval(elementReadBudget))
+            let screen = desk.screen
+            var read: ElementRead?
+            switch axReader.read(desktopId: desk.desktopId, deadline: readBy, {
+                try platform.elements(on: screen, pid: b.process.pid, windowId: b.windowId, query: nil, deadline: readBy)
+            }) {
+            case let .read(r): read = r
+            case .timedOut, .busy: read = nil
+            case let .failed(e as PlatformError): return .failure(e.runtimeError)
+            case let .failed(e): return .failure(RuntimeError("execution_failed", "\(e)", phase: .handler))
+            }
+            let poll = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
+                guard d.binding?.generation == b.generation else {
+                    throw RuntimeError("stale_observation", "the binding of desktop \(d.desktopId) changed", phase: .handler)
+                }
                 let snapshotId = DesktopRegistry.newId(prefix: "obs")
                 var stored = StoredObservation(snapshotId: snapshotId, desktopId: d.desktopId, capturedAt: nowString,
-                                               screen: d.screen, binding: b, windowFrame: read.window.frame, transform: nil,
+                                               screen: d.screen, binding: b, windowFrame: read?.window.frame, transform: nil,
                                                imageSize: nil, elements: [:], readElements: true)
                 var matches: [JSONValue] = []
-                for e in read.elements where e.index >= 0 {
+                for e in read?.elements ?? [] where e.index >= 0 {
                     stored.elements["el_\(e.index)"] = e
                     if Self.matches(e, cond) { matches.append(Self.elementJSON(e)) }
                 }
                 observations.store(stored)
-                return .obj([("snapshotId", .string(snapshotId)), ("matches", .array(matches))])
+                // No read, no verdict: an unread window proves neither presence
+                // nor absence.
+                return .obj([("snapshotId", .string(snapshotId)), ("matches", .array(matches)),
+                             ("read", .bool(read != nil))])
             }
             switch poll {
             case let .failure(e): return .failure(e)
             case let .success(v):
                 lastSnapshot = v["snapshotId"]?.stringValue
                 let found = !(v["matches"]?.arrayValue ?? []).isEmpty
-                if found == wantPresent {
+                if v["read"]?.boolValue == true, found == wantPresent {
                     return .success(.obj([("satisfied", .bool(true)), ("snapshotId", v["snapshotId"]!),
                                           ("matches", wantPresent ? v["matches"]! : .array([]))]))
                 }

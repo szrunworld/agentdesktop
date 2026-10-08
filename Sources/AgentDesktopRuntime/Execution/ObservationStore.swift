@@ -1,5 +1,5 @@
-import enum AgentDesktopContracts.StrictJSON
-import enum AgentDesktopContracts.JSONValue
+import enum AgentDesktopProtocol.StrictJSON
+import enum AgentDesktopProtocol.JSONValue
 import AgentDesktopProtocol
 import CryptoKit
 import Foundation
@@ -52,6 +52,12 @@ public final class ObservationStore: @unchecked Sendable {
     /// backend holds for its Desktop.
     public func isLatestElementRead(_ id: String, desktopId: String) -> Bool {
         lock.withLock { latestElementRead[desktopId] == id }
+    }
+
+    /// No element reference of the Desktop is valid until the next stored
+    /// read: the backend's numbering is about to be replaced.
+    func invalidateElementRefs(desktopId: String) {
+        lock.withLock { _ = latestElementRead.removeValue(forKey: desktopId) }
     }
 
     func forget(desktopId: String) {

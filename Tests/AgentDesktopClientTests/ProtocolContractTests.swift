@@ -1,7 +1,6 @@
-import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 import Foundation
 import Testing
-@testable import AgentDesktopProtocol
 
 // contracts/runtime/v1 is the single source for enums, error codes and
 // shapes; Swift, C# and the SDKs are checked against the same fixtures.
@@ -12,7 +11,8 @@ let contract = RuntimeContract.shared
 
 @Test func embeddedContractEqualsTheRepositoryCopy() throws {
     let embedded = RuntimeContract.embedded
-    for (name, text) in [("runtime.schema", embedded.schema), ("methods", embedded.methods), ("errors", embedded.errors)] {
+    for (name, text) in [("runtime.schema", embedded.schema), ("service.schema", embedded.service),
+                         ("methods", embedded.methods), ("errors", embedded.errors)] {
         let repo = try String(contentsOf: repoRoot.appendingPathComponent("contracts/runtime/v1/\(name).json"), encoding: .utf8)
         // The generator writes the file followed by the closing delimiter's line.
         #expect(repo == text + "\n" || repo == text,
@@ -39,15 +39,30 @@ let contract = RuntimeContract.shared
     }
 }
 
-@Test func methodCatalogMatchesTheImplementedMethods() {
-    #expect(Set(contract.methods.map(\.method)) == Set(RuntimeMethod.allCases.map(\.rawValue)))
-    for m in contract.methods {
+@Test func methodCatalogMatchesTheImplementedMethods() throws {
+    let own = contract.methods.filter { $0.servedBy == nil }
+    #expect(Set(own.map(\.method)) == Set(RuntimeMethod.allCases.map(\.rawValue)))
+    for m in own {
         let holds = !(contract.validate(.obj([]), m.params).contains { $0.contains("$ref") })
         #expect(holds, "\(m.params) missing")
         let writes: Set<String> = ["desktop.create", "desktop.destroy", "app.launch", "window.bind", "window.unbind",
                                    "session.open", "session.close", "act", "run.finish", "run.cancel",
                                    "runtime.stopAll", "runtime.enableInput"]
         #expect(m.mutation == writes.contains(m.method), "\(m.method)")
+    }
+    // Methods the AI service answers on the same endpoint: every operation
+    // the service had but its capabilities (now runtime.capabilities `gui`),
+    // each with params and result in service.schema.json.
+    let served = contract.methods.filter { $0.servedBy != nil }
+    #expect(served.count == 31)
+    for m in served {
+        #expect(m.servedBy == "ai-service")
+        for ref in [m.params, m.result] {
+            #expect(ref.hasPrefix("service.schema.json#/$defs/"), "\(m.method): \(ref)")
+            let holds = !(contract.validate(.obj([]), ref).contains { $0.contains("$ref") })
+            #expect(holds, "\(m.method): \(ref) does not resolve")
+        }
+        #expect(m.requiresIdempotencyKey == m.mutation, "\(m.method)")
     }
 }
 
@@ -133,7 +148,14 @@ let contract = RuntimeContract.shared
     let withdrawn = Set((doc["withdrawn"]?.arrayValue ?? []).compactMap { $0["method"]?.stringValue })
     #expect(withdrawn.contains("gui.runs.start"))
     #expect(Set(names).isDisjoint(with: withdrawn))
-    #expect(served.isDisjoint(with: withdrawn))
+    // Withdrawn names may still be served only as transitional, with a removal PR.
+    let lingering = served.intersection(withdrawn)
+    let methodsJSON = doc["methods"]?.arrayValue ?? []
+    for name in lingering {
+        let entry = methodsJSON.first { $0["method"]?.stringValue == name }
+        #expect(entry?["status"]?.stringValue == "transitional", "\(name)")
+        #expect(entry?["removedBy"]?.stringValue != nil, "\(name)")
+    }
 
     let aiDefs = try StrictJSON.parse(Data(contentsOf: repoRoot.appendingPathComponent("contracts/ai-gui/v1/rpc.schema.json")))["$defs"]
     for entry in catalog {

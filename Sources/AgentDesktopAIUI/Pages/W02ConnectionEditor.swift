@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import SwiftUI
 
@@ -100,21 +100,7 @@ public final class ConnectionEditorModel: ObservableObject {
     }
 
     static func endpointError(_ s: String, allowLocalHTTP: Bool) -> String? {
-        guard let u = URLComponents(string: s), let scheme = u.scheme?.lowercased(), let host = u.host, !host.isEmpty else {
-            return "请输入完整的 URL"
-        }
-        if u.user != nil || u.password != nil { return "URL 不能包含用户名或密码" }
-        if u.query != nil || u.fragment != nil { return "URL 不能包含查询参数或片段（# 之后）" }
-        if u.path.hasSuffix("/chat/completions") || u.path.hasSuffix("/chat/completions/") {
-            return "请填写基础地址，不要包含 /chat/completions"
-        }
-        switch scheme {
-        case "https": return nil
-        case "http":
-            guard ["127.0.0.1", "localhost", "::1", "[::1]"].contains(host) else { return "非本机地址必须使用 HTTPS" }
-            return allowLocalHTTP ? nil : "本机 HTTP 需要先开启“允许本地模型”"
-        default: return "只支持 HTTPS（或本机 HTTP）"
-        }
+        ProviderEndpointRule.error(s, allowLocalHTTP: allowLocalHTTP)
     }
 
     /// Create or save metadata. Metadata saves never touch the credential.

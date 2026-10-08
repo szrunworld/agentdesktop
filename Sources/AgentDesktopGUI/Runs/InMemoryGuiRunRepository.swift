@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// GuiRunRepository in memory, for tests and until the SQLite store backs

@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import CryptoKit
 import Foundation
@@ -37,6 +36,23 @@ public final class ExecutionCoordinator: @unchecked Sendable {
     private var leases: [String: String] = [:]
     private var live: [String: Live] = [:]
     private var admission: Admission = .enabled
+    private var auditFailed = false
+
+    var auditUnavailable: Bool { lock.withLock { auditFailed } }
+
+    static func auditError(notSent: Bool? = nil) -> RuntimeError {
+        RuntimeError("audit_unavailable", "Audit storage failed; input is disabled until the Runtime restarts with healthy storage",
+                     phase: .handler, notSent: notSent)
+    }
+
+    func auditStorageFailed() {
+        let first = lock.withLock {
+            guard !auditFailed else { return false }
+            auditFailed = true
+            return true
+        }
+        if first { _ = stopAll() }
+    }
     private let now: @Sendable () -> Date
 
     init(runs: RunStore, now: @escaping @Sendable () -> Date) {
@@ -77,6 +93,8 @@ public final class ExecutionCoordinator: @unchecked Sendable {
         let runId = DesktopRegistry.newId(prefix: "run")
         var token: String?
         let result: Result<RunRecord, RuntimeError> = lock.withLock {
+            guard !auditFailed else { return .failure(Self.auditError(notSent: true)) }
+            do { try runs.checkWritable() } catch { return .failure(Self.auditError(notSent: true)) }
             guard admission == .enabled else { return .failure(inputDisabled()) }
             if let holder = leases[session.desktopId], live[holder] != nil {
                 return .failure(RuntimeError(
@@ -142,6 +160,8 @@ public final class ExecutionCoordinator: @unchecked Sendable {
     /// holding its Desktop. Counts the action as in flight.
     func beginAction(runId: String) -> RuntimeError? {
         lock.withLock {
+            guard !auditFailed else { return Self.auditError(notSent: true) }
+            do { try runs.checkWritable() } catch { return Self.auditError(notSent: true) }
             guard admission == .enabled else { return inputDisabled() }
             guard var l = live[runId], l.record.phase == .running, leases[l.record.desktopId] == runId else {
                 return RuntimeError("run_not_active", "run \(runId) was stopped before this action was dispatched",
@@ -255,6 +275,8 @@ public final class ExecutionCoordinator: @unchecked Sendable {
     /// while a stop is still draining is refused.
     func enableInput() -> Result<Admission, RuntimeError> {
         lock.withLock {
+            guard !auditFailed else { return .failure(Self.auditError(notSent: true)) }
+            do { try runs.checkWritable() } catch { return .failure(Self.auditError(notSent: true)) }
             switch admission {
             case .enabled, .stopped:
                 admission = .enabled

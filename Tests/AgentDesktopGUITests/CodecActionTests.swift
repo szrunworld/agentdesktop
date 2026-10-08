@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopGUI
@@ -12,7 +12,7 @@ enum Fixture {
                                         bindingEpoch: 1, runGeneration: 1)
     static let target = TargetIdentity(appId: "com.agentdesktop.neutral-form", processId: 4242, processStartId: "ps-1",
                                        windowId: "w-1", windowGeometryRevision: 3, backendId: "macos-sky",
-                                       windowFrameDesktopLogical: Rect(x: -1440, y: 120, width: 800, height: 500))
+                                       windowFrameDesktopLogical: GuiRect(x: -1440, y: 120, width: 800, height: 500))
     /// 1600x1000 source shown 1:1; Retina 2x to the desktop at (-1440,120).
     static func shot(_ id: String = "shot-1", transform: ScreenshotTransform? = nil) throws -> ScreenshotDescriptor {
         try ScreenshotDescriptor(screenshotId: id, artifactRef: "art-\(id)", sha256: String(repeating: "a", count: 64),
@@ -68,7 +68,7 @@ struct UITarsCodecTests {
         let (proposal, _) = try ProposalFactory().propose(codec: uitars, modelOutput: reply, runId: "run-1", stepIndex: 0,
                                                           inferenceAttemptId: "att-1", observation: try Fixture.observation(),
                                                           screenshotId: "shot-1", maxWaitMs: 2000)
-        #expect(try ContractBundle.shared.validateDomain(proposal.json, "GuiProposal").isEmpty)
+        #expect(try ContractBundle.shared.validate(proposal.json, "GuiProposal").isEmpty)
     }
 
     // GUI-002: anything but exactly one v1 action is refused.
@@ -275,7 +275,7 @@ struct ProposalTests {
     // GUI-004: the codec maps with the chosen screenshot's own transform.
     @Test func gui004UsesTheBoundScreenshotsTransform() throws {
         let cropped = try ScreenshotTransform.pipeline(sourceSize: Size(width: 1600, height: 1000),
-                                                       crop: Rect(x: 200, y: 100, width: 1000, height: 600),
+                                                       crop: GuiRect(x: 200, y: 100, width: 1000, height: 600),
                                                        resizedSize: Size(width: 500, height: 300))
         let obs = try Fixture.observation([try Fixture.shot("shot-1"), try Fixture.shot("shot-2", transform: cropped)])
         let codec = UITarsCodec(coordinateProtocol: .imagePixels)
@@ -310,6 +310,6 @@ struct ProposalTests {
     }
 
     @Test func observationEncodesToTheContract() throws {
-        #expect(try ContractBundle.shared.validateDomain(try Fixture.observation().json, "Observation").isEmpty)
+        #expect(try ContractBundle.shared.validate(try Fixture.observation().json, "Observation").isEmpty)
     }
 }
