@@ -1,0 +1,26 @@
+{
+  "profile": "agentdesktop-acp-dev-missing",
+  "agent": [
+    "<repo>/.build/debug/agentdesktop-acp-dev"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T12:51:53.430Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "T03e-endpoint-missing",
+      "cases": [
+        "ACP-T03-04"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T03e-endpoint-missing/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T12:51:53.441Z",
+  "counts": {
+    "PASS": 1,
+    "FAIL": 0,
+    "BLOCKED": 0
+  }
+}

@@ -173,7 +173,7 @@ scripts/acp/run-real.sh agentdesktop-dev /tmp/adt-acp/evidence/fake-editor
 | ACP-T18-01 | `lsof -U -a -p <宿主 pid>` | 只有一个监听 socket；`/tmp/adt-acp` 下没有 `*.ai.sock` |
 | ACP-T18-02 | `swift build --package-path engine` 编出旧引擎 CLI，指向 `/tmp/adt-acp/side.sock` 发点击 | 连接失败或被拒；测试 Desktop 截图无变化 |
 | ACP-T18-03 | 向 `/tmp/adt-acp/side.ai.sock`（若存在）发 GUI 动作 | 不存在或被拒 |
-| ACP-T18-04 | `agentdesktop mcp`（#29）发一次 act | Runtime 账本有该 requestId |
+| ACP-T18-04 | `agentdesktop mcp`（#29）发一次 act；只读部分：`scripts/acp/mcp-readonly-probe.py <cli> <endpoint> <out>` | Runtime 账本有该 requestId；只读部分：同一 instanceId 作答、MCP 进程唯一 socket 的对端是 Runtime 端点、无人监听时全部失败 |
 | ACP-T19-03 | 跑完全部用例后扫描 | `grep -rE 'iVBOR|/9j/' /tmp/adt-acp ~/Library/Logs/DiagnosticReports/*agentdesktop*` 无结果（只扫本轮产生的文件） |
 
 ## 六、P2 场景与新增场景

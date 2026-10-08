@@ -1,0 +1,13 @@
+{
+  "id": "T03d-endpoint-unreachable",
+  "cases": [
+    "ACP-T03-04"
+  ],
+  "title": "Runtime 端点不可达（socket 文件在、无人监听）：initialize 照常；session/new 在时限内得到带原因的 JSON-RPC 错误，不建会话；进程不崩溃、不挂起，断开后干净退出",
+  "status": "BLOCKED",
+  "durationMs": 0,
+  "failures": [
+    "blocked: profile agentdesktop-acp-dev lacks runtime.unreachable"
+  ],
+  "steps": []
+}

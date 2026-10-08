@@ -1,0 +1,2 @@
+PASS    T03d-endpoint-unreachable  ACP-T03-04
+PASS    T03e-endpoint-missing  ACP-T03-04

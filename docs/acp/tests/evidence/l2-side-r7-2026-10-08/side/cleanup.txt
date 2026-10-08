@@ -1,0 +1,1 @@
+side instance pid 84176: SIGTERM, exited; /tmp/adt-acp removed 2026-10-08T12:54:26Z. No Desktop created, no app launched, no GUI input; test copy used file credentials (side.runtime/test-credentials), no keychain writes. Bundle built from eaea64a (host/CLI sources identical to the tested HEAD; '-dirty' = test/script files edited during the build).

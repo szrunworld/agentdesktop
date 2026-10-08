@@ -1,0 +1,35 @@
+{
+  "id": "T04b-init-order",
+  "cases": ["ACP-T04-04", "ACP-T04-05"],
+  "title": "initialize 之前的 session/new 被拒且不建会话；同一连接第二次 initialize 被拒，已有会话不受影响",
+  "requires": ["protocol.strict", "session.list"],
+  "steps": [
+    { "op": "connect" },
+    { "op": "initialize", "expect": { "protocolVersionIn": "${SUPPORTED_VERSIONS}" } },
+    { "op": "listSessions", "saveCountAs": "before" },
+    { "op": "disconnect" },
+    { "op": "expectExit", "withinMs": 5000 },
+    { "op": "connect" },
+    {
+      "op": "raw",
+      "id": "raw-pre",
+      "line": "{\"jsonrpc\":\"2.0\",\"id\":\"raw-pre\",\"method\":\"session/new\",\"params\":{\"cwd\":\"${RUN_DIR}\",\"mcpServers\":[]}}",
+      "expect": { "errorCode": -32600 }
+    },
+    { "op": "initialize", "expect": { "protocolVersionIn": "${SUPPORTED_VERSIONS}" } },
+    { "op": "listSessions", "expect": { "countEquals": "before" } },
+    { "op": "newSession", "as": "s1" },
+    { "op": "listSessions", "saveCountAs": "withS1", "expect": { "contains": ["s1"] } },
+    {
+      "op": "raw",
+      "id": "raw-init2",
+      "line": "{\"jsonrpc\":\"2.0\",\"id\":\"raw-init2\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{}}}",
+      "expect": { "errorCode": -32600 }
+    },
+    { "op": "expectAlive", "ms": 300 },
+    { "op": "prompt", "session": "s1", "text": "${PROMPT_ECHO}", "expect": { "stopReason": "end_turn" } },
+    { "op": "listSessions", "expect": { "contains": ["s1"], "countEquals": "withS1" } },
+    { "op": "disconnect" },
+    { "op": "expectExit", "withinMs": 5000 }
+  ]
+}
