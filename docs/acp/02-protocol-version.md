@@ -1,6 +1,6 @@
 # ACP 协议版本决策与兼容矩阵（工作线 T）
 
-状态：P1 决策稿，2026-10-08。负责：工作线 T。所有事实均用 `gh api`、`npm view`、crates.io API 或本机二进制核对过，带提交 SHA 与日期；没核对到的标「未核实」。
+状态：P1 决策稿，2026-10-08；第二轮（`acp-lane-t2`）补 v1 `session/resume` 与 cwd。负责：工作线 T。所有事实均用 `gh api`、`npm view`、crates.io API 或本机二进制核对过，带提交 SHA 与日期；没核对到的标「未核实」。
 
 ## 一、结论
 
@@ -95,20 +95,22 @@
 
 | 模型字段 | v1 线上字段 | 说明 |
 | --- | --- | --- |
-| `resumeSessions` | `agentCapabilities.loadSession` | 解锁 `session/load`（规范要求先重放历史再回复） |
-| `listSessions` | `sessionCapabilities.list: {}` | 解锁 `session/list`；不发游标，收到游标回 -32602 |
+| `resumeSessions` | `agentCapabilities.loadSession: true` 且 `sessionCapabilities.resume: {}` | 同时解锁 `session/load`（→ `.resumeSession(replay: true)`，规范要求先重放历史再回复）与 `session/resume`（→ `replay: false`，不得重放）；两者都必须带绝对路径 `cwd`，原样交给模型 |
+| `listSessions` | `sessionCapabilities.list: {}` | 解锁 `session/list`；`cwd` 过滤参数（须为绝对路径）交给模型 `.listSessions(cwd:)`；回复里 `SessionInfo.cwd` 取自 `ACPSessionSummary.cwd`；不发游标，收到游标回 -32602 |
 | `closeSessions` | `sessionCapabilities.close: {}` | 解锁 `session/close` |
 | `promptImages` | `promptCapabilities.image` | 图片字节留在适配器里，模型只拿句柄 |
 | `promptEmbeddedContext` | `promptCapabilities.embeddedContext` | 只取文本内容，二进制 blob 不往下传 |
 | 无 | `audio: false`、`mcpCapabilities: {http:false, sse:false}`、`authMethods: []` | 始终不声明 |
 
-`session/resume`、`session/delete`、`session/set_mode`、`authenticate`、`logout`、`fs/*`、`terminal/*` 以及所有 unstable 方法都回「方法不存在」。客户端能力：`elicitation` 只有 `elicitation.form` 明确存在且非 null 时才算支持（规范明确与 MCP 不同，`{}` 不算）；不支持时 `ask()` 直接返回 `.unavailable`，不发请求。
+`session/delete`、`session/set_mode`、`authenticate`、`logout`、`fs/*`、`terminal/*` 以及所有 unstable 方法都回「方法不存在」；`resumeSessions` 为 false 时 `session/load` 与 `session/resume` 也是「方法不存在」。客户端能力：`elicitation` 只有 `elicitation.form` 明确存在且非 null 时才算支持（规范明确与 MCP 不同，`{}` 不算）；不支持时 `ask()` 直接返回 `.unavailable`，不发请求。
 
 **v1 表达不了、因此不发的内容**：`ACPSessionUpdate.usage`（v1 `usage_update` 是上下文窗口占用 used/size，不是每轮 token 数）、`ACPSessionUpdate.turnEnded`（v1 由 prompt 响应结束一轮）。直接丢弃，不近似。
 
 **补位约定**（v1 必填但模型没有的字段）：计划条目 `priority` 固定 `"medium"`；配置选项一律 `type: "select"`，`id == "mode"` 时加 `category: "mode"`；工具调用的三级结果放在 `_meta.agentdesktop.actionLevel`（如 `executed`、`refused:policy_denied`）；权限选项 id 为 `allow_once` / `reject_once`，编辑器选了未提供的选项（如 `allow_always`）一律当 `.unavailable`。
 
 ## 六、接口请求（需协调者改 `ACPModel.swift`）
+
+状态（2026-10-08，`acp-skeleton` 34ae2c5）：第 1、2、3、5 条已由协调者落地（`ACPSessionSummary.cwd`、`.resumeSession(sessionId:cwd:replay:)`、`.listSessions(cwd:)`、测试目标 `exclude: ["Fixtures"]`），第二轮已接上；第 2 条没有另加能力标记，按协调者决定由 `resumeSessions` 同时控制 load 与 resume。第 4 条维持现状：v1 不发 `usage`。第 6 条由 D 线写进 RFC。下面保留原始请求以便追溯。
 
 1. **`ACPSessionSummary` 缺 `cwd`。** v1 `SessionInfo.cwd` 必填。目前适配器用「本连接见过的该会话 cwd → 本次 `session/list` 的 cwd 过滤参数 → 空串」兜底，空串合法但没有意义。建议加 `cwd: String`。
 2. **`.resumeSession` 分不清「重放」与「不重放」。** v1 的 `session/load` 必须重放、`session/resume` 必须不重放；Zed 与 agent-shell 都支持两者，agent-shell 默认优先用不重放的 `session/resume`。目前只声明 `loadSession`，`session/resume` 回「方法不存在」。建议改为 `.resumeSession(sessionId:, replay: Bool)`，并在 `ACPAgentCapabilities` 加 `resumeWithoutReplay`。
@@ -124,7 +126,7 @@
 - 时间：2026-10-08，本机 node 22.23.2。
 - 客户端：`@agentclientprotocol/sdk@1.7.0` 的 `ClientSideConnection` + `ndJsonStream`（`/tmp/acp-lane-t/interop/client.mjs`，未提交）。
 - Agent：用 `AgentDesktopACP` 的 `ACPStdioConnection.standardIO()` 写的回声 agent（`/tmp/acp-lane-t/echo`，独立 SwiftPM 包按路径依赖本工作树，未提交、不进 Sources）。
-- 结果：退出码 0。协商 1；新建、列表、设置配置、prompt（含计划、消息、工具调用、权限请求→允许、表单提问→回答、会话标题）、`session/load`（重放后回复）、`session/close` 全部成功；`session/resume` 得到 -32601；关闭 stdin 后 agent 以 `closed input_closed` 退出，退出码 0。
+- 结果（第一轮）：退出码 0。协商 1；新建、列表、设置配置、prompt（含计划、消息、工具调用、权限请求→允许、表单提问→回答、会话标题）、`session/load`（重放后回复）、`session/close` 全部成功；`session/resume` 当时未声明，得到 -32601；关闭 stdin 后 agent 以 `closed input_closed` 退出，退出码 0。
 - 版本协商经 SDK 实测：请求 2 → 回答 1；请求 0 → `-32600: unsupported ACP protocol version 0; this agent speaks 1`。
 
 线上记录（原样，C→A 为客户端到 agent）：
@@ -161,6 +163,14 @@ A→C {"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"method not found
 
 （中间一条回显权限结果的调试消息省略。）
 
+第二轮重跑（同一客户端脚本，agent 按 `acp-lane-t2` 重建，退出码 0）：`initialize` 结果里 `sessionCapabilities` 变为 `{"list":{},"close":{},"resume":{}}`，`session/resume` 不重放直接成功：
+
+```text
+A→C {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop-echo","version":"0.0.1"}}}
+C→A {"jsonrpc":"2.0","id":7,"method":"session/resume","params":{"sessionId":"echo-1","cwd":"/tmp/acp-lane-t","mcpServers":[]}}
+A→C {"jsonrpc":"2.0","id":7,"result":{"configOptions":[{"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"ask","options":[{"value":"ask","name":"ask"},{"value":"auto","name":"auto"}]}]}}
+```
+
 ### 7.2 Zed 1.23.2 真机握手（未完成）
 
 在隔离数据目录 `/tmp/adt-zed-lane-t`（`--user-data-dir`，配置在 `/tmp/adt-zed-lane-t/config/settings.json`，**未碰用户的 Zed 设置**）里登记了一个 custom agent server（回声 agent，外包 `tee` 记录双向帧），在 2ndscreen 虚拟屏上启动 Zed、打开了 Agent 面板；选择自定义 agent 的菜单在后台点击下没有弹出，随后 2ndscreen 菜单栏程序退出，测试 Zed 已关闭，没有拿到线上帧。Zed 说 v1 的证据目前来自源码（tag `v1.23.2`）与本机二进制内嵌的 crate 版本。真机握手留给 Q 线的 Zed 手册（需要前台操作一次「New Thread → AgentDesktop Echo」），届时把 `/tmp/adt-zed-lane-t/wire.in` 的第一行 `initialize` 贴到这里。
@@ -169,9 +179,10 @@ A→C {"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"method not found
 
 `swift test --filter AgentDesktopACPTests`：T01～T05 与帧、编解码、schema 一致性测试见 `Tests/AgentDesktopACPTests/Transport/`、`Wire/`。一致性测试把官方 v1 `schema.json` 载入 `AgentDesktopContracts.SchemaRegistry`（先去掉不带断言的 `discriminator`、`x-*`、`unevaluatedProperties: true`），对编码器能产生的每一种回复、更新、权限请求、提问请求、错误对象做两次校验：整条消息对 schema 根，`params`/`result`/`error` 对具体类型。假编辑器 `TTestEditor` 收到的每一帧也都过同样的校验。
 
+测试不靠墙钟时间窗口判断：`TTestInbox.next()` 等到下一个值或流结束为止（60 秒只作防挂死保护）；要证明「没有别的帧/事件」，就发一个探针请求（`probeFrameIsNext` / `probeEventIsNext`），因为帧和事件严格按序，探针的回答紧跟着到达即说明之前什么都没有。第一轮里 t04、t05 在全量并行负载下偶发失败，原因是 2 秒等待窗口在负载下不够；第二轮改法后全量 `swift test` 连跑三次全部通过。
+
 ## 九、未完成项
 
 1. Zed 真机握手记录（见 7.2）。
-2. 第六节接口请求落地后：`session/resume`（不重放）、`SessionInfo.cwd`、列表按 cwd 过滤。
-3. `$/cancel_request`（v1.17 稳定）目前忽略；需要时由 S 线决定是否对长请求回 -32800。
-4. v2 稳定且有真实客户端发送 2 之后，再加 `ACPWireV2` 与 v2 schema 夹具。
+2. `$/cancel_request`（v1 稳定，`CancelRequestNotification`）：规范说取消是可选的，支持方收到后必须为原请求回一个响应（-32800 或正常结果）。我们按「不支持」处理：忽略该通知，原请求照常由服务器回答。原因：版本中立模型里没有「取消某个请求」的入口，连接若自行回 -32800，会让编辑器以为已取消而服务器其实还在跑（prompt 的取消必须走 `session/cancel` 并以 `cancelled` 结束）。需要时由 S 线提接口请求。
+3. v2 稳定且有真实客户端发送 2 之后，再加 `ACPWireV2` 与 v2 schema 夹具。
