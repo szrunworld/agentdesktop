@@ -22,9 +22,9 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
     var template = Array("/tmp/adt-XXXXXX".utf8CString)
     let dir = String(cString: mkdtemp(&template)!)
     let path = dir + "/runtime.sock"
-    let runtime = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_a2", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_a2", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: Backend())
+                                 backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
         databasePath: dir + "/ai.sqlite", credentials: InMemoryCredentialStore()))
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
@@ -89,9 +89,9 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
 }
 
 @Test func withoutTheAIServiceItsMethodsSaySoAndNeedAHandshake() throws {
-    let runtime = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_a2b", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_a2b", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: "/tmp/x.sock", buildSource: "unknown"),
-                                 backend: Backend())
+                                 backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let c = ConnectionState(peerUID: getuid())
     let line = Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"r1","method":"ai.connections.list","params":{}}"#.utf8)
     if case let .failure(e) = runtime.respond(to: line, on: c).result { #expect(e.code == "handshake_required") }
@@ -182,9 +182,9 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
 }
 
 @Test func anUnknownOutcomeStaysUnknownAndIsNeverRunAgain() throws {
-    let runtime = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_unk", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_unk", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: "/tmp/x.sock", buildSource: "unknown"),
-                                 backend: Backend())
+                                 backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     final class Calls: @unchecked Sendable { var n = 0 }
     let calls = Calls()
     runtime.registerExtensions(["ai.connections.create": { _ in

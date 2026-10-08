@@ -199,9 +199,9 @@ import Testing
     defer { try? FileManager.default.removeItem(atPath: dir) }
     let path = dir + "/runtime.sock"
     let platform = TinyPlatform()
-    let service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_exec", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let service = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_exec", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: StubBackend(), platform: platform)
+                                 backend: StubBackend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let server = RuntimeServer(path: path, service: service)
     try server.start()
     defer { server.stop() }

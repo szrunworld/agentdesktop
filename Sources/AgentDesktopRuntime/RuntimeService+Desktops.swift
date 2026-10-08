@@ -174,6 +174,12 @@ extension RuntimeService {
             let wanted = p["windowId"]?.intValue.map(UInt32.init)
             let process = backend.processIdentity(pid)
             guard process.startedAt != nil else { throw RuntimeError.notFound("no process \(pid)") }
+            if d.kind == .virtual && bindsOnlyLaunchedProcesses && !d.launched.contains(process) {
+                throw RuntimeError("permission_denied",
+                                   "only an app launched on desktop \(d.desktopId) can be bound until per-window grants exist; launch it there with app.launch",
+                                   phase: .handler, notSent: true,
+                                   details: .obj([("reason", .string("bind_requires_grant"))]))
+            }
             if d.kind == .physical {
                 // Never move the user's window: it must already be on this display.
                 guard let wanted else {

@@ -41,10 +41,10 @@ struct FixedBackend: RuntimeBackend {
 
 func makeService(backend: RuntimeBackend = FixedBackend(), endpoint: String = "/tmp/t.sock",
                  desktops: DesktopRegistry = DesktopRegistry()) -> RuntimeService {
-    RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(),
+    { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(),
                                              startedAt: Timestamp.string(Date()), endpoint: endpoint,
                                              buildSource: "unknown"),
-                   backend: backend, desktops: desktops)
+                   backend: backend, desktops: desktops); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
 }
 
 /// A short private directory for sockets (sun_path holds 104 bytes).
@@ -209,6 +209,12 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         }
     }
 
+    /// Test double: the window alone, as the window's crop of this double's screen.
+    func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
+        return try screenshot(screen, cropTo: w.frame, to: path)
+    }
+
     func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
         note("screenshot \(screen.name) window")
         defer { lock.withLock { onCapture }?() }
@@ -279,9 +285,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
 
 func platformService(_ platform: FakePlatform = FakePlatform(), backend: FixedBackend = FixedBackend(),
                      ledger: RequestLedger? = nil) -> RuntimeService {
-    RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+    { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                              endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                   backend: backend, platform: platform, ledger: ledger)
+                   backend: backend, platform: platform, ledger: ledger); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
 }
 
 import CoreGraphics

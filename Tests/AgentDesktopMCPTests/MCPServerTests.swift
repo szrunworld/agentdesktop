@@ -36,6 +36,12 @@ final class MCPPlatform: DesktopPlatform, @unchecked Sendable {
         CGImageDestinationFinalize(dest)
         return (2560, 1600)
     }
+    /// Test double: the window alone, as the window's crop of this double's screen.
+    func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
+        return try screenshot(screen, cropTo: w.frame, to: path)
+    }
+
     func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
         try screenshot(screen, to: path)
     }
@@ -74,6 +80,8 @@ final class MCPHarness {
         let service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_mcp", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                                endpoint: path, buildSource: "unknown"),
                                      backend: MCPBackend(), platform: platform)
+        service.bindsOnlyLaunchedProcesses = false
+        service.refusesScreenCaptureWithoutBinding = false
         server = RuntimeServer(path: path, service: service)
         try server.start()
         mcp = MCPServer(makeClient: { SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1")) })
