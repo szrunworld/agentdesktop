@@ -6,6 +6,21 @@
 
 依据：方案 v1.0 第五节、6.4；docs/plan/06 §6.4；README 第五节 Kevin 裁决附加约束 3（事件分三级，重点验证截图、窗口标题、输入内容、审批参数不泄露跨应用数据）。
 
+## 〇、f1 审核结论（2026-10-08）
+
+| 编号 | 结论 |
+| --- | --- |
+| E-1 | 接受形状，分两步：PR2b 把 `ActionReceipt.verification` 放宽为 not_requested / pending / matched / contradicted / inconclusive，并登记 `action.verified`；产生它的实现随 A3 的动作后观察落地。只有 Runtime 验证器能写 |
+| E-2 | 接受：派发前拒绝也发 `action.failed`，回执 delivery=not_dispatched；不新增 `action.refused` |
+| E-3 | 接受：`action.failed`/`action.unknown` 的 data 带 `error {code, details.reason}`，不带 message |
+| E-4 | 接受：`run.ended` data 带 kind、unknownActions、closingReason；unit 级验证结论属 F40-03（40，PR2d） |
+| E-5、E-6 | 接受：F1-01 在 methods.json 的 `events` 段冻结，type 为 string 加 pattern |
+| E-7、E-10 | 接受，规则更硬：事件 data 只允许 id、枚举、数字、时间戳，任何文本只能以 artifact 引用出现；目录给每个 type 标一次级别 normal / sensitive / protected。ACP 届时按契约分级，不再按键名推断 |
+| E-8 | 接受：closingReason 取值冻结为 completed / failed / cancelled / global_stop / owner_lost / runtime_restarted / grant_revoked / deadline_exceeded，表外值不显示 |
+| E-9 | 接受：ImageArtifact 加可选 `scope`（window / screen）、`windowId`、`bindingGeneration` |
+
+PR2b 合入后，工作线 E 改为读目录里的级别与字段，删除按键名推断的部分。
+
 ## 一、原则
 
 1. **唯一出口。** Runtime 事件只经 `ACPProjector`（实现冻结接口 `ACPEventProjector`）变成 `ACPSessionUpdate`。投影是纯函数：同一事件、同一策略、同一上下文，输出逐字相同。

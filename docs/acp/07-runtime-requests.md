@@ -4,6 +4,25 @@
 
 本文只列 ACP 需要、而 runtime/1 现在没有或没有实现的东西。每一条写明：现状证据、建议的确切形状、负责方、阻塞的 ACP 门禁（见 [06-gates.md](06-gates.md)）。原则沿用 [00 方案](00-input-plan-v1.0.md) 4.6：不为 ACP 新增 `acp.*` 专用 RPC，只提通用能力。
 
+## 〇、f1 审核结论（2026-10-08，Runtime 负责人 2ndscreen-f1 回复协调者）
+
+排期以 Kevin 确认的 A0 → G0 → AX → PR2b → A6 为准。大部分进 PR2b（A2 单一端点，可能拆为 PR2b-1 端点与身份、PR2b-2 契约增量，均在 A6 之前）。
+
+| 编号 | 结论 | 去向与形状 |
+| --- | --- | --- |
+| R1 | 不归 f1 | `unit.run` 由 40 在 #50 实现，f1 审契约。前置检查失败不建 Run，但请求账本记一条 state=failed；`origin`/`lifetime`/`ownership` 在 schema 层以 `schema_invalid` 拒绝（不是 `ownership_escalation_denied`），ACP 本地拒绝即可 |
+| R2 | 接受，PR4（在 PR3 之后） | 保留 `inbox.show` 加 list/resolve；派发前指纹复核失败用 `target_moved`；`expectedRevision` 过期为 `conflict`（reason revision）；decision 为 allow_once / reject_once / answer / dismiss，无 allow_always；拒绝、超时、通道不可用一律等同拒绝；`inbox.created`/`inbox.resolved` 进 F1-01。之前 ACP 按 capability_missing → 拒绝降级是对的 |
+| R3 | 接受，PR2b | F1-01 冻结在 methods.json 新增 `events` 段（每个 type 的 data 必填字段、来源、分级）；`RunEvent.type` 保持 string 加 pattern，不收成 enum；目录写明 `run.ended` 必是 Run 流最后一条 |
+| R4 | 接受，PR2b | `RuntimeIdentity.principal {clientId, role, connectionId}`，每个连接握手都带；`handshake()` 返回值带 principal 并加 `principal()`。PR2b 后本机连接恒为 `{local:<uid>, owner, …}`，这是 getpeereid 认证结果，`caller.verified` 可置 true；paired 隔离与「只看见自己的 Run」在 PR3（A4） |
+| R5 | 接受，形状微调，PR2b | 不加 Run.client 对象，加可选 `Run.clientName` 与 `Run.transport`（枚举追加 `acp`）；`run.list` 加可选 `connectionId`、`transport` 过滤，仅供显示与过滤，不作授权 |
+| R6 | **不接受** | 任务目录不进 Runtime（ADR v2.2 下平台不登记 Agent）。ACP 保持「方法宣告 → 任务」加固定取值；自由文本映射由 40 在 #50 的 F40 增量定 |
+| R7 | 部分接受，PR2b | `request.show` 的 not_found 带 `details {retentionDays, oldestAcceptedAt, instanceId}`；**不加** `never_received`。ACP 规则：仅当提交时间晚于 `oldestAcceptedAt` 且 `instanceId` 与提交时握手一致，才可安全重发一次 |
+| R8 | 接受，PR2b | `cancel_acceptance_unknown` 转正式码（同一 requestId 重发 run.cancel 即可得知是否受理）；`stop.accepted`、`run.quiescent` 进 F1-01 并保证出现在 Run 流 |
+| R9 | 接受，延后 | 等 ACP 过 G1 且 #53 离开草案再接进 CLI；端点走 EndpointResolver |
+| R10 | 接受，PR2b | `Run.lastEventSequence`（≥0，无事件为 0），run.show/list/wait 都带 |
+| R11 | 接受，PR2b | 动作事件 data 带 `receiptId`、`dispatchSequence`，需要时带 `elapsedMs` |
+| C-19 | 接受 | G0 按握手结果判定产品端点（AgentDesktop + apiVersion），不按文件名 |
+
 ## 一、工作线 R 今天的实现（对照）
 
 `Sources/AgentDesktopACP/RuntimeBridge/` 的 `ACPBridgeRuntimePort` 只经 `RuntimeClient` 调 runtime/1：

@@ -79,3 +79,15 @@ Kevin 批准 PR #53 作为七条工作线的共享开发基线（保持草案，
 7. **新增端到端场景**（Q 负责）：ACP-29 执行中直接关闭 Zed，Run 按 connection_scoped 结束、无新 GUI 输入、未确认结果保持 unknown；ACP-30 重连后在授权范围内查询先前的 Run，不自动恢复已终止的 Run；ACP-31 观察其他客户端发起的 Durable Run 必须经明确授权，不能凭会话 ID 或 Run ID 越权读取。
 
 执行优先级：先稳定共享接口与协议传输（T），再完成入站服务（S）与 Runtime 桥（R），最后做真实编辑器与真实 Runtime 的集成验收。ACP、MCP、Agent Hub 是不同的接入协议或客户端能力，不是三个执行系统，最终收敛到同一套 Runtime、身份授权、Run 生命周期与审计。
+
+## 六、协调者决定与 f1 审核（2026-10-08）
+
+f1 对 ACP 契约需求的审核结论记在 [07](07-runtime-requests.md) 与 [08](08-event-mapping.md) 第〇节：大部分进 PR2b；R2 审批进 PR4；R6 任务目录不进 Runtime；R7 不加 never_received，ACP 按 `oldestAcceptedAt` 与 `instanceId` 判断能否重发一次；R9 子命令等 G1。
+
+协调者决定：
+
+| 问题 | 决定 | 理由 |
+| --- | --- | --- |
+| 超长帧（02 第四节与 06 G1-02 冲突） | 回错误、丢弃该帧、从下一个换行继续读，**不断开连接** | 断开会让这条连接上所有 connection_scoped Run 停止，一帧坏数据不该付这个代价；进程不退出 |
+| `session/load` 的顺序 | 先回放历史，再回复 load（ACP v1 要求）；回放包含脱敏后的用户输入与任务结果摘要 | v1 规定；会话存储只存经 E 脱敏的文本 |
+| stdin 关闭后是否补写回复 | 不补写 | stdin 关闭即编辑器离开，按 ADR v2.2 处理；已受理的 prompt 不能因此再建 Run |
