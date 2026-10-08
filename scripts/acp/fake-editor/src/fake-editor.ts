@@ -227,6 +227,8 @@ class QTestScenarioRun {
   updates: Recorded[] = [];
   permissions: PermissionRecord[] = [];
   marks = new Map<string, { updates: number; t: number }>();
+  counts = new Map<string, number>();
+  rawResults = new Map<string, any>();
   initResult: any;
   failures: string[] = [];
   stepLog: any[] = [];
@@ -253,7 +255,8 @@ class QTestScenarioRun {
   }
 
   /// Common expectations on a request outcome.
-  private expectResponse(e: any, r: { ok: boolean; result?: any; error?: any }, what: string) {
+  private expectResponse(e: any, r: { ok: boolean; result?: any; error?: any; ms?: number }, what: string) {
+    if (e?.maxMs !== undefined && r.ms !== undefined) this.check(r.ms <= num(e.maxMs)!, `${what}: answered after ${r.ms} ms > ${e.maxMs} ms`);
     if (e && flag(e.allowError) && !r.ok) return;
     if (!e) {
       this.check(r.ok, `${what}: unexpected error ${JSON.stringify(r.error)}`);
@@ -262,16 +265,23 @@ class QTestScenarioRun {
     if (e.ok !== undefined) this.check(r.ok === e.ok, `${what}: expected ok=${e.ok}, got ${r.ok ? "result" : "error " + JSON.stringify(r.error)}`);
     if (e.errorCode !== undefined) this.check(!r.ok && r.error?.code === e.errorCode, `${what}: expected error ${e.errorCode}, got ${JSON.stringify(r.error ?? r.result)}`);
     if (e.errorCodeIn !== undefined) this.check(!r.ok && e.errorCodeIn.includes(r.error?.code), `${what}: expected error in ${e.errorCodeIn}, got ${JSON.stringify(r.error ?? r.result)}`);
+    if (e.errorMessageMatches !== undefined) this.check(!r.ok && new RegExp(e.errorMessageMatches).test(String(r.error?.message ?? "")), `${what}: error message ${JSON.stringify(r.error?.message)} does not match /${e.errorMessageMatches}/`);
     if (e.result !== undefined) this.check(r.ok && subset(e.result, r.result), `${what}: result ${JSON.stringify(r.result)} does not contain ${JSON.stringify(e.result)}`);
     if (e.protocolVersionIn !== undefined) this.check(r.ok && list(e.protocolVersionIn).includes(r.result?.protocolVersion), `${what}: protocolVersion ${r.result?.protocolVersion} not in ${e.protocolVersionIn}`);
   }
 
-  private async call(p: Promise<any>, ms: number, what: string) {
+  private async call(p: Promise<any>, ms: number, what: string): Promise<{ ok: boolean; result?: any; error?: any; ms: number }> {
+    const t = Date.now();
     try {
-      return { ok: true, result: await within(p, ms, what) };
+      const result = await within(p, ms, what);
+      const r = { ok: true, result, ms: Date.now() - t };
+      this.stepLog.push({ op: what, ms: r.ms, ok: true });
+      return r;
     } catch (err: any) {
       if (err instanceof StepFailure) throw err;
-      return { ok: false, error: { code: err?.code, message: String(err?.message ?? err) } };
+      const r = { ok: false, error: { code: err?.code, message: String(err?.message ?? err) }, ms: Date.now() - t };
+      this.stepLog.push({ op: what, ms: r.ms, ok: false, code: r.error.code });
+      return r;
     }
   }
 
@@ -458,6 +468,13 @@ class QTestScenarioRun {
         const r = await this.call(this.conn().sdk.listSessions({}), ms, "session/list");
         this.expectResponse(s.expect?.ok === false || s.expect?.errorCode !== undefined ? s.expect : undefined, r, "session/list");
         if (r.ok) {
+          const n = (r.result.sessions ?? []).length;
+          if (s.saveCountAs) this.counts.set(s.saveCountAs, n);
+          if (s.expect?.countEquals !== undefined) {
+            const want = this.counts.get(s.expect.countEquals);
+            this.check(want !== undefined, `unknown saved count ${s.expect.countEquals}`);
+            this.check(n === want, `session/list has ${n} sessions, expected ${want} (saved as ${s.expect.countEquals})`);
+          }
           const ids = new Set((r.result.sessions ?? []).map((x: any) => x.sessionId));
           for (const n of s.expect?.contains ?? []) this.check(ids.has(this.sid(n)), `session/list lacks ${n}`);
           for (const n of s.expect?.excludes ?? []) this.check(!ids.has(this.sid(n)), `session/list shows ${n}`);
@@ -562,6 +579,7 @@ class QTestScenarioRun {
           text = JSON.stringify({ jsonrpc: "2.0", id: s.id ?? null, method: "session/prompt", params: { sessionId: "x", prompt: [{ type: "text", text: "a".repeat(num(s.oversizeBytes)!) }] } });
         }
         const e = s.expect ?? {};
+        const t0 = Date.now();
         const got = await Promise.race([
           c.raw(text, s.id ?? null).then((m) => ({ kind: "response", m })),
           c.exit.then((x) => ({ kind: "closed", m: x })),
@@ -578,9 +596,19 @@ class QTestScenarioRun {
           return;
         }
         const m = got.m as any;
-        if (e.errorCode !== undefined) this.check(m.error?.code === e.errorCode, `raw: expected error ${e.errorCode}, got ${JSON.stringify(m)}`);
+        if (e.maxMs !== undefined) this.check(Date.now() - t0 <= num(e.maxMs)!, `raw: answered after ${Date.now() - t0} ms > ${e.maxMs} ms`);
+        if (e.ok === true) this.check(!!m.result && !m.error, `raw: expected a result, got ${JSON.stringify(m)}`);
+        for (const needle of (e.notEchoes ?? []) as string[]) this.check(!JSON.stringify(m).includes(needle), `raw: the answer echoes "${needle}": ${JSON.stringify(m).slice(0, 300)}`);
+        if (e.saveResultAs) this.rawResults.set(e.saveResultAs, m.result);
         if (e.errorCodeIn !== undefined) this.check(e.errorCodeIn.includes(m.error?.code), `raw: expected error in ${e.errorCodeIn}, got ${JSON.stringify(m)}`);
         if (e.ok === false) this.check(!!m.error, `raw: expected an error, got ${JSON.stringify(m)}`);
+        return;
+      }
+      case "rawPartial": {
+        // Bytes with no trailing newline (half a frame); nothing waits for an answer.
+        const c = this.conn();
+        this.log({ conn: c.index, dir: "out-raw", raw: s.text, partial: true });
+        if (!c.child.stdin!.destroyed) c.child.stdin!.write(s.text);
         return;
       }
       case "probeCapabilities": {
@@ -642,6 +670,24 @@ class QTestScenarioRun {
             this.check(hits.length === 0, `"${needle}" appears in ${hits.length} agent frames (first at ${hits[0]?.ms} ms)`);
           }
           this.check(lines.length > 0, "noFrameContains: no agent frames recorded");
+        }
+        if (s.noResponseFor) {
+          // No frame from the agent answers these request ids.
+          const lines = readFileSync(join(this.outDir, "transcript.jsonl"), "utf8").split("\n").filter(Boolean)
+            .map((l) => JSON.parse(l)).filter((e) => e.dir === "in");
+          for (const id of s.noResponseFor as string[]) {
+            const hits = lines.filter((e) => e.msg && e.msg.id === id && !("method" in e.msg));
+            this.check(hits.length === 0, `request ${id} was answered: ${String(JSON.stringify(hits[0]?.msg)).slice(0, 200)}`);
+          }
+        }
+        if (s.noAgentRequests) {
+          // The agent never calls these editor methods (prefix match).
+          const lines = readFileSync(join(this.outDir, "transcript.jsonl"), "utf8").split("\n").filter(Boolean)
+            .map((l) => JSON.parse(l)).filter((e) => e.dir === "in" && e.msg && typeof e.msg.method === "string");
+          for (const prefix of s.noAgentRequests as string[]) {
+            const hits = lines.filter((e) => e.msg.method.startsWith(prefix));
+            this.check(hits.length === 0, `agent called ${hits[0]?.msg.method} (${hits.length} times)`);
+          }
         }
         if (s.unknownTerminal) {
           // Ruling P2: a tool call whose outcome is unknown never shows

@@ -1,0 +1,35 @@
+{
+  "name": "agentdesktop-acp-dev-missing",
+  "comment": "L1 (ACP-T03-04): dev entry pointed at a Runtime endpoint path that does not exist; it must refuse at start with a readable reason, without crashing.",
+  "agent": [
+    "${REPO_ROOT}/.build/debug/agentdesktop-acp-dev"
+  ],
+  "env": {
+    "AGENTDESKTOP_ENDPOINT": "/tmp/adt-q-unreachable/none.runtime.sock"
+  },
+  "features": [
+    "runtime.missing"
+  ],
+  "vars": {
+    "SUPPORTED_VERSIONS": "[1]",
+    "PROMPT_ECHO": "/help",
+    "ECHO_TEXT": "",
+    "ECHO_PREFIX": "",
+    "PROMPT_SLOW": "TBD-after-A6: neutral sample task, long variant",
+    "PROMPT_SLOW_LONG": "TBD-after-A6: neutral sample task, long variant",
+    "CANCEL_AFTER_MS": "1500",
+    "DISCONNECT_AFTER_MS": "1500",
+    "PROMPT_ACT": "TBD-after-PR4: neutral sample task that needs approval",
+    "OVERSIZE_BYTES": "17825792",
+    "OVERSIZE_ALLOW_CLOSE": "false",
+    "SCOPED_ENDED_TEXT": "编辑器连接已断开",
+    "REFUSAL_EXPLAINED_RE": "不会当作批准",
+    "PROMPT_TASK": "run the neutral sample task",
+    "NO_TASK_RE": "未创建任何任务",
+    "PROMPT_P1": "TBD-after-A6",
+    "P1_NAME": "王小明",
+    "P1_TITLE_FRAGMENT": "候选人",
+    "PROMPT_P2": "TBD-after-A6",
+    "P2_TEXT": "结果未知 · 需要核实"
+  }
+}

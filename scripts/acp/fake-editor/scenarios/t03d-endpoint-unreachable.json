@@ -1,0 +1,54 @@
+{
+  "id": "T03d-endpoint-unreachable",
+  "cases": [
+    "ACP-T03-04"
+  ],
+  "title": "Runtime 端点不可达（socket 文件在、无人监听）：initialize 照常；session/new 在时限内得到带原因的 JSON-RPC 错误，不建会话；进程不崩溃、不挂起，断开后干净退出",
+  "requires": [
+    "runtime.unreachable"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}",
+        "maxMs": 2000
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1",
+      "timeoutMs": 15000,
+      "expect": {
+        "ok": false,
+        "errorCode": -32000,
+        "errorMessageMatches": "Runtime",
+        "maxMs": 15000
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s2",
+      "timeoutMs": 15000,
+      "expect": {
+        "ok": false,
+        "errorCode": -32000,
+        "maxMs": 15000
+      }
+    },
+    {
+      "op": "expectAlive",
+      "ms": 300
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}
