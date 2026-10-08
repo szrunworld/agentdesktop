@@ -124,6 +124,14 @@ import Testing
 
 /// A minimal platform for the end-to-end flow over a real socket.
 final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
+    // G2 probes: an ordinary button of window 3, a QWERTY layout, an
+    // empty menu bar.
+    func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
+        PlatformHit(role: "AXButton", texts: [], windowId: 3)
+    }
+    func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
+    func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
+
     var placed: Set<UInt32> = []
     var performed: [PlatformAction] = []
     func quit(pid: Int32) -> Bool { true }

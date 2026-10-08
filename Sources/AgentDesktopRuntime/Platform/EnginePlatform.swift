@@ -15,6 +15,27 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
 
     public init(engine: AgentRuntime) {
         self.engine = engine
+        ClipboardProbe.prepareKeyboardLayout()
+    }
+
+    // G2 probes: accessibility and keyboard-layout reads only.
+
+    public func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
+        ClipboardProbe.hit(at: CGPoint(x: point.x, y: point.y), pid: pid).map {
+            PlatformHit(role: $0.role, texts: $0.texts, shortcut: $0.shortcut, windowId: $0.windowID, inMenu: $0.inMenu)
+        }
+    }
+
+    public func menuItems(pid: Int32) -> [PlatformMenuItem]? {
+        ClipboardProbe.menuItems(pid: pid)?.map { PlatformMenuItem(texts: $0.texts, shortcut: $0.shortcut) }
+    }
+
+    public func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter {
+        switch ClipboardProbe.character(forKey: key, modifiers: modifiers) {
+        case .named: return .named
+        case let .character(c): return .character(c)
+        case .unknown: return .unknown
+        }
     }
 
     private func handle(_ request: ControlRequest) -> ControlResponse {

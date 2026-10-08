@@ -19,6 +19,14 @@ let integrationKey = "sk-canary-runtime-integration"
 
 /// A form window on a 2x screen at x=2000: a 保存 button and a status text.
 final class FormPlatform: DesktopPlatform, @unchecked Sendable {
+    // G2 probes: an ordinary button of window 11, a QWERTY layout, an
+    // empty menu bar.
+    func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
+        PlatformHit(role: "AXButton", texts: [], windowId: 11)
+    }
+    func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
+    func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
+
     let lock = NSLock()
     var status = "未保存"
     var inputs: [PlatformAction] = []

@@ -92,6 +92,25 @@ let testScreen = ScreenHandle(name: "d_test", displayId: 77, frame: Rect(x: 2000
 
 /// A scripted desktop platform that records every call.
 final class FakePlatform: DesktopPlatform, @unchecked Sendable {
+    // G2 probes. By default: the element of `elements` under the point
+    // (else the window itself) in the pid's first window, a QWERTY layout
+    // (`layout` maps keys the other way), and an empty menu bar.
+    var hitAt: (((x: Double, y: Double), Int32) -> PlatformHit?)?
+    var menu: [PlatformMenuItem]? = []
+    var layout: [String: String] = [:]
+    var layoutKnown = true
+    func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
+        if let hitAt { return hitAt(point, pid) }
+        let (els, wins) = lock.withLock { (elements, windows[pid] ?? []) }
+        let e = els.last { $0.frame.map { point.x >= $0.x && point.x < $0.x + $0.width && point.y >= $0.y && point.y < $0.y + $0.height } ?? false }
+        return PlatformHit(role: e?.role ?? "AXWindow", texts: [e?.label, e?.value].compactMap { $0 }, windowId: wins.first?.windowId)
+    }
+    func menuItems(pid: Int32) -> [PlatformMenuItem]? { menu }
+    func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter {
+        guard layoutKnown else { return .unknown }
+        return key.count == 1 ? .character(layout[key] ?? key) : .named
+    }
+
     let lock = NSLock()
     var calls: [String] = []
     var screens: [String: ScreenHandle] = [:]

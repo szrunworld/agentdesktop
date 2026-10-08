@@ -83,6 +83,16 @@ extension RuntimeService {
                 }
                 var pa = try platformAction(action, snap: snap, window: window)
                 if pa.modifiers.isEmpty { pa.modifiers = [] }
+                // G2, the last check before sending: nothing goes through the
+                // user's clipboard, whoever asks (ClipboardPolicy).
+                let pressed = action["target"]?["elementRef"]?.stringValue.flatMap { snap.elements[$0] }
+                if let path = ClipboardPolicy.refusal(pa, snapshotElement: pressed, pid: b.process.pid, windowId: b.windowId,
+                                                      platform: platform) {
+                    throw RuntimeError("permission_denied",
+                                       "this input would or might use the system clipboard (\(path)); agents may not use the clipboard",
+                                       phase: .handler, notSent: true,
+                                       details: .obj([("reason", .string("clipboard_path_refused")), ("path", .string(path))]))
+                }
                 if let deadline = request.deadline.flatMap(Timestamp.date), now() >= deadline {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
                                        phase: .handler, notSent: true)
@@ -191,7 +201,10 @@ extension RuntimeService {
 
     /// Resolve the request's target against its snapshot.
     func platformAction(_ a: JSONValue, snap: StoredObservation, window: PlatformWindow) throws -> PlatformAction {
-        var pa = PlatformAction(kind: PlatformAction.Kind(rawValue: a["kind"]?.stringValue ?? "") ?? .click)
+        guard let kind = PlatformAction.Kind(rawValue: a["kind"]?.stringValue ?? "") else {
+            throw RuntimeError("invalid_argument", "unknown action kind \(a["kind"]?.stringValue ?? "none")", phase: .handler, notSent: true)
+        }
+        var pa = PlatformAction(kind: kind)
         pa.text = a["text"]?.stringValue
         pa.key = a["key"]?.stringValue
         pa.modifiers = a["modifiers"]?.arrayValue?.compactMap(\.stringValue) ?? []
@@ -199,7 +212,6 @@ extension RuntimeService {
         pa.count = a["count"]?.intValue
         pa.direction = a["direction"]?.stringValue
         pa.amount = a["amount"]?.intValue
-        var pressed: PlatformElement?
         if let ref = a["target"]?["elementRef"]?.stringValue {
             // Element numbers are valid only while this snapshot is the
             // latest read of the window.
@@ -211,7 +223,6 @@ extension RuntimeService {
                 throw RuntimeError("invalid_target", "snapshot \(snap.snapshotId) has no element \(ref)", phase: .handler, notSent: true)
             }
             pa.elementIndex = e.index
-            pressed = e
         } else if let ip = a["target"]?["imagePoint"] {
             guard let t = snap.transform, let size = snap.imageSize else {
                 throw RuntimeError("invalid_target", "snapshot \(snap.snapshotId) has no screenshot to place an image point on",
@@ -229,13 +240,6 @@ extension RuntimeService {
                                    phase: .handler, notSent: true)
             }
             pa.point = (gx, gy)
-        }
-        // G2: nothing goes through the user's clipboard, whoever asks.
-        if let path = ClipboardPolicy.path(of: pa, pressing: pressed) {
-            throw RuntimeError("permission_denied",
-                               "this action would use the system clipboard (\(path)); input never goes through the clipboard: type the text instead",
-                               phase: .handler, notSent: true,
-                               details: .obj([("reason", .string("clipboard_path_refused")), ("path", .string(path))]))
         }
         return pa
     }

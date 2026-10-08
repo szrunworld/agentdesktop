@@ -201,16 +201,27 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
   - `AgentDesktopContracts` 模块已并入 `AgentDesktopProtocol`，GUI 几何的 `Rect` 改名为 `GuiRect`。
 - `contracts/ai-gui/v1` 只剩 Windows 的 C# 合同层在用，待 Windows 线迁移到 runtime/1 后删除。
 
-## 10. 输入不经过系统剪贴板（G2，Kevin 2026-10-08）
+## 10. 输入不经过系统剪贴板（G2，Kevin 2026-10-08 / 10-09）
 
-剪贴板属于用户：粘贴会把用户最近复制的内容（常常是密码）送进 Agent 操作的应用，复制或剪切会覆盖用户的内容。Runtime 在发送输入前统一拒绝走剪贴板的动作，**不看调用方怎么声明文本**，也没有任何运行模式、来源或主体可以解除这条限制（fail closed）。
+剪贴板属于用户：粘贴会把用户最近复制的内容（常常是密码或密钥）送进 Agent 操作的应用；复制或剪切会覆盖用户的内容。**现阶段任何 Agent 都不能经系统剪贴板输入**。这不等于产品永远不能用剪贴板：以后如需开放，必须另行设计显式授权，目前没有这样的授权。
 
-- 拦截点只有一个：`RuntimeService.platformAction`（act 把动作解析成平台动作的地方）。CLI、MCP、SDK、ACP、独立 Agent、主窗口 GUI 探索都经过 `act`，`platform.perform` 在 Sources 里只有这一个调用点；有测试保证这一点。
-- 被拒绝的动作：
-  - 带 cmd 的 v / c / x 键，包括再加 shift 或 option 的变体，例如"粘贴并匹配样式"；`details.path = "shortcut"`。
-  - 点击角色为菜单项或按钮、标签恰好是 Paste / Copy / Cut / 粘贴 / 拷贝 / 复制 / 剪切（及"匹配样式"等变体）的控件；`details.path = "control"`。
-- 应答：`permission_denied`，`notSent: true`，`details.reason = "clipboard_path_refused"`。Run 历史里记一条 `action.refused`。一次性 Run 以 failed 结束；exec Run 不受影响，可以继续发其他输入。
-- 打字本身：macOS 上 `act type` 只走辅助功能写值或 unicode 按键事件，从不使用剪贴板；有测试保证 InputEngine、BackgroundInput、Accessibility、EnginePlatform 里不出现剪贴板 API。
-- 已知边界：
-  - 应用自己的界面元素如果只能用屏幕坐标点击（imagePoint），而且没有可识别的标签，Runtime 无法知道它会不会读剪贴板。这类情况只能靠元素标签判断，属于残余风险。
-  - iPhone 等设备后端（G1）将来接入 Runtime 时，如果它的打字依赖剪贴板，就必须走同一条规则：拒绝，除非 Kevin 另行裁决并有可信授权（PR3 的 grants）。
+规则不看调用方怎么声明，也没有任何运行模式、来源或主体可以解除。Runtime 在 `act` 里、**发送前的最后一步**统一检查；CLI、MCP、SDK、ACP、独立 Agent、主窗口 GUI 探索都只能经这里到达平台（`.perform(` 只在 `RuntimeService+Act.swift`，有测试守着）。**判断不了的一律拒绝。**
+
+- **按键**：判断的是引擎实际发出的键码在当前键盘布局下打出的字符（Dvorak 下 cmd+"." 就是粘贴），带修饰键和不带修饰键各判断一次。
+  - 带 cmd 或 ctrl、字符是 v / c / x：拒绝（`details.path = "shortcut"`）。拒绝 ctrl 是因为虚拟机和远程桌面里 ctrl+V/C/X 用的是共享的剪贴板。
+  - 和目标应用菜单栏里"粘贴 / 拷贝 / 剪切"类菜单项的当前快捷键相同的组合：拒绝（`menu_shortcut`），包括用户在系统设置里改过的快捷键。
+  - 键盘布局读不到：拒绝（`layout_unknown`）。菜单栏读不到：拒绝（`menu_unverified`）。只对带 cmd / ctrl 的组合做这两项判断。
+  - F2 / F3 / F4：拒绝（`function_key`），因为它们是 Office for Mac 的剪切、拷贝、粘贴。
+- **点击**，无论按元素还是按坐标：发送前在点击位置**重新读取**那里的元素，不用快照里的旧信息。
+  - 菜单项（含右键菜单）：快捷键或名称表示粘贴 / 拷贝 / 剪切，拒绝（`menu_item`）；名称和快捷键都没有，无法判断，拒绝（`menu_item_unverified`）。
+  - 不在绑定窗口里、又不是菜单的元素（弹出框、浮层、别的窗口）：拒绝（`outside_bound_window`）。
+  - 辅助功能读不出元素：拒绝（`hit_unavailable`）。
+  - 任何控件，只要它的标题、描述或帮助文字以粘贴 / 拷贝 / 剪切开头：拒绝（`control`）。词表覆盖 macOS 提供的各种语言，"Copy Link""Paste as Plain Text"这类变体也算在内。
+- 打字（辅助功能写值或 unicode 按键事件）和滚动不使用剪贴板。有测试保证：除了主窗口里用户自己点的复制按钮，以及没链接进 Runtime 的 iPhone 路径，产品和引擎代码都不碰剪贴板 API。
+- 应答：`permission_denied`，`notSent: true`，`details.reason = "clipboard_path_refused"`，`details.path` 是上面括号里的取值之一。Run 历史里记 `action.refused`。一次性 Run 以 failed 结束；exec Run 被拒后可以继续。未知的动作类型也拒绝，不再默认当作点击。
+- 用到的系统读取（`SecondScreenCore/ClipboardProbe`）都是只读的：点击位置的辅助功能命中检测、菜单栏第一层菜单项的标题与快捷键（读子项不会打开菜单）、键盘布局。只依赖输入本来就需要的辅助功能权限，不需要新权限；每次读取最多 0.2 秒，应用无响应就按"判断不了"拒绝。这次读取是在持有 Desktop 锁的时候做的，属于 RT-23A 的一个有界例外：慢就拒绝，不会一直占着锁。
+- **规则覆盖不到的情况**（残余风险）：
+  - 应用在一次普通输入之后自己去读剪贴板，例如终端里输入 `pbpaste` 回车，或者网页在点击处理函数里读剪贴板；
+  - 应用自己定义、又不出现在菜单栏里的快捷键；
+  - 名称不在词表里的控件。
+- iPhone 等设备后端（G1）接入 Runtime 时同样适用这条规则：它现在的打字靠粘贴，所以会被拒绝，除非 Kevin 另行裁决并给出可信授权。
