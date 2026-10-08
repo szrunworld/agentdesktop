@@ -47,6 +47,23 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
   - 订阅连接不是控制连接：关闭订阅不影响任何 Run（ADR-02、ADR-06）。在持有未结束 Delegated Run 的控制连接上订阅返回 `conflict`（reason `control_connection`）。
 - 全局游标落在已保留区间之外（已裁剪，或来自已清空的旧库）时返回 `events_cursor_expired`，客户端改用 `run.list` / `run.show` 取当前状态后从新游标订阅。
 
+### 4.1 事件类型目录（F1-01，2026-10-08 冻结）
+
+Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.schema.json#/$defs/PlatformRunEvent`（按 type 分支，data 字段固定）。`run.`、`action.`、`stop.` 前缀只能是这些类型；`unit.` 前缀留给 GUI 单元，约定写在 Explorer 文档里；其他前缀保留。
+
+| type | data |
+| --- | --- |
+| `run.started` | kind、origin、ownership、lifetime、desktopId、sessionId |
+| `action.accepted` | requestId、kind |
+| `action.dispatched` | requestId |
+| `action.completed` / `action.failed` / `action.unknown` | receipt（完整的 ActionReceipt） |
+| `action.refused` | requestId、reason{code, message}：发送前即被拒绝（G0、快照失效、停止、deadline），没有回执 |
+| `run.finishing` / `stop.accepted` | reason、inFlight、revision |
+| `run.quiescent` | revision |
+| `run.ended` | phase=ended、outcome、reason |
+
+回执（F1-03）：没有送达（not_dispatched）、执行失败或结果未知时带 `reason{code, message}`；送达时没有这个字段。经 `run.events` 和 `request.show` 回看时都能看到原因。
+
 ## 5. 产物：不透明 ID，不暴露路径
 
 - `observe` 结果里的 `image` 去掉 `path`，只留 `{artifactId, mediaType, width, height, byteSize, sha256, transform}`。
@@ -54,7 +71,9 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 - 产物按主体归属；读取他人产物返回 `not_found`。保留 24 小时（不变）。
 - CLI：`agentdesktop artifact get <id> --out <file>`。
 
-### `unit.run` 参数（frozen）
+### `unit.run` 参数（frozen；A6 审核后定稿，2026-10-08）
+
+`verification` 是 `UnitVerification`：`{all: [GuiVerification…]}`，1–8 条，谓词定义在 `service.schema.json`。`lifetime` / `ownership` / `origin` 在 Schema 中放行，只是为了让处理函数能明确返回 `ownership_escalation_denied`。Run 上的 GUI 单元信息在 `Run.unit`（`RunUnit`：mode、goalHash、guiProfileId/Revision、verification.status），不改变 phase / outcome / quiescence 三轴。
 
 ```json
 {

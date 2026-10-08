@@ -10,7 +10,13 @@
       }
     },
     "verification": {
-      "all": []
+      "all": [
+        {
+          "kind": "element_text_equals",
+          "role": "static_text",
+          "text": "已保存：Ada"
+        }
+      ]
     },
     "allowedActions": [
       "click",

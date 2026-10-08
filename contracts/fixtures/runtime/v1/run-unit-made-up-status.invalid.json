@@ -1,0 +1,10 @@
+{
+  "def": "RunUnit",
+  "instance": {
+    "mode": "auto",
+    "goalHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "verification": {
+      "status": "probably"
+    }
+  }
+}
