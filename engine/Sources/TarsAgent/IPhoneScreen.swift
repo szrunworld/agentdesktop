@@ -54,6 +54,9 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// Set when input may have reached something else; input is refused
     /// until the window is read again.
     private var invalidated: String?
+    /// This screen's own paste is under way: its own presses (Allow Paste,
+    /// Return) go through, while everyone else waits for it.
+    private var ownPaste = false
 
     /// Checked before each input and during each wait in here; once true,
     /// nothing more is sent.
@@ -122,6 +125,11 @@ public final class IPhoneAgentScreen: AgentScreen {
         guard !IPhoneFrames.isBlank(capture.image) else {
             throw IPhoneError("capture_failed", reason: "blank_frame",
                               "the capture of window \(capture.windowID) is one flat colour, not the phone")
+        }
+        // Another process's paste overlapping the capture: the picture shows
+        // a field in flux, so it is not handed out to act on (Codex on #127).
+        if !ownPaste, pasteBefore || system.pasteInProgress {
+            throw Self.pasteInProgress
         }
         let png = try Images.png(Images.scaled(capture.image, to: size))
         observation = IPhoneObservation(pid: binding?.pid ?? 0, windowID: capture.windowID, frame: capture.frame,
@@ -317,6 +325,10 @@ public final class IPhoneAgentScreen: AgentScreen {
         return response
     }
 
+    static let pasteInProgress = IPhoneError(
+        "paste_in_progress", "another agent is pasting into the phone (or waiting out a paste the phone may still fetch); "
+            + "nothing was sent: take a screenshot again once it is done")
+
     /// No more input to this phone, from this or any process, until a
     /// screenshot of it is taken.
     private func block(_ reason: String) {
@@ -337,6 +349,9 @@ public final class IPhoneAgentScreen: AgentScreen {
             throw IPhoneError.stale("delivery_unknown", "the window \(reason) after an earlier input; "
                 + "take a screenshot before any more input")
         }
+        // Nor while another process is pasting: whatever this input was
+        // planned on, the field is changing under it.
+        if !ownPaste, system.pasteInProgress { throw Self.pasteInProgress }
         guard let bound = binding else {
             throw IPhoneError("no_observation", "read iPhone Mirroring's window first (frame or screenshot)")
         }
@@ -371,7 +386,9 @@ public final class IPhoneAgentScreen: AgentScreen {
 
     /// Paste `text` into the phone's focused field (see `PasteTransaction`).
     private func paste(_ text: String, pid: pid_t) throws -> PasteTransaction.Result {
-        PasteTransaction().paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
+        ownPaste = true
+        defer { ownPaste = false }
+        return PasteTransaction().paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
     }
 
     /// The phone for a paste: Vision reads the window, input goes to Mirroring.

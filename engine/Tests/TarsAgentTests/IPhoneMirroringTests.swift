@@ -239,8 +239,15 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         _ = try phone.frame()
         try fake.inputBarrier.raise("may hold a half-finished paste")
         fake.pasteInProgress = true
-        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        // Codex on #127: a frame taken during another's paste is not handed
+        // out, and no input goes meanwhile.
+        #expect(throws: IPhoneError.self) { try phone.screenshot(size: CGSize(width: 330, height: 720)) }
         #expect(fake.inputBarrier.reason() != nil)
+        fake.inputBarrier.lower()
+        let response = try phone.perform(tap(3100, 300))
+        #expect(response.error?.hasPrefix("paste_in_progress") == true)
+        #expect(fake.inputs.isEmpty)
+        try fake.inputBarrier.raise("may hold a half-finished paste")
         fake.pasteInProgress = false
         _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
         #expect(fake.inputBarrier.reason() == nil)
