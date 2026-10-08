@@ -211,9 +211,17 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         let fake = FakeWDA()
         fake.override("POST", "/actions", .hang)
         let client = fake.client(timeout: .milliseconds(200))
+        try await client.ensureSession()
+        let before = fake.requests.count
         let error = await expectWDAError { try await client.tap(WDAPoint(x: 1, y: 1)) }
+        // The call ends in the timeout state, never in success...
         #expect(error?.kind == .timeout)
         #expect(error?.delivery == .unknown)  // may have run: never replay
+        // ...after exactly one attempt: no retry of the tap, no session
+        // rebuilt behind it, nothing else sent.
+        let during = Array(fake.requests.dropFirst(before))
+        #expect(during.count == 1)
+        #expect(during.first.map { $0.method == "POST" && $0.path.hasSuffix("/actions") } == true)
         // The 200 ms timeout applied, not the 30 s default. Read off the
         // request, not the wall clock: with one cooperative thread shared by
         // the whole suite (LIBDISPATCH_COOPERATIVE_POOL_STRICT=1) the timeout
@@ -659,7 +667,16 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         fake.override("GET", "/window/size", .hang)
         let client = fake.client()
         try await client.ensureSession()
+        let before = fake.requests.count
         let report = await client.probe(deadline: .now + .seconds(5))
+        let during = Array(fake.requests.dropFirst(before))
+        // The geometry was asked once, within the probe's deadline, and timed
+        // out rather than being retried; the probe sent no input and opened
+        // no session (it only reads).
+        let sizes = during.filter { $0.path.hasSuffix("/window/size") }
+        #expect(sizes.count == 1)
+        #expect(sizes.allSatisfy { $0.timeout > 0 && $0.timeout <= 5 })
+        #expect(during.allSatisfy { $0.method == "GET" })
         #expect(report.capability(.screenshot)?.state == .supported)
         #expect(report.capability(.screenshot)?.evidence.contains { $0.contains("decoded PNG 1170x2532") } == true)
         #expect(report.observation == nil)
