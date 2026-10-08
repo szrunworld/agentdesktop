@@ -126,7 +126,7 @@ import Testing
     func otherClientCannotReadEvents() throws {
         let runId = try #require(CurTestReal.endedRunId)
         // A4: the paired test identity's endpoint/credential; not available before PR3.
-        let otherEndpoint = try #require(ProcessInfo.processInfo.environment["CURTEST_REAL_OTHER_ENDPOINT"])
+        let otherEndpoint = try CurTestReal.checkedEndpoint(try #require(ProcessInfo.processInfo.environment["CURTEST_REAL_OTHER_ENDPOINT"]))
         let other = ACPBridgeConfiguration.socketFactory(endpoint: Endpoint(path: otherEndpoint, source: .environment))
         let c = other(.events)
         defer { c.close() }

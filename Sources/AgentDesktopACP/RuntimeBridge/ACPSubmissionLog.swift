@@ -69,6 +69,9 @@ public final class ACPSubmissionLog: @unchecked Sendable {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: path])
         }
         let cutoff = now().addingTimeInterval(-Double(Self.retentionDays) * 86400)
+        // A file written before the F-1 fix may still hold refusal messages
+        // or unlisted codes in clear text: rewrite it once, right away.
+        var scrub = false
         for item in list {
             guard let key = item["submissionKey"]?.stringValue, let rid = item["requestId"]?.stringValue,
                   let method = item["method"]?.stringValue,
@@ -76,10 +79,15 @@ public final class ACPSubmissionLog: @unchecked Sendable {
                   let at = item["updatedAt"]?.stringValue
             else { throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: path]) }
             if let d = Self.date(at), d < cutoff { continue }
+            if item["refusalMessage"] != nil { scrub = true }
+            let rawCode = item["refusalCode"]?.stringValue
+            let code = rawCode.map(ACPRedactor.errorCode)
+            if rawCode != code { scrub = true }
             entries[key] = Entry(submissionKey: key, requestId: rid, method: method, state: state,
-                                 runId: item["runId"]?.stringValue, refusalCode: item["refusalCode"]?.stringValue,
+                                 runId: item["runId"]?.stringValue, refusalCode: code,
                                  refusalMessage: nil, updatedAt: at)
         }
+        if scrub { try persist() }
     }
 
     public func entry(_ submissionKey: String) -> Entry? {
