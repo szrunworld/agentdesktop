@@ -138,9 +138,17 @@ extension RuntimeService {
                 }
                 let after = try exposedTarget(d, b, notSent: false)
                 guard after.stack == before.stack, Self.sameFrame(after.window.frame, before.window.frame) else {
+                    // Which windows differ, for diagnosis (ids and frames only).
+                    func describe(_ s: [StackEntry]) -> JSONValue {
+                        .array(s.map { .obj([("windowId", .int(Int($0.windowId))), ("frame", $0.frame.json)]) })
+                    }
                     throw RuntimeError("stale_observation", "the windows on desktop \(d.desktopId) changed while it was observed; observe again",
                                        phase: .handler, details: .obj([("reason", .string("changed_during_capture")),
-                                                                       ("generation", .int(b.generation))]))
+                                                                       ("generation", .int(b.generation)),
+                                                                       ("stackBefore", describe(before.stack)),
+                                                                       ("stackAfter", describe(after.stack)),
+                                                                       ("frameBefore", before.window.frame.json),
+                                                                       ("frameAfter", after.window.frame.json)]))
                 }
                 var frame = before.window.frame
                 var title = before.window.title

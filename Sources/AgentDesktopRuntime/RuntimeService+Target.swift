@@ -50,7 +50,12 @@ extension RuntimeService {
                          "\(first.appName) window \(first.windowId) is in front of the bound window \(b.windowId); bind it explicitly to use it",
                          covering: sibling)
         }
-        return (window, stack.map { StackEntry(windowId: $0.windowId, frame: $0.frame) })
+        // The fingerprint compared around a capture: the windows that share
+        // the bound window's area. Elsewhere on the screen things may come
+        // and go (the screen-recording indicator in the menu bar does on
+        // every capture) without changing what was captured.
+        return (window, stack.filter { $0.windowId == b.windowId || Self.overlap($0.frame, window.frame) }
+            .map { StackEntry(windowId: $0.windowId, frame: $0.frame) })
     }
 
     struct StackEntry: Equatable {
