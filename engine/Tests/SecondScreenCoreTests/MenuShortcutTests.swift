@@ -28,3 +28,16 @@ struct MenuVirtualKeyTests {
         #expect(ClipboardProbe.shortcut(virtualKey: 999, modifiers: 0) == nil)
     }
 }
+
+/// Menus show named keys as glyphs or function-key codes (b9, round 3).
+struct MenuGlyphTests {
+    @Test(arguments: [("\u{F709}", "f6"), ("\u{F704}", "f1"), ("\u{F700}", "up"), ("\u{0008}", "delete"),
+                      ("\u{238B}", "escape"), ("\u{2326}", "forwarddelete"), ("\u{F728}", "forwarddelete")])
+    func glyphsAreReadAsTheEnginesKeyNames(_ glyph: String, _ name: String) {
+        #expect(ClipboardProbe.namedKey(forMenuCharacter: glyph) == name)
+    }
+
+    @Test func lettersAreNotNamedKeys() {
+        #expect(ClipboardProbe.namedKey(forMenuCharacter: "V") == nil)
+    }
+}

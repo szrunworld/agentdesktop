@@ -23,12 +23,23 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     public func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
         ClipboardProbe.hit(at: CGPoint(x: point.x, y: point.y), pid: pid).map {
             PlatformHit(role: $0.role, texts: $0.texts, shortcut: $0.shortcut, windowId: $0.windowID, inMenu: $0.inMenu,
-                        ancestorTexts: $0.ancestorTexts)
+                        ancestorTexts: $0.ancestorTexts, focused: $0.focused, editable: $0.editable)
         }
     }
 
+    /// A menu bar, read again at most every few seconds per app: every
+    /// modified key asks for it.
+    private let menuCache = NSLock()
+    private var menus: [Int32: (items: [PlatformMenuItem], at: Date)] = [:]
+
     public func menuItems(pid: Int32) -> [PlatformMenuItem]? {
-        ClipboardProbe.menuItems(pid: pid)?.map { PlatformMenuItem(texts: $0.texts, shortcut: $0.shortcut) }
+        if let cached = menuCache.withLock({ menus[pid] }), Date().timeIntervalSince(cached.at) < ClipboardProbe.menuCacheSeconds {
+            return cached.items
+        }
+        guard let items = ClipboardProbe.menuItems(pid: pid)?.map({ PlatformMenuItem(texts: $0.texts, shortcut: $0.shortcut) })
+        else { return nil }
+        menuCache.withLock { menus[pid] = (items, Date()) }
+        return items
     }
 
     public func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter {

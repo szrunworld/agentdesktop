@@ -24,6 +24,11 @@ public enum ClipboardProbe {
         /// Names of the controls around it (up to three levels up): an icon
         /// inside a "Copy" button names nothing itself.
         public var ancestorTexts: [String] = []
+        /// The element has keyboard focus (typing there needs no click).
+        public var focused = false
+        /// The element is editable text (a field, or rich text a web page
+        /// marks editable).
+        public var editable = false
     }
 
     /// One menu item of an app's menu bar with a keyboard equivalent.
@@ -49,15 +54,28 @@ public enum ClipboardProbe {
     public static let messagingTimeout: Float = 0.3
     /// How long one whole probe may take; past it the probe answers nothing.
     public static let budget: TimeInterval = 1.0
+    /// Menu bars read again at most this often per app.
+    public static let menuCacheSeconds: TimeInterval = 5
 
     /// Reads with a timeout on each element and one deadline for the probe.
-    struct Reader {
+    /// Only "no value" or "not supported" mean an attribute is absent; any
+    /// other error (a timeout, an app that cannot answer) spoils the whole
+    /// probe, which then answers nothing.
+    final class Reader {
         let deadline = Date().addingTimeInterval(ClipboardProbe.budget)
-        var expired: Bool { Date() >= deadline }
+        private(set) var failed = false
+        var expired: Bool { failed || Date() >= deadline }
         func read<T>(_ element: AXUIElement, _ name: String) -> T? {
             guard !expired else { return nil }
             AXUIElementSetMessagingTimeout(element, ClipboardProbe.messagingTimeout)
-            return WindowMover.copyAttribute(element, name)
+            var value: CFTypeRef?
+            switch AXUIElementCopyAttributeValue(element, name as CFString, &value) {
+            case .success: return value as? T
+            case .noValue, .attributeUnsupported: return nil
+            default:
+                failed = true
+                return nil
+            }
         }
     }
 
@@ -85,8 +103,14 @@ public enum ClipboardProbe {
             if inMenu && depth >= 2 { break }
             node = parent
         }
-        let hit = Hit(role: role, texts: texts(of: element, r), shortcut: shortcut(of: element, r),
+        var hit = Hit(role: role, texts: texts(of: element, r), shortcut: shortcut(of: element, r),
                       windowID: windowElement.flatMap(WindowMover.windowID(of:)), inMenu: inMenu, ancestorTexts: ancestors)
+        hit.focused = (r.read(element, kAXFocusedAttribute) as Bool?) ?? false
+        let editableAncestor: AXUIElement? = r.read(element, "AXEditableAncestor")
+        var settable: DarwinBoolean = false
+        hit.editable = editableAncestor != nil
+            || (AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success && settable.boolValue
+                && [kAXTextFieldRole as String, kAXTextAreaRole as String, kAXComboBoxRole as String].contains(role))
         // An answer cut short by the deadline is no answer.
         return r.expired ? nil : hit
     }
@@ -94,7 +118,7 @@ public enum ClipboardProbe {
     /// The items of the app's menu bar menus (first level) that have a
     /// keyboard equivalent. Nil when the menu bar cannot be read. Reading
     /// a menu's items does not open it.
-    public static func menuItems(pid: pid_t, limit: Int = 600) -> [MenuItem]? {
+    public static func menuItems(pid: pid_t, limit: Int = 3_000) -> [MenuItem]? {
         let r = Reader()
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, messagingTimeout)
@@ -159,13 +183,33 @@ public enum ClipboardProbe {
 
     static func shortcut(of element: AXUIElement, _ r: Reader) -> String? {
         let mods: Int = r.read(element, kAXMenuItemCmdModifiersAttribute) ?? 0
-        if let char: String = r.read(element, kAXMenuItemCmdCharAttribute),
-           !char.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return shortcut(char: char, modifiers: mods)
+        // Named keys carry a virtual key code; their character is a glyph or
+        // a private-use code (Safari's arrows U+F700, Finder's Delete U+0008,
+        // Chrome's Esc U+238B), never a letter to compare.
+        if let code: Int = r.read(element, kAXMenuItemCmdVirtualKeyAttribute), let s = shortcut(virtualKey: code, modifiers: mods) {
+            return s
         }
-        // Named keys (F5, Delete…) are given as a virtual key code instead.
-        guard let code: Int = r.read(element, kAXMenuItemCmdVirtualKeyAttribute) else { return nil }
-        return shortcut(virtualKey: code, modifiers: mods)
+        guard let char: String = r.read(element, kAXMenuItemCmdCharAttribute),
+              !char.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if let named = namedKey(forMenuCharacter: char) { return shortcut(char: named, modifiers: mods) }
+        return shortcut(char: char, modifiers: mods)
+    }
+
+    /// The engine's name for a key a menu shows as a glyph or function-key code.
+    public static func namedKey(forMenuCharacter char: String) -> String? {
+        guard let scalar = char.unicodeScalars.first, char.unicodeScalars.count == 1 else { return nil }
+        let v = scalar.value
+        // NSF1FunctionKey… : U+F704 is F1.
+        if (0xF704...0xF70F).contains(v) { return "f\(v - 0xF704 + 1)" }
+        let table: [UInt32: String] = [
+            0xF700: "up", 0xF701: "down", 0xF702: "left", 0xF703: "right", 0xF728: "forwarddelete",
+            0xF729: "home", 0xF72B: "end", 0xF72C: "pageup", 0xF72D: "pagedown",
+            0x08: "delete", 0x7F: "delete", 0x09: "tab", 0x0D: "return", 0x03: "return", 0x1B: "escape",
+            0x238B: "escape", 0x232B: "delete", 0x2326: "forwarddelete", 0x21E5: "tab", 0x21A9: "return", 0x2324: "return",
+            0x2190: "left", 0x2192: "right", 0x2191: "up", 0x2193: "down", 0x2196: "home", 0x2198: "end",
+            0x21DE: "pageup", 0x21DF: "pagedown", 0x20: "space",
+        ]
+        return table[v]
     }
 
     /// "cmd+F5" from a virtual key code, by the engine's own key names.

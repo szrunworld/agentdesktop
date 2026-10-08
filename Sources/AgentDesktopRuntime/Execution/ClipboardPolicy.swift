@@ -60,10 +60,20 @@ enum ClipboardPolicy {
         }
     }
 
-    /// Whether the menu bar must be read for this action (before the lock).
+    /// Keys that move or edit, pressed alone, are not looked up in the menu
+    /// bar (every Return or arrow would otherwise read it): moving paste onto
+    /// one of them is left out (docs).
+    static let plainKeys: Set<String> = ["return", "enter", "tab", "space", "escape", "esc", "delete", "backspace",
+                                         "forwarddelete", "left", "right", "up", "down", "home", "end", "pageup", "pagedown"]
+    static let keyAliases: [String: String] = ["enter": "return", "esc": "escape", "backspace": "delete"]
+
+    /// Whether the menu bar must be read for this action (before the lock):
+    /// any modified key, and function keys alone.
     static func needsMenu(_ action: PlatformAction) -> Bool {
         guard action.kind == .key else { return false }
-        return !action.modifiers.isEmpty || (action.key ?? "").count > 1
+        let key = (action.key ?? "").lowercased()
+        if !action.modifiers.isEmpty { return true }
+        return key.count > 1 && !plainKeys.contains(key)
     }
 
     static let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXSecureTextField"]
@@ -74,7 +84,9 @@ enum ClipboardPolicy {
         guard let hit = platform.clipboardHit(at: center, pid: pid) else { return "hit_unavailable" }
         guard hit.windowId == windowId, !hit.inMenu else { return "outside_bound_window" }
         let role = String(hit.role.split(separator: "/").first ?? "")
-        guard textRoles.contains(role) else { return "type_target_not_text" }
+        // Focused: the engine types without clicking. Otherwise only a text
+        // field or editable rich text is clicked into.
+        guard hit.focused || hit.editable || textRoles.contains(role) else { return "type_target_not_text" }
         return nil
     }
 
@@ -106,7 +118,7 @@ enum ClipboardPolicy {
         guard needsMenu(action) else { return nil }
         guard let menu else { return "menu_unverified" }
         var pressed = Set(characters.map { combo(mods, $0) })
-        pressed.insert(combo(mods, key))
+        pressed.insert(combo(mods, keyAliases[key] ?? key))
         if menu.contains(where: { isClipboardItem(texts: $0.texts, shortcut: $0.shortcut) && pressed.contains(normalised(shortcut: $0.shortcut)) }) {
             return "menu_shortcut"
         }
@@ -149,14 +161,13 @@ enum ClipboardPolicy {
         "kopyala", "kes", "kopiera", "klipp", "kopier", "indsæt", "kopiér", "klip", "liitä", "kopioi", "leikkaa",
         "vložit", "kopírovat", "vyjmout", "vložiť", "kopírovať", "vystrihnúť", "beillesztés", "másolás", "kivágás",
         "lipire", "copiere", "decupare", "επικόλληση", "αντιγραφή", "αποκοπή", "הדבק", "העתק", "גזור", "لصق", "نسخ",
-        "قص", "วาง", "คัดลอก", "ตัด", "dán", "tempel", "salin", "potong", "tampal", "enganxa", "retalla", "zalijepi",
-        "kopiraj", "izreži", "ielīmēt", "kopēt", "izgriezt", "įklijuoti", "kopijuoti", "iškirpti", "einsetzen",
-        "plak", "kopieer", "knip", "sijoita", "скопировать", "복사하기", "오려두기", "lipește", "copiază", "decupează",
-        "скопіювати", "สำเนา", "cắt",
+        "قص", "dán", "tempel", "salin", "potong", "tampal", "enganxa", "retalla", "zalijepi", "kopiraj", "izreži",
+        "ielīmēt", "kopēt", "izgriezt", "įklijuoti", "kopijuoti", "iškirpti", "einsetzen", "plak", "kopieer", "knip",
+        "sijoita", "скопировать", "복사하기", "오려두기", "lipește", "copiază", "decupează", "скопіювати", "cắt", "yapiştir",
     ]
     /// Beginnings for scripts without spaces, and multi-word names.
     static let prefixes: [String] = [
-        "粘贴", "拷贝", "复制", "剪切", "貼上", "拷貝", "複製", "剪下", "貼り付け", "貼付", "ペースト", "コピー", "カット", "切り取り", "붙여넣기", "복사", "잘라내기", "klistra in", "lim inn", "sao chép", "चिपकाएँ", "कॉपी", "काटें", "sæt ind", "klipp ut", "पेस्ट",
+        "粘贴", "拷贝", "复制", "剪切", "貼上", "拷貝", "複製", "剪下", "貼り付け", "貼付", "ペースト", "コピー", "カット", "切り取り", "붙여넣기", "복사", "잘라내기", "klistra in", "lim inn", "sao chép", "चिपकाएँ", "कॉपी", "काटें", "sæt ind", "klipp ut", "पेस्ट", "贴上", "วาง", "คัดลอก", "ตัด", "สำเนา",
     ]
 
     /// Whether a control's name says paste, copy or cut. Long texts (a
@@ -195,6 +206,6 @@ enum ClipboardPolicy {
     static func normalised(shortcut: String) -> String {
         let parts = shortcut.lowercased().split(separator: "+").map(String.init)
         guard let key = parts.last else { return shortcut.lowercased() }
-        return combo(Array(parts.dropLast()), key)
+        return combo(Array(parts.dropLast()), keyAliases[key] ?? key)
     }
 }

@@ -216,15 +216,21 @@ public struct PlatformHit: Equatable, Sendable {
     public var inMenu: Bool
     /// Names of the controls around it (up to three levels up).
     public var ancestorTexts: [String]
+    /// It has keyboard focus: typing there needs no click.
+    public var focused: Bool
+    /// It is editable text (a field, or rich text a page marks editable).
+    public var editable: Bool
 
     public init(role: String, texts: [String], shortcut: String? = nil, windowId: UInt32?, inMenu: Bool = false,
-                ancestorTexts: [String] = []) {
+                ancestorTexts: [String] = [], focused: Bool = false, editable: Bool = false) {
         self.role = role
         self.texts = texts
         self.shortcut = shortcut
         self.windowId = windowId
         self.inMenu = inMenu
         self.ancestorTexts = ancestorTexts
+        self.focused = focused
+        self.editable = editable
     }
 }
 

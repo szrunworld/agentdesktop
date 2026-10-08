@@ -322,3 +322,43 @@ func aControlWhoseNameSaysPasteCopyOrCutIsRefusedInAnyLanguage(_ role: String, _
     expectRefusal(act(sc, key("f6", [])), path: "menu_unverified")
     sent(act(sc, key("a", [])))
 }
+
+// MARK: Round four (b9's third review)
+
+@Test func typingIntoFocusedOrEditableRichTextIsAllowed() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    // A web page's contenteditable chat box, not focused: editable.
+    platform.hitAt = { _, _ in PlatformHit(role: "AXGroup", texts: [], windowId: 11, editable: true) }
+    sent(act(sc, #"{"kind":"type","text":"你好","target":{"elementRef":"el_0"}}"#))
+    // Already focused: the engine types without clicking.
+    platform.hitAt = { _, _ in PlatformHit(role: "AXGroup", texts: [], windowId: 11, focused: true) }
+    sent(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#))
+    // Neither: a click would press it.
+    platform.hitAt = { _, _ in PlatformHit(role: "AXGroup", texts: ["Copy"], windowId: 11) }
+    expectRefusal(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#), path: "type_target_not_text")
+}
+
+@Test func keyAliasesNameTheSameKey() throws {
+    let platform = FakePlatform()
+    platform.menu = [PlatformMenuItem(texts: ["Paste"], shortcut: "cmd+RETURN")]
+    let sc = try scene(platform)
+    expectRefusal(act(sc, key("enter", ["cmd"])), path: "menu_shortcut")
+    expectRefusal(act(sc, key("return", ["cmd"])), path: "menu_shortcut")
+}
+
+@Test func plainMovementKeysDoNotNeedTheMenuBar() throws {
+    let platform = FakePlatform()
+    platform.menu = nil
+    let sc = try scene(platform)
+    for k in ["return", "tab", "down", "escape", "delete"] { sent(act(sc, key(k, []))) }
+    expectRefusal(act(sc, key("f6", [])), path: "menu_unverified")
+}
+
+@Test(arguments: ["YAPIŞTIR", "วางลิงก์", "贴上", "สำเนาลิงก์"])
+func moreLocalesAreRecognised(_ text: String) throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.hitAt = { _, _ in PlatformHit(role: "AXMenuItem", texts: [text], windowId: nil, inMenu: true) }
+    expectRefusal(act(sc, clickAt(100, 100)), path: "menu_item")
+}
