@@ -2,7 +2,7 @@ name: macOS
 
 on:
   push:
-    branches: [ai-gui-foundation, main]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -34,6 +34,13 @@ jobs:
       - name: Native core unit tests
         timeout-minutes: 8
         run: swift test --package-path engine
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: SDK unit tests (Python, TypeScript)
+        run: |
+          (cd sdks/python && python3 -m unittest discover -s tests -v)
+          (cd sdks/typescript && node --test test/*.test.ts)
       - name: Bundle the app
         run: ./scripts/bundle-app.sh
       - name: Bundle contents

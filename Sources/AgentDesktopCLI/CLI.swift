@@ -1,4 +1,5 @@
 import AgentDesktopClient
+import AgentDesktopMCP
 import AgentDesktopProtocol
 import Foundation
 
@@ -110,6 +111,13 @@ struct CLI {
             return runWait(runId: runId, timeout: timeout, out, endpoint: endpoint)
         case let .runCancel(runId, requestId, wait, timeout):
             return runCancel(runId: runId, requestId: requestId, wait: wait, timeout: timeout, out, endpoint: endpoint)
+        case .mcp:
+            // stdout carries only MCP messages; diagnostics go to stderr.
+            let server = MCPServer(makeClient: { [makeClient] in makeClient(endpoint) })
+            server.serve(readLine: { Swift.readLine(strippingNewline: true) }, write: { line in
+                FileHandle.standardOutput.write(Data((line + "\n").utf8))
+            })
+            return ExitStatus.ok
         case let .sessionExec(desktopId, sessionId, argv):
             return sessionExec(desktopId: desktopId, sessionId: sessionId, argv: argv, out, endpoint: endpoint)
         }
