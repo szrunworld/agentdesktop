@@ -215,7 +215,9 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         let error = await expectWDAError { try await client.tap(WDAPoint(x: 1, y: 1)) }
         #expect(error?.kind == .timeout)
         #expect(error?.delivery == .unknown)  // may have run: never replay
-        #expect(ContinuousClock.now - started < .seconds(3))
+        // The 200 ms timeout applied, not the 30 s default; generous, since a
+        // loaded machine stretched a 3 s bound to 3.3 s.
+        #expect(ContinuousClock.now - started < .seconds(10))
     }
 
     @Test func deadlineShortensTheRequestTimeout() async throws {
