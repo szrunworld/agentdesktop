@@ -1922,6 +1922,512 @@
           "type": "boolean"
         }
       }
+    },
+    "ElementMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "labelContains": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "minProperties": 1,
+      "description": "an element of the bound window: role and/or exact label and/or label-or-value substring"
+    },
+    "Condition": {
+      "description": "UI conditions only, combined recursively; nothing about files, network or business data is accepted",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "elementPresent",
+                "elementAbsent"
+              ]
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "labelContains": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "const": "elementTextEquals"
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "labelContains": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "all"
+          ],
+          "properties": {
+            "all": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": {
+                "$ref": "#/$defs/Condition"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "any"
+          ],
+          "properties": {
+            "any": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": {
+                "$ref": "#/$defs/Condition"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "not"
+          ],
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/Condition"
+            }
+          }
+        }
+      ]
+    },
+    "ProcedureStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "click",
+            "type",
+            "key"
+          ]
+        },
+        "element": {
+          "$ref": "#/$defs/ElementMatch"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10000
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "modifiers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "cmd",
+              "shift",
+              "option",
+              "ctrl"
+            ]
+          }
+        },
+        "waitMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000,
+          "description": "how long to wait for the element (default 3000)"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "click"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "element"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "type"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "text"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "key"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "key"
+            ]
+          }
+        }
+      ]
+    },
+    "unit_run_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verification"
+      ],
+      "properties": {
+        "verification": {
+          "$ref": "#/$defs/Condition"
+        },
+        "procedureId": {
+          "$ref": "#/$defs/Id"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/ProcedureStep"
+          }
+        },
+        "explore": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "goal"
+          ],
+          "properties": {
+            "goal": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "maxSteps": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            }
+          }
+        },
+        "learnAs": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "save the steps that reached the verified state as a procedure"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 600000
+        }
+      },
+      "not": {
+        "required": [
+          "procedureId",
+          "steps"
+        ]
+      }
+    },
+    "procedure_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "procedure_show_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "procedureId"
+      ],
+      "properties": {
+        "procedureId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "Procedure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "procedureId",
+        "name",
+        "version",
+        "app",
+        "source",
+        "steps",
+        "verification",
+        "createdAt"
+      ],
+      "properties": {
+        "procedureId": {
+          "$ref": "#/$defs/Id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "app": {
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "explicit",
+            "explore"
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProcedureStep"
+          }
+        },
+        "verification": {
+          "$ref": "#/$defs/Condition"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "ProcedureList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "procedures"
+      ],
+      "properties": {
+        "procedures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Procedure"
+          }
+        }
+      }
+    },
+    "UnitResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unitId",
+        "state",
+        "path",
+        "verification",
+        "receipts",
+        "modelCalls",
+        "procedure",
+        "learned",
+        "failure"
+      ],
+      "properties": {
+        "unitId": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "already_satisfied",
+              "replay",
+              "explore"
+            ]
+          }
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "satisfied",
+            "snapshotId"
+          ],
+          "properties": {
+            "satisfied": {
+              "type": "boolean"
+            },
+            "snapshotId": {
+              "$ref": "#/$defs/Id"
+            }
+          }
+        },
+        "receipts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        },
+        "modelCalls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "procedure": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "procedureId",
+                "version"
+              ],
+              "properties": {
+                "procedureId": {
+                  "$ref": "#/$defs/Id"
+                },
+                "version": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "learned": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "procedureId",
+                "version"
+              ],
+              "properties": {
+                "procedureId": {
+                  "$ref": "#/$defs/Id"
+                },
+                "version": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "phase",
+                "code",
+                "message"
+              ],
+              "properties": {
+                "phase": {
+                  "enum": [
+                    "replay",
+                    "explore",
+                    "verification"
+                  ]
+                },
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     }
   }
 }

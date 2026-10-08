@@ -183,6 +183,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     uid == me ? service.router(callerScope: "uid:\(uid)", trustedOwner: true) : nil
                 }
                 try server.start()
+                // GUI units may explore with a model only where real GUI input is on.
+                if enabled { runtime.unitExplorer = UnitExplorerBridge(service: service) }
                 await MainActor.run {
                     self.aiServer = server
                     self.aiService = service
@@ -206,6 +208,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let service = RuntimeService(
                 identity: identity, backend: MacBackend(), platform: EnginePlatform(engine: runtime),
                 ledger: try RequestLedger(path: records + "/requests.sqlite"),
+                runs: try RunStore(path: records + "/runs.sqlite"),
+                procedures: try ProcedureStore(path: records + "/procedures.sqlite"),
                 artifacts: try ArtifactStore(directory: records + "/artifacts"))
             let server = RuntimeServer(path: path, service: service)
             try server.start()

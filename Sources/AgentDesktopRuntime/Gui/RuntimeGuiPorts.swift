@@ -31,9 +31,14 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
     private var bindings: [String: RunBinding] = [:]
     /// Per Desktop: last window frame seen and its revision.
     private var geometry: [String: (frame: AgentDesktopProtocol.Rect, revision: UInt64)] = [:]
+    /// Per GUI run, the executed steps as replayable procedure steps; nil
+    /// once any step cannot be expressed by element (e.g. a click on no
+    /// uniquely labelled element, or a scroll).
+    private var learnedSteps: [String: [JSONValue]?] = [:]
 
     public init(service: RuntimeService) {
         self.service = service
+        defer { service.guiRunSteps = { [weak self] run in self?.steps(of: run) } }
         // The GUI service runs in this process, as this user.
         connection = ConnectionState(peerUID: getuid())
         _ = service.respond(to: Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"gui-handshake","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"agentdesktop-gui","version":"1"}}}"#.utf8),
@@ -75,6 +80,43 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         let epoch = UInt64(b.generation)
         lock.withLock { bindings[runId] = RunBinding(desktopId: desktopId, sessionId: session, bindingEpoch: epoch) }
         return (session, epoch)
+    }
+
+    /// The steps a GUI run executed, if every one is replayable.
+    public func steps(of runId: String) -> [JSONValue]? {
+        lock.withLock { learnedSteps[runId] ?? nil }
+    }
+
+    /// Record a confirmed action as a procedure step.
+    private func learn(_ action: GuiAction, runId: String, snapshotId: String, point: (Double, Double)?) {
+        var step: JSONValue?
+        switch action {
+        case .click:
+            if let point, let snap = service.observations.find(snapshotId) {
+                let all = Array(snap.elements.values)
+                let under = all.filter { e in
+                    guard let f = e.frame, let l = e.label, !l.isEmpty else { return false }
+                    return point.0 >= f.x && point.0 < f.x + f.width && point.1 >= f.y && point.1 < f.y + f.height
+                }.min { ($0.frame!.width * $0.frame!.height) < ($1.frame!.width * $1.frame!.height) }
+                if let e = under, all.filter({ $0.role == e.role && $0.label == e.label }).count == 1 {
+                    step = .obj([("action", .string("click")),
+                                 ("element", .obj([("role", .string(e.role)), ("label", .string(e.label!))]))])
+                }
+            }
+        case let .type(text):
+            step = .obj([("action", .string("type")), ("text", .string(text))])
+        case let .key(keys):
+            let j = Self.actJSON(.key(keys: keys))
+            var m: [(String, JSONValue)] = [("action", .string("key")), ("key", j["key"]!)]
+            if let mods = j["modifiers"] { m.append(("modifiers", mods)) }
+            step = .obj(m)
+        case .scroll:
+            step = nil
+        }
+        lock.withLock {
+            let sofar = learnedSteps[runId] ?? []
+            learnedSteps[runId] = (sofar != nil && step != nil) ? sofar! + [step!] : .some(nil)
+        }
     }
 
     private func binding(_ runId: String) throws -> RunBinding {
@@ -209,6 +251,11 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
             // target is still there before the explorer observes again.
             let path = r["route"]?.stringValue ?? "unknown"
             let evidence = [r["receiptId"]?.stringValue].compactMap { $0 }
+            let point = r["target"]?["point"].flatMap { p -> (Double, Double)? in
+                guard let x = p["x"]?.doubleValue, let y = p["y"]?.doubleValue else { return nil }
+                return (x, y)
+            }
+            learn(action, runId: proposal.runId, snapshotId: proposal.stamp.snapshotId, point: point)
             switch await call(.observe, context: RequestContext(sessionId: rb.sessionId),
                               params: .obj([("screenshot", .bool(false)), ("elements", .bool(false))])) {
             case let .success(o):

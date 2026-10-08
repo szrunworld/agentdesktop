@@ -33,6 +33,12 @@ public final class RuntimeService: @unchecked Sendable {
     public let observations = ObservationStore()
     public let ledger: RequestLedger
     public let runs: RunStore
+    public let procedures: ProcedureStore
+    /// Model exploration for GUI units; set by the host when real GUI input
+    /// is on. nil: units replay only.
+    public var unitExplorer: UnitExplorer?
+    /// Steps a GUI run executed, for learning (RuntimeGuiPorts).
+    public var guiRunSteps: (@Sendable (String) -> [JSONValue]?)?
     let execution: ExecutionCoordinator
     let conflicts = ConflictRegistry()
     public let artifacts: ArtifactStore
@@ -49,10 +55,12 @@ public final class RuntimeService: @unchecked Sendable {
         .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind,
         .sessionOpen, .sessionShow, .sessionClose, .observe,
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel,
+        .unitRun,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
-                ledger: RequestLedger? = nil, runs: RunStore? = nil, artifacts: ArtifactStore? = nil,
+                ledger: RequestLedger? = nil, runs: RunStore? = nil, procedures: ProcedureStore? = nil,
+                artifacts: ArtifactStore? = nil,
                 desktops: DesktopRegistry = DesktopRegistry(),
                 contract: RuntimeContract = .shared, now: @escaping @Sendable () -> Date = { Date() }) {
         self.identity = identity
@@ -63,6 +71,7 @@ public final class RuntimeService: @unchecked Sendable {
         self.ledger = ledger ?? (try! RequestLedger(path: nil, now: now))
         let runStore = runs ?? (try! RunStore(path: nil, now: now))
         self.runs = runStore
+        self.procedures = procedures ?? (try! ProcedureStore(path: nil, now: now))
         self.execution = ExecutionCoordinator(runs: runStore, now: now)
         self.artifacts = artifacts ?? (try! ArtifactStore(
             directory: NSTemporaryDirectory() + "agentdesktop-artifacts-\(getpid())-\(UUID().uuidString.prefix(8))"))
@@ -125,6 +134,12 @@ public final class RuntimeService: @unchecked Sendable {
     /// The connection is gone: Runs it owned take no further input.
     public func connectionClosed(_ connection: ConnectionState) {
         execution.ownerLost(connection)
+    }
+
+    /// An act on behalf of another handler (unit steps), with its own
+    /// ledger entry and the same checks as from outside.
+    func ledgeredAct(_ request: RuntimeRequest, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
+        ledgered(request, on: c)
     }
 
     /// A write runs once per caller and requestId; a repeat gets the
@@ -226,6 +241,9 @@ public final class RuntimeService: @unchecked Sendable {
         case .runEvents: return runEvents(p, connection)
         case .runWait: return waitRun(p, connection)
         case .runCancel: return cancelRun(p, connection)
+        case .unitRun: return runUnit(request, connection)
+        case .procedureList: return listProcedures(p)
+        case .procedureShow: return showProcedure(p)
         }
     }
 }

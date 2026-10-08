@@ -1,6 +1,6 @@
 {
   "apiVersion": "agentdesktop.runtime/1",
-  "status": "DRAFT_PR2",
+  "status": "DRAFT_PR4",
   "transport": {
     "macOS": "owner-only Unix domain socket ~/Library/Application Support/AgentDesktop/runtime.sock",
     "windows": "current-user named pipe (W1)",
@@ -208,6 +208,27 @@
       "mutation": true,
       "params": "run_ref_params",
       "result": "CancelReceipt"
+    },
+    {
+      "method": "unit.run",
+      "stage": "P1",
+      "mutation": true,
+      "params": "unit_run_params",
+      "result": "UnitResult"
+    },
+    {
+      "method": "procedure.list",
+      "stage": "P1",
+      "mutation": false,
+      "params": "procedure_list_params",
+      "result": "ProcedureList"
+    },
+    {
+      "method": "procedure.show",
+      "stage": "P1",
+      "mutation": false,
+      "params": "procedure_show_params",
+      "result": "Procedure"
     }
   ]
 }

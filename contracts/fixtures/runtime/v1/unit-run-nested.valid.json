@@ -1,0 +1,1 @@
+{"def":"unit_run_params","instance":{"verification":{"all":[{"kind":"elementTextEquals","role":"AXStaticText","text":"10"},{"not":{"kind":"elementPresent","labelContains":"错误"}}]},"steps":[{"action":"click","element":{"label":"7"}},{"action":"key","key":"return"}],"learnAs":"calc-7"}}

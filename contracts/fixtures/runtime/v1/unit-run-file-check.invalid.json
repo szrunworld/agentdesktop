@@ -1,0 +1,1 @@
+{"def":"unit_run_params","note":"file conditions are not UI conditions","instance":{"verification":{"kind":"fileExists","path":"/tmp/out.pdf"}}}
