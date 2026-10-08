@@ -19,16 +19,38 @@ public struct DesktopFrameView: View {
     /// (the preview window).
     let height: CGFloat?
     let showControls: Bool
+    /// The Desktop shown; its binding decides the scope notice.
+    let desktop: JSONValue?
 
-    public init(lease: DesktopFrameLease, zoom: Binding<PreviewZoom>, height: CGFloat? = 360, showControls: Bool = true) {
+    public init(lease: DesktopFrameLease, zoom: Binding<PreviewZoom>, height: CGFloat? = 360, showControls: Bool = true,
+                desktop: JSONValue? = nil) {
         self.lease = lease
         _zoom = zoom
         self.height = height
         self.showControls = showControls
+        self.desktop = desktop
+    }
+
+    /// The live picture is the Desktop's whole display, captured per
+    /// display (D48). With a bound window that is more than the agent acts
+    /// on, so the picture says so; the scope of input is unchanged.
+    public static func scopeNotice(_ desktop: JSONValue?) -> String? {
+        guard let b = desktop?["binding"], !b.isNull else { return nil }
+        let app = b["appName"]?.stringValue ?? "绑定的窗口"
+        return "整个显示器预览：显示这个 Desktop 所在显示器的全部内容，不只是绑定的窗口（\(app)）。预览范围不改变操作范围，输入仍只针对绑定窗口。"
     }
 
     public var body: some View {
         VStack(spacing: 0) {
+            if let notice = Self.scopeNotice(desktop) {
+                HStack(spacing: ADSpace.s) {
+                    Image(systemName: "rectangle.dashed").foregroundStyle(ADColor.muted)
+                    Text(notice).font(ADFont.note).foregroundStyle(ADColor.ink).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, ADSpace.l).padding(.vertical, ADSpace.s)
+                .overlay(alignment: .bottom) { Rectangle().fill(ADColor.line).frame(height: 1) }
+            }
             picture
                 .frame(maxWidth: .infinity, minHeight: height ?? 240, maxHeight: height ?? .infinity)
                 .background(ADColor.canvas)
@@ -115,9 +137,9 @@ public struct DesktopFrameView: View {
     }
 
     public static func sizeText(_ frame: DesktopFrame?) -> String {
-        guard let frame else { return "—" }
+        guard let frame else { return "整个显示器 · —" }
         let s = frame.scale == frame.scale.rounded() ? "\(Int(frame.scale))x" : String(format: "%.2fx", frame.scale)
-        return "\(frame.pixelWidth) × \(frame.pixelHeight) px · scale \(s)"
+        return "整个显示器 · \(frame.pixelWidth) × \(frame.pixelHeight) px · scale \(s)"
     }
 }
 
@@ -332,7 +354,7 @@ struct SideBySidePanel: View {
                 Spacer()
                 StateBadge(DesktopControlPresentation.make(desktop: desktop, activeRuns: store.activeRuns).status)
             }
-            DesktopFrameView(lease: lease, zoom: $zoom, height: 300)
+            DesktopFrameView(lease: lease, zoom: $zoom, height: 300, desktop: desktop)
             HStack(spacing: ADSpace.s) {
                 Button { navigation.showDesktop(id) } label: { Label("详情", systemImage: "info.circle") }
                     .buttonStyle(ADButtonStyle(.secondary))
@@ -387,7 +409,7 @@ public struct DesktopPreviewView: View {
                 EmptyState(title: "这个 Desktop 已不存在", detail: "\(desktopId) 已关闭；可以关闭这个预览窗口。", action: nil)
                     .frame(maxHeight: .infinity)
             } else {
-                DesktopFrameView(lease: lease, zoom: $zoom, height: nil).padding(ADSpace.m)
+                DesktopFrameView(lease: lease, zoom: $zoom, height: nil, desktop: desktop).padding(ADSpace.m)
             }
         }
         .background(ADColor.canvas)

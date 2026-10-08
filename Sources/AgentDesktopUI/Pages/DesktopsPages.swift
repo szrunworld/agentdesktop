@@ -222,7 +222,7 @@ public struct DesktopInspectorView: View {
                 HStack(alignment: .top, spacing: ADSpace.xl) {
                     VStack(alignment: .leading, spacing: ADSpace.l) {
                         ControllerBanner(control: control)
-                        DesktopFrameView(lease: frame, zoom: $zoom, height: 460)
+                        DesktopFrameView(lease: frame, zoom: $zoom, height: 460, desktop: desktop)
                             .liveFrame(frame, displayId: DesktopFrameHub.displayId(of: desktop))
                         Text("停止、接管、关闭：\(WaitingFor.a5)（desktop.stop / takeover / closePlan 尚未上线）")
                             .font(ADFont.note).foregroundStyle(ADColor.muted)
@@ -311,6 +311,12 @@ struct CardPicture: View {
             if let frame = lease.frame {
                 Rectangle().fill(ADColor.canvas)
                 Image(decorative: frame.image, scale: 1).resizable().aspectRatio(contentMode: .fit).padding(ADSpace.xs)
+                if DesktopFrameView.scopeNotice(desktop) != nil {
+                    Text("整个显示器").font(ADFont.identifier).foregroundStyle(ADColor.ink)
+                        .padding(.horizontal, ADSpace.s).padding(.vertical, 2)
+                        .background(ADColor.panel.opacity(0.9), in: RoundedRectangle(cornerRadius: 4))
+                        .padding(ADSpace.s)
+                }
             } else if let d = desktop {
                 DesktopViewport(sizeText: DesktopControlPresentation.sizeText(d), appName: d["binding"]?["appName"]?.stringValue,
                                 note: Self.note(lease.status))

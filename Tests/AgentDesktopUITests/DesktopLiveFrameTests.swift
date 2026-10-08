@@ -204,4 +204,19 @@ struct DesktopLiveFrameTests {
         denied.detach()
         other.detach()
     }
+
+    // Kevin 2026-10-08: a Desktop bound to a window says its live picture
+    // is the whole display, so nobody takes it for the window alone; an
+    // unbound Desktop needs no notice.
+    @Test func boundDesktopSaysThePictureIsTheWholeDisplay() {
+        let unbound: JSONValue = .obj([("desktopId", .string("d1")), ("binding", .null)])
+        #expect(DesktopFrameView.scopeNotice(unbound) == nil)
+        #expect(DesktopFrameView.scopeNotice(nil) == nil)
+        let bound: JSONValue = .obj([("desktopId", .string("d2")),
+                                     ("binding", .obj([("windowId", .int(7)), ("appName", .string("Probe"))]))])
+        let notice = DesktopFrameView.scopeNotice(bound) ?? ""
+        #expect(notice.hasPrefix("整个显示器预览"))
+        #expect(notice.contains("Probe") && notice.contains("不改变操作范围"))
+        #expect(DesktopFrameView.sizeText(nil).hasPrefix("整个显示器"))
+    }
 }
