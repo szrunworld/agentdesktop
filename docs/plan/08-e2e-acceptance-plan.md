@@ -58,6 +58,7 @@
 | RT-22 | businessResult | 所有回执为 not_evaluated |
 | RT-23A | 请求超时语义：大型网页（Safari 中立表单）上 observe | 在规定时间内返回成功、降级结果（元素标 partial）或明确错误；不挂起（MAC-001） |
 | RT-23B | 故障隔离与恢复：同一 Desktop 连续制造 20 次 AX 超时 | 期间其他 Desktop 的 observe 与 act、`runtime.status`、该 Desktop 的纯截图都在各自 deadline 内完成；后台 AX 遍历线程数与内存有上限且超时停止后回落；主线程采样无 AX 调用 |
+| RT-24 | 观察与输入同一目标：同一 Desktop 上让另一窗口盖住绑定窗口（MAC-001 的 Safari 叠窗） | observe 的截图、元素、坐标都来自绑定窗口，或返回遮挡错误；act 不向与截图不同的窗口投递，dispatch=0；GUI 运行不会出现「回执 confirmed、目标无变化」 |
 | SEC-01 | 干净实例上的文件权限 | 新建实例后 `ai.sqlite`、`runs.sqlite`、`requests.sqlite`、socket 均 0600，目录 0700（不只检查已有文件） |
 | SEC-02 | 凭据存放 | 数据库只含凭据引用；明文密钥只在系统安全存储；导出与日志无密钥 |
 | SEC-03 | 测试副本隔离 | 测试副本的配置、数据库、socket、凭据与产品实例互不覆盖；测试副本用文件凭据，不读写登录钥匙串 |

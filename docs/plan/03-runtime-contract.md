@@ -1,6 +1,6 @@
 # 3 Runtime 契约
 
-**权威**：[`docs/architecture/runtime-api-v1-freeze.md`](../architecture/runtime-api-v1-freeze.md) 与 `contracts/runtime/v1/methods.json`（#34，PR2a，2ndscreen-5c）。冻结目录里已有的方法名、信封、错误码以冻结文件为准，本文不再重复定义。
+**权威**：[`docs/architecture/runtime-api-v1-freeze.md`](../architecture/runtime-api-v1-freeze.md) 与 `contracts/runtime/v1/methods.json`（#34，PR2a，2ndscreen-f1（原 5c））。冻结目录里已有的方法名、信封、错误码以冻结文件为准，本文不再重复定义。
 
 本文只做两件事：一是说明本规划依赖冻结目录里的哪些方法；二是列出冻结目录尚未包含、本规划提出的**增量**。增量按冻结规则第 3 条，必须先由集成负责人改 `methods.json` 与冻结文档，再写实现；在那之前它们只是提议。
 
