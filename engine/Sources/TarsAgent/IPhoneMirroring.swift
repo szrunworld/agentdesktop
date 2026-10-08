@@ -566,9 +566,10 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     /// Texts and buttons of the process's windows. SwiftUI carries a
     /// button's text as its title or description, a text's as its value.
     /// nil when they could not be read: no Accessibility permission, the
-    /// windows or a child list could not be read, no window `windowID`, or
-    /// more elements than are read. An element that has no children is not
-    /// a failure.
+    /// windows, a child list or an element's role, title, description or
+    /// value could not be read, no window `windowID`, or more elements than
+    /// are read. An attribute or child list the element does not have
+    /// (`noValue`, `attributeUnsupported`) is not a failure.
     private static func elements(of pid: pid_t, windowID: CGWindowID?) -> [Element]? {
         guard AXIsProcessTrusted() else { return nil }
         let app = AXUIElementCreateApplication(pid)
@@ -591,15 +592,23 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
             default: failed = true; return
             }
             guard let list = children as? [AXUIElement] else { return }
+            /// The attribute, nil when the element has none; a read that
+            /// failed otherwise fails the whole read.
+            func read(_ child: AXUIElement, _ attribute: String) -> AnyObject? {
+                var value: AnyObject?
+                switch AXUIElementCopyAttributeValue(child, attribute as CFString, &value) {
+                case .success: return value
+                case .noValue, .attributeUnsupported: return nil
+                default: failed = true; return nil
+                }
+            }
             for child in list {
-                var role: AnyObject?
-                AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &role)
+                let role = read(child, kAXRoleAttribute)
                 let labels = [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute]
                     .compactMap { attribute -> String? in
-                        var value: AnyObject?
-                        AXUIElementCopyAttributeValue(child, attribute as CFString, &value)
-                        return (value as? String).flatMap { $0.isEmpty ? nil : $0 }
+                        (read(child, attribute) as? String).flatMap { $0.isEmpty ? nil : $0 }
                     }
+                guard !failed else { return }
                 let button = (role as? String) == kAXButtonRole
                 if button || !labels.isEmpty { found.append(Element(element: child, button: button, labels: labels)) }
                 if !button { visit(child, depth: depth + 1) }
