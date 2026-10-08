@@ -53,6 +53,21 @@ public final class RuntimeService: @unchecked Sendable {
     /// How long one element read may take before an observation goes on
     /// with the screenshot alone (RT-23A).
     public var elementReadBudget: TimeInterval = 5
+    /// Physical Desktops attach the user's own screen and bind any window on
+    /// it. Until grants (PR3) let the user authorize observing, acting on and
+    /// keeping each window separately, every caller is refused; nothing in
+    /// the product turns this on. Tests use it to keep covering the logic.
+    var physicalDesktopsEnabled = false
+    /// Until grants (PR3): window.bind on a virtual Desktop only takes a
+    /// process that app.launch started on that Desktop, so no local client
+    /// can pull one of the user's windows onto an agent screen and read or
+    /// drive it there. Tests turn this off; the product never does.
+    var bindsOnlyLaunchedProcesses = true
+    /// Until a screen-level grant exists: an observation of a Desktop with no
+    /// bound window takes no screenshot (the whole screen carries the menu
+    /// bar, notifications and any window dragged there). Tests turn this
+    /// off; the product never does.
+    var refusesScreenCaptureWithoutBinding = true
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date

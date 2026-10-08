@@ -146,6 +146,21 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         return (cropped.width, cropped.height)
     }
 
+    public func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        var r = ControlRequest(command: .screenshot)
+        r.screen = screen.name
+        r.output = path
+        r.windowsOnly = true
+        r.windowID = windowId
+        r.pid = pid
+        _ = try check(handle(r))
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int
+        else { throw PlatformError(.refused, "the window capture at \(path) is unreadable") }
+        return (w, h)
+    }
+
     public func stack(on screen: ScreenHandle) -> [PlatformWindow] {
         let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
