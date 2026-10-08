@@ -120,7 +120,8 @@ public actor RunRecorder {
     public func snapshot() async -> JSONValue {
         let state = await lifecycle.state
         let error: JSONValue = await lifecycle.failure.map {
-            ContractError($0.code, $0.message.isEmpty ? $0.code.rawValue : String($0.message.prefix(512)), retryable: $0.retryable).json
+            ContractError($0.code, $0.message.isEmpty ? $0.code.rawValue : String($0.message.prefix(512)), retryable: $0.retryable,
+                          details: $0.details).json
         } ?? .null
         return .obj([
             ("runId", .string(binding.runId)), ("state", .string(state.rawValue)),
