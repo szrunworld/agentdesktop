@@ -7,8 +7,8 @@
 | 命令 | 退出码 | 结果 |
 | --- | --- | --- |
 | `swift build --build-tests` | 0 | — |
-| 全量 `swift test`（基于 main fa2222f，2026-10-08 重启后） | 0 | 479 项通过 |
-| 全量 `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test` | 0 | 479 项通过 |
+| 全量 `swift test`（基于 main fa2222f，2026-10-08 重启后） | 0 | 480 项通过 |
+| 全量 `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test` | 0 | 480 项通过 |
 
 新增测试：
 
@@ -18,6 +18,7 @@
 | UC51 | `nothingRunningIsQuietAtOnce`、`cancelWhileStopping`、`stopFailureCanBeRetried` | 没有运行时立即可退出；取消后输入保持停止，不调用 `enableInput`；`stopAll` 失败可以重试 |
 | UC50 / UC51 | `MainWindowHostTests.quitChoices` | 隐藏主窗口、保留后台、取消：都回答「不退出」，不调用 `runtime.stopAll`，运行不变；停止输入并退出：Run 只在停止中时不回答，全部静止后才回答「退出」 |
 | P32 | `MainWindowHostTests.quitDialogDoesNotWaitForTheRuntime` | run.list 延迟 2 秒时退出对话框不等它：begin 1 秒内返回，运行数显示「正在读取」而不是 0，仍可取消 |
+| UC51 | `MainWindowHostTests.aSecondQuitRequestWhileAskingDoesNotTerminate` | 对话框等待时再次请求退出不会调用 terminate，只把对话框调到前面；回答之后的下一次请求才会再次发起退出 |
 | P31 | `panelStatusAndRenders`、`menuStatusLines` | 面板状态文字（正在连接 / 运行中 / 输入已停止）、摘要（含「N 个停止中」）；面板与退出对话框能渲染 |
 
 ## 严格协作线程池（LIBDISPATCH_COOPERATIVE_POOL_STRICT=1）
@@ -50,7 +51,34 @@
 3. 用新的副本 A 重试时，副本 B 的 `window bind`、`desktop create` 开始超时。这时本机多出两块不属于本测试的虚拟显示器（30、31 号，1440×900），我们的显示器被重排。
 4. 结束副本 B 之后，新进程连接 WindowServer 一律卡住（见上面的严格模式一节）。之后 5 分钟内每 10 秒检查一次，都没有恢复。
 
-我没有对 WindowServer 做任何操作。A 为什么会退出，还没有定论：可能是本 PR 退出路径的缺陷，也可能是环境异常（不属于本测试的显示器变化、WindowServer 停止应答）。在复现之前，不能把 UC51 记为真机通过。
+我没有对 WindowServer 做任何操作。
+
+### 原因（2026-10-08 重启后查系统日志确定）
+
+副本 A（pid 11196）的系统日志：
+
+| 时间 | 事件 |
+| --- | --- |
+| 17:31:22.254 | 第一次 `terminate:`；`applicationShouldTerminate` 按设计返回 `NSTerminateLater`，退出对话框随即显示 |
+| 17:31:24.066 | 第二次 `terminate:`。AppKit 报错 `Unexpected call to terminate: while still determining whether to terminate. Will force immediate termination.`，不再询问代理，直接强制退出 |
+| 17:31:24.067 | 两块虚拟显示器（28、29 号）被直接销毁，其余显示器重排 |
+| 17:31:24.297 | `Termination complete`，进程退出，两个 Run 仍是 running/not_confirmed |
+
+这是**本 PR 的缺陷**：退出对话框等待选择时，任何一次新的 `NSApp.terminate`（面板里的退出按钮、Dock 的「退出」、空闲退出定时器）都会被 AppKit 强制执行，绕过「停止所有输入、等运行静止」。
+
+修复：
+- 所有退出入口统一走 `QuitController.requestQuit()`。对话框在等待时，它只把对话框调到前面，不再调用 terminate。
+- Dock 的退出 Apple 事件（kAEQuitApplication）也改由同一个入口处理。
+- 回归测试 `aSecondQuitRequestWhileAskingDoesNotTerminate` 覆盖这一点。
+
+**30、31 号显示器**（1440×900）是 `/Applications/2ndscreen.app`（pid 19953）在 17:31:48 和 17:31:57 创建的，与本测试无关，属于环境干扰。之后 WindowServer 停止接受新连接，发生在这些显示器反复增删之后。
+
+**UC51 仍未真机通过。** 重做要求（Kevin 2026-10-08）：
+- 不创建虚拟显示器；
+- 不影响正在运行的 Agent；
+- 使用独立测试副本；
+- 覆盖 Runtime 正常、断连、无响应三种情况；
+- 不能造成 WindowServer 卡死，不能绕过运行中任务的安全收尾。
 
 ### 是否触及用户屏幕
 

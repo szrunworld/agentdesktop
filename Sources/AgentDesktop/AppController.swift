@@ -69,13 +69,14 @@ final class AppController: NSObject, NSApplicationDelegate {
         Task { await store.start() }
 
         quit = QuitController(store: store)
+        handleQuitEvents()
         quit.hideMainWindow = { [weak self] in self?.mainWindow.close() }
         quit.keepInBackground = { [weak self] in self?.enterBackground() }
         let panel = MenuBarPanel(store: store, actions: MenuBarActions(
             openMain: { [weak self] in self?.openMain(section: nil) },
             openPreview: { [weak self] id in self?.mainWindow.previews.show(id) },
             openSettings: { [weak self] in self?.openMain(section: .settings) },
-            quit: { NSApp.terminate(nil) }))
+            quit: { [weak self] in self?.quit.requestQuit() }))
         menuPanel = panel
 
         if !role.isSideInstance {
@@ -112,6 +113,19 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     /// Quit asks first (P32). An idle test copy without windows quits
     /// straight away.
+    /// The Dock's Quit and other quit Apple events: AppKit's own handler
+    /// calls terminate directly, which forces termination while the quit
+    /// dialog is open; this one goes through the same gate as the panel.
+    private func handleQuitEvents() {
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(quitEvent(_:withReply:)),
+                                                     forEventClass: AEEventClass(kCoreEventClass),
+                                                     andEventID: AEEventID(kAEQuitApplication))
+    }
+
+    @objc private func quitEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        quit?.requestQuit()
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quit == nil || quit.approved { return .terminateNow }
         if role.isSideInstance, role.mainWindowForTest == nil { return .terminateNow }
@@ -212,8 +226,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, Date().timeIntervalSince(self.runtime.lastRequest) > Self.sideInstanceIdleQuit,
-                      self.agentScreens.screens.isEmpty else { return }
-                NSApp.terminate(nil)
+                      self.agentScreens.screens.isEmpty, self.quit?.isAsking != true else { return }
+                self.quit.requestQuit()
             }
         }
     }

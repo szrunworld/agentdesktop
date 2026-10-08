@@ -205,4 +205,31 @@ struct MainWindowHostTests {
         await q.counting?.value
         #expect(flow.activeCount == 2)
     }
+
+    // UC51 on the machine (2026-10-08): a second quit request while the
+    // dialog waited made AppKit force termination, so the test copy exited
+    // with its Runs still running. While the dialog is open a request only
+    // brings it forward; once answered, the next one asks again.
+    @Test func aSecondQuitRequestWhileAskingDoesNotTerminate() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let q = QuitController(store: store)
+        q.clock = FastClock()
+        var terminations = 0, replies: [Bool] = []
+        q.terminate = { terminations += 1 }
+        q.reply = { replies.append($0) }
+        q.requestQuit()
+        #expect(terminations == 1, "with no dialog open a request starts the quit")
+        await q.begin(show: false)
+        q.requestQuit()
+        q.requestQuit()
+        #expect(terminations == 1, "no terminate while the dialog waits for an answer")
+        #expect(replies.isEmpty)
+        q.choose(.cancel)
+        #expect(replies == [false])
+        q.requestQuit()
+        #expect(terminations == 2)
+    }
 }
