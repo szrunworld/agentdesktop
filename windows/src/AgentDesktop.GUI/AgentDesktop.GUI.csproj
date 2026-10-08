@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- GUI domain types and the uitars_v1 / fixture_json_v1 codecs, the C#
+       counterpart of Sources/AgentDesktopContracts/Domain/Gui*.swift and
+       Sources/AgentDesktopGUI/Codec. Pure: no screen, input or capture. -->
+  <PropertyGroup>
+    <RootNamespace>AgentDesktop.GUI</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AgentDesktop.Contracts/AgentDesktop.Contracts.csproj" />
+  </ItemGroup>
+</Project>
