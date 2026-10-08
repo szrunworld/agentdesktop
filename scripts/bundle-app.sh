@@ -2,13 +2,12 @@
 # Build the product host and wrap it in "build/Agent Desktop.app".
 #
 # The bundle holds, with their provenance in Contents/Resources/build.json:
-#   Contents/MacOS/Agent Desktop            the host (Sources/AgentDesktop)
-#   Contents/Resources/libexec/2ndscreen    the engine's CLI, built from the pinned
-#                                           2ndscreen release in the dependency graph
+#   Contents/MacOS/Agent Desktop            the host (Sources/AgentDesktop) with the
+#                                           in-repo engine (Sources/Engine) linked in
 #   Contents/Resources/bin/agentdesktop     the product's command line (Sources/AgentDesktopCLI),
 #                                           speaking agentdesktop.runtime/1 to the host
-#   Contents/Resources/bin/2ndscreen        the engine's CLI bound to this product's
-#                                           engine endpoint and runtime
+#   Contents/Resources/THIRD_PARTY_NOTICES.md
+#                                           notices for third-party work the engine follows
 #
 # Beside the bundle, after signing: "Agent Desktop-<build>.zip" (ditto, keeps
 # the .app) and "Agent Desktop-<build>.manifest.json" with the sha256 of every
@@ -16,9 +15,8 @@
 # build inputs before signing; the manifest records what is distributed.
 #
 # Not in the bundle, by decision (docs/boundaries.md): Android tools (adb,
-# scrcpy) and the task runtime. The task runtime joins once a 2ndscreen
-# release can be installed without business skills (roadmap C01); until
-# then `2ndscreen task` reports the runtime as not installed.
+# scrcpy), the task runtime, and the old engine's own `2ndscreen` command
+# line: the product's command line is agentdesktop.
 #
 # The bundle gives the app a stable identity, so macOS attributes the Screen
 # Recording and Accessibility grants to Agent Desktop. It is signed with a
@@ -36,54 +34,36 @@ BUILD_LABEL="0.1.0-dev"  # what the product calls this build
 
 cd "$ROOT"
 
-# A release build consumes the engine exactly as resolved. Refuse local
-# overrides: an editable checkout (swift package edit) or a Packages/ dir.
-if [[ -d "$ROOT/Packages" ]]; then
-    echo "error: Packages/ holds a local override of a dependency; builds use the pinned release only" >&2
+# The engine is source in this repository (Sources/Engine). Refuse to build
+# from engine files that differ from their recorded provenance, and refuse
+# any external package: the build never fetches the old engine repository.
+"$ROOT/scripts/verify-engine-source-map.sh"
+if [[ -e "$ROOT/Package.resolved" || -d "$ROOT/Packages" ]]; then
+    echo "error: Package.resolved or Packages/ is present; the package has no external dependencies" >&2
     exit 1
 fi
-if [[ -f .build/workspace-state.json ]] && grep -q '"edited"' .build/workspace-state.json; then
-    echo "error: a dependency is in edit mode (swift package unedit to leave it)" >&2
-    exit 1
-fi
-
-# The engine is compiled exactly as pinned: resolve first, then refuse a
-# checkout at another commit or with any change (work tree, index, untracked).
-swift package resolve
-ENGINE_REVISION="$(/usr/bin/python3 -c 'import json,sys; p=[x for x in json.load(open("Package.resolved"))["pins"] if x["identity"]=="2ndscreen"][0]; print(p["state"]["revision"])')"
-ENGINE_VERSION="$(/usr/bin/python3 -c 'import json,sys; p=[x for x in json.load(open("Package.resolved"))["pins"] if x["identity"]=="2ndscreen"][0]; print(p["state"].get("version","")) ')"
-"$ROOT/scripts/check-engine-checkout.sh" "$ROOT/.build/checkouts/2ndscreen" "$ENGINE_REVISION"
+# Where the engine came from, for build.json: the source map's one origin.
+ENGINE_ORIGIN="$(/usr/bin/python3 -c '
+import csv
+rows = list(csv.DictReader(open("docs/migration/source-map.csv")))
+origins = {(r["sourceRepo"], r["sourceTag"], r["sourceCommit"]) for r in rows}
+assert len(origins) == 1, origins
+repo, tag, commit = origins.pop()
+print(repo, tag, commit, len(rows), sum(r["decision"] != "copied" for r in rows))
+')"
+read -r ENGINE_SOURCE_REPO ENGINE_VERSION ENGINE_REVISION ENGINE_FILES ENGINE_MODIFIED <<<"$ENGINE_ORIGIN"
 
 swift build -c release --product AgentDesktopApp
 swift build -c release --product agentdesktop
-swift build -c release --product 2ndscreen
 BIN_DIR="$(swift build -c release --show-bin-path)"
 BIN="$BIN_DIR/AgentDesktopApp"
 PRODUCT_CLI="$BIN_DIR/agentdesktop"
-CLI="$BIN_DIR/2ndscreen"
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/bin" "$APP/Contents/Resources/libexec"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/bin"
 cp "$BIN" "$APP/Contents/MacOS/Agent Desktop"
-cp "$CLI" "$APP/Contents/Resources/libexec/2ndscreen"
-# The supported command line is the CLI bound to this product: its endpoint
-# (Sources/AgentDesktop/HostRole.swift; a caller testing a side instance may
-# choose another socket) and its own task runtime directory, always. The
-# engine's CLI would otherwise fall back to the runtime inside a running
-# 2ndscreen.app, mixing that host's runtime with this product; bound to a
-# directory that does not exist yet, `task` and the MCP tools that spawn it
-# refuse instead. The MCP server runs the same executable with this
-# environment, so its task tools are bound the same way.
-cat > "$APP/Contents/Resources/bin/2ndscreen" <<'WRAPPER'
-#!/bin/bash
-here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-: "${SECONDSCREEN_SOCKET:=$HOME/Library/Application Support/AgentDesktop/control.sock}"
-export SECONDSCREEN_SOCKET
-export SECONDSCREEN_TASK_RUNTIME="$here/../task-runtime"
-exec "$here/../libexec/2ndscreen" "$@"
-WRAPPER
-chmod 755 "$APP/Contents/Resources/bin/2ndscreen"
 cp "$PRODUCT_CLI" "$APP/Contents/Resources/bin/agentdesktop"
+cp "$ROOT/docs/engine/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -114,14 +94,16 @@ cat > "$APP/Contents/Resources/build.json" <<JSON
   "source": "$(git rev-parse --verify -q HEAD || echo unknown)$([[ -z "$(git status --porcelain --untracked-files=all 2>/dev/null)" ]] || echo -dirty)",
   "swift": "$(swift --version 2>&1 | head -1)",
   "engine": {
-    "package": "https://github.com/szrunworld/2ndscreen.git",
+    "location": "in-repo: Sources/Engine, provenance in docs/migration/source-map.csv",
+    "migratedFrom": "$ENGINE_SOURCE_REPO",
     "version": "$ENGINE_VERSION",
-    "revision": "$ENGINE_REVISION"
+    "revision": "$ENGINE_REVISION",
+    "files": $ENGINE_FILES,
+    "modifiedFiles": $ENGINE_MODIFIED
   },
   "inputs": {
     "note": "sha256 of the build products before the bundle's signature; the files as shipped are listed in the distribution manifest beside the archive",
     "Contents/MacOS/Agent Desktop": "$(sha "$BIN")",
-    "Contents/Resources/libexec/2ndscreen": "$(sha "$CLI")",
     "Contents/Resources/bin/agentdesktop": "$(sha "$PRODUCT_CLI")"
   },
   "taskRuntime": null,
@@ -182,8 +164,7 @@ done < <(security list-keychains -d user)
 restore_keychains() { security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}"; }
 security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" "$KEYCHAIN"
 # Nested code is signed before the bundle that seals it.
-if ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.cli" "$APP/Contents/Resources/libexec/2ndscreen" \
-    || ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.agentdesktop" "$APP/Contents/Resources/bin/agentdesktop" \
+if ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.agentdesktop" "$APP/Contents/Resources/bin/agentdesktop" \
     || ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"; then
     restore_keychains
     exit 1
@@ -192,8 +173,8 @@ restore_keychains
 codesign --verify --strict "$APP"
 
 # What must not be in a product bundle (docs/boundaries.md).
-if find "$APP" \( -name adb -o -name scrcpy-server -o -path '*/Resources/android*' -o -path '*/task-runtime/skills/boss*' \) | grep -q .; then
-    echo "error: the bundle carries Android tools or business skills" >&2
+if find "$APP" \( -name adb -o -name scrcpy-server -o -name 2ndscreen -o -path '*/Resources/android*' -o -path '*/task-runtime/skills/boss*' \) | grep -q .; then
+    echo "error: the bundle carries Android tools, business skills or the old engine command line" >&2
     exit 1
 fi
 
@@ -207,7 +188,7 @@ ditto -c -k --keepParent "$APP" "$ARCHIVE"
 {
     echo "{"
     echo "  \"product\": \"Agent Desktop\", \"build\": \"$BUILD_LABEL\", \"bundleId\": \"$BUNDLE_ID\","
-    echo "  \"engine\": { \"version\": \"$ENGINE_VERSION\", \"revision\": \"$ENGINE_REVISION\" },"
+    echo "  \"engine\": { \"location\": \"in-repo\", \"migratedFrom\": \"$ENGINE_SOURCE_REPO\", \"version\": \"$ENGINE_VERSION\", \"revision\": \"$ENGINE_REVISION\" },"
     echo "  \"archive\": { \"name\": \"$(basename "$ARCHIVE")\", \"sha256\": \"$(sha "$ARCHIVE")\" },"
     echo "  \"files\": {"
     first=1
@@ -231,6 +212,6 @@ ditto -c -k --keepParent "$APP" "$ARCHIVE"
     echo "  }"
     echo "}"
 } > "$MANIFEST"
-echo "built $APP ($BUILD_LABEL on 2ndscreen $ENGINE_VERSION $ENGINE_REVISION)"
+echo "built $APP ($BUILD_LABEL; engine in-repo, migrated from $ENGINE_SOURCE_REPO $ENGINE_VERSION $ENGINE_REVISION)"
 echo "archive $ARCHIVE"
 echo "manifest $MANIFEST"

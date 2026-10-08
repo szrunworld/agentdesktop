@@ -1,13 +1,13 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// Agent Desktop: the product app. It links the 2ndscreen engine as a
-// versioned dependency (docs/boundaries.md) and never carries engine code.
-//
-// The dependency is pinned exactly; Package.resolved records the commit.
-// Moving to a new engine release means a new tag upstream, then a change
-// here, never an edit inside .build/checkouts or an editable override.
-let engineVersion: Version = "0.2.0"
+// Agent Desktop: the product app. A single repository: the native engine
+// (virtual displays, input, screenshots, accessibility, agent screens, the
+// control socket) lives here under Sources/Engine, migrated from
+// szrunworld/2ndscreen at tag v0.2.0 (docs/boundaries.md). Every migrated
+// file and its origin is listed in docs/migration/source-map.csv, which
+// scripts/verify-engine-source-map.sh checks. The package has no external
+// dependencies; the build never fetches the old engine repository.
 
 let package = Package(
     name: "AgentDesktop",
@@ -29,16 +29,45 @@ let package = Package(
         .library(name: "AgentDesktopGUI", targets: ["AgentDesktopGUI"]),
         .library(name: "AgentDesktopService", targets: ["AgentDesktopService"]),
     ],
-    dependencies: [
-        .package(url: "https://github.com/szrunworld/2ndscreen.git", exact: engineVersion),
-    ],
     targets: [
+        // Engine targets, migrated from 2ndscreen v0.2.0 with their module
+        // names unchanged (renaming is a later step).
+        // Declarations for CoreGraphics' private CGVirtualDisplay classes.
+        .target(
+            name: "CGVirtualDisplayPrivate",
+            path: "Sources/Engine/CGVirtualDisplayPrivate"
+        ),
+        // Platform primitives: virtual displays, preview, windows, input,
+        // accessibility, local vision.
+        .target(
+            name: "SecondScreenCore",
+            dependencies: ["CGVirtualDisplayPrivate"],
+            path: "Sources/Engine/SecondScreenCore"
+        ),
+        // Agent screens, input into the apps on them, the agent cursor, and
+        // the control socket.
+        .target(
+            name: "SecondScreenRuntime",
+            dependencies: ["SecondScreenCore"],
+            path: "Sources/Engine/SecondScreenRuntime"
+        ),
+        .testTarget(
+            name: "SecondScreenCoreTests",
+            dependencies: ["SecondScreenCore"],
+            path: "Tests/Engine/SecondScreenCoreTests"
+        ),
+        .testTarget(
+            name: "SecondScreenRuntimeTests",
+            dependencies: ["SecondScreenRuntime"],
+            path: "Tests/Engine/SecondScreenRuntimeTests"
+        ),
+
         // Menu bar host; scripts/bundle-app.sh wraps it in "Agent Desktop.app".
         .executableTarget(
             name: "AgentDesktop",
             dependencies: [
-                .product(name: "SecondScreenCore", package: "2ndscreen"),
-                .product(name: "SecondScreenRuntime", package: "2ndscreen"),
+                "SecondScreenCore",
+                "SecondScreenRuntime",
                 "AgentDesktopRuntime",
                 "AgentDesktopProtocol",
                 "AgentDesktopService",
@@ -105,14 +134,14 @@ let package = Package(
             dependencies: ["AgentDesktopProtocol", "AgentDesktopContracts"]
         ),
         // The only execution authority. PR1 serves the read-only surface.
-        // EnginePlatform drives the 2ndscreen engine in the host process
-        // until its code moves into this repository (AgentDesktopCore).
+        // EnginePlatform drives the in-repo engine (Sources/Engine) in the
+        // host process.
         .target(
             name: "AgentDesktopRuntime",
             dependencies: [
                 "AgentDesktopProtocol", "AgentDesktopContracts",
-                .product(name: "SecondScreenCore", package: "2ndscreen"),
-                .product(name: "SecondScreenRuntime", package: "2ndscreen"),
+                "SecondScreenCore",
+                "SecondScreenRuntime",
             ],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),

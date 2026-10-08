@@ -12,13 +12,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: swift --version
-      - name: Dependencies resolve exactly as pinned
+      - name: No external packages; the engine is in the repository
         run: |
           swift package resolve
-          git diff --exit-code Package.resolved
+          test ! -e Package.resolved
           test ! -d Packages
-      - name: Build checks have their regression cases
-        run: ./scripts/test-check-engine-checkout.sh
+          test ! -d .build/checkouts || test -z "$(ls -A .build/checkouts)"
+      - name: The migrated engine matches its source map
+        run: ./scripts/verify-engine-source-map.sh
+      - name: The source map check has its regression cases
+        run: ./scripts/test-verify-engine-source-map.sh
       - name: Build
         run: swift build -c release
       - name: Unit tests
@@ -32,12 +35,12 @@ jobs:
           codesign --verify --strict "build/Agent Desktop.app"
       - name: The archive matches its manifest
         run: ./scripts/verify-archive.sh build/Agent\ Desktop-*.zip build/Agent\ Desktop-*.manifest.json
-      - name: The bundled command line refuses tasks without the product's runtime
+      - name: The bundle carries no old engine command line and does carry the notices
         run: |
-          out="$("build/Agent Desktop.app/Contents/Resources/bin/2ndscreen" task status nope || true)"
-          echo "$out"
-          echo "$out" | grep -q '"capability_missing"'
-          echo "$out" | grep -q 'Agent Desktop.app/Contents/Resources/bin/../task-runtime'
+          test ! -e "build/Agent Desktop.app/Contents/Resources/bin/2ndscreen"
+          test ! -e "build/Agent Desktop.app/Contents/Resources/libexec"
+          test -s "build/Agent Desktop.app/Contents/Resources/THIRD_PARTY_NOTICES.md"
+          python3 -c 'import json; e=json.load(open("build/Agent Desktop.app/Contents/Resources/build.json"))["engine"]; assert e["location"].startswith("in-repo") and e["version"] == "v0.2.0", e'
       - name: The product CLI is the native agentdesktop and needs no Runtime for help and version
         run: |
           CLI="build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
