@@ -1,0 +1,21 @@
+{
+  "attachVirtual9": {
+    "code": "not_found",
+    "message": "display 9 is not one of the user's physical displays (1)",
+    "phase": "handler",
+    "retryable": false
+  },
+  "attachBuiltin1": {
+    "kind": "physical",
+    "screen": {
+      "displayId": 1,
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 1512,
+        "height": 982
+      },
+      "hiDPI": true
+    }
+  }
+}
