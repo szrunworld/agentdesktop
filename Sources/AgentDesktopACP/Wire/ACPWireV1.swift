@@ -32,11 +32,9 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
     public static let maxImagesKept = 64
 
     private let lock = NSLock()
-    private var cwdBySession: [String: String] = [:]
     private var images: [String: (mimeType: String, base64: String)] = [:]
     private var imageOrder: [String] = []
     private var imageCounter = 0
-    private var lastListCwd: String?
 
     public init() {}
 
@@ -71,10 +69,12 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
         var session: [(String, JSONValue)] = []
         if c.listSessions { session.append(("list", .obj([]))) }
         if c.closeSessions { session.append(("close", .obj([]))) }
+        // Both v1 ways back into a session: `session/load` (replays history)
+        // and `session/resume` (no replay) map to `resumeSessions`.
+        if c.resumeSessions { session.append(("resume", .obj([]))) }
         return .obj([
             ("protocolVersion", .int(1)),
             ("agentCapabilities", .obj([
-                // v1 `session/load` (replays history) is how a session comes back.
                 ("loadSession", .bool(c.resumeSessions)),
                 ("promptCapabilities", .obj([
                     ("image", .bool(c.promptImages)),
@@ -106,11 +106,13 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
 
     public func decodeRequest(method: String, params: JSONValue?,
                               advertised: ACPAgentCapabilities) -> Result<ACPIncoming, ACPJsonRpcError> {
-        let known: Set<String> = [Method.sessionNew, Method.sessionLoad, Method.sessionList, Method.sessionClose,
-                                  Method.sessionPrompt, Method.sessionSetConfigOption]
+        let known: Set<String> = [Method.sessionNew, Method.sessionLoad, Method.sessionResume, Method.sessionList,
+                                  Method.sessionClose, Method.sessionPrompt, Method.sessionSetConfigOption]
         guard known.contains(method) else { return .failure(notFound(method)) }
         // Methods gated by a capability we did not advertise do not exist.
-        if method == Method.sessionLoad && !advertised.resumeSessions { return .failure(notFound(method)) }
+        if (method == Method.sessionLoad || method == Method.sessionResume) && !advertised.resumeSessions {
+            return .failure(notFound(method))
+        }
         if method == Method.sessionList && !advertised.listSessions { return .failure(notFound(method)) }
         if method == Method.sessionClose && !advertised.closeSessions { return .failure(notFound(method)) }
 
@@ -123,20 +125,26 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
                 return .failure(invalidParams("session/new needs an absolute cwd"))
             }
             return .success(.newSession(cwd: cwd))
-        case Method.sessionLoad:
-            guard let sid = sessionId(p) else { return .failure(invalidParams("session/load needs sessionId")) }
+        case Method.sessionLoad, Method.sessionResume:
+            // Both require sessionId and an absolute cwd in v1.
+            guard let sid = sessionId(p) else { return .failure(invalidParams("\(method) needs sessionId")) }
             guard let cwd = p["cwd"]?.stringValue, cwd.hasPrefix("/") else {
-                return .failure(invalidParams("session/load needs an absolute cwd"))
+                return .failure(invalidParams("\(method) needs an absolute cwd"))
             }
-            remember(cwd: cwd, for: sid)
-            return .success(.resumeSession(sessionId: sid, cwd: nil, replay: true))
+            return .success(.resumeSession(sessionId: sid, cwd: cwd, replay: method == Method.sessionLoad))
         case Method.sessionList:
             if let c = p["cursor"], !c.isNull {
                 // We never hand out cursors, so any cursor is invalid.
                 return .failure(invalidParams("unknown cursor"))
             }
-            lock.lock(); lastListCwd = p["cwd"]?.stringValue; lock.unlock()
-            return .success(.listSessions(cwd: nil))
+            var cwd: String?
+            if let c = p["cwd"], !c.isNull {
+                guard let path = c.stringValue, path.hasPrefix("/") else {
+                    return .failure(invalidParams("session/list cwd must be an absolute path"))
+                }
+                cwd = path
+            }
+            return .success(.listSessions(cwd: cwd))
         case Method.sessionClose:
             guard let sid = sessionId(p) else { return .failure(invalidParams("session/close needs sessionId")) }
             return .success(.closeSession(sessionId: sid))
@@ -213,9 +221,6 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
         return handle
     }
 
-    private func remember(cwd: String, for sessionId: String) {
-        lock.lock(); cwdBySession[sessionId] = cwd; lock.unlock()
-    }
 
     public func decodeNotification(method: String, params: JSONValue?) -> ACPIncoming? {
         guard method == Method.sessionCancel, let p = params, let sid = sessionId(p) else { return nil }
@@ -223,10 +228,7 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
     }
 
     public func didReply(_ reply: ACPReply, method: String, requestParams: JSONValue?) {
-        // Remember a new session's cwd for later `session/list` answers.
-        if case let .sessionCreated(sid, _) = reply, let cwd = requestParams?["cwd"]?.stringValue {
-            remember(cwd: cwd, for: sid)
-        }
+        // v1 keeps no per-connection wire facts: cwd comes from the model.
     }
 
     // MARK: agent → editor replies
@@ -243,20 +245,14 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
         case let (.sessionCreated(sid, options), Method.sessionNew):
             return .success(.obj([("sessionId", .string(sid)), ("configOptions", encodeOptions(options))]))
         case let (.sessions(list), Method.sessionList):
-            lock.lock()
-            let known = cwdBySession, fallback = lastListCwd
-            lock.unlock()
             let items: [JSONValue] = list.map { s in
                 .obj([("sessionId", .string(s.sessionId)),
-                      // ACPSessionSummary has no cwd (interface request in
-                      // 02-protocol-version.md §6): the cwd this connection
-                      // saw for the session, else the list filter, else "".
-                      ("cwd", .string(known[s.sessionId] ?? fallback ?? "")),
+                      ("cwd", .string(s.cwd)),
                       ("title", .string(s.title)),
                       ("updatedAt", .string(s.updatedAt))])
             }
             return .success(.obj([("sessions", .array(items))]))
-        case let (.resumed(options), Method.sessionLoad):
+        case let (.resumed(options), Method.sessionLoad), let (.resumed(options), Method.sessionResume):
             return .success(.obj([("configOptions", encodeOptions(options))]))
         case (.closed, Method.sessionClose):
             return .success(.obj([]))

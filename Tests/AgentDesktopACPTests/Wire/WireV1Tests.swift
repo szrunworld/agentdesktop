@@ -52,7 +52,6 @@ import Testing
         let refused = await ed.nextFrame()
         #expect(refused?["id"] == .int(0))
         #expect(refused?["error"]?["code"] == .int(ACPJsonRpcErrorCode.invalidRequest))
-        #expect(await ed.nextEvent(timeout: 0.2) == nil)
         #expect(ed.connection.negotiatedVersion == nil)
         // A later valid initialize (a newer client) still works and gets 1.
         let result = await ed.initialize(protocolVersion: 2)
@@ -109,7 +108,7 @@ import Testing
             await ed.request(200, "session/prompt", .obj([("sessionId", .string("s")), ("prompt", .array([block]))]))
             #expect(await ed.nextFrame()?["error"]?["code"] == .int(ACPJsonRpcErrorCode.invalidParams))
         }
-        #expect(await ed.nextEvent(timeout: 0.2) == nil)
+        #expect(await ed.probeEventIsNext())
         #expect(ed.schemaProblems == [])
     }
 
@@ -121,16 +120,28 @@ import Testing
         let r = await ed.initialize(agentCaps: c)
         let caps = r?["agentCapabilities"]
         #expect(caps?["loadSession"] == .bool(true))
-        #expect(caps?["sessionCapabilities"] == .obj([("list", .obj([])), ("close", .obj([]))]))
+        // resumeSessions unlocks both v1 ways back: load (replay) and resume (no replay).
+        #expect(caps?["sessionCapabilities"] == .obj([("list", .obj([])), ("close", .obj([])), ("resume", .obj([]))]))
         #expect(caps?["promptCapabilities"]?["image"] == .bool(true))
         #expect(caps?["promptCapabilities"]?["audio"] == .bool(false))
-        // session/resume (no replay) stays unadvertised: the model cannot
-        // tell it from session/load (interface request in 02 §6).
-        #expect(caps?["sessionCapabilities"]?["resume"] == nil)
 
         await ed.request(1, "session/load", .obj([("sessionId", .string("s")), ("cwd", .string("/w")),
                                                   ("mcpServers", .array([]))]))
-        guard case let .request(lid, .resumeSession(sessionId: "s", cwd: nil, replay: true))? = await ed.nextEvent() else { Issue.record("load"); return }
+        guard case let .request(lid, .resumeSession(sessionId: "s", cwd: "/w", replay: true))? = await ed.nextEvent() else { Issue.record("load"); return }
+        await ed.request(11, "session/resume", .obj([("sessionId", .string("s")), ("cwd", .string("/w2"))]))
+        guard case let .request(rid, .resumeSession(sessionId: "s", cwd: "/w2", replay: false))? = await ed.nextEvent() else { Issue.record("resume"); return }
+        await ed.request(12, "session/list", .obj([("cwd", .string("/w"))]))
+        guard case let .request(listId, .listSessions(cwd: "/w"))? = await ed.nextEvent() else { Issue.record("list cwd"); return }
+        // A relative cwd is refused before it reaches the server.
+        await ed.request(13, "session/resume", .obj([("sessionId", .string("s")), ("cwd", .string("rel"))]))
+        #expect(await ed.nextFrame()?["error"]?["code"] == .int(ACPJsonRpcErrorCode.invalidParams))
+        await ed.request(14, "session/list", .obj([("cwd", .string("rel"))]))
+        #expect(await ed.nextFrame()?["error"]?["code"] == .int(ACPJsonRpcErrorCode.invalidParams))
+        await ed.connection.reply(to: rid, .resumed(options: []))
+        #expect(await ed.nextFrame()?["id"] == .int(11))
+        await ed.connection.reply(to: listId, .sessions([.init(sessionId: "s", title: "T", updatedAt: "2026-10-08T00:00:00Z", cwd: "/w")]))
+        let listed = await ed.nextFrame()
+        #expect(listed?["result"]?["sessions"]?.arrayValue?.first?["cwd"] == .string("/w"))
         await ed.request(2, "session/close", .obj([("sessionId", .string("s"))]))
         guard case let .request(cid, .closeSession("s"))? = await ed.nextEvent() else { Issue.record("close"); return }
         await ed.request(3, "session/prompt", .obj([("sessionId", .string("s")), ("prompt", .array([
@@ -161,7 +172,7 @@ import Testing
             #expect(ed.connection.clientCapabilities.elicitation == false)
             // Never sent, never an answer.
             #expect(await ed.connection.ask(ACPQuestion(sessionId: "s", message: "?")) == .unavailable)
-            #expect(await ed.nextFrame(timeout: 0.1) == nil)
+            #expect(await ed.probeFrameIsNext())
         }
     }
 
@@ -245,7 +256,8 @@ import Testing
             (.sessionCreated(sessionId: "s", options: opts), "session/new"),
             (.sessionCreated(sessionId: "s", options: []), "session/new"),
             (.sessions([]), "session/list"),
-            (.sessions([.init(sessionId: "s", title: "T", updatedAt: "2026-10-08T01:02:03Z")]), "session/list"),
+            (.sessions([.init(sessionId: "s", title: "T", updatedAt: "2026-10-08T01:02:03Z", cwd: "/w")]), "session/list"),
+            (.resumed(options: opts), "session/resume"),
             (.resumed(options: opts), "session/load"),
             (.closed, "session/close"),
             (.promptFinished(.endTurn), "session/prompt"), (.promptFinished(.cancelled), "session/prompt"),
