@@ -25,6 +25,7 @@
 | 6 | [06-ui-mapping.md](06-ui-mapping.md) | Design v2.0 页面、Hub 八页、Explorer 八页与主窗口导航的对应 |
 | 7 | [07-legacy-feature-gap-list.md](07-legacy-feature-gap-list.md) | 历史功能对照，防止迁移遗漏 |
 | 8 | [08-e2e-acceptance-plan.md](08-e2e-acceptance-plan.md) | 跨模块测试用例、验收步骤与通过标准 |
+| 9 | [09-ui-session-brief.md](09-ui-session-brief.md) | 主窗口 UI 会话交接 |
 
 视觉与交互验收基准：[`docs/design/v2/`](../design/v2/)，含 32 张渲染图、`screen-map.json`（页面用途、交互、规则）、`ui-checks-54.json`（设计源码包的 54 项交互检查）和四个合成应用夹具。
 

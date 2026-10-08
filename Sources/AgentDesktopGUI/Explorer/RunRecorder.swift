@@ -21,6 +21,10 @@ public actor RunRecorder {
     private var latestInference: JSONValue = .null
     private var latestAction: JSONValue = .null
     private var verification = GoalVerification.notRun
+    /// Set when an event or the snapshot could not be written. The run's
+    /// public record is then incomplete, so no further model call or input
+    /// may start (the explorer checks this before each one).
+    public private(set) var writeFailed = false
 
     public init(binding: GuiRunBinding, lifecycle: RunLifecycle, repository: GuiRunRepository,
                 budget: AttemptBudget, clock: MonotonicClock, createdAt: Date) {
@@ -98,17 +102,26 @@ public actor RunRecorder {
             if let state { m.append(("state", .string(state.rawValue))) }
             return .obj(m + extra)
         }
-        if let seq = try? await repository.appendEvent(runId: runId, built) { lastSequence = seq }
+        do {
+            lastSequence = try await repository.appendEvent(runId: runId, built)
+        } catch {
+            writeFailed = true
+        }
     }
 
     private func save() async {
-        try? await repository.saveSnapshot(runId: binding.runId, snapshot: await snapshot())
+        do {
+            try await repository.saveSnapshot(runId: binding.runId, snapshot: await snapshot())
+        } catch {
+            writeFailed = true
+        }
     }
 
     public func snapshot() async -> JSONValue {
         let state = await lifecycle.state
         let error: JSONValue = await lifecycle.failure.map {
-            ContractError($0.code, $0.message.isEmpty ? $0.code.rawValue : String($0.message.prefix(512)), retryable: $0.retryable).json
+            ContractError($0.code, $0.message.isEmpty ? $0.code.rawValue : String($0.message.prefix(512)), retryable: $0.retryable,
+                          details: $0.details).json
         } ?? .null
         return .obj([
             ("runId", .string(binding.runId)), ("state", .string(state.rawValue)),

@@ -25,6 +25,8 @@ struct RuntimeInvocation: Equatable {
         case call(RuntimeCall)
         /// run events, optionally following new events until the Run ends.
         case runEvents(runId: String, after: Int, follow: Bool)
+        /// events.subscribe: pushed events of one Run, or of every Run.
+        case eventsWatch(runId: String?, after: Int?)
         /// run wait: observe until the Run ends (ended implies quiescent).
         case runWait(runId: String, timeout: Double)
         /// run cancel, optionally waiting for quiescence.
@@ -275,6 +277,14 @@ enum CommandRouter {
             } ?? 0
             return .runEvents(runId: p[0], after: after, follow: o["--follow"] != nil)
         },
+        Spec(words: ["events", "watch"], summary: "stream Run events as they happen (--run: one Run, until it ends); Ctrl-C stops only the watch",
+             options: ["--run": true, "--after": true], positionals: []) { o, _ in
+            let after = try o["--after"].map { s -> Int in
+                guard let v = Int(s), v >= 0 else { throw RuntimeError.invalidArgument("--after needs a cursor (0 or more)") }
+                return v
+            }
+            return .eventsWatch(runId: o["--run"], after: after)
+        },
         Spec(words: ["run", "wait"], summary: "observe a Run until it ends and is quiescent; Ctrl-C stops only the wait",
              options: ["--wait-timeout": true], positionals: ["runId"]) { o, p in
             .runWait(runId: p[0], timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 30)
@@ -415,7 +425,7 @@ enum CommandRouter {
                 throw RuntimeError.invalidArgument("--format is text, json or jsonl, not \(f)")
             }
             // Only event streams print JSONL.
-            guard format != .jsonl || spec.words == ["run", "events"] else {
+            guard format != .jsonl || spec.words == ["run", "events"] || spec.words == ["events", "watch"] else {
                 throw RuntimeError.invalidArgument("--format jsonl is only for event and log streams; use json")
             }
             invocation.format = format

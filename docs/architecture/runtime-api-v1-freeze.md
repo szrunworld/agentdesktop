@@ -41,8 +41,11 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 
 - 每个 Run 的事件有从 1 开始单调递增的 `sequence`；Run 本身有 `revision`（每次状态变化 +1）。
 - 轮询：`run.events {runId, after, limit}` → `{events, next, ended}`（已实现）。`next` 就是恢复游标；客户端断线重连后从 `next` 继续，不丢不重。
-- 订阅（新增，`frozen`）：`events.subscribe {runId? , after?}`。成功应答后，服务端在**同一连接**上推送 `{"apiVersion":"agentdesktop.runtime/1","event":RunEvent}` 行，直到客户端关闭或发送 `events.unsubscribe`。订阅连接不是控制连接：关闭订阅不影响任何 Run（ADR-02、ADR-06）。不带 runId 时推送该主体可见的全部 Run 的 `run.*` 状态事件（主窗口 Runs 列表用）。
-- 事件超出保留期后，`after` 落在已裁剪区间返回 `events_cursor_expired`，客户端改用 `run.show` 取当前状态。
+- 订阅（PR2e 已实现）：`events.subscribe {runId?, after?}`。成功应答后，服务端在**同一连接**上推送 `{"apiVersion":"agentdesktop.runtime/1","event":RunEvent,"cursor":n}` 行；该连接上除 `events.unsubscribe` 外的请求一律返回 `conflict`（reason `subscribed`）。
+  - 带 runId：推送该 Run 序号大于 `after`（默认 0，即从头）的事件；Run 结束且事件推送完毕后，服务端关闭连接。
+  - 不带 runId：推送该主体可见的全部 Run 的事件（owner 看全部），`cursor` 是全局游标，`after` 默认为“现在”。主窗口 Runs 列表用这一种。
+  - 订阅连接不是控制连接：关闭订阅不影响任何 Run（ADR-02、ADR-06）。在持有未结束 Delegated Run 的控制连接上订阅返回 `conflict`（reason `control_connection`）。
+- 全局游标落在已保留区间之外（已裁剪，或来自已清空的旧库）时返回 `events_cursor_expired`，客户端改用 `run.list` / `run.show` 取当前状态后从新游标订阅。
 
 ## 5. 产物：不透明 ID，不暴露路径
 
@@ -80,13 +83,14 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | 输入 | observe / act / wait；request.show | ✅（observe 的 `path` 在 PR2 去掉） | — |
 | Run | run.start / attach / finish / show / events / wait / cancel / list | ✅ | PR1 |
 | Run | unit.run | 🧊 | PR2 |
-| 事件 | events.subscribe / unsubscribe | 🧊 | PR2 |
+| 事件 | events.subscribe / unsubscribe | ✅ | PR2e |
 | 产物 | artifact.show / read | ✅ | PR2c |
 | AI 配置 | ai.connections.list / get / create / update / disable / delete；ai.credentials.rotate | 🧊（实现已有，迁信封） | PR2 |
 | AI 模型 | ai.models.list / refresh；ai.modelProfiles.list / get / create / update / disable / delete | 🧊（同上） | PR2 |
 | GUI 参数 | ai.profiles.list / get / create / update / disable / delete / default.get / setDefault | 🧊（同上） | PR2 |
 | 能力检测 | ai.tests.start；ai.operations.get / cancel | 🧊（同上） | PR2 |
 | 用量 | ai.usage.summary | 🧊（同上） | PR2 |
+| Desktop 控制面 | desktop.stop / takeover / handback / closePlan / resize；app.quit；request.list / export | 🔖 | A5 |
 | 身份 | hub.pairing.start / status / approve / deny；hub.clients.list / show / revoke；hub.grants.list / set / revoke；hub.connections.list | 🔖 | PR3 |
 | Inbox | inbox.list / show / resolve；run.reconcile（unknown 核对） | 🔖 | PR4 |
 | 诊断 | diagnostics.export | 🔖 | PR4 |
@@ -113,7 +117,7 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | IDEMPOTENCY_CONFLICT | idempotency_conflict |
 | RESOURCE_IN_USE | conflict（`details.reason: "in_use"`） |
 | RESOURCE_DISABLED | conflict（`details.reason: "disabled"`） |
-| CAPABILITY_MISMATCH | capability_missing |
+| CAPABILITY_MISMATCH | capability_mismatch（docs/plan/03 §3.5 起独立） |
 | CREDENTIAL_REQUIRED / CREDENTIAL_REVOKED / AUTH_FAILED | model_unavailable（`details.reason` 原样小写） |
 | RATE_LIMITED / UPSTREAM_UNAVAILABLE / UPSTREAM_PROTOCOL_ERROR / MODEL_NOT_FOUND | model_unavailable（`retryable` 按原值，`details.retryAfterMs` 保留） |
 | DEADLINE_EXCEEDED | deadline_exceeded |
@@ -125,9 +129,23 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | ACTION_OUTCOME_UNKNOWN | action_delivery_unknown |
 | VERIFICATION_FAILED | 无错误：Run `outcome: failed`，事件 `unit.verification` |
 | LIMIT_EXCEEDED | 新码 `limit_exceeded` |
-| USAGE_UNAVAILABLE / AUDIT_UNAVAILABLE | internal_error（`details.reason`） |
+| USAGE_UNAVAILABLE | internal_error（`details.reason`） |
+| AUDIT_UNAVAILABLE | audit_unavailable（docs/plan/03 §3.5 起独立；同时暂停新输入） |
 | EVENTS_CURSOR_EXPIRED | 新码 `events_cursor_expired` |
 | INTERNAL_ERROR | internal_error |
+
+## 6.1 已登记的后续增量（docs/plan/03 §3.2–3.5，2026-10-08 纳入）
+
+- 方法：上表 “Desktop 控制面” 一行，状态 🔖，归 A5。
+- 错误码（`errors.json`，`reserved`）：`pairing_required`、`client_revoked`、`grant_missing`、`grant_expired`、`permit_expired`（退出码 4）；`target_moved`（5）；`audit_unavailable`（7）；`unsupported_backend`、`capability_mismatch`（6）。
+- 可选字段（`methods.json` 的 `plannedFields`，每项随所属 PR 带 Schema、夹具和 golden 落地）：
+  - Action 新增 `hover` / `drag` / `press`；
+  - 只给 `desktopId` 时使用隐式会话；
+  - ActionReceipt 新增 `businessResult`（恒为 `not_evaluated`）、`elapsedMs`、`clientId`、`origin`、`geometryRevision`、`dispatchSequence`、`reconciliations` 等；
+  - Observation 新增 `targetKind`、`geometryRevision`、`captureSequence`、`coverage`；
+  - Desktop 新增 `control`、`targetKind`；
+  - `desktop.create` 新增 `launch` / `bind` 参数；
+  - Run 新增 `unit` 与学习层预留字段。
 
 ## 7. 冻结规则
 

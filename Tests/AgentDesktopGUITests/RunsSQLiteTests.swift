@@ -266,6 +266,20 @@ struct RunsSQLiteTests {
         #expect(run["error"]?["code"]?.stringValue == "AUDIT_UNAVAILABLE")
     }
 
+    // A6: an event that cannot be written is not swallowed; the run stops
+    // before the next model call or input.
+    @Test func eventWriteFailureStopsBeforeInput() async throws {
+        let h = try SQLiteRunHarness([click(200, 100), typeText("Ada"), click(200, 300), finish])
+        try await h.setUpProfile()
+        await h.store.setRunStoreFault(.event, true)
+        let runId = try await h.start()
+        await h.finished(runId)
+        let run = try await h.run(runId)
+        #expect(await h.executor.executed.isEmpty)
+        #expect(run["state"]?.stringValue == "failed")
+        #expect(run["error"]?["code"]?.stringValue == "AUDIT_UNAVAILABLE")
+    }
+
     // EXE-003 / RET-004 end to end: the process dies while the executor
     // holds the input. After reopening, recovery records unknown, the run
     // waits, the snapshot is still a valid GuiRun, and nothing is resent.

@@ -5,7 +5,16 @@ import Foundation
 public protocol RuntimeTransport: AnyObject {
     /// Send one message and wait for its reply line.
     func exchange(_ message: Data) throws -> Data
+    /// The next line the Runtime pushed (event subscriptions); nil when
+    /// none arrived within the receive timeout.
+    func receive() throws -> Data?
     func close()
+}
+
+extension RuntimeTransport {
+    public func receive() throws -> Data? {
+        throw RuntimeError("capability_missing", "this transport does not carry event subscriptions", phase: .local)
+    }
 }
 
 /// Line-framed JSON over the owner-only Unix socket.
@@ -59,6 +68,20 @@ public final class UnixSocketTransport: RuntimeTransport {
         case .timedOut: throw RuntimeError.connectionLost("no reply from the Runtime within the timeout")
         case .eof, .truncated: throw RuntimeError.connectionLost("the Runtime closed the connection before replying")
         case .tooLarge: throw RuntimeError.connectionLost("the reply exceeds \(RuntimeAPI.maxFrameBytes) bytes")
+        case let .ioError(e): throw RuntimeError.connectionLost("read: \(String(cString: strerror(e)))")
+        }
+    }
+
+    public func receive() throws -> Data? {
+        guard let channel else { throw RuntimeError.connectionLost("the connection is closed") }
+        // Back within a second when idle, so a watcher can notice Ctrl-C.
+        guard channel.readable(within: 1000) else { return nil }
+        switch channel.readLine() {
+        case let .line(data): return data
+        case .timedOut: return nil
+        case .eof: throw RuntimeError.connectionLost("the Runtime closed the subscription")
+        case .truncated: throw RuntimeError.connectionLost("the Runtime closed the connection inside a message")
+        case .tooLarge: throw RuntimeError.connectionLost("a pushed message exceeds \(RuntimeAPI.maxFrameBytes) bytes")
         case let .ioError(e): throw RuntimeError.connectionLost("read: \(String(cString: strerror(e)))")
         }
     }

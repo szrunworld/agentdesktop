@@ -2403,6 +2403,11 @@ enum RuntimeContractData {
         },
         "event": {
           "$ref": "#/$defs/RunEvent"
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "resume with events.subscribe after=cursor: the sequence for a Run stream, the global cursor otherwise"
         }
       }
     },
@@ -2785,6 +2790,23 @@ enum RuntimeContractData {
       "params": "artifact_read_params",
       "result": "ArtifactChunk",
       "status": "implemented"
+    },
+    {
+      "method": "events.subscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "events_subscribe_params",
+      "result": "EventSubscription",
+      "status": "implemented",
+      "note": "after the reply the server pushes EventFrame lines on this connection; other methods are refused there until events.unsubscribe. With runId: that Run from sequence `after` (default 0), and the server closes the connection once the Run has ended and every event was sent. Without: every visible Run, global cursor `after` (default: now). Closing never affects a Run."
+    },
+    {
+      "method": "events.unsubscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "EventSubscription",
+      "status": "implemented"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -2797,23 +2819,6 @@ enum RuntimeContractData {
       "params": "unit_run_params",
       "result": "Run",
       "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process, never over the wire"
-    },
-    {
-      "method": "events.subscribe",
-      "status": "frozen",
-      "pr": "PR2e",
-      "mutation": false,
-      "params": "events_subscribe_params",
-      "result": "EventSubscription",
-      "note": "after the reply the server pushes EventFrame lines on the same connection; closing it never affects a Run"
-    },
-    {
-      "method": "events.unsubscribe",
-      "status": "frozen",
-      "pr": "PR2e",
-      "mutation": false,
-      "params": "empty_params",
-      "result": "EventSubscription"
     },
     {
       "method": "ai.connections.list",
@@ -3243,6 +3248,62 @@ enum RuntimeContractData {
       "status": "reserved",
       "pr": "PR7+",
       "stage": "P1"
+    },
+    {
+      "method": "desktop.stop",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "stop input on one Desktop; receipt separates accepted from quiescent"
+    },
+    {
+      "method": "desktop.takeover",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "manual takeover: a platform lease Run with origin user"
+    },
+    {
+      "method": "desktop.handback",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "end the takeover Run and observe again; nothing is replayed"
+    },
+    {
+      "method": "desktop.closePlan",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "what closing a Desktop would end and what it keeps"
+    },
+    {
+      "method": "desktop.resize",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "change a Desktop's size"
+    },
+    {
+      "method": "app.quit",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "quit only a process this Desktop launched"
+    },
+    {
+      "method": "request.list",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "action records: filter and page"
+    },
+    {
+      "method": "request.export",
+      "status": "reserved",
+      "pr": "A5",
+      "stage": "P0",
+      "note": "action records: export"
     }
   ],
   "withdrawn": [
@@ -3266,7 +3327,67 @@ enum RuntimeContractData {
       "method": "ai/1 runtime.capabilities",
       "replacedBy": "runtime.capabilities"
     }
-  ]
+  ],
+  "plannedFields": {
+    "note": "optional additions agreed in docs/plan/03 §3.2–3.3; each lands with its schema, fixtures and goldens in the named PR (freeze rule 1: optional fields only)",
+    "Action.kind": {
+      "add": [
+        "hover",
+        "drag",
+        "press"
+      ],
+      "pr": "A5"
+    },
+    "observe/act context": {
+      "add": "desktopId alone opens an implicit session",
+      "pr": "A5"
+    },
+    "ActionReceipt": {
+      "add": [
+        "businessResult (always \"not_evaluated\")",
+        "elapsedMs",
+        "clientId",
+        "origin",
+        "geometryRevision",
+        "dispatchSequence",
+        "proposalId",
+        "inferenceAttemptId",
+        "reconciliations"
+      ],
+      "pr": "A3/A5"
+    },
+    "Observation": {
+      "add": [
+        "targetKind",
+        "geometryRevision",
+        "captureSequence",
+        "coverage{ax,screenshot,ocr}"
+      ],
+      "pr": "A3"
+    },
+    "Desktop": {
+      "add": [
+        "control{state,controllerRunId,clientId,clientName,transport,since,actionCount,lastActionAt}",
+        "targetKind (window|device)"
+      ],
+      "pr": "A5"
+    },
+    "desktop.create params": {
+      "add": [
+        "launch",
+        "bind"
+      ],
+      "pr": "A5"
+    },
+    "Run": {
+      "add": [
+        "unit{mode,goalHash,guiProfileRevision,inferenceAttempts,steps}",
+        "episodeEligible",
+        "excludedReason"
+      ],
+      "pr": "A6/L1"
+    }
+  }
 }
 """##
 
@@ -3441,6 +3562,69 @@ enum RuntimeContractData {
       "exitCode": 8,
       "phase": "handler",
       "description": "The request's deadline passed before dispatch; nothing was sent."
+    },
+    {
+      "code": "pairing_required",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The client is not paired; pair it in AgentDesktop before calling this method."
+    },
+    {
+      "code": "client_revoked",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The client was removed; its credential no longer works."
+    },
+    {
+      "code": "grant_missing",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The capability, Desktop or app is not in the client's grant."
+    },
+    {
+      "code": "grant_expired",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The grant that covered this has expired."
+    },
+    {
+      "code": "permit_expired",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The approval permit expired, was used, or belongs to an older generation."
+    },
+    {
+      "code": "target_moved",
+      "exitCode": 5,
+      "phase": "handler",
+      "reserved": true,
+      "description": "At dispatch the target's geometry or binding generation no longer matched the observation; nothing was sent."
+    },
+    {
+      "code": "audit_unavailable",
+      "exitCode": 7,
+      "phase": "handler",
+      "reserved": true,
+      "description": "Evidence could not be recorded; input is paused until it can be."
+    },
+    {
+      "code": "unsupported_backend",
+      "exitCode": 6,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The backend cannot do this action in the background; it is not done in the foreground instead."
+    },
+    {
+      "code": "capability_mismatch",
+      "exitCode": 6,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The GUI profile and the fallback model speak different action protocols."
     },
     {
       "code": "connection_lost",

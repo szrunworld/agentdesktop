@@ -49,6 +49,18 @@ public final class LineChannel {
         }
     }
 
+    /// Whether a read would not block for long: bytes are buffered, or the
+    /// socket becomes readable (data, EOF or error) within `milliseconds`.
+    public func readable(within milliseconds: Int32) -> Bool {
+        if !buffer.isEmpty { return true }
+        var p = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        while true {
+            let n = poll(&p, 1, milliseconds)
+            if n < 0, errno == EINTR { continue }
+            return n != 0
+        }
+    }
+
     /// Write one message and its LF. False when the peer is gone.
     @discardableResult
     public func writeLine(_ body: Data) -> Bool {

@@ -110,6 +110,7 @@ public actor ConfigStore {
                 clock: ConfigClock = SystemConfigClock(), options: ConfigOptions = ConfigOptions(),
                 newId: @escaping @Sendable (String) -> String = { ConfigStore.randomId($0) }) throws {
         precondition(digestKey.count >= 32, "the idempotency digest key needs 32 bytes")
+        try Self.restrictToOwner(databasePath: path)
         self.db = try SQLiteDatabase(path: path)
         self.credentials = credentials
         self.digestKey = SymmetricKey(data: digestKey)
@@ -117,6 +118,30 @@ public actor ConfigStore {
         self.options = options
         self.newId = newId
         try Self.migrate(db, now: Self.timestamp(clock.now()), defaultScope: options.defaultScope)
+    }
+
+    /// The database holds credential references, model settings and the
+    /// inference ledger: owner-only (0600) in an owner-only directory
+    /// (0700), set before SQLite opens it so it is never readable by others,
+    /// also when it already exists from an earlier build (SEC-01). SQLite
+    /// gives its -wal and -shm files the main file's mode.
+    static func restrictToOwner(databasePath path: String) throws {
+        guard !path.isEmpty, path != ":memory:", !path.hasPrefix("file:") else { return }
+        let fm = FileManager.default
+        let dir = (path as NSString).deletingLastPathComponent
+        if !dir.isEmpty {
+            try fm.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            guard chmod(dir, 0o700) == 0 else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: dir]) }
+        }
+        let fd = open(path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: path]) }
+        defer { close(fd) }
+        guard fchmod(fd, 0o600) == 0 else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: path]) }
+        for suffix in ["-wal", "-shm", "-journal"] where fm.fileExists(atPath: path + suffix) {
+            guard chmod(path + suffix, 0o600) == 0 else {
+                throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: path + suffix])
+            }
+        }
     }
 
     public static func randomId(_ prefix: String) -> String {

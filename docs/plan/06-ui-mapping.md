@@ -56,7 +56,22 @@ ADR 树里的 Home 即 Desktops 总览。Design v2.0 侧栏的「Agent 接入」
 - 没有「重试未知动作」按钮。
 - 视觉 token、布局尺寸、组件命名沿用 Design v2.0（见 02 文件 U1）。
 
-## 6.4 验收依据
+## 6.4 动作结果的三级展示（MAC-001 之后的硬规则）
+
+Runtime 可能返回"投递成功"而目标窗口没有变化（PR #37）。UI 不得把受理或投递展示成成功。只用正式契约字段映射，不另建状态：
+
+| UI 文案 | 条件（runtime/1 字段） |
+| --- | --- |
+| 已受理 | 请求已入账（request.show 有记录），尚无回执 |
+| 未发出（附原因） | `delivery = not_dispatched`，显示错误码与说明，如 `target_moved`、`invalid_target`（RT-24 遮挡场景）、`input_disabled` |
+| 已执行，未验证 | `delivery = dispatched` 且 `execution = completed`；`verification = not_requested` 时一律用这个文案 |
+| 执行失败 | `execution = failed` |
+| 结果未知 | `delivery` 或 `execution` 为 `unknown`；只能核实，不能重试 |
+| 已验证成功 / 验证未通过 | 只来自 GUI 单元运行（`unit.run`）的验证事件与 `run.show` 的 unit 结果；或调用方自己报告并标明来源 |
+
+单次 act 的 Run 在投递成功时 `outcome = success`，Runs 列表对 `kind = act` 的 Run 显示"已投递"而不是"成功"。`businessResult` 纳入契约后一律显示"业务结果：未评估"。
+
+## 6.5 验收依据
 
 - 54 项交互检查（`ui-checks-54.json`）按 UC01–UC54 编号，逐项在原生界面重做，归入 U2–U8（见 02 文件）。网页原型的通过不转记。UC53（无未捕获 JS 异常）、UC54（无真实网络请求）改为原生等价项：无未处理异常日志、测试运行不发真实模型请求。
 - 每个页面在测试进程里渲染成 1440×1000 图，与 `docs/design/v2/Pxx.webp` 并排放进 PR 的验收记录。
