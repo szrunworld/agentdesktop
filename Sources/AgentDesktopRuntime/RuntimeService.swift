@@ -42,6 +42,8 @@ public final class RuntimeService: @unchecked Sendable {
     public let observations = ObservationStore()
     let quotaBucketLock = NSLock()
     var quotaBuckets: [String: String] = [:]
+    /// Requests whose reserved place a registered screenshot now holds.
+    var quotaBucketsUsed: Set<String> = []
     public let ledger: RequestLedger
     public let runs: RunStore
     let execution: ExecutionCoordinator

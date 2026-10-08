@@ -411,6 +411,34 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
     gate.signal(); gate.signal()
 }
 
+// b9's review of 9a7657a: a volume that hangs every query does not pile up
+// queries (one retry each 30 s), and a clock set back does not keep an old
+// answer fresh.
+@Test func hungQueriesAreCappedAndABackwardsClockIsStale() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Clock: @unchecked Sendable { var now = Date() }
+    final class Calls: @unchecked Sendable { let lock = NSLock(); var n = 0 }
+    let clock = Clock(), calls = Calls()
+    let store = try ArtifactStore(directory: dir, now: { clock.now })
+    store.freeBytes = { 100 << 30 }
+    store.refreshFreeSpace()
+    // Set back an hour: the answer is not taken as fresh.
+    clock.now = clock.now.addingTimeInterval(-3600)
+    let gate = DispatchSemaphore(value: 0)
+    store.freeBytes = { calls.lock.withLock { calls.n += 1 }; gate.wait(); return 100 << 30 }
+    #expect(throws: RuntimeError.self) { try store.admit(bucket: "session:s") }
+    for _ in 0..<10 {
+        clock.now = clock.now.addingTimeInterval(31)
+        _ = try? store.admit(bucket: "session:s")
+    }
+    let until = Date().addingTimeInterval(10)
+    while calls.lock.withLock({ calls.n }) < ArtifactStore.maxFreeQueries && Date() < until { Thread.sleep(forTimeInterval: 0.02) }
+    Thread.sleep(forTimeInterval: 0.2)
+    #expect(calls.lock.withLock { calls.n } == ArtifactStore.maxFreeQueries)
+    for _ in 0..<ArtifactStore.maxFreeQueries { gate.signal() }
+}
+
 // b9 (#144, fourth review): a GUI step's places are admitted together with
 // every limit, so no window capture is written when the store, the disk or
 // an unknown answer would refuse the model's copy; unused places come back.
@@ -436,8 +464,30 @@ func aGuiStepIsRefusedWholeByAnyLimit(_ which: String) async throws {
     await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: "r1", expectedGeneration: 1) }
     platform.failScreenshot = false
     // Both places came back: the next step fits whole.
+    #expect(s.artifacts.count(bucket: "gui:r1") == 0)
     _ = try await ports.observe(runId: "r1", expectedGeneration: 1)
-    #expect(s.quotaBuckets.isEmpty, "no per-request bucket left behind")
+    #expect(s.artifacts.count(bucket: "gui:r1") == 2)
+    #expect(s.quotaBuckets.isEmpty && s.quotaBucketsUsed.isEmpty, "no per-request bucket left behind")
+}
+
+// b9's review of 9a7657a: the window capture was stored, then the observe
+// failed (the window changed during the capture). The stored file keeps its
+// place; only the model copy's place goes back.
+@Test func aStoredCaptureKeepsItsPlaceWhenTheStepFailsAfterIt() async throws {
+    let (platform, s, ports, d) = try guiScene()
+    let screen = try #require(s.desktops.find(d)?.screen)
+    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    platform.onCapture = {
+        platform.inFront[screen.name] = [PlatformWindow(windowId: 77, pid: 555, appName: "Notes", title: "盖住", frame: screen.frame)]
+    }
+    let before = platform.calls.filter { $0.contains("creenshot") || $0.hasSuffix("window") }.count
+    await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: "r1", expectedGeneration: 1) }
+    let shots = platform.calls.filter { $0.contains("creenshot") || $0.hasSuffix("window") }.count - before
+    let pngs = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".png") }
+    #expect(shots == 1)
+    #expect(pngs.count == 1, "\(pngs)")
+    #expect(s.artifacts.count(bucket: "gui:r1") == pngs.count, "the count matches what is stored")
+    #expect(s.quotaBuckets.isEmpty && s.quotaBucketsUsed.isEmpty, "no per-request state left behind")
 }
 
 @Test func aLateAnswerFromAHungQueryIsNotTakenForANewOne() throws {

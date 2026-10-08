@@ -101,14 +101,15 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         let observed = await call(.observe, id: observeId, context: RequestContext(sessionId: rb.sessionId), params: .obj([]))
         // Taken by observe when it got that far; never left behind.
         _ = service.takeQuotaBucket(requestId: observeId, connection: connection)
+        // A window capture that was stored keeps its place even when the
+        // observe failed after it (the window changed during the capture):
+        // only the places nothing was stored in go back.
+        if service.takeQuotaUsed(requestId: observeId, connection: connection) { unused = 1 }
         let data: JSONValue
         switch observed {
         case let .failure(e): throw Self.contractError(e)
         case let .success(v): data = v
         }
-        // The window capture used its place; on any failure above both are
-        // still ours and the defer gives them back.
-        unused = 1
         guard let snapshotId = data["snapshotId"]?.stringValue, let stored = service.observations.find(snapshotId),
               let b = stored.binding, let frame = stored.windowFrame,
               let t = stored.transform, let size = stored.imageSize,

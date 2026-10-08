@@ -130,6 +130,10 @@ public final class ArtifactStore: @unchecked Sendable {
     /// Concurrent: a retry is not queued behind a query that hangs.
     private let freeSpaceQueue = DispatchQueue(label: "agentdesktop.artifacts.freespace", qos: .utility, attributes: .concurrent)
     private var refreshStarted: Date?
+    /// Volume queries started and not yet answered: a volume that hangs
+    /// every query must not pile up threads, one retry every 30 s.
+    private var freeQueriesInFlight = 0
+    static let maxFreeQueries = 3
     /// Usage by quota bucket ("run:<id>", "session:<id>", "desktop:<id>"):
     /// each artifact counts from the moment it is admitted (a reservation),
     /// its bytes once it is registered.
@@ -168,7 +172,9 @@ public final class ArtifactStore: @unchecked Sendable {
             // A refresh stuck for long (a hung volume query) may be tried again.
             if refreshingFree, let started = refreshStarted, clock().timeIntervalSince(started) > 30 { refreshingFree = false }
             guard let f = free else { return true }
-            return clock().timeIntervalSince(f.at) >= Self.freeSpaceInterval && !refreshingFree
+            // A clock set back makes the age negative: that answer is stale too.
+            let age = clock().timeIntervalSince(f.at)
+            return (age < 0 || age >= Self.freeSpaceInterval) && !refreshingFree
         }
         if stale { scheduleFreeSpace() }
         try lock.withLock {
@@ -185,7 +191,7 @@ public final class ArtifactStore: @unchecked Sendable {
                 throw refuse("artifact_store_full", "the artifact store holds \(usageTotal) bytes, its limit is \(limits.totalBytes)")
             }
             // An answer older than a minute is no answer.
-            guard let f = free, let freeBytes = f.bytes, clock().timeIntervalSince(f.at) < 60 else {
+            guard let f = free, let freeBytes = f.bytes, (0..<60).contains(clock().timeIntervalSince(f.at)) else {
                 throw refuse("disk_unknown", "the free space on the artifact volume is unknown")
             }
             if freeBytes < limits.minFreeBytes {
@@ -194,6 +200,9 @@ public final class ArtifactStore: @unchecked Sendable {
             usage[bucket] = (u.count + count, u.bytes)
         }
     }
+
+    /// How many artifacts `bucket` holds or has reserved.
+    func count(bucket: String) -> Int { lock.withLock { usage[bucket]?.count ?? 0 } }
 
     /// Give back a reservation whose screenshot was not made.
     public func release(bucket: String, count: Int = 1) {
@@ -217,14 +226,18 @@ public final class ArtifactStore: @unchecked Sendable {
 
     private func scheduleFreeSpace() {
         let go = lock.withLock { () -> Bool in
-            guard !refreshingFree else { return false }
+            guard !refreshingFree, freeQueriesInFlight < Self.maxFreeQueries else { return false }
             refreshingFree = true
+            freeQueriesInFlight += 1
             refreshStarted = clock()
             return true
         }
         guard go else { return }
         // Its own queue: a long sweep must not leave the answer to age out.
-        freeSpaceQueue.async { [self] in refreshFreeSpace() }
+        freeSpaceQueue.async { [self] in
+            refreshFreeSpace()
+            lock.withLock { freeQueriesInFlight -= 1 }
+        }
     }
 
     /// Usage from the records on disk, once, at start (nothing else runs yet).

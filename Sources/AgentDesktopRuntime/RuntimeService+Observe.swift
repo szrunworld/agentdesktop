@@ -103,6 +103,9 @@ extension RuntimeService {
                     if reserved == nil { artifacts.release(bucket: bucket) }
                     throw error
                 }
+                // The reserved place is now the stored screenshot's, whatever
+                // happens later in this observe: the ports must not give it back.
+                if reserved != nil { markQuotaUsed(requestId: request.requestId, connection: c) }
                 stored.transform = (origin.0, origin.1, scale)
                 stored.imageSize = size
                 image = .obj([
@@ -252,5 +255,15 @@ extension RuntimeService {
 
     func takeQuotaBucket(requestId: String, connection: ConnectionState) -> String? {
         quotaBucketLock.withLock { quotaBuckets.removeValue(forKey: connection.connectionId + "|" + requestId) }
+    }
+
+    func markQuotaUsed(requestId: String, connection: ConnectionState) {
+        _ = quotaBucketLock.withLock { quotaBucketsUsed.insert(connection.connectionId + "|" + requestId) }
+    }
+
+    /// Whether that request's observe registered a screenshot in its reserved
+    /// place; asked once, by the ports, after the observe returns.
+    func takeQuotaUsed(requestId: String, connection: ConnectionState) -> Bool {
+        quotaBucketLock.withLock { quotaBucketsUsed.remove(connection.connectionId + "|" + requestId) != nil }
     }
 }
