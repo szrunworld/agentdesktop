@@ -142,13 +142,16 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quitEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
-        quit?.requestQuit()
+        guard let quit else { return }
+        quit.holdQuitEvent()
+        quit.requestQuit()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quit == nil || quit.approved { return .terminateNow }
         if role.isSideInstance, role.mainWindowForTest == nil, !role.quitDialogForTest { return .terminateNow }
         if quit.isAsking { return .terminateLater }
+        quit.markAsking()
         Task { await quit.begin() }
         return .terminateLater
     }

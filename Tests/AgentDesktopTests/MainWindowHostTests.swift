@@ -258,4 +258,52 @@ struct MainWindowHostTests {
         q.requestQuit()
         #expect(terminations == 2)
     }
+
+    // Review of #101: a stop called off while a Runtime answer is in flight
+    // never turns quiet afterwards, and a late quiet never approves a later
+    // quit (which would then skip the dialog and stop-and-wait).
+    @Test func aLateQuietAfterCancelApprovesNothing() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let q = QuitController(store: store)
+        q.clock = FastClock()
+        var replies: [Bool] = []
+        q.reply = { replies.append($0) }
+        await q.begin(show: false)
+        let flow = try #require(q.flow)
+        m.delays = ["run.list": 200_000_000]
+        q.choose(.stopAndQuit)
+        for _ in 0..<200 where flow.stoppedIds.count < 2 { try await Task.sleep(nanoseconds: 2_000_000) }
+        for id in flow.stoppedIds { m.confirmQuiescence(id) }
+        q.choose(.cancel)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        #expect(flow.phase == .cancelled, "the late answer did not turn the cancelled stop quiet")
+        #expect(!q.approved)
+        #expect(replies == [false])
+    }
+
+    // Review of #101: once the dialog is answered nothing keeps reading the
+    // count, even while the Runtime cannot be reached.
+    @Test func answeringTheDialogStopsReadingTheCount() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        m.offline = true
+        let q = QuitController(store: store)
+        q.clock = FastClock()
+        q.reply = { _ in }
+        q.hideMainWindow = {}
+        await q.begin(show: false)
+        let flow = try #require(q.flow)
+        for _ in 0..<200 where flow.activeCount == .reading { try await Task.sleep(nanoseconds: 2_000_000) }
+        q.choose(.hideWindow)
+        await q.counting?.value
+        #expect(flow.closed)
+        let calls = m.callLog.count
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(m.callLog.count == calls, "no reads after the answer")
+    }
 }
