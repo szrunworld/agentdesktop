@@ -26,6 +26,7 @@
 | `docs/acp/tests/evidence/fake-editor-selftest-2026-10-08/` | 假编辑器自检的原始记录 |
 | `scripts/acp/fake-editor/` | 假编辑器（TypeScript，官方 `@agentclientprotocol/sdk` 1.7.0 锁定版本，`package-lock.json` 已提交，`node_modules/`、`dist/` 不提交） |
 | `scripts/acp/selftest.sh` | 假编辑器自检 |
+| `scripts/acp/zed-capture/` | Zed 首帧采集（Z1）：`setup.sh` 用独立 `--user-data-dir` 打开 Zed 并接上逐字节记录的包装 `capture-agent.mjs`；`collect.sh` 脱敏汇总（`--to-evidence` 仅协调者用）；`selftest.sh` 不启动 Zed，验证包装逐字节无损 |
 | `scripts/acp/run-real.sh` | 对 dev 入口或 `agentdesktop acp` 跑场景（只接受 `/tmp/adt-*` 端点） |
 | `Tests/AgentDesktopACPTests/Conformance/` | 冻结接口一致性测试（只用 Model 与 Ports） |
 
@@ -325,4 +326,4 @@ ACP-29、ACP-30、ACP-31 是 Kevin 新增的端到端场景，06-gates 里还没
 
 - 除 ACP-L2-01～05 的只读冒烟外，所有 L2/L3 用例都要等 A2、A4、A6（以及 PR4、#51、U7、CLI `acp`）；在此之前不记 PASSED。
 - AgentDesktop profile 的 task.slow 与 `PROMPT_SLOW`、`PROMPT_ACT` 要在 A6 给出中立样本任务后填写。
-- Zed 首帧采集需要 Kevin 手工做一次（runbook §三.1），结果记入 ACP-T26-01 的证据。JetBrains 未安装（P2，不阻塞 P1）。本线没有改动 Zed 的设置。
+- Zed 首帧采集需要 Kevin 手工做一次（runbook §三.1，约 2 分钟），协调者用 `collect.sh --to-evidence` 存证后记入 ACP-T26-01 与 02；在此之前两者都不得据模拟结果填写或标记通过（Z1）。JetBrains 未安装（P2，不阻塞 P1）。本线没有改动 Zed 的设置。

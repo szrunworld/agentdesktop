@@ -1,0 +1,307 @@
+{
+  "zed": "Zed 1.23.2 – /Applications/Zed.app",
+  "capturedAt": "2026-10-08T08:59:28.884Z",
+  "launches": [
+    {
+      "launch": "launch-1-226",
+      "frames": {
+        "editorToAgent": 4,
+        "agentToEditor": 8,
+        "unparseable": 0
+      },
+      "requestedProtocolVersion": 1,
+      "answeredProtocolVersion": 1,
+      "clientInfo": {
+        "name": "agentdesktop-fake-editor",
+        "version": "0.1.0"
+      },
+      "clientCapabilities": {
+        "fs": {
+          "readTextFile": false,
+          "writeTextFile": false
+        },
+        "terminal": false
+      },
+      "initializeRoundTripMs": 7,
+      "requestsSentBeforeInitializeReply": [],
+      "methods": [
+        {
+          "ms": 2,
+          "dir": "editor->agent",
+          "method": "initialize",
+          "id": 0
+        },
+        {
+          "ms": 11,
+          "dir": "editor->agent",
+          "method": "session/new",
+          "id": 1
+        },
+        {
+          "ms": 15,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        },
+        {
+          "ms": 16,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        },
+        {
+          "ms": 16,
+          "dir": "editor->agent",
+          "method": "session/prompt",
+          "id": 2
+        },
+        {
+          "ms": 22,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        },
+        {
+          "ms": 25,
+          "dir": "editor->agent",
+          "method": "session/prompt",
+          "id": 3
+        },
+        {
+          "ms": 27,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        }
+      ],
+      "raw": {
+        "editor-to-agent.bin": {
+          "bytes": 697,
+          "sha256": "cdf6fd17620780450e6638c42971e0e73c21be8aa4f8e690dc9de4ecd751eb7e"
+        },
+        "agent-to-editor.bin": {
+          "bytes": 2843,
+          "sha256": "79f7c296cfa0acaf218a0668fd3f9fb077ea8edf4e2c64fbd9967ab97f987557"
+        }
+      },
+      "exit": {
+        "t": "2026-10-08T08:59:28.556Z",
+        "ms": 30,
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "launch": "launch-2-229",
+      "frames": {
+        "editorToAgent": 2,
+        "agentToEditor": 4,
+        "unparseable": 0
+      },
+      "requestedProtocolVersion": 1,
+      "answeredProtocolVersion": 1,
+      "clientInfo": null,
+      "clientCapabilities": {},
+      "initializeRoundTripMs": 3,
+      "requestsSentBeforeInitializeReply": [
+        "session/new"
+      ],
+      "methods": [
+        {
+          "ms": 4,
+          "dir": "editor->agent",
+          "method": "initialize",
+          "id": "raw-init"
+        },
+        {
+          "ms": 4,
+          "dir": "editor->agent",
+          "method": "session/new",
+          "id": "raw-new"
+        },
+        {
+          "ms": 12,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        },
+        {
+          "ms": 14,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        }
+      ],
+      "raw": {
+        "editor-to-agent.bin": {
+          "bytes": 257,
+          "sha256": "75136f5886dbcca497480314575c8017f93e302759f19bd7f2ca414fa927f3a9"
+        },
+        "agent-to-editor.bin": {
+          "bytes": 1866,
+          "sha256": "dbbfb4ce317f21223c76b8e66b1281287fb6742294c14250c2e44e703a35af52"
+        }
+      },
+      "exit": {
+        "t": "2026-10-08T08:59:28.598Z",
+        "ms": 15,
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "launch": "launch-3-231",
+      "frames": {
+        "editorToAgent": 3,
+        "agentToEditor": 6,
+        "unparseable": 0
+      },
+      "requestedProtocolVersion": 1,
+      "answeredProtocolVersion": 1,
+      "clientInfo": {
+        "name": "agentdesktop-fake-editor",
+        "version": "0.1.0"
+      },
+      "clientCapabilities": {
+        "fs": {
+          "readTextFile": false,
+          "writeTextFile": false
+        },
+        "terminal": false
+      },
+      "initializeRoundTripMs": 8,
+      "requestsSentBeforeInitializeReply": [],
+      "methods": [
+        {
+          "ms": 7,
+          "dir": "editor->agent",
+          "method": "initialize",
+          "id": 0
+        },
+        {
+          "ms": 16,
+          "dir": "editor->agent",
+          "method": "session/new",
+          "id": 1
+        },
+        {
+          "ms": 24,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        },
+        {
+          "ms": 24,
+          "dir": "editor->agent",
+          "method": "session/prompt",
+          "id": 2
+        },
+        {
+          "ms": 25,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        },
+        {
+          "ms": 29,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        }
+      ],
+      "raw": {
+        "editor-to-agent.bin": {
+          "bytes": 536,
+          "sha256": "9c21b0dd05d91d1cb6548db582e4415789d15f4330d21eb7eac65e3abd24b631"
+        },
+        "agent-to-editor.bin": {
+          "bytes": 2346,
+          "sha256": "1693e3f9e1b1ad500ea9e039bbe04202b88d02c458f5460cc271a85d476a4a2d"
+        }
+      },
+      "exit": {
+        "t": "2026-10-08T08:59:28.667Z",
+        "ms": 31,
+        "code": 0,
+        "signal": null
+      }
+    },
+    {
+      "launch": "launch-4-248",
+      "frames": {
+        "editorToAgent": 2,
+        "agentToEditor": 6,
+        "unparseable": 0
+      },
+      "requestedProtocolVersion": 1,
+      "answeredProtocolVersion": 1,
+      "clientInfo": {
+        "name": "agentdesktop-fake-editor",
+        "version": "0.1.0"
+      },
+      "clientCapabilities": {
+        "fs": {
+          "readTextFile": false,
+          "writeTextFile": false
+        },
+        "terminal": false
+      },
+      "initializeRoundTripMs": 6,
+      "requestsSentBeforeInitializeReply": [],
+      "methods": [
+        {
+          "ms": 3,
+          "dir": "editor->agent",
+          "method": "initialize",
+          "id": 0
+        },
+        {
+          "ms": 10,
+          "dir": "editor->agent",
+          "method": "session/load",
+          "id": 1
+        },
+        {
+          "ms": 17,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        },
+        {
+          "ms": 19,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        },
+        {
+          "ms": 19,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        },
+        {
+          "ms": 19,
+          "dir": "agent->editor",
+          "method": "session/update",
+          "id": null
+        }
+      ],
+      "raw": {
+        "editor-to-agent.bin": {
+          "bytes": 433,
+          "sha256": "fca19984d36e25af1f37310d850052d75d7c54a499dd2ab473cb383f81350eb7"
+        },
+        "agent-to-editor.bin": {
+          "bytes": 2206,
+          "sha256": "50110c99ff1fbac9d389103db196c087f8e6e81a93fb9f2e59380cdc9bf977c8"
+        }
+      },
+      "exit": {
+        "t": "2026-10-08T08:59:28.723Z",
+        "ms": 27,
+        "code": 0,
+        "signal": null
+      }
+    }
+  ]
+}

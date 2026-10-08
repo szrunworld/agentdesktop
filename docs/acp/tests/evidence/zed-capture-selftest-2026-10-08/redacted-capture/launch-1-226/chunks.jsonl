@@ -1,0 +1,13 @@
+{"t":"2026-10-08T08:59:28.528Z","ms":2,"dir":"editor->agent","offset":0,"length":235}
+{"t":"2026-10-08T08:59:28.535Z","ms":9,"dir":"agent->editor","offset":0,"length":349}
+{"t":"2026-10-08T08:59:28.536Z","ms":11,"dir":"editor->agent","offset":235,"length":142}
+{"t":"2026-10-08T08:59:28.540Z","ms":14,"dir":"agent->editor","offset":349,"length":597}
+{"t":"2026-10-08T08:59:28.540Z","ms":15,"dir":"agent->editor","offset":946,"length":586}
+{"t":"2026-10-08T08:59:28.541Z","ms":16,"dir":"agent->editor","offset":1532,"length":317}
+{"t":"2026-10-08T08:59:28.542Z","ms":16,"dir":"editor->agent","offset":377,"length":160}
+{"t":"2026-10-08T08:59:28.548Z","ms":22,"dir":"agent->editor","offset":1849,"length":497}
+{"t":"2026-10-08T08:59:28.550Z","ms":25,"dir":"editor->agent","offset":537,"length":160}
+{"t":"2026-10-08T08:59:28.552Z","ms":27,"dir":"agent->editor","offset":2346,"length":437}
+{"t":"2026-10-08T08:59:28.553Z","ms":27,"dir":"agent->editor","offset":2783,"length":60}
+{"t":"2026-10-08T08:59:28.554Z","ms":28,"dir":"editor->agent","end":true,"total":697}
+{"t":"2026-10-08T08:59:28.555Z","ms":30,"dir":"agent->editor","end":true,"total":2843}
