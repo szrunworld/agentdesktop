@@ -17,29 +17,32 @@ AgentDesktop 主窗口
 
 ADR 树里的 Home 即 Desktops 总览。Design v2.0 侧栏的「Agent 接入」「操作记录」「AI 与 GUI」不再是一级入口，页面本身不变。
 
+- GUI Explorer 有两个入口但只有一套产品：从 Desktop 详情启动，运行进入统一 RunStore；一级 GUI Explorer 查看跨 Desktop 的探索记录与（P2）学会的流程。两者都是视图，不是第二个主窗口或第二套执行系统。
+- Inbox 在 U9 之前保留导航位置，显示「尚未启用：平台审批将在后续版本提供」与说明，不用静态假数据营造可审批的效果。
+
 ## 6.2 页面对照表
 
 | 位置 | Design v2.0 | Hub v1 | Explorer | 交付 | Runtime 方法 |
 | --- | --- | --- | --- | --- | --- |
-| Desktops › 总览 | P01、P03 | — | — | U2 | desktop.list、runtime.events |
+| Desktops › 总览 | P01、P03 | — | — | U2 | desktop.list、events.subscribe |
 | Desktops › 创建 | P04、P05 | — | — | U2 | desktop.create（launch/bind）、app.list、window.list |
 | Desktops › 详情 | P06 | — | — | U2 | desktop.show、observe、request.list |
 | Desktops › 并排 | P07 | — | — | U2 | 同上 |
 | 独立预览窗口 | P08 | — | — | U2 | desktop.show（画面走 ScreenCaptureKit） |
-| Desktops › 详情 › 控制 | P12–P18 | — | — | U3 | desktop.stop/takeover/handback/closePlan/destroy、action.reconcile |
+| Desktops › 详情 › 控制 | P12–P18 | — | — | U3 | desktop.stop/takeover/handback/closePlan/destroy、run.reconcile |
 | Desktops › 详情 › Explorer | P27–P29 | — | G01、G02、G07 | U7（G07 示范为 P2） | unit.run、run.show/events/cancel |
 | Agents › 总览 | — | W01 | — | U4 | hub.clients.list、hub.connections.list |
-| Agents › 接入应用 | P09、P10、P11 | W02 | — | U4 | hub.pairing.open/decide；CLI、MCP、ACP 示例 |
+| Agents › 接入应用 | P09、P10、P11 | W02 | — | U4 | hub.pairing.start/approve/deny；CLI、MCP、ACP 示例 |
 | Agents › Agent 详情与授权 | — | W03 | — | U4 | hub.clients.show、hub.grants.* |
 | Runs › 全部运行 | — | W04 | — | U5 | run.list |
 | Runs › 运行详情 | — | W05 | G02 的证据部分 | U5 | run.show、run.events |
 | Runs › 动作记录与回执 | P19、P20 | — | — | U5 | request.list/show/export |
 | GUI Explorer | — | — | G03–G06、G08 | U7 只做运行历史；其余 L4 | gui.knowledge.*、gui.procedures.*、gui.validations.* |
-| Inbox | — | W06 | — | U9（P1） | inbox.list/decide |
+| Inbox | — | W06 | — | U9（P1） | inbox.list/show/resolve |
 | Settings › 通用 | P21 | — | — | U6 | 本地偏好 |
 | Settings › 权限 | P02、P22 | — | — | U6 | runtime.status 的 PermissionState |
-| Settings › AI 连接、GUI 配置、能力测试 | P23–P26 | — | G08 部分 | U6 | ai.connections.*、ai.guiProfiles.*、ai.capabilityTests.* |
-| Settings › 核实 | P17 的核实部分 | W07 | — | U9（P1） | action.reconcile、request.list |
+| Settings › AI 连接、GUI 配置、能力测试 | P23–P26 | — | G08 部分 | U6 | ai.connections.*、ai.profiles.*、ai.tests.start、ai.operations.* |
+| Settings › 核实 | P17 的核实部分 | W07 | — | U9（P1） | run.reconcile、request.list |
 | Settings › 诊断与用量 | P30 | W08 | — | U6 做用量，U9 做诊断导出 | ai.usage.summary、runtime.capabilities |
 | 菜单栏 | P31 | — | — | U8 | runtime.stopAll、desktop.list |
 | 退出与后台 | P32 | — | — | U8 | runtime.stopAll，等静止 |

@@ -1,6 +1,8 @@
 # 3 Runtime 契约
 
-基线：`contracts/runtime/v1/` @ ai-gui-foundation c8833c4（含 #33 的 ADR v2.2 Run 模型）。本文给出 v1 冻结时的完整方法表、对象模型、状态机与错误码，标明「已实现 / 新增 / 修改 / 删除」。冻结在 PR A1 完成，之后只由集成负责人修改；字段名以 schema 为准，本文是语义说明。
+**权威**：[`docs/architecture/runtime-api-v1-freeze.md`](../architecture/runtime-api-v1-freeze.md) 与 `contracts/runtime/v1/methods.json`（#34，PR2a，2ndscreen-5c）。冻结目录里已有的方法名、信封、错误码以冻结文件为准，本文不再重复定义。
+
+本文只做两件事：一是说明本规划依赖冻结目录里的哪些方法；二是列出冻结目录尚未包含、本规划提出的**增量**。增量按冻结规则第 3 条，必须先由集成负责人改 `methods.json` 与冻结文档，再写实现；在那之前它们只是提议。
 
 ## 3.1 信封与通用规则（已实现，A1 补齐）
 
@@ -17,34 +19,39 @@
 - 错误不回显 API key、键入正文、截图或参数值。
 - 主体身份来自连接认证（4 文件），不信任 params 里的 clientId、trusted、owner 字段。
 
-## 3.2 方法表
+## 3.2 方法
 
-| 方法族 | 方法 | 状态 | 说明 |
+### 依赖的冻结方法（以 #34 为准）
+
+| 族 | 方法 | 冻结状态 | 本规划用途 |
 | --- | --- | --- | --- |
-| runtime | `runtime.handshake` | 已实现，修改 | 增加客户端凭据认证；返回 `RuntimeIdentity` 与本连接的 `principal`（clientId、kind=owner/paired_client、grants 摘要） |
-| | `runtime.status`、`runtime.capabilities` | 已实现，修改 | capabilities 合并 interface、backend、ai、gui、hub、learning 能力；未实现的能力不公布 |
-| | `runtime.stopAll`、`runtime.enableInput` | 已实现 | 全局停止与显式重开输入（ADR-09） |
-| | `runtime.events` | 新增 | 全局事件游标：desktop、run、connection、grant、inbox 变化；`afterSequence` 游标，过期返回 `events_cursor_expired` |
-| desktop | `desktop.list`、`desktop.show` | 已实现，修改 | 增加 `control`（见 3.3） |
-| | `desktop.create` | 已实现，修改 | 增加可选 `launch {bundleId|path}` 或 `bind {pid, windowId}`；返回 `state=creating`，就绪后 `ready` |
-| | `desktop.destroy` | 已实现，修改 | 先执行 `desktop.stop` 并等静止，再释放资源；只结束本 Desktop 启动的进程 |
-| | `desktop.closePlan` | 新增 | 只读：列出将结束的专有进程、保留的宿主共享进程、画面资源与结果文件，供关闭确认（P18） |
-| | `desktop.stop` | 新增 | 停止该 Desktop 上持有租约的 Run：撤销新输入、清空待执行输入、释放按住的键；回执分受理与静止（P14–P15） |
-| | `desktop.takeover`、`desktop.handback` | 新增 | 人工接管：等当前输入静止后建 `origin=user, ownership=platform` 的租约 Run；交还时结束该 Run 并重新观察，不重放旧队列（P12–P13） |
-| app / window | `app.list`、`app.launch`、`window.list`、`window.bind`、`window.unbind` | 已实现 | `app.quit` 新增（旧 CLI `app quit` 的能力，只结束本 Desktop 启动的进程） |
-| session | `session.open/show/close` | 已实现 | |
-| 观察与动作 | `observe` | 已实现，修改 | 允许只给 `desktopId`（隐式会话）；Observation 增加 `targetKind`、`geometryRevision`、`captureSequence`、`coverage` |
-| | `act` | 已实现，修改 | Action 增加 `hover`、`drag`、`press`（AX 按压）；允许只给 `desktopId`；执行前在原生入口重验目标几何与代次（Explorer B03） |
-| | `wait` | 已实现 | |
-| | `request.show` | 已实现 | |
-| | `request.list`、`request.export` | 新增 | 动作记录：按 desktopId、clientId、runId、状态、时间筛选，游标分页；导出 JSON 与引用的图像（P19–P20） |
-| | `action.reconcile` | 新增 | 对 unknown 动作追加核实结论（executed / not_executed / still_unknown）与证据；原 outcome 永远保持 unknown（Hub W07） |
-| run | `run.start`、`run.attach`、`run.finish`、`run.show`、`run.events`、`run.wait`、`run.cancel`、`run.list` | 已实现 | ADR 三轴模型 |
-| | `unit.run` | 新增 | GUI 单元：`desktopId`、`mode=auto|replay_only|explore`、`goal`、`verification`（三值谓词）、`allowedActions`、`guiProfileId?`。平台调用（UI）建 Durable Run；外部 Agent 调用建 Delegated Run |
-| ai | `ai.connections.list/get/upsert/disable`、`ai.credentials.rotate`、`ai.models.discover/upsert`、`ai.guiProfiles.list/get/upsert/setDefault`、`ai.capabilityTests.start/get/cancel`、`ai.usage.summary`、`ai.inference.get` | 迁移 | 从 ai/1 迁入 runtime/1，语义不变；`gui.runs.*` 删除 |
-| hub | `hub.pairing.open`、`hub.pairing.request`、`hub.pairing.decide`、`hub.clients.list/show/remove`、`hub.grants.list/set/revoke`、`hub.connections.list` | 新增 | 见 04 文件 |
-| inbox | `inbox.list`、`inbox.decide` | 新增（P1） | 平台审批：一次 permit 绑定动作指纹、目标、代次与期限（Hub W06） |
-| learning | `gui.knowledge.*`、`gui.procedures.*`、`gui.validations.*`、`gui.demonstrations.*`、`gui.learning.settings.*` | 预留（P2） | 方法名进入 methods.json 并标 `stage: P2`；未实现前 capabilities 不公布 |
+| 平台 | runtime.handshake（含 `principal{clientId, role, connectionId}`）、status、capabilities、stopAll、enableInput | 已实现 | 所有工作线 |
+| Desktop 与输入 | desktop.*、app.*、window.*、session.*、observe、act、wait、request.show | 已实现 | U2、U3、A5 |
+| Run | run.start/attach/finish/show/events/wait/cancel/list | 已实现 | U5、ADR 门禁 |
+| GUI 单元 | unit.run | frozen（PR2d） | A6、X1、U7 |
+| 事件 | events.subscribe / unsubscribe | frozen（PR2e） | U1 Store、U5 |
+| 产物 | artifact.show / read | frozen（PR2c） | U5 回执图像、SDK |
+| AI | ai.connections.*、ai.credentials.rotate、ai.models.*、ai.modelProfiles.*、ai.profiles.*、ai.tests.start、ai.operations.*、ai.usage.summary | frozen（PR2b，名字沿用 ai/1） | U6 |
+| 身份 | hub.pairing.start/status/approve/deny、hub.clients.list/show/revoke、hub.grants.list/set/revoke、hub.connections.list | reserved（PR3） | A4、U4 |
+| Inbox 与核实 | inbox.list/show/resolve、run.reconcile、diagnostics.export | reserved（PR4） | U9 |
+| 学习 | gui.knowledge.*、gui.procedures.*、gui.validations.*、gui.demonstrations.*、gui.learning.settings.* | reserved（PR7） | L1–L4 |
+
+### 本规划提出的增量（待集成负责人纳入目录）
+
+| 方法或字段 | 用途 | 依据 |
+| --- | --- | --- |
+| `Desktop.control`（见 3.3） | 总览与详情显示控制状态、控制者、动作数 | Design P01、P06、P13–P16 |
+| `desktop.stop` | 只停一个 Desktop 的输入，回执分受理与静止 | Design P14–P15、UC08–UC10 |
+| `desktop.takeover` / `desktop.handback` | 人工接管：建 `origin=user` 的平台租约 Run；交还时结束并重新观察，不重放 | Design P12–P13、UC11–UC15 |
+| `desktop.closePlan` | 关闭前列出将结束与将保留的资源 | Design P18、UC16–UC18 |
+| `desktop.create` 的 `launch` / `bind` 可选参数，`desktop.resize` | 一步创建并启动或绑定；调整尺寸 | Design P04–P05；旧 `screen resize` |
+| `app.quit` | 只结束本 Desktop 启动的进程 | 旧 `app quit`（07 文件） |
+| `request.list` / `request.export` | 动作记录筛选、分页、导出 | Design P19–P20、UC26–UC28 |
+| Action 增加 `hover`、`drag`、`press` | 补齐旧 CLI 能力 | 07 文件 7.2 |
+| observe 与 act 只给 `desktopId` 时隐式会话 | 外部 Agent 简化调用 | Design P09 CLI 示例 |
+| ActionReceipt 增加 `businessResult: "not_evaluated"`、`elapsedMs`、`clientId`、`geometryRevision`、`dispatchSequence` | 回执与业务结果分离；学习层预留 | Design 交接规则、05 文件 5.3 |
+| 目标 `kind: window \| device` | Android 设备目标 | 裁决 D19 |
+| 错误码 `target_moved`、`unsupported_backend`、`audit_unavailable`、`grant_missing`、`grant_expired`、`permit_expired`、`pairing_required`、`client_revoked` | 见 3.5 | — |
 
 ## 3.3 对象模型
 
@@ -116,7 +123,7 @@ Run += unit? { mode, goalHash, guiProfileRevision?, inferenceAttempts, steps }  
 
 已有 29 个：invalid_argument、schema_invalid、frame_too_large、not_found、invalid_target、runtime_offline、permission_denied、ownership_escalation_denied、approval_required、control_busy、stale_observation、idempotency_conflict、conflict、run_not_active、input_disabled、stop_pending、handshake_required、version_mismatch、instance_mismatch、capability_missing、model_unavailable、execution_failed、internal_error、wait_timeout、deadline_exceeded、connection_lost、request_acceptance_unknown、action_delivery_unknown、cancel_acceptance_unknown。
 
-新增：
+#34 另加了 `limit_exceeded`、`events_cursor_expired`。本规划提议新增：
 
 | code | 何时返回 |
 | --- | --- |
@@ -125,11 +132,10 @@ Run += unit? { mode, goalHash, guiProfileRevision?, inferenceAttempts, steps }  
 | `grant_missing` / `grant_expired` | 动作所需能力或 Desktop 不在当前授权内 / 已过期 |
 | `permit_expired` | 审批许可过期、已消费或代次失效 |
 | `target_moved` | 执行入口发现目标几何或绑定代次与观察不一致（修复 M0 预演的误点问题） |
-| `audit_unavailable` | 证据写入失败；暂停新输入 |
+| `audit_unavailable` | 证据写入失败；暂停新输入（#34 目前映射为 internal_error + details.reason，提议升为独立码，便于 UI 与客户端区分） |
 | `unsupported_backend` | 后端不支持该动作的后台执行；不静默改用前台或真实鼠标 |
-| `events_cursor_expired` | 事件游标过期，需重新取快照 |
 | `capability_mismatch` | GUI profile 与回退模型的动作协议不兼容 |
 
 ## 3.6 冻结方式
 
-A1 PR 一次性提交：methods.json（含 stage 与 mutation 标记）、errors.json、runtime.schema.json、正负 fixtures；Swift 与 C# 各用同一份 golden 做解码、编码、规范化 JSON 哈希的逐字节比对；方法表重复注册在启动与测试时失败。冻结后新增字段按版本说明追加，不改已有语义。
+目录冻结已由 #34（PR2a）完成，规则见冻结文档第 7 节。本文 3.2 的增量由集成负责人逐项并入；每项并入时同时提交 schema、正负 fixtures 与 Swift / C# golden，Swift 与 C# 对同一 golden 逐字节一致。

@@ -52,11 +52,17 @@
 | RT-16 | closePlan 与 destroy | 只结束本 Desktop 启动的进程，宿主共享应用存活 |
 | RT-17 | desktop.create 带 launch | creating → ready；失败保留错误 |
 | RT-18 | request.list 筛选与分页、export | 内容与 request.show 一致；导出 JSON 可读 |
-| RT-19 | action.reconcile | 只追加；原 outcome 仍为 unknown |
-| RT-20 | runtime.events 游标重连 | 不丢不重；过期返回 events_cursor_expired |
+| RT-19 | run.reconcile | 只追加；原 outcome 仍为 unknown |
+| RT-20 | events.subscribe 游标重连 | 不丢不重；过期返回 events_cursor_expired |
 | RT-21 | hover、drag、press | 各自有回执 |
 | RT-22 | businessResult | 所有回执为 not_evaluated |
-| RT-23 | 大型网页（Safari 中立表单）上 observe | 在 deadline 内返回结果或明确超时错误；宿主其他请求不被阻塞（MAC-001） |
+| RT-23A | 请求超时语义：大型网页（Safari 中立表单）上 observe | 在规定时间内返回成功、降级结果（元素标 partial）或明确错误；不挂起（MAC-001） |
+| RT-23B | 故障隔离与恢复：同一 Desktop 连续制造 20 次 AX 超时 | 期间其他 Desktop 的 observe 与 act、`runtime.status`、该 Desktop 的纯截图都在各自 deadline 内完成；后台 AX 遍历线程数与内存有上限且超时停止后回落；主线程采样无 AX 调用 |
+| SEC-01 | 干净实例上的文件权限 | 新建实例后 `ai.sqlite`、`runs.sqlite`、`requests.sqlite`、socket 均 0600，目录 0700（不只检查已有文件） |
+| SEC-02 | 凭据存放 | 数据库只含凭据引用；明文密钥只在系统安全存储；导出与日志无密钥 |
+| SEC-03 | 测试副本隔离 | 测试副本的配置、数据库、socket、凭据与产品实例互不覆盖；测试副本用文件凭据，不读写登录钥匙串 |
+| SEC-04 | 其他本机用户 | 以另一用户身份无法读取配置库、账本与 socket |
+| SEC-05 | 产品与测试副本同时运行 | 两者各自正常；关闭其一不影响另一个 |
 | HB-01 | 未配对调用 act | pairing_required |
 | HB-02 | 配对：短码、一次确认、只授所请求 | 签发 clientId；未请求的能力不能勾选 |
 | HB-03 | 配对窗口过期 | 请求被拒 |
@@ -86,6 +92,7 @@
 | GX-12 | 两个 Desktop 同时运行 GUI 单元 | 历史与预算各自独立；A 取消 B 继续 |
 | GX-13…GX-16 | 三值谓词：完整、不完整观察、歧义控件、动态文字 | inconclusive 不当成功；歧义 dispatch=0 |
 | GX-17…GX-20 | 进展检测：重复状态、A-B-A 小环、长期无进展、预算统一计数 | 有界结束并说明原因 |
+| GX-21 | 同一 `unit.run` 在不同主体下的所有权 | 主窗口进程内发起 → platform / platform_durable；本机 owner 的线连接、配对 App 发起 → external_client / connection_scoped；任何主体在参数里带 `origin=gui_explorer`、`lifetime=platform_durable` 或 `ownership=platform` → ownership_escalation_denied 且不建 Run |
 | SDK-01…SDK-06 | Python 与 TS SDK：配对、动作、断开、重连、撤权、MCP `--desktop-id` 限定 | 与 CLI 结果一致；越界 Desktop 被拒 |
 | UC01…UC54 | 设计源码包 54 项交互检查（原生重做） | 见 06 文件 6.4 |
 | HB-UI-01…08 | Hub 页面：登记、连接、授权分列；离线缓存禁变更；不回退样例；撤权提示；停止两步；核实只追加；诊断导出无密钥 | Hub v1 第 3.3 节 |
@@ -112,4 +119,10 @@
 
 ## 8.5 发布门禁
 
-在同一提交上：contract、runtime、hub、explorer、sdk、ui 全部 passed；macos-e2e 的 E2E-01…E2E-12 passed，E2E-13 passed 或经 Kevin 确认后记录为发布后项；ADR-01…10 passed；07 文件中 P0 迁移项全部完成；零容忍计数全为 0。
+在同一提交上：
+
+1. contract、runtime、hub、explorer、sdk、ui 全部 passed；SEC-01…SEC-05 passed。
+2. **M0 基础执行能力必须通过**：虚拟 Desktop 与宿主输入隔离。E2E-09（中立应用双 Desktop 并发、宿主同时打字）是首发必过项，没有豁免。
+3. macos-e2e 的 E2E-01…E2E-12 passed。
+4. E2E-13（正式 BOSS + 原生微信 + 宿主组合）单独安排正式验收。若因环境或外部应用暂缓，只能记为 not_run 或 blocked_environment，并写明原因与限制范围，**不得标为 passed**；不能用 E2E-09 的通过代替 E2E-13，也不能用编译或模拟测试证明正式应用的隔离能力。
+5. ADR-01…10 passed；07 文件中 P0 迁移项全部完成；零容忍计数全为 0。

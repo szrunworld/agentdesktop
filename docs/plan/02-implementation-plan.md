@@ -4,15 +4,34 @@
 
 | 工作线 | 范围 | 建议负责人 |
 | --- | --- | --- |
-| 集成负责人 | 公共契约（contracts/runtime/v1）、合并顺序、跨模块 E2E、发布门禁 | 2ndscreen-5c（Runtime 会话，已实现 #21 #25 #26 #33） |
-| L-Runtime | AgentDesktopRuntime、执行器、账本、Hub Core 的 Runtime 侧、CLI、MCP、SDK | 2ndscreen-5c |
-| L-AIGUI | AgentDesktopAI、AgentDesktopGui（Explorer）、迁入 runtime/1、学习层 | 2ndscreen-40（原 1d）（已实现 #3–#8 #11 #13 #18） |
-| L-UI | 主窗口、导航、各页面、菜单栏、预览窗口 | 待指派。09:40 决定是 2ndscreen-40；若 2ndscreen-40 同时负责 L-AIGUI，建议另开一个会话专做 UI |
-| L-Win | Windows C# 对等实现与契约一致性 | 2ndscreen-40（已有 #16 #22 #23） |
+| 集成负责人 | 公共契约（contracts/runtime/v1）、合并顺序、跨模块 E2E、发布门禁 | **2ndscreen-5c**（已确认；已实现 #21 #25 #26 #33 #34） |
+| L-Runtime | AgentDesktopRuntime、执行器、账本、Hub Core 的 Runtime 侧、CLI、MCP、SDK | **2ndscreen-5c**（已确认） |
+| L-AIGUI | AgentDesktopAI、AgentDesktopGui（Explorer）、迁入 runtime/1、学习层 | **2ndscreen-40**（已确认；原名 1d） |
+| L-UI | 主窗口、导航、各页面、菜单栏、预览窗口（U1–U9） | **新建独立会话**（已确认）。只经统一 Runtime Client 与 Store 接入，不自定状态机或 API |
+| L-Win | Windows C# 对等实现与契约一致性 | **2ndscreen-40**（暂时确认，后续可再拆） |
 
 规则：公共契约只由集成负责人改；其他线需要新字段时提 issue 或在 A1 之后的契约 PR 里加；各线不得各自定义临时状态机。
 
-## 2.2 阶段与依赖
+## 2.2 与 2ndscreen-5c 的 PR 编号对照
+
+5c 在冻结文档里用 PR1–PR7 编号。本规划的 A、U、L 编号与之对应如下；以后 PR 标题同时写两个编号，避免两套计划。
+
+| 本规划 | 5c 编号 | 状态 |
+| --- | --- | --- |
+| （Run 模型） | PR1（#33） | 已合入 |
+| A1 契约冻结 | PR2a（#34） | 已合入 |
+| A0 仓库收敛 | 无 | 未开始；**必须在 PR2b 之前完成**，否则 PR2b 起的工作会继续建立在依赖远程 2ndscreen 的 foundation 上 |
+| A2 单一端点 | PR2b | 未开始 |
+| 产物按 ID 读取 | PR2c | 未开始 |
+| A6 unit.run 落 RunStore | PR2d | 未开始 |
+| 事件订阅 | PR2e | 未开始 |
+| A4 Hub Core 身份与授权 | PR3 | 未开始 |
+| A3、A5、A7 | 无 | 本规划新增，需 5c 排入 |
+| U9 Inbox、核实、诊断 | PR4 | 未开始 |
+| U1–U8 主窗口 | PR6 | 未开始 |
+| L1–L4 学习层 | PR7 | P2 |
+
+## 2.3 阶段与依赖
 
 ```
 A0 仓库收敛 ─ A1 契约冻结 ─┬─ A2 单端点 ─┬─ A4 Hub Core ─ A7 CLI/MCP/SDK
@@ -34,7 +53,7 @@ P2：L1–L4 学习层，M1–M2 设备后端，U9 剩余 Hub 页面
 | 学习层 | L1–L4 | P2（独立阶段） |
 | 设备 | M1 Android、M2 iPhone | P2 |
 
-## 2.3 PR 清单
+## 2.4 PR 清单
 
 每个 PR 的「验收」只认执行过的断言、退出码与真机记录；测试编号见 08 文件。
 
@@ -45,9 +64,9 @@ P2：L1–L4 学习层，M1–M2 设备后端，U9 剩余 Hub 页面
 | 输入 | main@501ff01（含 `engine/`）、ai-gui-foundation@c8833c4、PR #2 |
 | 范围 | foundation rebase 到 main；新 Runtime、App 链接本地 `engine/` 的 SecondScreenCore / SecondScreenRuntime，删除远程 2ndscreen pin；`agentdesktop-cli` 退出发布路径，只发布新的 `agentdesktop`；合入 #2 到 main |
 | 测试 | `swift test`（根包与 engine 包）、Windows CI、`scripts/verify-command-surface.py` 更新为新命令面 |
-| 验收 | 干净 checkout 不下载 2ndscreen（整合设计 T30）；产品包只有一个 CLI；现有 349 项测试全过 |
+| 验收 | A0 合入后它就是唯一代码基线，必须证明：不再有远程 `2ndscreen` 依赖（干净 checkout 无网络下载，整合设计 T30）；新 Runtime 使用仓库内的 `engine/`；只发布一个正式 CLI；只有一个 Runtime 入口；`engine/` 旧 AgentRuntime 与新 AgentDesktopRuntime 不分别维护执行状态（旧控制 socket 不再由产品启动）；现有全部测试通过；真机重跑 Stage 0 与 run-model 验收记录里的创建、截图、动作、停止；SEC-01…SEC-05 通过（见 08 文件） |
 
-### A1 契约冻结（集成负责人）
+### A1 契约冻结（集成负责人）——已由 #34（PR2a）完成目录冻结；以下为剩余部分
 
 | 项 | 内容 |
 | --- | --- |
@@ -70,8 +89,8 @@ P2：L1–L4 学习层，M1–M2 设备后端，U9 剩余 Hub 页面
 | 项 | 内容 |
 | --- | --- |
 | 输入 | Explorer 方案 B01–B10、`docs/migration/runtime-semantics-to-port.md` 七项接缝、M0 中性预演误点记录 |
-| 范围 | observe 与截图不得在持有 Desktop 锁时做无总时限的 AX 遍历，单次 deadline、离开主线程、超时返回明确错误（MAC-001：Safari 网页 AX 遍历拖住宿主）；每 Desktop 串行执行器（不同 Desktop 并发）；动作在原生入口重验几何与代次，不一致返回 `target_moved`；动作前后 captureSequence 栅栏；dispatch_intent 先落盘；停止先关准入再等在途动作；审计写失败返回 `audit_unavailable` 并暂停输入；模型请求可取消 |
-| 测试 | RT-03…RT-12、RT-23 |
+| 范围 | **AX 观察的故障隔离**（MAC-001：Safari 网页 AX 遍历拖住宿主）：AX 遍历不在主线程、不在持有 Desktop 执行锁时进行；有总 deadline，同时限制节点数、遍历深度与单个 AX 查询等待；超时后立即停止接受该遍历的新工作；无法中断的底层 AX 调用放在隔离的有界执行资源里，不能占满共享执行资源；同一 Desktop 连续超时时后台遍历数有上限，不无限积累；超时返回成功、降级结果（只有截图、元素列表标为 partial）或明确错误。仅给外层 Task 加超时不算完成。**存储权限**：`ai.sqlite` 等配置库与账本 0600、目录 0700，数据库只存凭据引用，密钥在系统安全存储。每 Desktop 串行执行器（不同 Desktop 并发）；动作在原生入口重验几何与代次，不一致返回 `target_moved`；动作前后 captureSequence 栅栏；dispatch_intent 先落盘；停止先关准入再等在途动作；审计写失败返回 `audit_unavailable` 并暂停输入；模型请求可取消 |
+| 测试 | RT-03…RT-12、RT-23A、RT-23B、SEC-01…SEC-05 |
 | 验收 | M0 误点复现用例改为被拒绝且 dispatch=0；两 Desktop 并发、同 Desktop 有序；无静默前台回退 |
 
 ### A4 Hub Core（L-Runtime）
@@ -88,7 +107,7 @@ P2：L1–L4 学习层，M1–M2 设备后端，U9 剩余 Hub 页面
 | 项 | 内容 |
 | --- | --- |
 | 输入 | A2；03 文件 3.2 desktop 族与 request 族 |
-| 范围 | `Desktop.control`；`desktop.stop/takeover/handback/closePlan`；`desktop.create` 一步启动或绑定；`app.quit`；`request.list/export`；`action.reconcile`；ActionReceipt 新字段；`runtime.events`；Action 增加 hover、drag、press |
+| 范围 | `Desktop.control`；`desktop.stop/takeover/handback/closePlan`；`desktop.create` 一步启动或绑定；`app.quit`；`request.list/export`；`run.reconcile`；ActionReceipt 新字段；`events.subscribe`；Action 增加 hover、drag、press |
 | 测试 | RT-13…RT-22 |
 | 验收 | 停止 A 时 B 继续；接管后外部动作被拒；交还后不重放；关闭不结束宿主共享应用；unknown 只追加核实 |
 
@@ -97,8 +116,8 @@ P2：L1–L4 学习层，M1–M2 设备后端，U9 剩余 Hub 页面
 | 项 | 内容 |
 | --- | --- |
 | 输入 | A2、A3；整合设计 P03–P04；05 文件 |
-| 范围 | `unit.run` 替代 `gui.runs.*`，Explorer 运行进 RunStore（UI 发起为 Durable Run，外部发起为 Delegated Run）；AiService 唯一推理账本，删除 GuiAuditPort 重复记账；GuiRunBinding 的 inferenceBinding 可空；RunRecorder 去掉 `try?` 吞错 |
-| 测试 | GX-01…GX-12、ADR-06…ADR-08、ADR-10 |
+| 范围 | `unit.run` 替代 `gui.runs.*`，Explorer 运行进 RunStore。**所有权只由已认证主体决定**：主窗口在进程内经 Runtime 创建 Durable Run（platform / platform_durable / gui_explorer），不经过线协议；任何线协议上的 `unit.run`（CLI、MCP、SDK、外部 App，含本机 owner 的线连接）都是 Delegated Run；参数里的 `origin`、`lifetime`、`ownership` 一律拒绝（`ownership_escalation_denied`），不得因 A6 接入破坏 #33 已实现的边界。AiService 唯一推理账本，删除 GuiAuditPort 重复记账；GuiRunBinding 的 inferenceBinding 可空；RunRecorder 去掉 `try?` 吞错 |
+| 测试 | GX-01…GX-12、GX-21、ADR-05…ADR-08、ADR-10 |
 | 验收 | 推理尝试只记一次；模型 finish 不等于成功；关闭 Explorer 页面运行继续 |
 
 ### X1 Explorer 基础能力（L-AIGUI）
@@ -125,13 +144,13 @@ P2：L1–L4 学习层，M1–M2 设备后端，U9 剩余 Hub 页面
 
 | PR | 内容 | 依赖 | 验收 |
 | --- | --- | --- | --- |
-| U1 | AgentDesktopUI target、主题 token、主窗口框架（侧栏 206、标题栏 54、状态栏 28）、六个一级入口、进程内 Client 与 Store（按代数丢弃过期结果、轮询或事件唯一）、Dock 与关窗转后台；删除 AIGUIRootView 独立侧栏 | A1 | 渲染图与 P01 布局对照；UC50；整合设计 T27 |
+| U1 | AgentDesktopUI target、主题 token、主窗口框架（侧栏 206、标题栏 54、状态栏 28）、六个一级入口（Inbox 在 U9 前显示明确的「尚未启用」状态，不放静态假数据）、进程内 Client 与 Store（按代数丢弃过期结果、轮询或事件唯一）、Dock 与关窗转后台；删除 AIGUIRootView 独立侧栏 | A1 | 渲染图与 P01 布局对照；UC50；整合设计 T27 |
 | U2 | Desktops：P01 P03 P04 P05 P06 P07 P08（预览走 ScreenCaptureKit，按 desktopId 的独立预览窗口） | U1、A5（creating 与 control 字段缺失时显示降级文案） | UC01–UC06、UC14、UC16、UC19–UC21、UC49、UC52 |
 | U3 | 控制：P12–P18 | A5 | UC07–UC13、UC15、UC17、UC18、UC29–UC31；ADR-02 |
 | U4 | Agents：Agent 总览、接入（P09–P11 + Hub W01–W03 配对与授权） | A4、A7 | UC22–UC25；HB-UI-01…04 |
 | U5 | Runs：全部运行、运行详情（Hub W04–W05）、动作记录与回执（P19–P20） | A5 | UC26–UC28；ADR-07 |
 | U6 | Settings：通用（P21）、权限（P02、P22）、AI 连接与 GUI 配置与能力测试与用量（P23–P26、P30） | U1、A2 | UC32–UC40 |
-| U7 | Desktop 详情 Explorer 标签：发起与观察 GUI 运行（P27–P29）；一级 GUI Explorer 显示运行历史 | X1 | UC41–UC48；ADR-06 |
+| U7 | Desktop 详情 Explorer 标签：发起与观察 GUI 运行（P27–P29）；一级 GUI Explorer 显示跨 Desktop 的运行历史。两个入口是同一 RunStore 的两个视图，不是第二个主窗口或第二套执行系统 | X1 | UC41–UC48；ADR-06 |
 | U8 | 菜单栏（P31）、退出与后台（P32） | A5 | UC50、UC51；ADR-09 |
 | U9 | Inbox（W06）、核实（W07）、诊断与用量（W08） | A5、inbox 方法 | HB-UI-05…08（P1） |
 
@@ -146,6 +165,6 @@ P2：L1–L4 学习层，M1–M2 设备后端，U9 剩余 Hub 页面
 | M1 | Android：`engine/optional/mobile` 迁成 `AgentDesktopAndroid` target，设备服务进 Runtime，device 目标类型，手机窗口为呈现层 | 总计划 v2.1 第 17A 节 |
 | M2 | iPhone Mirroring：粘贴确认、剪贴板租约与无损快照、窗口与几何绑定；WDA 作为完整手势基线另行评估 | iPhone 实现审查 |
 
-## 2.4 合并顺序
+## 2.5 合并顺序
 
 A0 → A1 → A2 与 A3 并行 → A4、A5、A6 并行 → X1、A7 → U2–U8 按依赖逐个 → 发布门禁 G。U1 在 A1 后即可开始。每个 PR 合入 foundation 前 CI 全绿；foundation 合入 main 只在 A0（一次）与发布门禁时。

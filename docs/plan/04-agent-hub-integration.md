@@ -15,15 +15,15 @@
 ## 4.2 配对与认证
 
 ```
-用户在 Agents › 接入应用 打开配对窗口（hub.pairing.open，默认 10 分钟）
-外部 App 经 SDK 发起 hub.pairing.request {agentName, publisher, requested{capabilities, desktops, apps, duration}}
+用户在 Agents › 接入应用 打开配对窗口（本机 owner 行为，默认 10 分钟；是否需要单独方法在 PR3 定稿）
+外部 App 经 SDK 发起 hub.pairing.start {agentName, publisher, requested{capabilities, desktops, apps, duration}}，用 hub.pairing.status 等待结果
 Runtime 记录 callerFacts（连接对端 pid、代码签名、可执行路径）与 callerClaims（自报）分开存
 UI 同时显示双方短码；用户逐项勾选（只能勾请求方已请求的；Desktop 初始不选「所有」；期限默认 1 小时，可选 8 小时或最长 7 天）
-hub.pairing.decide approve → 签发 clientId 与客户端凭据（只交给发起配对的那条连接）
+owner 调 hub.pairing.approve（或 hub.pairing.deny）→ 签发 `clientId = app:<id>` 与客户端凭据（只交给发起配对的那条连接）
 客户端此后每次 runtime.handshake 用凭据认证 → 得到 principal{clientId, grants 摘要}
 ```
 
-- clientId 是平台签发的稳定主体；agentName 只用于显示；connectionId 每次连接重建。
+- clientId 是平台签发的稳定主体（本机 owner 为 `local:<uid>`，配对 App 为 `app:<id>`，见冻结文档第 2 节）；agentName 只用于显示；connectionId 每次连接重建。
 - 凭据存平台安全存储；客户端侧存其自己的钥匙串。测试副本用文件凭据，不写登录钥匙串。
 - 未配对连接只能调用 handshake、capabilities、pairing.request；其他方法返回 `pairing_required`。
 - 首发只接本机同一用户的连接；远程与多租户不在本版。

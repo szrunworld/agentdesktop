@@ -45,4 +45,9 @@
 | # | 冲突 | 现状 | 最终裁决 |
 | --- | --- | --- | --- |
 | D40 | 两套核心并存 | main 有 Codex 迁入的 `engine/`（旧 2ndscreen 引擎、旧 CLI `agentdesktop-cli`、Windows C# 引擎、Android 可选模块）；foundation 有新的 AgentDesktopRuntime/Protocol/Client/CLI/AI/GUI，且仍 pin 远程 2ndscreen 0.2.0 | 第一张 PR（A0）把 foundation rebase 到 main：新 Runtime 链接本地 `engine/` 的 SecondScreenCore，删除远程 pin；产品只发布一个 `agentdesktop` CLI，`agentdesktop-cli` 退出发布路径 |
-| D41 | 跨模块 PR 负责人 | P01 横跨 Runtime 与 AI/GUI | 设集成负责人一名，维护公共契约与合并顺序；各会话负责各自模块。建议见 02 文件第 1 节 |
+| D41 | 跨模块 PR 负责人 | P01 横跨 Runtime 与 AI/GUI | 已确认：集成负责人与 Runtime / Hub Core 为 2ndscreen-5c；AI/GUI Explorer 与 Windows 为 2ndscreen-40；主窗口 UI 另设独立会话 |
+| D42 | 契约文件的权威 | 本规划 03 文件与 #34 冻结文档的方法名有差异 | 以 #34 冻结文档为准；本规划的方法名已对齐；03 文件只列待纳入的增量 |
+| D43 | AX 超时修复的验收 | 只检查 observe 返回超时 | 必须同时证明故障隔离与资源有界（RT-23A、RT-23B）；外层 Task 超时不算修复 |
+| D44 | 凭据与测试隔离 | `ai.sqlite` 曾为 0644 | 配置与账本 0600、目录 0700，库内只存凭据引用；测试副本与产品各自独立；在干净实例上测（SEC-01…05） |
+| D45 | `unit.run` 的所有权 | 同一方法既服务 UI 又服务外部 Agent | 只由已认证主体决定：主窗口进程内为 Durable，任何线协议调用为 Delegated，参数不能提升（GX-21） |
+| D46 | M0 与正式组合的门禁 | 原写法允许 E2E-13 经确认后延后 | 中立双 Desktop 并发与宿主隔离（E2E-09、M0）为首发必过；E2E-13 单独验收，未执行只能记 not_run 或 blocked，不得标 passed |
