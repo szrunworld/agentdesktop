@@ -81,6 +81,12 @@ public final class ArtifactStore: @unchecked Sendable {
     private let clock: () -> Date
     private let lock = NSLock()
     private var lastSweep: Date
+    /// Sweeps after the first run here, off the caller: `register` is
+    /// called under a Desktop's lock (observe step 1), and a day of
+    /// preview screenshots takes seconds to scan.
+    private let sweeper = DispatchQueue(label: "agentdesktop.artifacts.sweep", qos: .utility)
+    /// Tests: runs on the sweeper before each background sweep.
+    var beforeSweep: (@Sendable () -> Void)?
 
     public init(directory: String, now: @escaping () -> Date = Date.init) throws {
         self.directory = directory
@@ -110,8 +116,16 @@ public final class ArtifactStore: @unchecked Sendable {
             lastSweep = now
             return true
         }
-        if due { sweep(at: now) }
+        guard due else { return }
+        let hook = beforeSweep
+        sweeper.async { [self] in
+            hook?()
+            sweep(at: now)
+        }
     }
+
+    /// Tests: returns once any background sweep already started has finished.
+    func waitForSweeps() { sweeper.sync {} }
 
     public func path(for artifactId: String, ext: String) -> String { "\(directory)/\(artifactId).\(ext)" }
 

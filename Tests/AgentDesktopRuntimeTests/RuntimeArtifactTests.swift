@@ -89,9 +89,31 @@ import Testing
     #expect(store.info("art_old") != nil)
     clock.now = clock.now.addingTimeInterval(ArtifactStore.sweepInterval)
     try put("art_new")
+    store.waitForSweeps()
     #expect(store.info("art_old") == nil, "an expired artifact is removed on a later write")
     #expect(!FileManager.default.fileExists(atPath: store.path(for: "art_old", ext: "png")))
     #expect(!FileManager.default.fileExists(atPath: store.metaPath("art_old")))
     #expect(store.info("art_mid") != nil)
     #expect(store.info("art_new") != nil)
+}
+
+// register runs under a Desktop's lock (observe step 1); a sweep that
+// takes seconds must not hold the write that started it.
+@Test func aSlowSweepDoesNotHoldUpTheWriteThatStartedIt() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Clock: @unchecked Sendable { var now = Date() }
+    let clock = Clock()
+    let store = try ArtifactStore(directory: dir, now: { clock.now })
+    let gate = DispatchSemaphore(value: 0)
+    store.beforeSweep = { _ = gate.wait(timeout: .now() + 5) }
+    defer { gate.signal() }
+    clock.now = clock.now.addingTimeInterval(ArtifactStore.sweepInterval)
+    try Data([0x89, 0x50, 0x4e, 0x47]).write(to: URL(fileURLWithPath: store.path(for: "art_a", ext: "png")))
+    let start = Date()
+    try store.register("art_a", mediaType: "image/png", clientId: "owner", runId: nil, createdAt: Timestamp.string(clock.now))
+    #expect(Date().timeIntervalSince(start) < 0.5, "the write returned while the sweep was still held")
+    #expect(store.info("art_a") != nil)
+    gate.signal()
+    store.waitForSweeps()
 }
