@@ -62,13 +62,16 @@ final class AppController: NSObject, NSApplicationDelegate {
         startRuntimeServer()
 
         // In process, polling for now (U1b-1); event push is U1b-2.
-        let port: RuntimePort = runtimeService.map(InProcessRuntimePort.init(service:))
-            ?? UnavailableRuntimePort(reason: "the Runtime did not start in this host")
+        let port: RuntimePort = TestFaultRuntimePort.wrap(
+            runtimeService.map(InProcessRuntimePort.init(service:))
+                ?? UnavailableRuntimePort(reason: "the Runtime did not start in this host"), role: role)
         store = ShellStore(runtime: port, allowSubscription: false)
         mainWindow = MainWindowController(store: store)
         Task { await store.start() }
 
         quit = QuitController(store: store)
+        // A test copy never takes focus from the app the user is in.
+        quit.activates = !role.isSideInstance
         handleQuitEvents()
         quit.hideMainWindow = { [weak self] in self?.mainWindow.close() }
         quit.keepInBackground = { [weak self] in self?.enterBackground() }
@@ -134,7 +137,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quit == nil || quit.approved { return .terminateNow }
-        if role.isSideInstance, role.mainWindowForTest == nil { return .terminateNow }
+        if role.isSideInstance, role.mainWindowForTest == nil, !role.quitDialogForTest { return .terminateNow }
         if quit.isAsking { return .terminateLater }
         Task { await quit.begin() }
         return .terminateLater
