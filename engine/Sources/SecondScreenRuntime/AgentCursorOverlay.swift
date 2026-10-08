@@ -14,6 +14,7 @@ public final class AgentCursorOverlay {
     private let window: NSWindow
     private let cursor = CAShapeLayer()
     private var hideWorkItem: DispatchWorkItem?
+    private var screenObserver: NSObjectProtocol?
 
     private static let glideDuration: CFTimeInterval = 0.35
     private static let idleHideDelay: TimeInterval = 4
@@ -46,10 +47,17 @@ public final class AgentCursorOverlay {
         view.layer?.addSublayer(cursor)
 
         fitToDisplay()
-        window.orderFrontRegardless()
+        // Show only once the window is on its own display: a display whose
+        // NSScreen is not there yet (or any more) must never put a screen-
+        // sized overlay on the user's display.
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.fitToDisplay() } }
     }
 
     public func close() {
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        screenObserver = nil
         hideWorkItem?.cancel()
         window.close()
     }
@@ -74,9 +82,17 @@ public final class AgentCursorOverlay {
     /// Keep the overlay matched to the display, which moves or resizes when
     /// the user rearranges displays or picks another resolution.
     private func fitToDisplay() {
-        guard let screen = NSScreen.screens.first(where: { $0.displayID == displayID }) else { return }
+        guard let screen = NSScreen.screens.first(where: { $0.displayID == displayID }) else {
+            window.orderOut(nil)
+            return
+        }
         if window.frame != screen.frame {
             window.setFrame(screen.frame, display: true)
+        }
+        if window.screen?.displayID == displayID {
+            if !window.isVisible { window.orderFrontRegardless() }
+        } else {
+            window.orderOut(nil)
         }
     }
 

@@ -105,3 +105,13 @@ func openSibling(_ backend: FixedBackend) {
     #expect(o["image"]?["transform"]?["originX"]?.doubleValue == screen.frame.x)
     #expect(o["target"] == .null)
 }
+
+@Test func aWindowAppearingElsewhereOnTheScreenDoesNotVoidTheObservation() throws {
+    let sc = try scene()
+    let screen = sc.s.desktops.find(sc.desktop)!.screen
+    // Like the screen-recording indicator in the menu bar, far from the window.
+    let indicator = PlatformWindow(windowId: 88, pid: 1, appName: "Control Center", title: "",
+                                   frame: Rect(x: screen.frame.x + screen.frame.width - 20, y: 3, width: 10, height: 18))
+    sc.platform.onCapture = { sc.platform.inFront[screen.name] = [indicator] }
+    #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
+}

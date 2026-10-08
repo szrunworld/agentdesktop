@@ -276,10 +276,29 @@ public final class AgentScreens {
             response.pid = pid
             return response
         }
-        let moved = WindowMover.move(window, to: target.displayID, fill: fill)
+        // A window that just appeared often does not take an accessibility
+        // move yet: try for a few seconds.
+        var moved = WindowMover.move(window, to: target.displayID, fill: fill)
+        for _ in 0..<12 where !moved {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            moved = WindowMover.move(window, to: target.displayID, fill: fill)
+        }
+        guard moved else {
+            // The app was started for the agent; left running, its window
+            // would stay on the user's display. End it instead.
+            if let app = NSRunningApplication(processIdentifier: pid) {
+                app.terminate()
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if !app.isTerminated { app.forceTerminate() }
+            }
+            var response = ControlResponse.failure(
+                "the app refused to move its window to the agent screen; it was quit so it does not stay on the user's display")
+            response.pid = pid
+            return response
+        }
         // A new process: every window it opens is the agent's.
         bind(pid, to: target, leaving: [], fit: fitScreen)
-        var response = moved ? ControlResponse() : ControlResponse.failure("the app refused to move its window")
+        var response = ControlResponse()
         response.pid = pid
         response.screen = target
         response.windows = await Self.settledSummaries(of: pid, on: target.displayID)
