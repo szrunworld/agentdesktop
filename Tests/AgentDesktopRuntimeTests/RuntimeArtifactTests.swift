@@ -64,3 +64,34 @@ import Testing
         #expect(mode == 0o600, "\(file)")
     }
 }
+
+// methods.json transport.artifacts.retentionHours holds while the Runtime
+// keeps running, not only at start: a client that observes every few
+// seconds must not fill the disk between restarts.
+@Test func expiredArtifactsGoAwayWhileTheRuntimeRuns() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Clock: @unchecked Sendable { var now = Date() }
+    let clock = Clock()
+    let store = try ArtifactStore(directory: dir, now: { clock.now })
+    func put(_ id: String) throws {
+        try Data([0x89, 0x50, 0x4e, 0x47]).write(to: URL(fileURLWithPath: store.path(for: id, ext: "png")))
+        try store.register(id, mediaType: "image/png", clientId: "owner", runId: nil, createdAt: Timestamp.string(clock.now))
+    }
+    try put("art_old")
+    let past = clock.now.addingTimeInterval(-Double(ArtifactStore.retentionHours + 1) * 3600)
+    for p in [store.path(for: "art_old", ext: "png"), store.metaPath("art_old")] {
+        try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: p)
+    }
+    // Not yet due: the next sweep waits for the interval.
+    clock.now = clock.now.addingTimeInterval(ArtifactStore.sweepInterval / 2)
+    try put("art_mid")
+    #expect(store.info("art_old") != nil)
+    clock.now = clock.now.addingTimeInterval(ArtifactStore.sweepInterval)
+    try put("art_new")
+    #expect(store.info("art_old") == nil, "an expired artifact is removed on a later write")
+    #expect(!FileManager.default.fileExists(atPath: store.path(for: "art_old", ext: "png")))
+    #expect(!FileManager.default.fileExists(atPath: store.metaPath("art_old")))
+    #expect(store.info("art_mid") != nil)
+    #expect(store.info("art_new") != nil)
+}
