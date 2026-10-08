@@ -39,7 +39,12 @@ struct CLI {
     var runContract: ([String]) -> Int32 = { ContractCLI().run($0).rawValue }
 
     func run(_ args: [String]) -> Int32 {
-        if CommandRouter.isContractCommand(args) { return runContract(args) }
+        if CommandRouter.isContractCommand(args) {
+            // The AI/GUI service listens beside the Runtime: ai.sock.
+            guard !args.contains("--socket") else { return runContract(args) }
+            let runtime = EndpointResolver.resolve(option: nil, environment: environment).path
+            return runContract(["--socket", CLI.aiEndpoint(forRuntime: runtime)] + args)
+        }
         let invocation: RuntimeInvocation
         do {
             invocation = try CommandRouter.parse(args)
@@ -105,6 +110,12 @@ struct CLI {
         case let .sessionExec(desktopId, sessionId, argv):
             return sessionExec(desktopId: desktopId, sessionId: sessionId, argv: argv, out, endpoint: endpoint)
         }
+    }
+
+    /// `…/runtime.sock` → `…/ai.sock`; `…/x.runtime.sock` → `…/x.ai.sock`.
+    static func aiEndpoint(forRuntime path: String) -> String {
+        if path.hasSuffix("runtime.sock") { return String(path.dropLast("runtime.sock".count)) + "ai.sock" }
+        return (path as NSString).deletingLastPathComponent + "/ai.sock"
     }
 
     /// Contents/Resources of the app this CLI ships in, if it does.

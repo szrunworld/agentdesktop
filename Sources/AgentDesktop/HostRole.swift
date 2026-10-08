@@ -59,6 +59,27 @@ enum HostRole {
         }
     }
 
+    /// The AI/GUI service (contract agentdesktop.ai/1): `ai.sock` beside
+    /// `runtime.sock`, `<socket>.ai.sock` for a side instance.
+    var aiEndpoint: URL {
+        switch self {
+        case .product:
+            return Self.productEndpoint.deletingLastPathComponent().appendingPathComponent("ai.sock")
+        case .sideInstance(let socket):
+            return socket.deletingPathExtension().appendingPathExtension("ai.sock")
+        }
+    }
+
+    /// Real GUI input by model-driven runs is off until switched on:
+    /// `defaults write com.agentdesktop.app guiExecution -bool true`, or
+    /// AGENTDESKTOP_GUI_EXECUTION=1 for a side instance under test.
+    var guiExecutionEnabled: Bool {
+        switch self {
+        case .product: return UserDefaults.standard.bool(forKey: "guiExecution")
+        case .sideInstance: return ProcessInfo.processInfo.environment["AGENTDESKTOP_GUI_EXECUTION"] == "1"
+        }
+    }
+
     /// The Runtime's request ledger and artifacts.
     var runtimeRecordsDirectory: URL {
         switch self {

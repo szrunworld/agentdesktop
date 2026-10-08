@@ -41,6 +41,10 @@ let package = Package(
                 .product(name: "SecondScreenRuntime", package: "2ndscreen"),
                 "AgentDesktopRuntime",
                 "AgentDesktopProtocol",
+                "AgentDesktopService",
+                "AgentDesktopGUI",
+                "AgentDesktopAI",
+                "AgentDesktopContracts",
             ]
         ),
         .testTarget(
@@ -122,6 +126,13 @@ let package = Package(
         .testTarget(
             name: "AgentDesktopRuntimeTests",
             dependencies: ["AgentDesktopRuntime", "AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+        ),
+        // The GUI service driving the Runtime's ports: explorer → Runtime
+        // executor → platform, with a scripted model.
+        .testTarget(
+            name: "AgentDesktopIntegrationTests",
+            dependencies: ["AgentDesktopRuntime", "AgentDesktopService", "AgentDesktopGUI", "AgentDesktopAI",
+                           "AgentDesktopProtocol", "AgentDesktopContracts"]
         ),
         // End-to-end tests run the CLI against a real RuntimeServer.
         .testTarget(

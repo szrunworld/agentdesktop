@@ -268,7 +268,9 @@ final class Harness {
         var cli = h.cli
         cli.runContract = { seen = $0; return 0 }
         #expect(cli.run(args) == 0)
-        #expect(seen == args, "\(args)")
+        let expected = args.contains("--socket") ? args
+            : ["--socket", "/Users/test/Library/Application Support/AgentDesktop/ai.sock"] + args
+        #expect(seen == expected, "\(args)")
         #expect(h.clients.isEmpty)
     }
     let h = Harness()
