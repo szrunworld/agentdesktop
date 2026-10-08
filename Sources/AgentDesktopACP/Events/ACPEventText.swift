@@ -49,6 +49,7 @@ enum ACPEventText {
         case .verified: return "已验证成功"
         case .contradicted: return "验证未通过"
         case .unknown: return "结果待核实"
+        case .failed: return "执行失败"
         case let .refused(code):
             switch code {
             case "not_dispatched", "input_disabled", "target_moved", "invalid_target", "stale_observation",
@@ -65,7 +66,7 @@ enum ACPEventText {
         case .accepted: return .pending
         case .dispatched: return .inProgress
         case .executed, .verified: return .completed
-        case .contradicted, .refused: return .failed
+        case .contradicted, .refused, .failed: return .failed
         // Neither done nor failed: a failed mark invites a retry, which is forbidden.
         case .unknown: return .inProgress
         }

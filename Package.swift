@@ -42,7 +42,8 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentDesktopACPTests",
-            dependencies: ["AgentDesktopACP", "AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopACP", "AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"],
+            exclude: ["Fixtures"]
         ),
 
         // Menu bar host; scripts/bundle-app.sh wraps it in "Agent Desktop.app".

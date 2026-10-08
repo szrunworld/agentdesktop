@@ -351,12 +351,12 @@
       {
         "toolCallUpdate": {
           "toolCallId": "act:run_0a1b2c3d4e5f:req_0008eeee4444",
-          "title": "点击 — 已拒绝",
+          "title": "点击 — 执行失败",
           "kind": "execute",
           "status": "failed",
-          "level": "refused:unlisted_error",
+          "level": "failed:unlisted_error",
           "detail": [
-            "状态：已拒绝",
+            "状态：执行失败",
             "错误码：unlisted_error"
           ]
         }

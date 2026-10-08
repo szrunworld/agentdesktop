@@ -99,7 +99,7 @@ public struct ACPProjector: ACPEventProjector {
         let d = r["delivery"]?.stringValue ?? "", x = r["execution"]?.stringValue ?? ""
         if d == "unknown" || x == "unknown" { return .unknown }
         if d == "not_dispatched" { return .refused(code: ACPRedactor.errorCode(errorCode ?? "not_dispatched")) }
-        if x == "failed" { return .refused(code: ACPRedactor.errorCode(errorCode ?? "execution_failed")) }
+        if x == "failed" { return .failed(code: ACPRedactor.errorCode(errorCode ?? "execution_failed")) }
         guard d == "dispatched", x == "completed" else { return .unknown }
         return level(verification: r["verification"]?.stringValue)
     }
@@ -130,7 +130,7 @@ public struct ACPProjector: ACPEventProjector {
         case .actionCompleted: level = receipt.map { Self.level(receipt: $0, errorCode: code) } ?? .executed
         case .actionFailed:
             level = receipt.map { Self.level(receipt: $0, errorCode: code) }
-                ?? .refused(code: ACPRedactor.errorCode(code ?? "execution_failed"))
+                ?? .failed(code: ACPRedactor.errorCode(code ?? "execution_failed"))
         case .actionUnknown: level = .unknown
         case .actionRefused: level = .refused(code: ACPRedactor.errorCode(code ?? "policy_rejected"))
         case .verificationSucceeded: level = .verified
@@ -159,6 +159,7 @@ public struct ACPProjector: ACPEventProjector {
             if let ms = elapsedMs(f, receipt) { detail.append("耗时：\(ACPEventText.duration(ms: ms))") }
             if let target = targetRef(f, receipt) { detail.append("目标：\(target)") }
             if case let .refused(c) = level { detail.append("错误码：\(c)") }
+            if case let .failed(c) = level { detail.append("错误码：\(c)") }
             if let why = ACPEventText.targetReason(f.data["error"]?["details"]?["reason"]?.stringValue ?? f.string("reason")) {
                 detail.append("原因：\(why)")
             }
