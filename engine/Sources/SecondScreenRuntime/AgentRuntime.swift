@@ -147,6 +147,9 @@ public final class AgentRuntime {
         case .screenshot:
             guard let screen = target() else { return missingScreen }
             guard let output = request.output else { return .failure("give a PNG path with --output") }
+            if request.windowsOnly == true, let windowID = request.windowID {
+                return await screens.windowScreenshot(windowID: windowID, pid: request.pid, of: screen, to: output)
+            }
             if request.windowsOnly == true {
                 return await screens.windowsScreenshot(of: screen, to: output)
             }
