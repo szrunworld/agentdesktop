@@ -1,0 +1,51 @@
+{
+  "id": "L2-readonly",
+  "cases": [
+    "ACP-L2-01",
+    "ACP-L2-02",
+    "ACP-L2-03",
+    "ACP-L2-04",
+    "ACP-L2-05"
+  ],
+  "title": "真 Runtime 只读冒烟：initialize / new / list / 自由文本无任务（无 unit.run，未提交）/ /runs /status /cancel / 空闲取消 / 断开",
+  "status": "PASS",
+  "durationMs": 355,
+  "failures": [],
+  "steps": [
+    {
+      "op": "initialize",
+      "ms": 10,
+      "ok": true
+    },
+    {
+      "op": "session/new",
+      "ms": 17,
+      "ok": true
+    },
+    {
+      "op": "session/list",
+      "ms": 1,
+      "ok": true
+    },
+    {
+      "op": "prompt",
+      "text": "run the neutral sample task",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "prompt",
+      "text": "/runs",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "prompt",
+      "text": "/status",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "prompt",
+      "text": "/cancel",
+      "outcome": "end_turn"
+    }
+  ]
+}

@@ -85,7 +85,7 @@ class MCP:
 
 
 def cli_json(cli, endpoint, *args):
-    out = subprocess.run([cli, *args, "--endpoint", endpoint, "--json"], capture_output=True, timeout=TIMEOUT)
+    out = subprocess.run([cli, *args, "--endpoint", endpoint, "--format", "json"], capture_output=True, timeout=TIMEOUT)
     return json.loads(out.stdout.decode())
 
 
@@ -111,16 +111,23 @@ def main(cli, endpoint, out_dir):
         check("tools/list answers", len(tools) > 0, f"{len(tools)} tools")
 
         st = m.tool("runtime_status")
-        ident = (st["body"] or {}).get("identity", {})
+        body = st["body"] if isinstance(st["body"], dict) else {}
         check("runtime_status ok", st["isError"] is False, json.dumps(st)[:300])
-        check("answered by the side endpoint", ident.get("endpoint") == endpoint, ident.get("endpoint", ""))
-        check("same Runtime instance as the CLI", ident.get("instanceId") == direct["identity"]["instanceId"],
-              f"mcp={ident.get('instanceId')} cli={direct['identity']['instanceId']}")
+        # The tool returns runtime.status (state); its instanceId names the
+        # Runtime that answered. The CLI's runtime.status at <endpoint> says
+        # which instance listens there.
+        check("answered by the Runtime at the side endpoint (same instanceId)",
+              body.get("instanceId") == direct["identity"]["instanceId"] == direct["status"]["instanceId"]
+              and direct["identity"]["endpoint"] == endpoint,
+              f"mcp={body.get('instanceId')} cli={direct['identity']['instanceId']} cli endpoint={direct['identity']['endpoint']}")
         during = cli_json(cli, endpoint, "runtime", "status")["data"]["status"]["connections"]
         check("MCP holds a Runtime connection", during > before, f"connections before={before} during={during}")
         lsof = subprocess.run(["lsof", "-a", "-U", "-p", str(m.p.pid)], capture_output=True, timeout=TIMEOUT).stdout.decode()
         unix_lines = [l for l in lsof.splitlines()[1:] if " unix " in l]
         rec["mcpUnixSockets"] = len(unix_lines)
+        rec["mcpLsofUnix"] = lsof
+        srv = subprocess.run(["lsof", "-a", "-U", "-p", str(direct["identity"]["pid"])], capture_output=True, timeout=TIMEOUT).stdout.decode()
+        rec["runtimeLsofUnix"] = srv
         check("MCP process has exactly one unix socket", len(unix_lines) == 1, f"{len(unix_lines)} unix sockets")
         inet = subprocess.run(["lsof", "-a", "-i", "-p", str(m.p.pid)], capture_output=True, timeout=TIMEOUT).stdout.decode()
         check("MCP process has no network socket", inet.strip() == "", inet[:200])

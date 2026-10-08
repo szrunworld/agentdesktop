@@ -1,0 +1,145 @@
+{
+ "endpoint": "<side>/side.runtime.sock",
+ "initialize": {
+  "protocolVersion": "2025-06-18",
+  "capabilities": {
+   "tools": {
+    "listChanged": false
+   }
+  },
+  "serverInfo": {
+   "name": "agentdesktop",
+   "version": "0.1.0-dev"
+  }
+ },
+ "tools": [
+  "runtime_status",
+  "desktop_list",
+  "desktop_create",
+  "desktop_destroy",
+  "app_list",
+  "app_launch",
+  "window_list",
+  "window_bind",
+  "window_unbind",
+  "session_open",
+  "session_close",
+  "observe",
+  "act_click",
+  "act_type",
+  "act_key",
+  "act_scroll",
+  "wait_for_element",
+  "run_show",
+  "run_cancel",
+  "request_show"
+ ],
+ "mcpUnixSockets": 1,
+ "mcpLsofUnix": "COMMAND     PID     USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nagentdesk 86976 kevinshi    3u  unix 0x42748f0ee63c5eca      0t0      ->0xc1c30c4ed655930\n",
+ "runtimeLsofUnix": "COMMAND     PID     USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nAgent\\x20 84176 kevinshi   12u  unix 0x8530463ffeb1fea7      0t0      <side>/side.runtime.sock\nAgent\\x20 84176 kevinshi   18u  unix  0xc1c30c4ed655930      0t0      <side>/side.runtime.sock\n",
+ "run_show_bogus": {
+  "isError": true,
+  "body": "not_found: no run run_qtest000000000000",
+  "rpcError": null
+ },
+ "request_show_bogus": {
+  "isError": true,
+  "body": "not_found: no request req_qtest000000000000 within the last 7 days",
+  "rpcError": null
+ },
+ "calls": {
+  "runtime_status": {
+   "isError": false
+  },
+  "desktop_list": {
+   "isError": false,
+   "body": {
+    "desktops": []
+   },
+   "rpcError": null
+  }
+ },
+ "mcpExit": 0,
+ "afterStatus": {
+  "connections": 1,
+  "desktops": 0,
+  "sessions": 0,
+  "runs": 0
+ },
+ "deadEndpoint": {
+  "runtime_status": {
+   "isError": true,
+   "code": "runtime_offline: nothing is listening: <side>/qtest-nothing-here.runtime.sock does not exist\n(no input was sent)\n{\"endpoint\":\"<side>/qtest-nothing-here.runtime.sock\"}"
+  },
+  "desktop_list": {
+   "isError": true,
+   "code": "runtime_offline: nothing is listening: <side>/qtest-nothing-here.runtime.sock does not exist\n(no input was sent)\n{\"endpoint\":\"<side>/qtest-nothing-here.runtime.sock\"}"
+  },
+  "request_show": {
+   "isError": true,
+   "code": "runtime_offline: nothing is listening: <side>/qtest-nothing-here.runtime.sock does not exist\n(no input was sent)\n{\"endpoint\":\"<side>/qtest-nothing-here.runtime.sock\"}"
+  }
+ },
+ "checks": [
+  {
+   "check": "tools/list answers",
+   "ok": true,
+   "detail": "20 tools"
+  },
+  {
+   "check": "runtime_status ok",
+   "ok": true,
+   "detail": "{\"isError\": false, \"body\": {\"instanceId\": \"rt_b116eca1be5b484b8e62b964e9e0f292\", \"state\": \"running\", \"startedAt\": \"2026-10-08T12:52:50.599Z\", \"uptimeSeconds\": 52.382, \"connections\": 1, \"desktops\": 0, \"sessions\": 0, \"runs\": 0, \"inputAdmission\": \"enabled\"}, \"rpcError\": null}"
+  },
+  {
+   "check": "answered by the Runtime at the side endpoint (same instanceId)",
+   "ok": true,
+   "detail": "mcp=rt_b116eca1be5b484b8e62b964e9e0f292 cli=rt_b116eca1be5b484b8e62b964e9e0f292 cli endpoint=<side>/side.runtime.sock"
+  },
+  {
+   "check": "MCP holds a Runtime connection",
+   "ok": true,
+   "detail": "connections before=1 during=2"
+  },
+  {
+   "check": "MCP process has exactly one unix socket",
+   "ok": true,
+   "detail": "1 unix sockets"
+  },
+  {
+   "check": "MCP process has no network socket",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "desktop_list ok and empty",
+   "ok": true,
+   "detail": "{\"isError\": false, \"body\": {\"desktops\": []}, \"rpcError\": null}"
+  },
+  {
+   "check": "run_show of an unknown run is a Runtime error",
+   "ok": true,
+   "detail": "{\"isError\": true, \"body\": \"not_found: no run run_qtest000000000000\", \"rpcError\": null}"
+  },
+  {
+   "check": "request_show of an unknown request is a Runtime error",
+   "ok": true,
+   "detail": "{\"isError\": true, \"body\": \"not_found: no request req_qtest000000000000 within the last 7 days\", \"rpcError\": null}"
+  },
+  {
+   "check": "MCP exits cleanly on stdin close",
+   "ok": true,
+   "detail": "exit 0; stderr ''"
+  },
+  {
+   "check": "nothing was created",
+   "ok": true,
+   "detail": "{\"connections\": 1, \"desktops\": 0, \"sessions\": 0, \"runs\": 0}"
+  },
+  {
+   "check": "with no Runtime every tool fails",
+   "ok": true,
+   "detail": "{\"runtime_status\": {\"isError\": true, \"code\": \"runtime_offline: nothing is listening: <side>/qtest-nothing-here.runtime.sock does not exist\\n(no input was sent)\\n{\\\"endpoint\\\":\\\"<side>/qtest-nothing-here.runtime.sock\\\"}\"}, \"desktop_list\": {\"isError\": true, \"code\": \"runtime_offline: nothing is listening: <side>/qtest-nothing-here.runtime.sock does not exist\\n(no input was sent)\\n{\\\"endpoint\\\":\\\"<side>/qtest-nothing-here.runtime.sock\\\"}\"}, \"request_show\": {\"isError\": true, \"code\": \"runtime_offline: nothing is listening: <side>/qtest-nothing-here.runtime.sock does not exist\\n(no input was sent)\\n{\\\"endpoint\\\":\\\"<side>/qtest-nothing-here.runtime.sock\\\"}\"}}"
+  }
+ ]
+}
