@@ -1,5 +1,7 @@
-
+import enum AgentDesktopContracts.StrictJSON
+import enum AgentDesktopContracts.JSONValue
 import AgentDesktopProtocol
+import CryptoKit
 import Foundation
 
 /// What one observation saw, kept so later requests can be checked against
@@ -81,4 +83,93 @@ public final class ArtifactStore: @unchecked Sendable {
     }
 
     public func path(for artifactId: String, ext: String) -> String { "\(directory)/\(artifactId).\(ext)" }
+
+    /// What a client may learn about an artifact. Clients get the id and
+    /// these facts, never a path (runtime-api-v1-freeze §5).
+    public struct Info: Equatable, Sendable {
+        public let artifactId: String
+        public let mediaType: String
+        public let byteSize: Int
+        public let sha256: String
+        public let createdAt: String
+        /// The principal whose request produced it; only it and the owner
+        /// may read it.
+        public let clientId: String
+        public let runId: String?
+
+        public var json: JSONValue {
+            var m: [(String, JSONValue)] = [("artifactId", .string(artifactId)), ("mediaType", .string(mediaType)),
+                                            ("byteSize", .int(byteSize)), ("sha256", .string(sha256)),
+                                            ("createdAt", .string(createdAt))]
+            if let runId { m.append(("runId", .string(runId))) }
+            return .obj(m)
+        }
+    }
+
+    static let extensions = ["image/png": "png"]
+
+    /// Records who owns a file already written at `path(for:ext:)`. The
+    /// facts live in a 0600 sidecar so they outlive a restart as long as
+    /// the file does.
+    @discardableResult
+    public func register(_ artifactId: String, mediaType: String, clientId: String, runId: String?,
+                         createdAt: String) throws -> Info {
+        guard Self.validId(artifactId), let ext = Self.extensions[mediaType] else {
+            throw RuntimeError("internal_error", "artifact \(artifactId) of \(mediaType) cannot be stored", phase: .handler)
+        }
+        let file = path(for: artifactId, ext: ext)
+        let data = try Data(contentsOf: URL(fileURLWithPath: file))
+        _ = chmod(file, 0o600)
+        let info = Info(artifactId: artifactId, mediaType: mediaType, byteSize: data.count,
+                        sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+                        createdAt: createdAt, clientId: clientId, runId: runId)
+        var meta = info.json.setting("clientId", .string(clientId))
+        meta = meta.setting("ext", .string(ext))
+        let sidecar = metaPath(artifactId)
+        guard FileManager.default.createFile(atPath: sidecar, contents: Data(meta.encoded().utf8),
+                                             attributes: [.posixPermissions: 0o600])
+        else { throw RuntimeError("internal_error", "cannot record artifact \(artifactId)", phase: .handler) }
+        return info
+    }
+
+    public func info(_ artifactId: String) -> Info? {
+        guard Self.validId(artifactId),
+              let data = FileManager.default.contents(atPath: metaPath(artifactId)),
+              let m = try? StrictJSON.parse(data),
+              let mediaType = m["mediaType"]?.stringValue, let size = m["byteSize"]?.intValue,
+              let sha = m["sha256"]?.stringValue, let at = m["createdAt"]?.stringValue,
+              let clientId = m["clientId"]?.stringValue,
+              let ext = m["ext"]?.stringValue,
+              FileManager.default.fileExists(atPath: path(for: artifactId, ext: ext))
+        else { return nil }
+        return Info(artifactId: artifactId, mediaType: mediaType, byteSize: size, sha256: sha, createdAt: at,
+                    clientId: clientId, runId: m["runId"]?.stringValue)
+    }
+
+    /// The file behind an artifact, for in-process consumers only.
+    public func file(of artifactId: String) -> String? {
+        info(artifactId).flatMap { i in Self.extensions[i.mediaType].map { path(for: artifactId, ext: $0) } }
+    }
+
+    /// Up to `length` bytes from `offset`; `eof` when nothing follows.
+    public func read(_ artifactId: String, offset: Int, length: Int) throws -> (data: Data, eof: Bool) {
+        guard let file = file(of: artifactId), let h = FileHandle(forReadingAtPath: file) else {
+            throw RuntimeError("not_found", "no artifact \(artifactId)", phase: .handler)
+        }
+        defer { try? h.close() }
+        let size = Int(try h.seekToEnd())
+        guard offset <= size else {
+            throw RuntimeError.invalidArgument("offset \(offset) is past the end (\(size) bytes)")
+        }
+        try h.seek(toOffset: UInt64(offset))
+        let data = try h.read(upToCount: length) ?? Data()
+        return (data, offset + data.count >= size)
+    }
+
+    func metaPath(_ artifactId: String) -> String { "\(directory)/\(artifactId).meta.json" }
+
+    /// Ids name files, so nothing but the Runtime's own alphabet.
+    static func validId(_ id: String) -> Bool {
+        id.hasPrefix("art_") && id.count <= 128 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
+    }
 }

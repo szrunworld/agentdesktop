@@ -94,7 +94,7 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         guard let snapshotId = data["snapshotId"]?.stringValue, let stored = service.observations.find(snapshotId),
               let b = stored.binding, let frame = stored.windowFrame,
               let t = stored.transform, let size = stored.imageSize,
-              let source = data["image"]?["path"]?.stringValue
+              let source = data["image"]?["artifactId"]?.stringValue.flatMap(service.artifacts.file(of:))
         else { throw ContractError(.staleObservation, "the desktop has no bound window or screenshot to observe") }
 
         let revision: UInt64 = lock.withLock {
@@ -118,7 +118,9 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         let modelPNG = try Self.render(source: source, crop: crop, to: resized)
         let artifactId = "art_gui_" + snapshotId.dropFirst(4)
         try modelPNG.write(to: URL(fileURLWithPath: service.artifacts.path(for: artifactId, ext: "png")))
-        let sha = SHA256.hash(data: modelPNG).map { String(format: "%02x", $0) }.joined()
+        // Readable by id from the owner (Runs page), not by other clients.
+        let sha = try service.artifacts.register(artifactId, mediaType: "image/png", clientId: "platform", runId: runId,
+                                                 createdAt: Timestamp.string(Date())).sha256
         let shot = try ScreenshotDescriptor(
             screenshotId: "shot_" + snapshotId.dropFirst(4), artifactRef: artifactId, sha256: sha, mimeType: "image/png",
             transformVersion: "runtime-window-crop-v1",

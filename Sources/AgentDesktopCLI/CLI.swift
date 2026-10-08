@@ -21,11 +21,13 @@ struct CLI {
     /// Note a write's requestId, method and endpoint before it is sent, so
     /// an interrupted run can be looked up later with request show.
     var recordRequest: (_ requestId: String, _ method: String, _ endpoint: String) -> Void = CLI.appendRequestLog
-    /// Copy a file (observe --image-output).
-    var copyFile: (_ from: String, _ to: String) throws -> Void = { from, to in
+    /// Write a saved artifact (observe --image-output, artifact get), owner-only.
+    var writeFile: (_ data: Data, _ to: String) throws -> Void = { data, to in
         let fm = FileManager.default
         if fm.fileExists(atPath: to) { try fm.removeItem(atPath: to) }
-        try fm.copyItem(atPath: from, toPath: to)
+        guard fm.createFile(atPath: to, contents: data, attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
     /// Run session exec's child; its exit status (128+signal when killed).
     var spawnChild: (_ argv: [String], _ environment: [String: String]) -> Int32 = CLI.runChild

@@ -1,6 +1,7 @@
 import AgentDesktopClient
 import AgentDesktopContracts
 import AgentDesktopProtocol
+import CryptoKit
 import Foundation
 
 extension CLI {
@@ -44,25 +45,50 @@ extension CLI {
                 out.failure(requestId: request.requestId, e)
                 return ExitStatus.of(e)
             }
-            if let target = call.imageOutput {
-                guard let path = data["image"]?["path"]?.stringValue else {
+            if let target = call.artifactOutput {
+                guard let id = (data["image"]?["artifactId"] ?? data["artifactId"])?.stringValue else {
                     let e = RuntimeError("execution_failed", "the observation has no screenshot to export", phase: .local)
                     out.failure(requestId: request.requestId, e)
                     return ExitStatus.of(e)
                 }
                 do {
-                    try copyFile(path, target)
+                    let bytes = try Self.fetchArtifact(id, client)
+                    try writeFile(bytes, target)
+                } catch let e as RuntimeError {
+                    out.failure(requestId: request.requestId, e)
+                    return ExitStatus.of(e)
                 } catch {
                     let e = RuntimeError("execution_failed", "cannot write \(target): \(error.localizedDescription)", phase: .local)
                     out.failure(requestId: request.requestId, e)
                     return ExitStatus.of(e)
                 }
-                data = data.setting("imageOutput", .string(target))
+                data = data.setting("savedTo", .string(target))
             }
             let shown = data
             out.success(requestId: request.requestId, data: shown) { Self.callText(call.method, shown) }
             return ExitStatus.ok
         }
+    }
+
+    /// The whole artifact, chunk by chunk; the digest must match what the
+    /// Runtime reported, or nothing is written.
+    static func fetchArtifact(_ id: String, _ client: RuntimeClient) throws -> Data {
+        let info = try client.call(RuntimeRequest(.artifactShow, params: .obj([("artifactId", .string(id))])))
+        var bytes = Data()
+        while true {
+            let chunk = try client.call(RuntimeRequest(.artifactRead, params: .obj([("artifactId", .string(id)),
+                                                                                   ("offset", .int(bytes.count))])))
+            guard let b64 = chunk["dataBase64"]?.stringValue, let part = Data(base64Encoded: b64) else {
+                throw RuntimeError("execution_failed", "artifact \(id) came back unreadable", phase: .local)
+            }
+            bytes.append(part)
+            if chunk["eof"]?.boolValue ?? true || part.isEmpty { break }
+        }
+        let sha = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        guard sha == info["sha256"]?.stringValue else {
+            throw RuntimeError("execution_failed", "artifact \(id) changed while it was read", phase: .local)
+        }
+        return bytes
     }
 
     static func runText(_ d: JSONValue) -> String {
@@ -121,7 +147,7 @@ extension CLI {
         case .observe:
             var lines = ["snapshot \(s(d["snapshotId"]))  desktop \(s(d["desktopId"]))  at \(s(d["capturedAt"]))"]
             if let img = d["image"], !img.isNull {
-                lines.append("image    \(s(d["imageOutput"]) != "-" ? s(d["imageOutput"]) : s(img["path"]))  \(i(img["width"]))x\(i(img["height"])) px, scale \(img["transform"]?["scale"]?.doubleValue.map { String($0) } ?? "?")")
+                lines.append("image    \(s(d["savedTo"]) != "-" ? s(d["savedTo"]) : s(img["artifactId"]))  \(i(img["width"]))x\(i(img["height"])) px, scale \(img["transform"]?["scale"]?.doubleValue.map { String($0) } ?? "?")")
             }
             if let t = d["target"], !t.isNull {
                 lines.append("target   \(s(t["title"])) pid \(i(t["process"]?["pid"])) window \(i(t["windowId"])) at \(frame(t["windowFrame"]))")

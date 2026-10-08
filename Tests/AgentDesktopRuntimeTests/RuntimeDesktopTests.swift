@@ -147,7 +147,7 @@ func created(_ s: RuntimeService, _ c: ConnectionState, name: String? = nil) thr
     #expect(image["width"]?.intValue == 2560)
     #expect(image["transform"]?["scale"]?.doubleValue == 2)
     #expect(image["transform"]?["originX"]?.doubleValue == screen.frame.x)
-    #expect(FileManager.default.fileExists(atPath: try #require(image["path"]?.stringValue)))
+    #expect(s.artifacts.file(of: try #require(image["artifactId"]?.stringValue)) != nil)
     let snap = try #require(o["snapshotId"]?.stringValue)
     #expect(s.observations.isLatestElementRead(snap, desktopId: id))
 

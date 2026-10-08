@@ -43,12 +43,15 @@ extension RuntimeService {
                 let artifactId = "art_" + snapshotId.dropFirst(4)
                 let path = artifacts.path(for: artifactId, ext: "png")
                 let size = try platform.screenshot(d.screen, to: path)
+                let info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
+                                                  runId: request.context.runId, createdAt: nowString)
                 let scale = Double(size.width) / max(1, d.screen.frame.width)
                 stored.transform = (d.screen.frame.x, d.screen.frame.y, scale)
                 stored.imageSize = size
                 image = .obj([
-                    ("artifactId", .string(artifactId)), ("path", .string(path)), ("mediaType", .string("image/png")),
+                    ("artifactId", .string(artifactId)), ("mediaType", .string("image/png")),
                     ("width", .int(size.width)), ("height", .int(size.height)),
+                    ("byteSize", .int(info.byteSize)), ("sha256", .string(info.sha256)),
                     ("transform", .obj([("originX", .double(d.screen.frame.x)), ("originY", .double(d.screen.frame.y)),
                                         ("scale", .double(scale))])),
                 ])
