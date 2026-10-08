@@ -1,6 +1,6 @@
 # ACP 测试与验收（工作线 Q）
 
-状态：2026-10-08 第七轮（分支 acp-q-independent，已合入 main cbe7772，含 #102、#114、#117）。168 个用例：PASSED 55、FAILED 0、BLOCKED 12、NOT_RUN 101。PASSED 只在 L1（假编辑器对 dev 入口、真 ACP 栈配脚本化 Runtime、代码检查）与 L2 只读（测试副本，无 unit.run、不建 Desktop）上；任何需要 A4/A6、真实 GUI 动作或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4～4.8 节。
+状态：2026-10-08 第七轮（分支 acp-q-independent，已合入 main cbe7772，含 #102、#114、#117）。169 个用例：PASSED 55、FAILED 0、BLOCKED 12、NOT_RUN 102（ACP-T18-04 由协调者拆为 04a 只读 PASSED 与 04b 写入 NOT_RUN）。PASSED 只在 L1（假编辑器对 dev 入口、真 ACP 栈配脚本化 Runtime、代码检查）与 L2 只读（测试副本，无 unit.run、不建 Desktop）上；任何需要 A4/A6、真实 GUI 动作或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4～4.8 节。
 
 ## 一、分层（Kevin 裁决附加约束 6）
 
@@ -21,7 +21,7 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `docs/acp/tests/cases.csv` | 168 个可执行用例 |
+| `docs/acp/tests/cases.csv` | 169 个可执行用例 |
 | `docs/acp/tests/e2e-runbook.md` | 真机端到端手册：测试副本、Zed 配置、计算器中立样本、证据、通过标准 |
 | `docs/acp/tests/evidence/fake-editor-selftest-2026-10-08/` | 假编辑器自检的原始记录 |
 | `scripts/acp/fake-editor/` | 假编辑器（TypeScript，官方 `@agentclientprotocol/sdk` 1.7.0 锁定版本，`package-lock.json` 已提交，`node_modules/`、`dist/` 不提交） |
@@ -30,7 +30,7 @@
 | `scripts/acp/run-real.sh` | 对 dev 入口或 `agentdesktop acp` 跑场景（只接受 `/tmp/adt-*` 端点） |
 | `scripts/acp/stale-socket.sh` | 在 `/tmp/adt-*` 下造一个无人监听的 socket 文件（ACP-T03-04） |
 | `scripts/acp/scan-transcripts.py` | 扫描 transcript：agent 有没有调用 `fs/*`、`terminal/*`（ACP-T05-03） |
-| `scripts/acp/mcp-readonly-probe.py` | `agentdesktop mcp` 对测试副本的只读探针（ACP-T18-04 只读部分） |
+| `scripts/acp/mcp-readonly-probe.py` | `agentdesktop mcp` 对测试副本的只读探针（ACP-T18-04a） |
 | `Tests/AgentDesktopACPTests/Conformance/` | 冻结接口一致性测试（只用 Model 与 Ports） |
 
 ## 三、用例目录 cases.csv
@@ -102,7 +102,7 @@
 
 ### 3.3 每个门禁的用例数
 
-一个用例可以属于多个门禁，所以下表合计大于 168。门禁的 PASSED 数只是 L1/L2 子项，门禁本身仍未通过。
+一个用例可以属于多个门禁，所以下表合计大于 169。门禁的 PASSED 数只是 L1/L2 子项，门禁本身仍未通过。
 
 | 门禁 | 用例 | L1 | L2 | L3 | PASSED | FAILED | BLOCKED |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -357,14 +357,14 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 | 旧入口（ACP-T18-03 回归） | `side.sock`、`side.ai.sock`、`control.sock` 均 ENOENT；runtime capabilities 64 个方法，没有 `unit.run` | `side/connect-probe.txt`、`side/caps.json` |
 | 跑完后 | `desktop list`、`run list` 为空；Runtime 状态 desktops/sessions/runs 都是 0；`<side>/acp` 下只有 `sessions/` | `side/*-after.*`、`side/acp-state-files.txt` |
 
-**MCP（#29）只读探针，ACP-T18-04**：`scripts/acp/mcp-readonly-probe.py`，12 项检查全部 PASS，退出码 0（`mcp/`）。
+**MCP（#29）只读探针，ACP-T18-04a**：`scripts/acp/mcp-readonly-probe.py`，12 项检查全部 PASS，退出码 0（`mcp/`）。
 
 - 只调只读工具：tools/list（20 个工具）、runtime_status、desktop_list、run_show 与 request_show（都用不存在的 id）。
 - 由同一个 Runtime 回答：MCP 的 runtime_status 与 CLI 直连该端点得到同一 instanceId；MCP 进程只有一个 unix socket、没有网络 socket，其对端地址就是宿主在 `side.runtime.sock` 上接受的那条连接（`mcpLsofUnix` 与 `runtimeLsofUnix`）；连接期间 Runtime 的 connections 从 1 变为 2。
 - request_show 的 not_found 文字带账本保留期（7 天），说明它查的是 Runtime 账本。
 - 把端点换成无人监听的路径后，每个工具都报 `runtime_offline`，没有别的入口。
 - 代码检查（`mcp/code-check.txt`）：AgentDesktopMCP 只依赖 Client 与 Protocol，20 个工具各对应一个 runtime/1 方法，没有自建 socket 或引擎引用。
-- **没有执行**用例原文的「act 写入账本有该 requestId」：act 会产生 GUI 输入，不在本轮范围。ACP-T18-04 按 Kevin 批准的只读范围记 PASSED，act 部分留给真实 GUI 验收。
+- **没有执行**用例原文的「act 写入账本有该 requestId」：act 会产生 GUI 输入，不在本轮范围。协调者据「未运行不得标通过」把原 ACP-T18-04 拆为 ACP-T18-04a（只读部分，PASSED）与 ACP-T18-04b（act 进账本，NOT_RUN）。
 
 **事件目录一致性（#102 / #114）**：新增 `Conformance/QTestEventCatalogConformanceTests.swift`（9 个测试）。
 
@@ -384,7 +384,7 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 - ACP-T05-04：编辑器不声明 elicitation 时，问题不发出、不被代答，Run 不前进。
 - ACP-P4-02（G5-05）：新会话的截图、页面文字默认关，mode 为 ask，截图档位只有 off/submit/all，与 01、08、README 的说明一致。
 
-**用例状态变化**（40 → 55 PASSED，116 → 101 NOT_RUN）：
+**用例状态变化**（40 → 55 PASSED，116 → 102 NOT_RUN；总数 168 → 169，因拆分 ACP-T18-04）：
 
 | 用例 | 结果 | 层 |
 | --- | --- | --- |
@@ -393,7 +393,8 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 | ACP-T05-03 | NOT_RUN → **PASSED** | transcript 扫描（L1 + L2） |
 | ACP-T05-04、T05-05、ACP-T11-01、ACP-P4-02 | NOT_RUN → **PASSED** | L1 一致性（脚本化 Runtime） |
 | ACP-T09-03 | NOT_RUN → **PASSED** | 代码审查 + L2 状态目录观察 |
-| ACP-T18-04 | NOT_RUN → **PASSED**（只读部分；act 未执行） | L2 只读 |
+| ACP-T18-04a | 新拆出：**PASSED**（只读部分） | L2 只读 |
+| ACP-T18-04b | 新拆出：NOT_RUN（act 进账本未执行） | — |
 | ACP-T28-02 | NOT_RUN → **PASSED**（RT-23A/B 自动化套件；真机探针未重跑） | L1 自动化 |
 | ACP-T18-01、T18-03、T28-01 | 仍 PASSED，补第七轮回归证据 | L2 / L1 |
 | ACP-T04-03 | 仍 NOT_RUN：02 只选定 v1 | — |
@@ -406,7 +407,7 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 - G1-04：只差 ACP-T04-03（版本 v2，取决于 02 的决策）。
 - G0-09：ACP-T09-03、ACP-T18-05 都 PASSED。
 - G5-05：ACP-P4-02 PASSED。
-- G0-02：ACP-T18-03 已 PASSED，ACP-T18-04 只读部分 PASSED，仍缺 ACP-T18-02 与 act 进账本。
+- G0-02：ACP-T18-03、ACP-T18-04a 已 PASSED，仍缺 ACP-T18-02 与 ACP-T18-04b。
 - G3-08：仍缺 ACP-T28-03。
 - 其余门禁不变，仍然没有任何端到端结论。
 
@@ -439,7 +440,7 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 | 06 行 | 用例 |
 | --- | --- |
 | G0-01 单一监听 | ACP-T18-01、ACP-T18-03（A2 后 L2 已 PASSED，见 4.7） |
-| G0-02 MCP / 旧入口不绕过 | ACP-T18-02、ACP-T18-03、ACP-T18-04 |
+| G0-02 MCP / 旧入口不绕过 | ACP-T18-02、ACP-T18-03、ACP-T18-04a、ACP-T18-04b |
 | G0-09 不建第二套执行与存储 | ACP-T09-03、ACP-T18-05 |
 | G0-12 协议版本互通 | ACP-T04-01、ACP-T04-02、ACP-T04-03（加 4.3 节对官方 SDK 的互通记录） |
 | G1-01 | ACP-T01-01～06、ACP-L2-01～05 |
