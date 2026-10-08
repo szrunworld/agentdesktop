@@ -1,0 +1,146 @@
+import AgentDesktopClient
+@testable import AgentDesktopCLI
+import AgentDesktopProtocol
+import AgentDesktopRuntime
+import Foundation
+import Testing
+
+// Endpoint diagnosis (doctor): read only, and an answer on the socket is not
+// trusted for that alone.
+
+private func doctor(_ path: String, env extra: [String: String] = [:]) -> (Int32, JSONValue?, String) {
+    var out: [String] = []
+    var cli = CLI()
+    cli.stdout = { out.append($0) }
+    cli.stderr = { _ in }
+    cli.environment = ["HOME": "/nonexistent", EndpointResolver.environmentKey: path].merging(extra) { $1 }
+    cli.launchProduct = { _ in Issue.record("launched"); return "no" }
+    let code = cli.run(["doctor", "--format", "json"])
+    let text = out.joined()
+    return (code, try? StrictJSON.parse(Data(text.utf8)), text)
+}
+
+private func diagnosis(_ v: JSONValue?) -> JSONValue? { v?["data"]?["diagnosis"] }
+
+/// Every file in the directory with its size, mode and modification time.
+private func snapshot(_ dir: String) -> [String: String] {
+    var out: [String: String] = [:]
+    for name in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [] {
+        var st = stat()
+        lstat(dir + "/" + name, &st)
+        out[name] = "\(st.st_size) \(st.st_mode) \(st.st_mtimespec.tv_sec).\(st.st_mtimespec.tv_nsec) \(st.st_ino)"
+    }
+    return out
+}
+
+@Test func aHealthyRuntimeIsVerifiedAndNothingIsChanged() throws {
+    let rt = try LiveRuntime()
+    let before = snapshot(rt.dir)
+    let runsBefore = try StrictJSON.parse(Data(rt.run(["run", "list", "--format", "json"]).1.joined().utf8))["data"]?["runs"]?.arrayValue?.count
+    let (code, v, _) = doctor(rt.path)
+    #expect(code == 0)
+    let d = try #require(diagnosis(v))
+    #expect(d["identity"]?.stringValue == "verified", "\(d.encoded())")
+    #expect(d["holder"]?.stringValue == "alive" && d["socket"]?.stringValue == "ok")
+    #expect(d["peerPid"]?.intValue == Int(getpid()))
+    // This test Runtime has no desktop platform, so it offers no Runs;
+    // asking cost nothing.
+    #expect(d["runsAvailable"] != nil)
+    // Read only: no file changed, nothing created, no Run made.
+    #expect(snapshot(rt.dir) == before)
+    let runsAfter = try StrictJSON.parse(Data(rt.run(["run", "list", "--format", "json"]).1.joined().utf8))["data"]?["runs"]?.arrayValue?.count
+    #expect(runsAfter == runsBefore)
+}
+
+@Test func aRuntimeThatClaimsAnotherIdentityIsAMismatch() throws {
+    // It answers the handshake, but names a pid that is not the socket's
+    // peer and not the lock file's owner.
+    var template = Array("/tmp/adt-XXXXXX".utf8CString)
+    let dir = String(cString: mkdtemp(&template)!)
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runtime.sock"
+    let fake = RuntimeIdentity(instanceId: "rt_fake", pid: 99_999, startedAt: Timestamp.string(Date()), endpoint: path,
+                               buildSource: "unknown")
+    let server = RuntimeServer(path: path, service: RuntimeService(identity: fake, backend: StubBackend()))
+    try server.start()
+    defer { server.stop() }
+    let (code, v, _) = doctor(path)
+    let d = try #require(diagnosis(v))
+    #expect(d["identity"]?.stringValue == "mismatch", "\(d.encoded())")
+    #expect(code != 0)
+}
+
+@Test func anAnswerWithoutAnOwnershipRecordIsUnverified() throws {
+    let rt = try LiveRuntime()
+    // As an older Runtime would have left it: a pid only.
+    try Data("\(getpid())\n".utf8).write(to: URL(fileURLWithPath: rt.path + ".lock"))
+    let (code, v, _) = doctor(rt.path)
+    let d = try #require(diagnosis(v))
+    #expect(d["identity"]?.stringValue == "unverified")
+    #expect(d["holder"]?.stringValue == "legacy")
+    #expect(code == 0, "unverified is a warning, not a failure")
+}
+
+@Test func aCrashedOwnersLeftoversAreReportedAndLeftAlone() throws {
+    var template = Array("/tmp/adt-XXXXXX".utf8CString)
+    let dir = String(cString: mkdtemp(&template)!)
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runtime.sock"
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    var addr = SocketOptions.address(path)!
+    _ = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+    close(fd)
+    chmod(path, 0o600)
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+    try p.run()
+    p.waitUntilExit()
+    let ghost = EndpointRecord(product: "AgentDesktop", productVersion: "0.0.1", pid: p.processIdentifier, instanceId: "rt_ghost",
+                               endpoint: path, listening: true, since: "2026-10-01T00:00:00.000Z")
+    try Data(ghost.line.utf8).write(to: URL(fileURLWithPath: path + ".lock"))
+    let before = snapshot(dir)
+    let (code, v, text) = doctor(path)
+    let d = try #require(diagnosis(v))
+    #expect(d["holder"]?.stringValue == "gone")
+    #expect(d["failures"]?.arrayValue?.contains(.string("connect")) == true)
+    #expect(code == 3)
+    #expect(text.contains("nothing changed here"))
+    #expect(snapshot(dir) == before, "diagnosis repairs and removes nothing")
+}
+
+@Test func aPidNowOwnedByALaterProcessIsReportedAsReused() throws {
+    let rt = try LiveRuntime()
+    // A record older than the process now holding that pid.
+    var r = try #require((try? String(contentsOfFile: rt.path + ".lock", encoding: .utf8)).flatMap { EndpointRecord.parse($0).record })
+    r.since = "2000-01-01T00:00:00.000Z"
+    try Data(r.line.utf8).write(to: URL(fileURLWithPath: rt.path + ".lock"))
+    let (_, v, _) = doctor(rt.path)
+    let d = try #require(diagnosis(v))
+    #expect(d["holder"]?.stringValue == "pid_reused")
+    #expect(d["identity"]?.stringValue == "unverified")
+}
+
+@Test func aSocketOpenToOthersIsNotConnectedTo() throws {
+    let rt = try LiveRuntime()
+    chmod(rt.path, 0o666)
+    let (code, v, _) = doctor(rt.path)
+    #expect(diagnosis(v)?["socket"]?.stringValue == "too_open")
+    #expect(diagnosis(v)?["peerPid"] == nil, "no connection was made")
+    #expect(code == 4)
+}
+
+@Test func theExecContextsTokenIsNeverShown() throws {
+    let rt = try LiveRuntime()
+    let file = rt.dir + "/ctx.json"
+    try Data(#"{"endpoint":"\#(rt.path)","desktopId":"d","sessionId":"s","runId":"r","token":"tok-secret-123"}"#.utf8)
+        .write(to: URL(fileURLWithPath: file))
+    let (_, _, text) = doctor(rt.path, env: ["AGENTDESKTOP_CONTEXT": file])
+    #expect(text.contains("exec.context"))
+    #expect(!text.contains("tok-secret-123"))
+}
+
+@Test func theEnvironmentIsNamed() {
+    #expect(EndpointInspector.environment(of: "/Users/u/Library/Application Support/AgentDesktop/runtime.sock", home: "/Users/u") == .product)
+    #expect(EndpointInspector.environment(of: "/tmp/adt-x/side.runtime.sock", home: "/Users/u") == .sideInstance)
+    #expect(EndpointInspector.environment(of: "/tmp/adt-x/runtime.sock", home: "/Users/u") == .custom)
+}

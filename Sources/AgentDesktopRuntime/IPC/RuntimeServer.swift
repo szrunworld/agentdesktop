@@ -56,14 +56,16 @@ public final class RuntimeServer: @unchecked Sendable {
         let lfd = Darwin.open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
         guard lfd >= 0 else { throw StartError.io("open \(lockPath): \(String(cString: strerror(errno)))") }
         if flock(lfd, LOCK_EX | LOCK_NB) != 0 {
-            let holder = (try? String(contentsOfFile: lockPath, encoding: .utf8))
-                .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            let parsed = (try? String(contentsOfFile: lockPath, encoding: .utf8)).map(EndpointRecord.parse)
             Darwin.close(lfd)
-            throw StartError.alreadyServed(path: path, holderPID: holder)
+            throw StartError.alreadyServed(path: path, holderPID: parsed?.record?.pid ?? parsed?.legacyPID)
         }
-        ftruncate(lfd, 0)
-        let pidLine = "\(getpid())\n"
-        _ = pidLine.withCString { Darwin.write(lfd, $0, strlen($0)) }
+        // Who holds the endpoint, for diagnosis: a clue, not proof (see
+        // EndpointRecord). Rewritten once the socket listens.
+        var record = EndpointRecord(product: service.identity.product, productVersion: service.identity.productVersion,
+                                    pid: getpid(), instanceId: service.identity.instanceId, endpoint: path,
+                                    listening: false, since: Timestamp.string(Date()))
+        Self.write(record, to: lfd)
 
         // Holding the lock, anything at the path is a leftover of a host
         // that died: remove it if it is a socket, refuse anything else.
@@ -103,6 +105,8 @@ public final class RuntimeServer: @unchecked Sendable {
             throw StartError.io("pipe(): \(String(cString: strerror(errno)))")
         }
 
+        record.listening = true
+        Self.write(record, to: lfd)
         lock.withLock {
             lockFD = lfd
             socketInode = mine.st_ino
@@ -114,6 +118,11 @@ public final class RuntimeServer: @unchecked Sendable {
         thread.name = "agentdesktop.runtime.accept"
         acceptThread = thread
         thread.start()
+    }
+
+    private static func write(_ record: EndpointRecord, to fd: Int32) {
+        ftruncate(fd, 0)
+        _ = record.line.withCString { pwrite(fd, $0, strlen($0), 0) }
     }
 
     /// Stop accepting, remove the socket if it is still ours, release the lock.
@@ -130,6 +139,12 @@ public final class RuntimeServer: @unchecked Sendable {
         var st = stat()
         if lstat(path, &st) == 0, st.st_ino == inode { unlink(path) }
         if lfd >= 0 {
+            // The record stays, marked as no longer listening.
+            let text = (try? String(contentsOfFile: lockPath, encoding: .utf8)) ?? ""
+            if var r = EndpointRecord.parse(text).record, r.pid == getpid() {
+                r.listening = false
+                Self.write(r, to: lfd)
+            }
             flock(lfd, LOCK_UN)
             Darwin.close(lfd)
         }

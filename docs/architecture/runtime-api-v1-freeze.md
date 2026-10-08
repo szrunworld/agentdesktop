@@ -200,3 +200,21 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
   - CLI 的 `rpc` / `ai` / `gui` 命令直接发 runtime/1 请求，输出 runtime/1 应答；`rpc --request-file` 只接受 runtime/1 请求，旧信封在本地即被拒绝；
   - `AgentDesktopContracts` 模块已并入 `AgentDesktopProtocol`，GUI 几何的 `Rect` 改名为 `GuiRect`。
 - `contracts/ai-gui/v1` 只剩 Windows 的 C# 合同层在用，待 Windows 线迁移到 runtime/1 后删除。
+
+## 11. 端点所有权记录与只读诊断（Kevin 2026-10-09 批准）
+
+- **锁文件里的所有权记录**：Runtime 取得 `<endpoint>.lock` 的独占锁后，把记录写进锁文件（0600，一行 JSON）：`product`、`productVersion`、`pid`、`instanceId`、`endpoint`、`listening`、`since`。记录在监听之前写入，此时 `listening` 为 false；开始监听后改为 true；正常停止时改回 false 并保留。记录里没有任何令牌或凭据。
+- **记录只是诊断线索，不能证明 Runtime 在运行**：崩溃后记录还在，它的 pid 也可能已经被别的进程复用。
+- **诊断（`agentdesktop doctor`，实现在 `EndpointInspector`）严格只读**：
+  - 不加锁，连共享锁也不加，因为可能让正在启动的 Runtime 抢锁失败；
+  - 不修复权限，不删除 socket 或锁文件，不启动或停止 Runtime，不改动任何授权，不创建 Run（检查 Run 服务时只调用 `run.list`）；
+  - 不枚举窗口或应用。
+- **报告的内容**：
+  - 端点属于哪类环境（产品、测试副本、自定义路径）；
+  - socket 和目录的属主与权限；
+  - 锁文件里记录的持有者：`alive`（仍在）、`gone`（已不在）、`pid_reused`（pid 已被后来的进程占用）、`legacy`（只有 pid 的旧格式）、`unknown`、`none`；
+  - Runtime 版本与契约版本；
+  - Run 服务是否可用；
+  - 失败所在的环节：connect（连接）、identity（身份）、version（版本）、authorization（授权）、service（服务）。
+- **身份判定**：只有当内核报告的 socket 对端 pid（`LOCAL_PEERPID`）、握手里的 pid、锁文件记录（pid、instanceId、正在监听、进程启动时间不晚于记录时间）三者一致时，才判为 `verified`。缺少任一项判为 `unverified`（只给警告）；互相矛盾判为 `mismatch`（失败，`instance_mismatch`）。**连得上不等于身份可信。**
+- 对其他用户可读写的 socket 判为 `too_open`，不连接。在 `session exec` 里运行时，只报告上下文文件的路径，不显示其中的令牌。
