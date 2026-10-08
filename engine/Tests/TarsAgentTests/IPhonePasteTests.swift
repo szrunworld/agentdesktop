@@ -626,6 +626,45 @@ func fast() -> PasteWatcher {
         if let tap = phone.taps.first { #expect(abs(tap.x - 0.5) < 1e-9 && abs(tap.y - 0.595) < 1e-9) }
     }
 
+    /// Codex on #127: a page that already showed a centred progress-like
+    /// line with a Cancel under it is page content. When the real transfer
+    /// adds its own sheet, only that sheet's Cancel is pressed; with no
+    /// fresh Cancel, nothing is, and the stop is not claimed.
+    @Test func aCopyDuringThePasteNeverPressesAPagesOwnSheet() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        let pageSheet = [line("Pasting from the archive", x: 0.2, y: 0.47, width: 0.6),
+                         line("Cancel", x: 0.4, y: 0.58, width: 0.2)]
+        let realProgress = line("Pasting from \u{201C}MacBook Pro\u{201D}…", x: 0.2, y: 0.27, width: 0.6)
+        func run(_ during: [PhoneText]) -> (PasteTransaction.Result, ScriptedPhone) {
+            pasteboard.clearContents()
+            pasteboard.setString("before", forType: .string)
+            let phone = ScriptedPhone(baseline: pageSheet + keyboard, [pageSheet + keyboard + during])
+            phone.pasteboard = pasteboard
+            phone.onPause = {
+                if phone.looks == 1 {
+                    pasteboard.clearContents()
+                    pasteboard.setString("USER-SECRET", forType: .string)
+                }
+            }
+            return (transaction(pasteboard, lock).paste("hello", verify: true, driver: phone), phone)
+        }
+
+        let (alone, untouched) = run([realProgress])
+        guard case .unknown(let why) = alone.outcome else {
+            Issue.record("expected unknown, got \(alone.outcome)")
+            return
+        }
+        #expect(why.contains("no system Cancel"))
+        #expect(untouched.taps.isEmpty)
+
+        let (withCancel, phone) = run([realProgress, line("Cancel", x: 0.4, y: 0.36, width: 0.2)])
+        #expect(withCancel.outcome == .unknown("user_copied_during_paste: something else was copied to the Mac's "
+            + "clipboard while the phone was fetching it; the phone's paste was cancelled"))
+        #expect(phone.taps.count == 1)
+        if let tap = phone.taps.first { #expect(abs(tap.y - 0.375) < 1e-9) }
+    }
+
     /// Codex on #78: an Allow Paste the user accepted can vanish before the
     /// transfer shows; that quiet is not the end of the fetch.
     @Test func anAcceptedPromptThenQuietIsNotDone() {

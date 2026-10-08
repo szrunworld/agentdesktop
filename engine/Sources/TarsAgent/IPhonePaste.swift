@@ -156,14 +156,7 @@ public enum PastePrompt: Equatable {
         // so page text elsewhere does not hide a real alert (F9, Codex on
         // #127: a note holding "Allow Paste" kept the system's own prompt
         // from ever being accepted).
-        func wasThere(_ line: PhoneText) -> Bool {
-            (baseline ?? []).contains { old in
-                clean(old.text) == clean(line.text)
-                    && abs(old.center.x - line.center.x) <= baselineTolerance
-                    && abs(old.center.y - line.center.y) <= baselineTolerance
-            }
-        }
-        let fresh = allows.filter { !wasThere($0) }
+        let fresh = allows.filter { !wasThere($0, in: baseline) }
         for allow in fresh where centred(allow) {
             func near(_ part: PhoneText) -> Bool { abs(part.center.y - allow.center.y) <= alertSpan }
             if denies.contains(where: near), messages.contains(where: near) { return .allow(allow.center) }
@@ -173,6 +166,16 @@ public enum PastePrompt: Equatable {
         }
         if !fresh.isEmpty { return .unverifiedAllow }
         return .none
+    }
+
+    /// Whether the same label sat at the same place on `baseline`, the
+    /// screen before ⌘V: then it is page content.
+    static func wasThere(_ line: PhoneText, in baseline: [PhoneText]?) -> Bool {
+        (baseline ?? []).contains { old in
+            clean(old.text) == clean(line.text)
+                && abs(old.center.x - line.center.x) <= baselineTolerance
+                && abs(old.center.y - line.center.y) <= baselineTolerance
+        }
     }
 
     /// A "Pasting from …" / "正在从…" line that was not on screen before
@@ -224,10 +227,13 @@ public struct PasteWatcher {
     /// The button that stops the phone's paste, only where it is the
     /// system's: Don't Allow inside the whole alert `read` recognised, or
     /// Cancel under a centred "Pasting from" line. A page's own centred
-    /// "Cancel" or "Don't Allow Paste" is never pressed.
-    static func systemStopButton(_ seen: [PhoneText], prompt: PastePrompt) -> CGPoint? {
+    /// "Cancel" or "Don't Allow Paste" is never pressed, nor any line on
+    /// `baseline` (the screen before ⌘V): Codex on #127, a page's own
+    /// progress line and Cancel must not pass for the phone's sheet.
+    static func systemStopButton(_ seen: [PhoneText], prompt: PastePrompt, baseline: [PhoneText]?) -> CGPoint? {
         func centred(_ line: PhoneText) -> Bool {
             PastePrompt.alertRegion.contains(line.center) && abs(line.box.midX - 0.5) <= PastePrompt.centreTolerance
+                && !PastePrompt.wasThere(line, in: baseline)
         }
         switch prompt {
         case .allow(let allow):
@@ -236,9 +242,7 @@ public struct PasteWatcher {
                     && abs(line.center.y - allow.y) <= PastePrompt.alertSpan
             }?.center
         case .pasting:
-            let sheets = seen.filter { line in
-                PastePrompt.pastingLabels.contains { PastePrompt.clean(line.text).hasPrefix($0) } && centred(line)
-            }
+            let sheets = seen.filter { line in PastePrompt.isProgress(line, before: baseline) && centred(line) }
             return seen.first { line in
                 cancelLabels.contains(PastePrompt.clean(line.text)) && centred(line)
                     && sheets.contains { sheet in
@@ -254,11 +258,11 @@ public struct PasteWatcher {
     /// fetching it (Cancel on its "Pasting from" sheet, Don't Allow on its
     /// prompt) and say whether that was done. Seen on a device: Cancel kept
     /// the user's copy out of the field.
-    private func stopForeignPaste(_ seen: [PhoneText], prompt: PastePrompt,
+    private func stopForeignPaste(_ seen: [PhoneText], prompt: PastePrompt, baseline: [PhoneText]?,
                                   driver: PhonePasteDriver) -> PasteOutcome {
         let why = "user_copied_during_paste: something else was copied to the Mac's clipboard while the phone was "
             + "fetching it"
-        guard let button = Self.systemStopButton(seen, prompt: prompt) else {
+        guard let button = Self.systemStopButton(seen, prompt: prompt, baseline: baseline) else {
             return .unknown(why + "; no system Cancel or Don't Allow Paste was on screen to stop it, so the phone may "
                 + "have pasted that, possibly the user's data")
         }
@@ -318,7 +322,7 @@ public struct PasteWatcher {
             if case .pasting = prompt { sawTransfer = true }
             if othersWrote?() == true {
                 switch prompt {
-                case .allow, .pasting, .unverifiedAllow: return stopForeignPaste(seen, prompt: prompt, driver: driver)
+                case .allow, .pasting, .unverifiedAllow: return stopForeignPaste(seen, prompt: prompt, baseline: baseline, driver: driver)
                 case .none: break  // done or not begun; the transaction reports it
                 }
             }
