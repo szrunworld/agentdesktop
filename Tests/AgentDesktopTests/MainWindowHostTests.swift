@@ -93,4 +93,25 @@ struct MainWindowHostTests {
         await store.stopAllInput()
         #expect(AppController.statusLines(store).last == "输入已停止")
     }
+
+    // UC14 in the host: closing a preview window removes only the window.
+    @Test func closingAPreviewWindowKeepsTheDesktop() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let controller = MainWindowController(store: store)
+        // Never ordered on screen: the registry records it, the window is
+        // built without showing.
+        controller.previews.present = nil
+        controller.previews.show("desk_001")
+        let w = controller.previewWindows.window(for: "desk_001")
+        #expect(w.isReleasedWhenClosed == false)
+        let calls = m.callLog.count
+        w.close()
+        #expect(controller.previewWindows.windows["desk_001"] == nil)
+        #expect(controller.previews.open.isEmpty)
+        #expect(!m.callLog.dropFirst(calls).contains("desktop.destroy"))
+        #expect(store.desktops.count == 3)
+    }
 }

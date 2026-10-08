@@ -14,8 +14,10 @@ public protocol RuntimePort: AnyObject, Sendable {
     /// shows a permanent "样例数据" mark while it is true (09 brief).
     var isSample: Bool { get }
 
-    /// One runtime/1 request.
-    func call(_ method: String, _ params: JSONValue) async throws -> JSONValue
+    /// One runtime/1 request. `context` names the Desktop or Session it
+    /// is aimed at (observe needs one); it carries references only, never
+    /// identity (the connection decides who calls).
+    func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue
 
     /// `events.subscribe` without a runId: EventFrame values for every Run
     /// the caller may see, starting after `after` (nil: from now). The
@@ -27,7 +29,11 @@ public protocol RuntimePort: AnyObject, Sendable {
 
 extension RuntimePort {
     public func call(_ method: String) async throws -> JSONValue {
-        try await call(method, .obj([]))
+        try await call(method, .obj([]), context: RequestContext())
+    }
+
+    public func call(_ method: String, _ params: JSONValue) async throws -> JSONValue {
+        try await call(method, params, context: RequestContext())
     }
 }
 

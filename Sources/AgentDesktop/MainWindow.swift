@@ -1,6 +1,7 @@
 import AgentDesktopAIUI
 import AgentDesktopUI
 import AppKit
+import Combine
 import SwiftUI
 
 /// The one main window (docs/plan/06 §6.1). Closing it only hides it: the
@@ -11,6 +12,9 @@ import SwiftUI
 final class MainWindowController: NSObject, NSWindowDelegate {
     let store: ShellStore
     let navigation = ShellNavigation()
+    let previews = PreviewWindowRegistry()
+    private(set) var previewWindows: PreviewWindows!
+    private var pruning: AnyCancellable?
     private var aiSettings: AISettingsModel?
     private(set) var window: NSWindow?
     /// Times the window was closed; tests read it.
@@ -18,6 +22,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     init(store: ShellStore) {
         self.store = store
+        super.init()
+        previewWindows = PreviewWindows(store: store, registry: previews)
+        // A preview of a Desktop that is gone closes by itself.
+        pruning = store.$desktops.sink { [weak self] list in
+            guard let self, self.store.desktopsState == .loaded || self.store.desktopsState == .empty else { return }
+            self.previews.prune(existing: Set(list.compactMap { $0["desktopId"]?.stringValue }))
+        }
+        previewWindows.openDetail = { [weak self] id in
+            guard let self else { return }
+            self.navigation.showDesktop(id)
+            if self.previewWindows.testDisplay != nil { self.showInBackground(onDisplay: self.previewWindows.testDisplay) } else { self.show() }
+        }
     }
 
     /// The AI/GUI pages for Settings, once the AI service is up.
@@ -40,6 +56,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// window, placed on the given display (one of its own virtual
     /// Desktops) so the user's screens are not touched.
     func showInBackground(onDisplay displayID: CGDirectDisplayID?) {
+        previewWindows.testDisplay = displayID
         let w = ensureWindow()
         if let displayID, let screen = NSScreen.screens.first(where: {
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
@@ -74,7 +91,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private func hosting() -> NSView {
         let ai = aiSettings
         let nav = navigation
-        return NSHostingView(rootView: MainWindowView(store: store, navigation: nav, settings: { page in
+        return NSHostingView(rootView: MainWindowView(store: store, navigation: nav, previews: previews, settings: { page in
             ai?.view(for: page, navigation: nav)
         }))
     }
