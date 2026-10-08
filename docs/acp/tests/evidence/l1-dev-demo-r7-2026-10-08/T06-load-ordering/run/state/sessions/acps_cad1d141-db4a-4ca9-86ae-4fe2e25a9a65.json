@@ -1,0 +1,47 @@
+{
+  "acpSessionId" : "acps_cad1d141-db4a-4ca9-86ae-4fe2e25a9a65",
+  "clientId" : "acp-dev",
+  "createdAt" : "2026-10-08T12:52:24.804Z",
+  "cwd" : "<repo>\/docs\/acp\/tests\/evidence\/l1-dev-demo-r7-2026-10-08\/T06-load-ordering\/run",
+  "format" : 1,
+  "lastCursor" : {
+
+  },
+  "options" : [
+    {
+      "choices" : [
+        "ask",
+        "auto"
+      ],
+      "id" : "mode",
+      "name" : "执行确认",
+      "value" : "ask"
+    },
+    {
+      "choices" : [
+        "off",
+        "submit",
+        "all"
+      ],
+      "id" : "screenshots",
+      "name" : "截图",
+      "value" : "off"
+    },
+    {
+      "choices" : [
+        "off",
+        "on"
+      ],
+      "id" : "pageText",
+      "name" : "页面文字",
+      "value" : "off"
+    }
+  ],
+  "principalId" : "demo-owner",
+  "revision" : 3,
+  "runIds" : [
+
+  ],
+  "title" : "[已隐藏]",
+  "updatedAt" : "2026-10-08T12:52:24.834Z"
+}

@@ -515,6 +515,13 @@
         "name": {
           "type": "string"
         },
+        "kind": {
+          "enum": [
+            "virtual",
+            "physical"
+          ],
+          "description": "virtual: a display the Runtime created and destroys; physical: one of the user's displays, attached; absent means virtual"
+        },
         "state": {
           "enum": [
             "ready",
@@ -734,6 +741,19 @@
           "type": "integer",
           "minimum": 240,
           "maximum": 3384
+        },
+        "physical": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "attach one of the user's own displays instead of creating a virtual one: nothing is created, window.bind needs windowId and never moves the window, app.launch is refused, desktop.destroy only drops the record; mutually exclusive with width/height",
+          "properties": {
+            "displayId": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "a physical display's ID; default the main display",
+              "maximum": 4294967295
+            }
+          }
         }
       },
       "dependentRequired": {

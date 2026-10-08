@@ -73,7 +73,7 @@ struct MainWindowHostTests {
         let m = MockRuntime.sample()
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
-        let controller = MainWindowController(store: store)
+        let controller = MainWindowController(store: store, frames: FakeDesktopFrames().hub)
         let window = controller.ensureWindow()      // never ordered on screen
         #expect(window.isReleasedWhenClosed == false)
         let before = try await m.call("run.list", .obj([]))
@@ -106,17 +106,26 @@ struct MainWindowHostTests {
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
         store.stop()
-        let controller = MainWindowController(store: store)
+        let fake = FakeDesktopFrames()
+        let controller = MainWindowController(store: store, frames: fake.hub)
         // Never ordered on screen: the registry records it, the window is
         // built without showing.
         controller.previews.present = nil
         controller.previews.show("desk_001")
         let w = controller.previewWindows.window(for: "desk_001")
         #expect(w.isReleasedWhenClosed == false)
+        // What the preview view does when it appears: hold the Desktop's
+        // display in the window's scope.
+        let lease = DesktopFrameLease()
+        lease.attach(controller.frames, displayId: DesktopFrameHub.displayId(of: store.desktops.first { $0["desktopId"]?.stringValue == "desk_001" }),
+                     scope: PreviewWindowRegistry.scope("desk_001"))
+        #expect(controller.frames.streamCount == 1)
         let calls = m.callLog.count
         w.close()
         #expect(controller.previewWindows.windows["desk_001"] == nil)
         #expect(controller.previews.open.isEmpty)
+        #expect(controller.frames.streamCount == 0 && controller.frames.consumerCount == 0, "closing the window stops its stream")
+        #expect(fake.running.isEmpty)
         #expect(!m.callLog.dropFirst(calls).contains("desktop.destroy"))
         #expect(store.desktops.count == 3)
     }
@@ -129,9 +138,15 @@ struct MainWindowHostTests {
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
         store.stop()
-        let controller = MainWindowController(store: store)
+        let fake = FakeDesktopFrames()
+        let controller = MainWindowController(store: store, frames: fake.hub)
         controller.previews.present = nil
         controller.previews.show("desk_001")
+        let lease = DesktopFrameLease()
+        lease.attach(controller.frames, displayId: DesktopFrameHub.displayId(of: store.desktops.first { $0["desktopId"]?.stringValue == "desk_001" }),
+                     scope: DesktopFrameHub.mainScope)
+        controller.frames.setScopeVisible(DesktopFrameHub.mainScope, true)
+        #expect(controller.frames.streamCount == 1)
         m.offline = true
         await store.refreshDesktops()
         #expect(store.desktopsState != .loaded)
@@ -140,6 +155,7 @@ struct MainWindowHostTests {
         await store.refreshDesktops()
         #expect(store.desktopsState == .loaded)
         #expect(controller.previews.open.isEmpty, "the preview of the destroyed Desktop closed")
+        #expect(controller.frames.streamCount == 0, "nothing captures the destroyed Desktop's display")
     }
 
     // P32 choices. UC50: hiding or keeping in the background quits nothing
@@ -181,28 +197,61 @@ struct MainWindowHostTests {
     }
 
     // A stalled Runtime does not hold the quit dialog back: begin returns
-    // before run.list answers, the count stays unknown (never zero) until
-    // then, and the user can still call the quit off.
+    // before run.list answers, the count reads "reading", then "cannot
+    // tell" once the read times out (never zero), and fills in when the
+    // Runtime answers; the user can call the quit off throughout.
     @Test func quitDialogDoesNotWaitForTheRuntime() async throws {
         let m = MockRuntime.sample()
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
         store.stop()
-        m.delays = ["run.list": 2_000_000_000]
+        m.delays = ["run.list": 300_000_000]
         let q = QuitController(store: store)
         q.clock = FastClock()
         var replies: [Bool] = []
         q.reply = { replies.append($0) }
+        let listsBefore = m.callLog.filter { $0 == "run.list" }.count
         let started = Date()
         await q.begin(show: false)
-        #expect(Date().timeIntervalSince(started) < 1, "begin did not wait for run.list")
+        #expect(Date().timeIntervalSince(started) < 0.25, "begin did not wait for run.list")
         let flow = try #require(q.flow)
-        #expect(flow.activeCount == nil)
-        #expect(QuitDialogView.activeLine(nil).hasPrefix("正在读取"))
+        #expect(flow.activeCount == .reading)
+        #expect(QuitDialogView.activeLine(.reading).hasPrefix("正在读取"))
+        for _ in 0..<200 where flow.activeCount == .reading { try await Task.sleep(nanoseconds: 2_000_000) }
+        guard case .unavailable(let why) = flow.activeCount else { Issue.record("\(flow.activeCount)"); return }
+        #expect(QuitDialogView.activeLine(flow.activeCount).contains("暂时读不到"))
+        #expect(!QuitDialogView.activeLine(flow.activeCount).contains("没有进行中的运行"), "\(why)")
+        await q.counting?.value
+        #expect(flow.activeCount == .known(2), "the late answer fills the count in")
+        #expect(m.callLog.filter { $0 == "run.list" }.count - listsBefore == 1, "a read in flight is not sent again")
         q.choose(.cancel)
         #expect(replies == [false])
-        m.delays = [:]
-        await q.counting?.value
-        #expect(flow.activeCount == 2)
+    }
+
+    // UC51 on the machine (2026-10-08): a second quit request while the
+    // dialog waited made AppKit force termination, so the test copy exited
+    // with its Runs still running. While the dialog is open a request only
+    // brings it forward; once answered, the next one asks again.
+    @Test func aSecondQuitRequestWhileAskingDoesNotTerminate() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let q = QuitController(store: store)
+        q.clock = FastClock()
+        var terminations = 0, replies: [Bool] = []
+        q.terminate = { terminations += 1 }
+        q.reply = { replies.append($0) }
+        q.requestQuit()
+        #expect(terminations == 1, "with no dialog open a request starts the quit")
+        await q.begin(show: false)
+        q.requestQuit()
+        q.requestQuit()
+        #expect(terminations == 1, "no terminate while the dialog waits for an answer")
+        #expect(replies.isEmpty)
+        q.choose(.cancel)
+        #expect(replies == [false])
+        q.requestQuit()
+        #expect(terminations == 2)
     }
 }

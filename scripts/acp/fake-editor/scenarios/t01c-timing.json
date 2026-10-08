@@ -1,0 +1,13 @@
+{
+  "id": "T01c-timing",
+  "cases": ["ACP-T01-04"],
+  "title": "initialize 在 2 s 内回复；session/new 在 15 s 内成功（或给出可解释错误），不挂起",
+  "steps": [
+    { "op": "connect" },
+    { "op": "initialize", "expect": { "protocolVersionIn": "${SUPPORTED_VERSIONS}", "maxMs": 2000 } },
+    { "op": "newSession", "as": "s1", "timeoutMs": 15000, "expect": { "maxMs": 15000 } },
+    { "op": "newSession", "as": "s2", "timeoutMs": 15000, "expect": { "maxMs": 15000 } },
+    { "op": "disconnect" },
+    { "op": "expectExit", "withinMs": 5000 }
+  ]
+}

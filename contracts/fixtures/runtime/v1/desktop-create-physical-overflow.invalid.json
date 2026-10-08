@@ -1,0 +1,8 @@
+{
+  "def": "desktop_create_params",
+  "instance": {
+    "physical": {
+      "displayId": 4294967296
+    }
+  }
+}

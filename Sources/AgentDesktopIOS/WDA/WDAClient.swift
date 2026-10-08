@@ -5,8 +5,10 @@ import Foundation
 /// - Every request has an explicit upper bound: the configured request
 ///   timeout, shortened by the caller's deadline. A deadline that has
 ///   already passed fails with `timeout` / `notSent` and sends nothing.
-/// - One WDA session is created lazily and reused. When WDA reports the
-///   session invalid, the client drops it. Reads (status, screenshot,
+/// - One WDA session is created lazily and reused. `POST /session` can
+///   launch or foreground the app in `sessionCapabilities`, so it is treated
+///   like a command: lost answers are `unknown`, and the read-only `probe()`
+///   never sends it. When WDA reports the session invalid, the client drops it. Reads (status, screenshot,
 ///   source, geometry) are retried once on a new session; input commands
 ///   are never retried or replayed — the caller gets `sessionInvalid` and
 ///   the next call runs on a new session.
@@ -41,20 +43,94 @@ public actor WDAClient {
 
     // MARK: - Session lifecycle
 
+    /// How a session-scoped request gets its session.
+    enum SessionUse: Sendable, Equatable {
+        /// Use the cached session or open one (`POST /session`, or adopt
+        /// the runner's when configured). A read that meets an invalid
+        /// session runs once more on a new session.
+        case createIfNeeded
+        /// Use the cached session, or adopt the runner's when
+        /// `adoptRunnerSession` is on. Never sends `POST /session`; with no
+        /// session the request fails with `noSession` / `notSent`.
+        case existingOnly
+        /// Only this session. An invalid session is reported, never replaced.
+        case pinned(String)
+    }
+
     /// Returns the cached session, or creates (or adopts) one.
+    ///
+    /// `POST /session` can launch or foreground the app named in
+    /// `sessionCapabilities`, so it counts as a command that changes the
+    /// phone: a transport failure after sending is `delivery == .unknown`.
+    ///
+    /// One creation runs at a time. It is bounded by `sessionCreateTimeout`
+    /// only, not by whichever caller started it; every caller (the first one
+    /// included) waits for it within its own deadline. A caller that gives up
+    /// gets `timeout` / `unknown`; the creation may still finish and is then
+    /// cached for the next call.
     @discardableResult
     public func ensureSession(deadline: ContinuousClock.Instant? = nil) async throws -> String {
+        try await session(.createIfNeeded, deadline: deadline)
+    }
+
+    /// Resolves the session for `use` without sending anything that could
+    /// change the phone unless `use == .createIfNeeded`.
+    func session(_ use: SessionUse, deadline: ContinuousClock.Instant?) async throws -> String {
+        if case let .pinned(id) = use { return id }
         if let sessionId { return sessionId }
-        if let pendingSession { return try await pendingSession.value }
-        let task = Task { try await self.openSession(deadline: deadline) }
-        pendingSession = task
-        do {
-            let id = try await task.value
-            pendingSession = nil
-            return id
-        } catch {
-            pendingSession = nil
-            throw error
+        if let deadline, deadline <= ContinuousClock.now {
+            throw WDAError(kind: .timeout, delivery: .notSent, endpoint: "POST /session",
+                           message: "deadline passed before a session was available")
+        }
+        if let pendingSession {
+            // Someone else is already creating it; waiting creates nothing.
+            return try await wait(for: pendingSession, deadline: deadline)
+        }
+        switch use {
+        case .createIfNeeded:
+            let task = Task { () throws -> String in
+                defer { self.pendingSession = nil }
+                return try await self.openSession()
+            }
+            pendingSession = task
+            return try await wait(for: task, deadline: deadline)
+        case .existingOnly:
+            if configuration.adoptRunnerSession,
+               let held = try await status(deadline: deadline).runnerSessionId, !held.isEmpty {
+                if let sessionId { return sessionId }
+                sessionId = held
+                sessionGeneration += 1
+                return held
+            }
+            if let sessionId { return sessionId }
+            throw WDAError(kind: .noSession, delivery: .notSent, endpoint: "POST /session",
+                           message: "no WDA session and this call may not create one "
+                               + "(POST /session can launch or foreground an app)")
+        case .pinned:
+            preconditionFailure("handled above")
+        }
+    }
+
+    /// Waits for a shared session creation within this caller's deadline.
+    private func wait(for task: Task<String, Error>, deadline: ContinuousClock.Instant?) async throws -> String {
+        guard let deadline else { return try await task.value }
+        let gate = OneShot<String>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                gate.arm(continuation)
+                Task {
+                    do { gate.resume(with: .success(try await task.value)) } catch { gate.resume(with: .failure(error)) }
+                }
+                let timer = Task {
+                    try? await Task.sleep(until: deadline, clock: .continuous)
+                    gate.resume(with: .failure(WDAError(
+                        kind: .timeout, delivery: .unknown, endpoint: "POST /session",
+                        message: "no session within this call's deadline; the creation may still complete")))
+                }
+                gate.onResume { timer.cancel() }
+            }
+        } onCancel: {
+            gate.resume(with: .failure(CancellationError()))
         }
     }
 
@@ -75,9 +151,11 @@ public actor WDAClient {
         _ = try? await send("DELETE", "/session/\(old)", timeout: .seconds(5), deadline: deadline)
     }
 
-    private func openSession(deadline: ContinuousClock.Instant?) async throws -> String {
+    /// Bounded by the configuration's timeouts only; callers bound their
+    /// own waits (see `ensureSession`).
+    private func openSession() async throws -> String {
         if configuration.adoptRunnerSession,
-           let held = try await status(deadline: deadline).runnerSessionId, !held.isEmpty {
+           let held = try await status(deadline: nil).runnerSessionId, !held.isEmpty {
             sessionId = held
             sessionGeneration += 1
             return held
@@ -89,8 +167,10 @@ public actor WDAClient {
             ] as [String: Any],
         ]
         let endpoint = "POST /session"
+        // May launch or foreground an app: once sent, a lost answer is
+        // `unknown`, not `rejected`.
         let reply = try await send("POST", "/session", body: body,
-                                   timeout: configuration.sessionCreateTimeout, deadline: deadline)
+                                   timeout: configuration.sessionCreateTimeout, deadline: nil, isAction: true)
         let id = reply.answer.sessionId ?? (reply.answer.value as? [String: Any])?["sessionId"] as? String
         guard let id, !id.isEmpty else {
             throw WDAError(kind: .invalidResponse, delivery: .unknown, endpoint: endpoint,
@@ -112,6 +192,8 @@ public actor WDAClient {
         let endpoint: String
         let sentAt: Date
         let answeredAt: Date
+        /// The session the request was addressed to, for session-scoped ones.
+        var sessionId: String? = nil
     }
 
     /// Sends one request and maps every failure to `WDAError`.
@@ -206,27 +288,75 @@ public actor WDAClient {
         }
     }
 
-    /// A session-scoped request. A read that meets an invalid session runs
-    /// once more on a new session; an action never does.
+    /// A session-scoped request. With `.createIfNeeded`, a read that meets
+    /// an invalid session runs once more on a new session; an action never
+    /// does. Other uses never replace the session.
     func sessionSend(_ method: String, _ suffix: String, query: [URLQueryItem] = [], body: Any? = nil,
-                     deadline: ContinuousClock.Instant?, isAction: Bool) async throws -> Reply {
-        let id = try await ensureSession(deadline: deadline)
+                     deadline: ContinuousClock.Instant?, isAction: Bool,
+                     use: SessionUse = .createIfNeeded) async throws -> Reply {
+        let id = try await session(use, deadline: deadline)
         do {
-            return try await send(method, "/session/\(id)\(suffix)", query: query, body: body,
-                                  deadline: deadline, isAction: isAction)
+            var reply = try await send(method, "/session/\(id)\(suffix)", query: query, body: body,
+                                       deadline: deadline, isAction: isAction)
+            reply.sessionId = id
+            return reply
         } catch let error as WDAError where error.kind == .sessionInvalid {
             dropSession(id)
-            guard !isAction else { throw error }
-            let fresh = try await ensureSession(deadline: deadline)
-            return try await send(method, "/session/\(fresh)\(suffix)", query: query, body: body,
-                                  deadline: deadline, isAction: false)
+            guard !isAction, use == .createIfNeeded else { throw error }
+            let fresh = try await session(.createIfNeeded, deadline: deadline)
+            var reply = try await send(method, "/session/\(fresh)\(suffix)", query: query, body: body,
+                                       deadline: deadline, isAction: false)
+            reply.sessionId = fresh
+            return reply
         }
     }
 
     func evidence(_ operation: String, _ reply: Reply) -> WDAActionEvidence {
         WDAActionEvidence(requestId: UUID(), operation: operation, endpoint: reply.endpoint,
-                          sessionId: reply.answer.sessionId ?? sessionId, delivery: .accepted,
+                          sessionId: reply.sessionId ?? reply.answer.sessionId ?? sessionId, delivery: .accepted,
                           effect: .notVerifiedByClient, httpStatus: reply.answer.httpStatus,
                           sentAt: reply.sentAt, answeredAt: reply.answeredAt)
+    }
+}
+
+/// Resumes a continuation exactly once, whichever side gets there first.
+private final class OneShot<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Error>?
+    private var early: Result<Value, Error>?
+    private var done = false
+    private var cleanup: (@Sendable () -> Void)?
+
+    func arm(_ continuation: CheckedContinuation<Value, Error>) {
+        let pending: Result<Value, Error>? = lock.withLock {
+            if let early { self.early = nil; return early }
+            self.continuation = continuation
+            return nil
+        }
+        if let pending { continuation.resume(with: pending) }
+    }
+
+    func onResume(_ action: @escaping @Sendable () -> Void) {
+        let runNow: Bool = lock.withLock {
+            if done { return true }
+            cleanup = action
+            return false
+        }
+        if runNow { action() }
+    }
+
+    func resume(with result: Result<Value, Error>) {
+        let (target, action): (CheckedContinuation<Value, Error>?, (@Sendable () -> Void)?) = lock.withLock {
+            if done { return (nil, nil) }
+            done = true
+            let target = continuation
+            continuation = nil
+            if target == nil { early = result }
+            let action = cleanup
+            cleanup = nil
+            return (target, action)
+        }
+        target?.resume(with: result)
+        action?()
     }
 }

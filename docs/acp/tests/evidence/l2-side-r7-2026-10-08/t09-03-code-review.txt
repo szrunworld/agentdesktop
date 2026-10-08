@@ -1,0 +1,28 @@
+# ACP-T09-03 code review (main @ cbe7772, branch HEAD c03c871)
+$ sed -n 33,47p Package.swift
+        // ACP adapter (docs/acp): editors talk to the one Runtime through
+        // RuntimeClient only. No GUI executor, run store or lease here.
+        .target(
+            name: "AgentDesktopACP",
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
+        ),
+        .executableTarget(
+            name: "agentdesktop-acp-dev",
+            dependencies: ["AgentDesktopACP", "AgentDesktopClient"]
+        ),
+        .testTarget(
+            name: "AgentDesktopACPTests",
+            dependencies: ["AgentDesktopACP", "AgentDesktopClient", "AgentDesktopProtocol"],
+            exclude: ["Fixtures"]
+        ),
+$ grep -rh "^import" Sources/AgentDesktopACP | sort | uniq -c
+   3 import AgentDesktopClient
+  20 import AgentDesktopProtocol
+   2 import CryptoKit
+   1 import Darwin
+  25 import Foundation
+$ grep -rln "sqlite\|SQLite\|RunStore\|RequestLedger\|Lease\|SecondScreen\|AgentDesktopRuntime" Sources/AgentDesktopACP
+(no match)
+
+ACP writes only: ACPFileSessionStore (session bindings + redacted history, sessions/*.json) and ACPSubmissionLog (submissionKey -> Runtime requestId/runId; doc comment: not a second ledger, outcome always read back via request.show/run.show).
+Real side instance after the L2 run: <side>/acp holds only sessions/ (see side/acp-state-files.txt); no submissions.json because no task was submitted; Run list empty (side/run-list-after.json).

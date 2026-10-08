@@ -43,6 +43,14 @@ extension RuntimeService {
                                      phase: .request, notSent: true), "unpaired")
         }
         if let e = accessError(c, method: method) { return deny(e, e.details?["reason"]?.stringValue ?? e.code) }
+        // Attaching one of the user's own displays puts the user's real
+        // windows in reach: only the owner does that. An owner may still
+        // list such a Desktop's id in an app's grant.
+        if method == RuntimeMethod.desktopCreate.rawValue, request.params["physical"] != nil {
+            return deny(RuntimeError("permission_denied", "attaching a physical display is reserved to the owner of this AgentDesktop",
+                                     phase: .request, notSent: true, details: .obj([("reason", .string("owner_only"))])),
+                        "physical_display")
+        }
         // Another client's session or Run, named in the request: it does
         // not exist for this caller, and the attempt is on record.
         if let sid = request.context.sessionId, sessions.find(sid, caller: c.clientId) == nil, sessions.exists(sid) {

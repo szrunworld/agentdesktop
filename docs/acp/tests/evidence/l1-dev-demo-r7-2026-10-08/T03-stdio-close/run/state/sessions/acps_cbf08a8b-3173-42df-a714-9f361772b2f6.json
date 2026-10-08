@@ -1,0 +1,47 @@
+{
+  "acpSessionId" : "acps_cbf08a8b-3173-42df-a714-9f361772b2f6",
+  "clientId" : "acp-dev",
+  "createdAt" : "2026-10-08T12:52:23.939Z",
+  "cwd" : "<repo>\/docs\/acp\/tests\/evidence\/l1-dev-demo-r7-2026-10-08\/T03-stdio-close\/run",
+  "format" : 1,
+  "lastCursor" : {
+
+  },
+  "options" : [
+    {
+      "choices" : [
+        "ask",
+        "auto"
+      ],
+      "id" : "mode",
+      "name" : "执行确认",
+      "value" : "ask"
+    },
+    {
+      "choices" : [
+        "off",
+        "submit",
+        "all"
+      ],
+      "id" : "screenshots",
+      "name" : "截图",
+      "value" : "off"
+    },
+    {
+      "choices" : [
+        "off",
+        "on"
+      ],
+      "id" : "pageText",
+      "name" : "页面文字",
+      "value" : "off"
+    }
+  ],
+  "principalId" : "demo-owner",
+  "revision" : 4,
+  "runIds" : [
+    "demo-run-1"
+  ],
+  "title" : "[已隐藏]",
+  "updatedAt" : "2026-10-08T12:52:23.946Z"
+}

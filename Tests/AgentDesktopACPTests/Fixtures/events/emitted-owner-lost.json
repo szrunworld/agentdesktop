@@ -78,7 +78,7 @@
     ],
     [
       {
-        "agentMessage": "正在停止"
+        "agentMessage": "正在停止；原因：编辑器连接已断开"
       },
       {
         "plan": [

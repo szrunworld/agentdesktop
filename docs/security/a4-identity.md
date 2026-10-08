@@ -33,6 +33,7 @@ SDK：Python `RuntimeClient.pair(...)`，TypeScript `client.pair(...)`；CLI：`
   - `run`：run.\*、events.\*；
   - `unit.run`。
 - Desktop 范围：`grant.desktops` 里列出的 id，或 `"created"`（自己创建的 Desktop）。App 范围：`grant.apps`（app.launch、window.bind 时检查 bundleId）。
+- `desktop.create` 带 `physical`（挂接用户自己的显示器、原地绑定用户窗口）只允许 owner 调用，配对 App 调用时返回 `permission_denied`（reason `owner_only`，审计 reason 为 `physical_display`）；owner 可以把某个 physical Desktop 的 id 明确写进 App 的 grant。
 - 其他方法（`hub.*` 管理、`runtime.stopAll`、工作区、设置……）只属于 owner，返回 `permission_denied`，reason 为 `owner_only`。
 - 列表按调用方过滤：paired 只看到自己有权限的 Desktop、自己的 Run、自己的请求。
 - 别人的 session / Run / requestId 对调用方而言“不存在”（`not_found`），这次尝试会写进审计（reason `foreign_session` / `foreign_run` / `desktop_out_of_grant`）。请求账本和 session 都按真实 clientId 分隔：两个 App 用同一个 requestId 互不影响，也不会重放对方的结果。

@@ -68,6 +68,10 @@
             "acceptedAt": "2026-10-08T12:00:00.000Z",
             "dispatchedAt": "2026-10-08T12:00:00.120Z",
             "completedAt": "2026-10-08T12:00:00.350Z"
+          },
+          "reason": {
+            "code": "action_delivery_unknown",
+            "message": "the target changed while input was sent (moved); it may have reached another window"
           }
         }
       }
@@ -104,7 +108,8 @@
   "mustContain": [
     "结果待核实",
     "结果未知 · 需要核实",
-    "执行已终止，结果未知"
+    "执行已终止，结果未知",
+    "错误码：action_delivery_unknown"
   ],
   "expected": [
     [
@@ -172,6 +177,8 @@
             "业务结果：未评估",
             "耗时：350 毫秒",
             "目标：ref-uqfnsihz",
+            "错误码：action_delivery_unknown",
+            "回执：rcpt_00aa11bb22cc",
             "不会自动重试，请在 AgentDesktop 主窗口核实"
           ]
         }
@@ -179,7 +186,7 @@
     ],
     [
       {
-        "agentMessage": "正在收尾"
+        "agentMessage": "正在收尾；原因：动作已处理完"
       },
       {
         "plan": [
@@ -243,7 +250,7 @@
         }
       },
       {
-        "agentMessage": "任务结束：结果未知 · 需要核实（不会重试；请在 AgentDesktop 主窗口核实结果后再决定下一步）"
+        "agentMessage": "任务结束：结果未知 · 需要核实（不会重试；请在 AgentDesktop 主窗口核实结果后再决定下一步）；1 个动作待核实；原因：动作已处理完"
       },
       {
         "plan": [
@@ -267,5 +274,5 @@
       }
     ]
   ],
-  "mustNotContain": []
+  "mustNotContain": ["reached another window"]
 }

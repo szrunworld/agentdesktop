@@ -1,6 +1,6 @@
 {
   "name": "privacy-cross-app",
-  "description": "Kevin 裁决（README 五.3）：放宽策略下，审批参数、提问内容、输入内容、其他应用的窗口标题与截图、Runtime 错误说明、标记 sensitive 的事件都只显示状态，不出现内容",
+  "description": "Kevin 裁决（README 五.3）：放宽策略下，目录外的审批/提问事件只出一条中性提示，输入内容、其他应用的窗口标题与截图、Runtime 错误说明（reason.message）、标记 sensitive 的事件都不出现内容",
   "policy": {
     "screenshots": "all",
     "pageText": true
@@ -138,16 +138,10 @@
             "acceptedAt": "2026-10-08T12:00:00.000Z",
             "dispatchedAt": null,
             "completedAt": "2026-10-08T12:00:00.350Z"
-          }
-        },
-        "error": {
-          "code": "stale_observation",
-          "message": "window 901 (WeChat – 李四 example@email.com) covers the bound window 813",
-          "details": {
-            "reason": "occluded",
-            "coveringWindowId": 901,
-            "coveringPid": 5151,
-            "coveringTitle": "WeChat – 李四"
+          },
+          "reason": {
+            "code": "stale_observation",
+            "message": "window 901 (WeChat – 李四 example@email.com) covers the bound window 813"
           }
         },
         "covering": {
@@ -295,10 +289,9 @@
     "5151"
   ],
   "mustContain": [
-    "等待批准（未批准前不会执行）",
-    "等待回答一个问题",
-    "原因：目标窗口被其他窗口遮挡",
-    "输入文字 — 已执行，未验证"
+    "输入文字 — 已执行，未验证",
+    "收到未识别的运行事件（approval.required），未作处理",
+    "错误码：stale_observation"
   ],
   "expected": [
     [
@@ -328,77 +321,17 @@
     ],
     [
       {
-        "agentMessage": "等待批准（未批准前不会执行）"
-      },
-      {
-        "plan": [
-          {
-            "content": "受理任务",
-            "status": "completed"
-          },
-          {
-            "content": "执行",
-            "status": "in_progress"
-          },
-          {
-            "content": "停止输入并收尾",
-            "status": "pending"
-          },
-          {
-            "content": "结果",
-            "status": "pending"
-          }
-        ]
+        "agentThought": "收到未识别的运行事件（approval.required），未作处理"
       }
     ],
     [
       {
-        "agentMessage": "等待批准（未批准前不会执行）"
-      },
-      {
-        "plan": [
-          {
-            "content": "受理任务",
-            "status": "completed"
-          },
-          {
-            "content": "执行",
-            "status": "in_progress"
-          },
-          {
-            "content": "停止输入并收尾",
-            "status": "pending"
-          },
-          {
-            "content": "结果",
-            "status": "pending"
-          }
-        ]
+        "agentThought": "收到未识别的运行事件（run.waiting_approval），未作处理"
       }
     ],
     [
       {
-        "agentMessage": "等待回答一个问题"
-      },
-      {
-        "plan": [
-          {
-            "content": "受理任务",
-            "status": "completed"
-          },
-          {
-            "content": "执行",
-            "status": "in_progress"
-          },
-          {
-            "content": "停止输入并收尾",
-            "status": "pending"
-          },
-          {
-            "content": "结果",
-            "status": "pending"
-          }
-        ]
+        "agentThought": "收到未识别的运行事件（question.asked），未作处理"
       }
     ],
     [
@@ -428,7 +361,8 @@
             "验证：未请求",
             "业务结果：未评估",
             "耗时：350 毫秒",
-            "目标：ref-uqfnsihz"
+            "目标：ref-uqfnsihz",
+            "回执：rcpt_00aa11bb22cc"
           ]
         }
       }
@@ -462,7 +396,7 @@
             "耗时：350 毫秒",
             "目标：ref-uqfnsihz",
             "错误码：stale_observation",
-            "原因：目标窗口被其他窗口遮挡"
+            "回执：rcpt_00aa11bb22cc"
           ]
         }
       }
@@ -494,7 +428,8 @@
             "验证：未请求",
             "业务结果：未评估",
             "耗时：350 毫秒",
-            "目标：ref-uqfnsihz"
+            "目标：ref-uqfnsihz",
+            "回执：rcpt_00aa11bb22cc"
           ]
         }
       }
@@ -525,7 +460,7 @@
     ],
     [
       {
-        "agentMessage": "任务结束：失败"
+        "agentMessage": "任务结束：失败；原因：动作已处理完"
       },
       {
         "plan": [

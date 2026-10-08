@@ -167,6 +167,9 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     let d = try created(s, c)
     #expect(code(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)) == "grant_missing")
     #expect(code(call(s, c, "app.launch", params: #"{"desktopId":"\#(d)","bundleId":"com.apple.Notes"}"#)) == "grant_missing")
+    // The user's own display is the owner's to attach.
+    #expect(code(call(s, c, "desktop.create", params: #"{"physical":{}}"#)) == "permission_denied")
+    #expect(s.hub.auditEvents().contains { $0["reason"]?.stringValue == "physical_display" })
     // The owner's Desktop is out of a "created" grant.
     #expect(code(call(s, c, "session.open", params: #"{"desktopId":"\#(ownersDesktop)"}"#)) == "not_found")
     #expect(platform.calls.filter { $0.hasPrefix("move") || $0.hasPrefix("launch") }.isEmpty)

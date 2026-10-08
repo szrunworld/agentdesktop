@@ -17,6 +17,15 @@ public struct TargetBinding: Equatable, Sendable {
     }
 }
 
+/// What a Desktop's surface is. A virtual Desktop owns a display the
+/// Runtime created and destroys; a physical Desktop only refers to one of
+/// the user's displays and binds windows already there, never moving them,
+/// never launching or quitting apps, never touching the display.
+public enum DesktopKind: String, Sendable {
+    case virtual
+    case physical
+}
+
 /// One logical working environment. Its lock orders every write and
 /// observation of this Desktop; other Desktops proceed in parallel.
 public final class DesktopRecord: @unchecked Sendable {
@@ -24,6 +33,7 @@ public final class DesktopRecord: @unchecked Sendable {
     public let name: String
     public let createdAt: String
     public let screen: ScreenHandle
+    public let kind: DesktopKind
     /// Held while the Desktop's state or its surface is read or changed.
     public let lock = NSLock()
     public internal(set) var binding: TargetBinding?
@@ -36,11 +46,12 @@ public final class DesktopRecord: @unchecked Sendable {
     /// "the Desktops I created".
     public internal(set) var createdBy: String?
 
-    init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle) {
+    init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle, kind: DesktopKind = .virtual) {
         self.desktopId = desktopId
         self.name = name
         self.createdAt = createdAt
         self.screen = screen
+        self.kind = kind
     }
 
     public static func screenJSON(_ s: ScreenHandle) -> JSONValue {
@@ -49,7 +60,7 @@ public final class DesktopRecord: @unchecked Sendable {
 
     func json(openSessions: Int) -> JSONValue {
         .obj([
-            ("desktopId", .string(desktopId)), ("name", .string(name)), ("state", .string(state)),
+            ("desktopId", .string(desktopId)), ("name", .string(name)), ("kind", .string(kind.rawValue)), ("state", .string(state)),
             ("createdAt", .string(createdAt)), ("screen", Self.screenJSON(screen)),
             ("binding", binding?.json ?? .null), ("openSessions", .int(openSessions)),
         ])
@@ -73,10 +84,17 @@ public final class DesktopRegistry: @unchecked Sendable {
     public func names() -> [String] { lock.withLock { desktops.map(\.name) } }
 
     @discardableResult
-    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String) -> DesktopRecord {
-        let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen)
+    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual) -> DesktopRecord {
+        let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen, kind: kind)
         lock.withLock { desktops.append(r) }
         return r
+    }
+
+    /// The physical Desktop already attached to a display, if any: one
+    /// display backs at most one Desktop, so two agents never share its
+    /// windows without the Runtime's lock between them.
+    func physical(displayId: UInt32) -> DesktopRecord? {
+        lock.withLock { desktops.first { $0.kind == .physical && $0.screen.displayId == displayId } }
     }
 
     func remove(_ id: String) {

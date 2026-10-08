@@ -1,0 +1,27 @@
+{
+  "id": "T01c-timing",
+  "cases": [
+    "ACP-T01-04"
+  ],
+  "title": "initialize 在 2 s 内回复；session/new 在 15 s 内成功（或给出可解释错误），不挂起",
+  "status": "PASS",
+  "durationMs": 27,
+  "failures": [],
+  "steps": [
+    {
+      "op": "initialize",
+      "ms": 8,
+      "ok": true
+    },
+    {
+      "op": "session/new",
+      "ms": 15,
+      "ok": true
+    },
+    {
+      "op": "session/new",
+      "ms": 1,
+      "ok": true
+    }
+  ]
+}
