@@ -29,6 +29,13 @@ extension RuntimeService {
 
     func isOwner(_ c: ConnectionState) -> Bool { c.role == .owner || c.elevatedFor != nil }
 
+    /// The reasons #153 (the interim seal) gave for these methods, kept so
+    /// clients see the same refusal once grants replace the seal.
+    static let grantReason: [String: String] = ["app.launch": "launch_requires_grant",
+                                                "app.list": "window_discovery_requires_grant",
+                                                "window.list": "window_discovery_requires_grant",
+                                                "gui.runs.start": "gui_run_requires_grant"]
+
     /// Why the caller may not make this request, if it may not.
     func authorization(_ request: RuntimeRequest, _ c: ConnectionState) -> RuntimeError? {
         let method = request.method
@@ -98,12 +105,12 @@ extension RuntimeService {
         if Self.pairedBaseline.contains(method) { return nil }
         guard let capability = Self.capabilityOf[method] else {
             return RuntimeError("permission_denied", "\(method) is reserved to the owner of this AgentDesktop", phase: .request,
-                                notSent: true, details: .obj([("reason", .string("owner_only"))]))
+                                notSent: true, details: .obj([("reason", .string(Self.grantReason[method] ?? "owner_only"))]))
         }
         guard g.capabilities.contains(capability) else {
             return RuntimeError("grant_missing", "\(method) needs the \(capability) capability, which \(c.clientId) was not granted",
                                 phase: .request, notSent: true,
-                                details: .obj([("reason", .string("capability")), ("capability", .string(capability))]))
+                                details: .obj([("reason", .string(Self.grantReason[method] ?? "capability")), ("capability", .string(capability))]))
         }
         return nil
     }
@@ -153,7 +160,8 @@ extension RuntimeService {
         guard appAllowed(c, bundleId: bundle) else {
             return RuntimeError("grant_missing", "\(bundle ?? "this app") is not among the apps \(c.clientId) was granted",
                                 phase: .request, notSent: true,
-                                details: .obj([("reason", .string("app")), ("bundleId", bundle.map(JSONValue.string) ?? .null)]))
+                                details: .obj([("reason", .string(request.method == "app.launch" ? "launch_requires_grant" : "app")),
+                                               ("bundleId", bundle.map(JSONValue.string) ?? .null)]))
         }
         return nil
     }
