@@ -230,21 +230,33 @@ async def probe_mdns() -> tuple[bool, Any]:
     return await guarded(_probe())
 
 
-async def rsd_services_via_tunneld() -> tuple[bool, Any]:
-    from pymobiledevice3.tunneld.api import get_tunneld_devices
+async def rsd_services_via_tunneld(tunnel_keys: list[str]) -> tuple[bool, Any]:
+    """Open the RSD of each tunneld tunnel separately, so every RSD entry is tied to the tunneld map key
+    it came from (`tunnel_key`). The key is tunneld's remote identifier and is not guaranteed to equal
+    the hardware UDID the RSD reports. get_tunneld_devices() would drop failures silently; here a tunnel
+    whose RSD cannot be opened is kept in `failed_tunnels` with its error."""
+    from pymobiledevice3.tunneld.api import get_tunneld_device_by_udid
 
-    async def _list():
-        rsds = await get_tunneld_devices()
-        out = []
-        for rsd in rsds:
-            try:
-                out.append({"udid": rsd.udid, "os": rsd.product_version, "interface": rsd.name,
-                            "services": sorted(rsd.peer_info.get("Services", {}).keys())})
-            finally:
-                await rsd.close()
-        return out
+    async def _one(key: str) -> dict:
+        rsd = await get_tunneld_device_by_udid(key)
+        if rsd is None:
+            raise LookupError("tunneld no longer lists this tunnel")
+        try:
+            return {"tunnel_key": key, "udid": rsd.udid, "os": rsd.product_version, "interface": rsd.name,
+                    "services": sorted(rsd.peer_info.get("Services", {}).keys())}
+        finally:
+            await rsd.close()
 
-    return await guarded(_list())
+    entries, failed = [], []
+    for key in tunnel_keys:
+        ok, res = await guarded(_one(key))
+        if ok:
+            entries.append(res)
+        elif "IndexError" in res:  # upstream returns rsds[0] of an empty list when the connect failed
+            failed.append({"tunnel_key": key, "error": "RSD endpoint could not be opened (" + res + ")"})
+        else:
+            failed.append({"tunnel_key": key, "error": res})
+    return True, {"entries": entries, "failed_tunnels": failed}
 
 
 async def rsd_services_via_native(udid: Optional[str]) -> tuple[bool, Any]:
@@ -264,37 +276,73 @@ async def rsd_services_via_native(udid: Optional[str]) -> tuple[bool, Any]:
 # --------------------------------------------------------------------------- matrix
 
 
-def known_udids(r: dict) -> list[str]:
-    """Every device identifier any probe step reported, in first-seen order (usbmux serial == UDID)."""
-    seen: list[str] = []
-
-    def add(u):
-        if u and u not in seen:
-            seen.append(u)
-
-    if r["usbmux"]["ok"]:
-        for d in r["usbmux"]["result"] or []:
-            add(d.get("serial"))
-    if r["native_browse"]["ok"]:
-        for d in r["native_browse"]["result"] or []:
-            add(d.get("udid"))
-    # tunneld's raw UDID -> tunnels map counts on its own: get_tunneld_devices() silently skips a
-    # tunnel whose RSD endpoint cannot be opened, and that device must still get a matrix that
-    # records the failed tunnel instead of vanishing from the report.
-    for u in tunneld_tunnels(r):
-        add(u)
-    rsd = r.get("rsd_services") or {}
-    if rsd.get("ok"):
-        for d in rsd.get("result") or []:
-            add(d.get("udid"))
-    return seen
+def _same_id(a: Optional[str], b: Optional[str]) -> bool:
+    # tunneld itself matches identifiers with and without dashes (TunneldCore.get_tunnel)
+    return bool(a and b) and a.replace("-", "").upper() == b.replace("-", "").upper()
 
 
 def tunneld_tunnels(r: dict) -> dict:
-    """tunneld's raw UDID -> tunnel list map, or {} when tunneld is not running / answered oddly."""
+    """tunneld's raw key -> tunnel list map, or {} when tunneld is not running / answered oddly.
+    Keys are tunneld's remote identifiers, which are not guaranteed to be hardware UDIDs."""
     tunneld = r.get("tunneld") or {}
     tunnels = tunneld.get("tunnels") if tunneld.get("running") else None
     return tunnels if isinstance(tunnels, dict) else {}
+
+
+def rsd_entries(r: dict) -> list[dict]:
+    rsd = r.get("rsd_services") or {}
+    if not rsd.get("ok"):
+        return []
+    res = rsd.get("result")
+    return (res.get("entries") if isinstance(res, dict) else res) or []
+
+
+def tunnel_keys_for(r: dict, udid: Optional[str]) -> list[str]:
+    """tunneld map keys that belong to `udid`: the key itself is that id, or an RSD opened through
+    that key reported this udid."""
+    via_rsd = {e.get("tunnel_key") for e in rsd_entries(r) if _same_id(e.get("udid"), udid)}
+    return [k for k in tunneld_tunnels(r) if k in via_rsd or _same_id(k, udid)]
+
+
+def unresolved_tunnel_keys(r: dict, ids: list[str]) -> list[str]:
+    """tunneld map keys not tied to any known device id nor to a successfully opened RSD. Their RSD
+    could not be opened, so the hardware UDID is unknown and the key is the only identifier."""
+    opened = {e.get("tunnel_key") for e in rsd_entries(r)}
+    return [k for k in tunneld_tunnels(r)
+            if k not in opened and not any(_same_id(k, u) for u in ids)]
+
+
+def _add_id(seen: list[str], u: Optional[str]) -> None:
+    if u and not any(_same_id(u, s) for s in seen):
+        seen.append(u)
+
+
+def confirmed_udids(r: dict) -> list[str]:
+    """Device ids reported by a source that names the hardware UDID: usbmux, remotepairingd, opened RSDs."""
+    seen: list[str] = []
+    if r["usbmux"]["ok"]:
+        for d in r["usbmux"]["result"] or []:
+            _add_id(seen, d.get("serial"))
+    if r["native_browse"]["ok"]:
+        for d in r["native_browse"]["result"] or []:
+            _add_id(seen, d.get("udid"))
+    for d in rsd_entries(r):
+        _add_id(seen, d.get("udid"))
+    return seen
+
+
+def tunneld_only_ids(r: dict) -> list[str]:
+    return unresolved_tunnel_keys(r, confirmed_udids(r))
+
+
+def known_udids(r: dict) -> list[str]:
+    """Every device identifier any probe step reported, in first-seen order (usbmux serial == UDID).
+    Last come tunneld tunnels whose RSD could not be opened: they are reported under the tunneld key
+    (see `tunneld_only_devices`) so the failed-tunnel evidence is not lost."""
+    seen = confirmed_udids(r)
+    for k in tunneld_only_ids(r):
+        _add_id(seen, k)
+    return seen
 
 
 # operation capability -> (RSD service that must be advertised first, extra note)
@@ -329,7 +377,7 @@ def build_matrix(r: dict, udid: Optional[str] = None) -> dict:
     native_devices = [d for d in (native if native_ok else []) or [] if d.get("udid") == udid]
     tunneld = r["tunneld"]
     rsd = r.get("rsd_services") or {}
-    rsd_devices = [d for d in (rsd.get("result") if rsd.get("ok") else None) or [] if d.get("udid") == udid]
+    rsd_devices = [d for d in rsd_entries(r) if _same_id(d.get("udid"), udid)]
 
     m: dict[str, dict] = {}
 
@@ -396,17 +444,21 @@ def build_matrix(r: dict, udid: Optional[str] = None) -> dict:
                                "needs a paired, reachable device")
 
     # ---- tunnels
-    tunneld_for_device = tunneld_tunnels(r).get(udid)
+    keys = tunnel_keys_for(r, udid)
+    tunneld_for_device = {k: tunneld_tunnels(r)[k] for k in keys}
     rsd_via_tunneld = rsd.get("via") == "tunneld"
-    if tunneld.get("running") and tunneld_for_device and rsd_via_tunneld and rsd_devices:
+    tunneld_rsd = [d for d in rsd_devices if d.get("tunnel_key") in keys] if rsd_via_tunneld else []
+    if tunneld.get("running") and tunneld_for_device and tunneld_rsd:
         m["tunnel_tunneld"] = cap(SUPPORTED, {"address": tunneld["address"], "tunnels": tunneld_for_device,
                                               "rsd": "RSD handshake through this tunnel succeeded"})
     elif tunneld.get("running") and tunneld_for_device:
-        # tunneld lists the device, but no RSD endpoint of it could be opened: the tunnel is not usable.
+        # tunneld lists a tunnel for this device, but no RSD endpoint of it could be opened.
+        res = rsd.get("result")
+        failed = res.get("failed_tunnels", []) if isinstance(res, dict) else []
         if rsd_via_tunneld and rsd.get("ok"):
-            rsd_error = "get_tunneld_devices() skipped this tunnel (its RSD endpoint could not be opened)"
+            rsd_error = [f for f in failed if f.get("tunnel_key") in keys] or "RSD endpoint could not be opened"
         elif rsd_via_tunneld:
-            rsd_error = rsd.get("result")
+            rsd_error = res
         else:
             rsd_error = "RSD through tunneld was not attempted"
         m["tunnel_tunneld"] = cap(
@@ -492,13 +544,23 @@ def attach_matrices(report: dict, target: Optional[str]) -> None:
     """One matrix per device; `capabilities` is the matrix of exactly one selected UDID."""
     udids = known_udids(report)
     report["devices"] = udids
+    # ids that only exist as a tunneld key whose RSD failed: may be a remote identifier, not a UDID
+    tunneld_only = tunneld_only_ids(report)
+    report["tunneld_only_devices"] = tunneld_only
     report["capabilities_by_device"] = {u: build_matrix(report, u) for u in udids}
+    confirmed = [u for u in udids if u not in tunneld_only]
     if target:
         selected, why = target, "--udid"
+    elif len(confirmed) == 1:
+        selected, why = confirmed[0], "only device seen"
+    elif confirmed:
+        selected, why = confirmed[0], "first device seen; several devices present, pass --udid to choose"
     elif len(udids) == 1:
-        selected, why = udids[0], "only device seen"
+        selected, why = udids[0], ("only device seen, known only as a tunneld key whose RSD could not be "
+                                   "opened (may be a remote identifier rather than the hardware UDID)")
     elif udids:
-        selected, why = udids[0], "first device seen; several devices present, pass --udid to choose"
+        selected, why = udids[0], ("several tunneld keys whose RSD could not be opened (may be remote "
+                                   "identifiers rather than hardware UDIDs), pass --udid to choose")
     else:
         selected, why = None, "no device seen"
     report["target_udid"] = selected
@@ -538,7 +600,7 @@ async def main_async(args) -> dict:
         report["mdns"] = None
 
     if report["tunneld"].get("running") and report["tunneld"].get("tunnels"):
-        ok, res = await rsd_services_via_tunneld()
+        ok, res = await rsd_services_via_tunneld(list(report["tunneld"]["tunnels"]))
         report["rsd_services"] = {"via": "tunneld", "ok": ok, "result": res}
     elif args.allow_native_tunnel and report["native_browse"]["ok"] and report["native_browse"]["result"]:
         udid = args.udid or report["native_browse"]["result"][0].get("udid")

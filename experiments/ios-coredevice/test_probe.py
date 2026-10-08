@@ -6,8 +6,11 @@ Run: python3 -m unittest experiments/ios-coredevice/test_probe.py   (from the re
 
 from __future__ import annotations
 
+import asyncio
 import sys
+import types
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -33,6 +36,11 @@ def report(*, usb=(), lockdown=(), native=(), tunnels=None, rsd=None) -> dict:
     }
 
 
+def via_tunneld(*entries, failed=()) -> dict:
+    """rsd_services as probe.rsd_services_via_tunneld() reports it: one entry per opened tunnel key."""
+    return {"via": "tunneld", "ok": True, "result": {"entries": list(entries), "failed_tunnels": list(failed)}}
+
+
 def paired_lockdown(udid: str, ios: str) -> dict:
     return {"serial": udid, "product_type": "iPhone15,4", "product_version": ios, "paired": True,
             "developer_mode": True, "ddi_image_type": "Personalized", "ddi_mounted": True}
@@ -44,8 +52,8 @@ class OperationsStayUnverified(unittest.TestCase):
     def setUp(self):
         r = report(usb=[{"serial": A, "connection_type": "USB"}], lockdown=[paired_lockdown(A, "18.0")],
                    tunnels={A: [{"interface": "utun5"}]},
-                   rsd={"via": "tunneld", "ok": True,
-                        "result": [{"udid": A, "os": "18.0", "interface": "utun5", "services": ALL_SERVICES}]})
+                   rsd=via_tunneld({"tunnel_key": A, "udid": A, "os": "18.0", "interface": "utun5",
+                                    "services": ALL_SERVICES}))
         self.m = probe.build_matrix(r, A)
 
     def test_operations_unverified_even_when_every_service_is_advertised(self):
@@ -62,8 +70,7 @@ class OperationsStayUnverified(unittest.TestCase):
 
     def test_absent_service_is_not_advertised_and_operation_still_unverified(self):
         r = report(usb=[{"serial": A, "connection_type": "USB"}], lockdown=[paired_lockdown(A, "18.0")],
-                   rsd={"via": "tunneld", "ok": True,
-                        "result": [{"udid": A, "os": "18.0", "services": [probe.SVC_DEVICEINFO]}]})
+                   rsd=via_tunneld({"tunnel_key": A, "udid": A, "os": "18.0", "services": [probe.SVC_DEVICEINFO]}))
         m = probe.build_matrix(r, A)
         self.assertEqual(m["service_advertised_hid_universal"]["status"], probe.UNSUPPORTED)
         self.assertEqual(m["hid_universal_tap_drag"]["status"], probe.UNVERIFIED)
@@ -84,8 +91,8 @@ class NoCrossDeviceMixing(unittest.TestCase):
             usb=[{"serial": A, "connection_type": "USB"}],
             lockdown=[paired_lockdown(A, "17.5")],
             tunnels={B: [{"interface": "utun7"}]},
-            rsd={"via": "tunneld", "ok": True, "result": [
-                {"udid": B, "os": "18.1", "interface": "utun7", "services": [probe.SVC_HID_UNIVERSAL]}]},
+            rsd=via_tunneld({"tunnel_key": B, "udid": B, "os": "18.1", "interface": "utun7",
+                             "services": [probe.SVC_HID_UNIVERSAL]}),
         )
 
     def test_each_device_gets_its_own_matrix(self):
@@ -127,37 +134,42 @@ class NoCrossDeviceMixing(unittest.TestCase):
         self.assertEqual(m["service_advertised_hid_universal"]["status"], probe.UNVERIFIED)
 
 
-class TunneldDeviceWithUnreachableRsd(unittest.TestCase):
-    """Codex comment on #119: tunneld lists a UDID whose RSD endpoint cannot be opened, so
-    get_tunneld_devices() skips it. The device must still be reported, with the failed tunnel as evidence."""
+SKIPPED = "RSD endpoint could not be opened (IndexError: list index out of range)"
+REMOTE = "REMOTE-PAIRING-ID-1"
 
-    def test_device_only_in_tunneld_map_still_gets_a_matrix(self):
-        # A's RSD opened fine; B is in tunneld's raw map but its RSD was skipped upstream.
+
+class TunneldDeviceWithUnreachableRsd(unittest.TestCase):
+    """Codex comment on #119: tunneld lists a tunnel whose RSD endpoint cannot be opened (upstream
+    get_tunneld_devices() skips it). The device must still be reported, with the failed tunnel as evidence."""
+
+    def test_failed_tunnel_still_gets_a_matrix_with_evidence(self):
+        # A's RSD opened fine; B is in tunneld's raw map but its RSD could not be opened.
         r = report(tunnels={A: [{"interface": "utun5"}], B: [{"interface": "utun7"}]},
-                   rsd={"via": "tunneld", "ok": True,
-                        "result": [{"udid": A, "os": "18.0", "interface": "utun5", "services": ALL_SERVICES}]})
+                   rsd=via_tunneld({"tunnel_key": A, "udid": A, "os": "18.0", "interface": "utun5",
+                                    "services": ALL_SERVICES},
+                                   failed=[{"tunnel_key": B, "error": SKIPPED}]))
         probe.attach_matrices(r, B)
         self.assertEqual(r["devices"], [A, B])
+        self.assertEqual(r["tunneld_only_devices"], [B])
         self.assertEqual(r["target_udid"], B)
         self.assertEqual(r["target_selection"], "--udid")
         b = r["capabilities_by_device"][B]
         self.assertIs(r["capabilities"], b)
         self.assertEqual(b["tunnel_tunneld"]["status"], probe.UNSUPPORTED)
-        self.assertEqual(b["tunnel_tunneld"]["evidence"]["tunnels"], [{"interface": "utun7"}])
-        self.assertIn("skipped", b["tunnel_tunneld"]["evidence"]["rsd_error"])
+        self.assertEqual(b["tunnel_tunneld"]["evidence"]["tunnels"], {B: [{"interface": "utun7"}]})
+        self.assertEqual(b["tunnel_tunneld"]["evidence"]["rsd_error"], [{"tunnel_key": B, "error": SKIPPED}])
         self.assertIn("could not be opened", b["tunnel_tunneld"]["reason"])
         self.assertEqual(b["service_advertised_hid_universal"]["status"], probe.UNVERIFIED)
         self.assertIn("tunnel_tunneld", b["service_advertised_hid_universal"]["reason"])
-        # A is unaffected: its tunnel worked.
         self.assertEqual(r["capabilities_by_device"][A]["tunnel_tunneld"]["status"], probe.SUPPORTED)
 
-    def test_only_device_seen_is_selected_when_every_rsd_fails(self):
+    def test_only_failed_tunnel_is_selected_and_labelled(self):
         r = report(tunnels={B: [{"interface": "utun7"}]},
-                   rsd={"via": "tunneld", "ok": True, "result": []})
+                   rsd=via_tunneld(failed=[{"tunnel_key": B, "error": SKIPPED}]))
         probe.attach_matrices(r, None)
         self.assertEqual(r["devices"], [B])
         self.assertEqual(r["target_udid"], B)
-        self.assertEqual(r["target_selection"], "only device seen")
+        self.assertIn("tunneld key", r["target_selection"])
         self.assertEqual(r["capabilities"]["tunnel_tunneld"]["status"], probe.UNSUPPORTED)
 
     def test_rsd_step_error_is_kept_as_evidence(self):
@@ -174,6 +186,82 @@ class TunneldDeviceWithUnreachableRsd(unittest.TestCase):
         r["tunneld"]["tunnels"] = {B: [{"interface": "utun7"}]}
         probe.attach_matrices(r, None)
         self.assertEqual(r["devices"], [])
+
+
+class TunneldKeysAreNotUdids(unittest.TestCase):
+    """Codex comment on #133: tunneld's map key is its remote identifier and need not equal the UDID
+    the RSD reports; one device must not become two matrices."""
+
+    def test_opened_tunnel_under_remote_identifier_is_one_device(self):
+        r = report(tunnels={REMOTE: [{"interface": "utun9"}]},
+                   rsd=via_tunneld({"tunnel_key": REMOTE, "udid": A, "os": "18.0", "interface": "utun9",
+                                    "services": ALL_SERVICES}))
+        probe.attach_matrices(r, None)
+        self.assertEqual(r["devices"], [A])
+        self.assertEqual(r["tunneld_only_devices"], [])
+        self.assertEqual(r["target_selection"], "only device seen")
+        t = r["capabilities"]["tunnel_tunneld"]
+        self.assertEqual(t["status"], probe.SUPPORTED)
+        self.assertEqual(t["evidence"]["tunnels"], {REMOTE: [{"interface": "utun9"}]})
+
+    def test_failed_remote_identifier_never_outranks_a_real_device(self):
+        r = report(usb=[{"serial": A, "connection_type": "USB"}], lockdown=[paired_lockdown(A, "18.0")],
+                   tunnels={REMOTE: [{"interface": "utun9"}]},
+                   rsd=via_tunneld(failed=[{"tunnel_key": REMOTE, "error": SKIPPED}]))
+        probe.attach_matrices(r, None)
+        self.assertEqual(r["devices"], [A, REMOTE])
+        self.assertEqual(r["tunneld_only_devices"], [REMOTE])
+        self.assertEqual(r["target_udid"], A)
+        self.assertEqual(r["target_selection"], "only device seen")
+        self.assertEqual(r["capabilities_by_device"][REMOTE]["tunnel_tunneld"]["status"], probe.UNSUPPORTED)
+        self.assertEqual(r["capabilities_by_device"][A]["tunnel_tunneld"]["status"], probe.UNVERIFIED)
+
+    def test_key_matching_usbmux_serial_without_dashes_is_the_same_device(self):
+        key = A.replace("-", "")
+        r = report(usb=[{"serial": A, "connection_type": "USB"}], lockdown=[paired_lockdown(A, "18.0")],
+                   tunnels={key: [{"interface": "utun5"}]},
+                   rsd=via_tunneld(failed=[{"tunnel_key": key, "error": SKIPPED}]))
+        probe.attach_matrices(r, None)
+        self.assertEqual(r["devices"], [A])
+        self.assertEqual(r["tunneld_only_devices"], [])
+        t = r["capabilities"]["tunnel_tunneld"]
+        self.assertEqual(t["status"], probe.UNSUPPORTED)
+        self.assertEqual(t["evidence"]["rsd_error"], [{"tunnel_key": key, "error": SKIPPED}])
+
+
+class RsdViaTunneldPerKey(unittest.TestCase):
+    """rsd_services_via_tunneld() against a mocked pymobiledevice3.tunneld.api (no tunneld, no device)."""
+
+    def test_each_key_is_opened_separately_and_failures_are_kept(self):
+        class FakeRsd:
+            udid, product_version, name = A, "18.0", "utun9"
+            peer_info = {"Services": {probe.SVC_DEVICEINFO: {}}}
+            closed = False
+
+            async def close(self):
+                FakeRsd.closed = True
+
+        async def get_tunneld_device_by_udid(key):
+            if key == REMOTE:
+                return FakeRsd()
+            if key == B:
+                return [][0]  # what upstream does when the tunnel's RSD connect was skipped
+            return None
+
+        api = types.ModuleType("pymobiledevice3.tunneld.api")
+        api.get_tunneld_device_by_udid = get_tunneld_device_by_udid
+        fake = {"pymobiledevice3": types.ModuleType("pymobiledevice3"),
+                "pymobiledevice3.tunneld": types.ModuleType("pymobiledevice3.tunneld"),
+                "pymobiledevice3.tunneld.api": api}
+        with mock.patch.dict(sys.modules, fake):
+            ok, res = asyncio.run(probe.rsd_services_via_tunneld([REMOTE, B, "GONE"]))
+        self.assertTrue(ok)
+        self.assertTrue(FakeRsd.closed)
+        self.assertEqual(res["entries"], [{"tunnel_key": REMOTE, "udid": A, "os": "18.0", "interface": "utun9",
+                                           "services": [probe.SVC_DEVICEINFO]}])
+        self.assertEqual([f["tunnel_key"] for f in res["failed_tunnels"]], [B, "GONE"])
+        self.assertIn("could not be opened", res["failed_tunnels"][0]["error"])
+        self.assertIn("no longer lists", res["failed_tunnels"][1]["error"])
 
 
 class NoDevice(unittest.TestCase):
