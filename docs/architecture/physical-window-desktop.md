@@ -43,13 +43,42 @@ AgentDesktop Runtime（唯一）
 
 未新增方法、错误码或事件类型。`DesktopPlatform` 增加 `attachDisplay(_:)`（带默认拒绝实现，其他平台替身不受影响）。
 
-## 4. 未在本 PR 内的事项
+## 4. 复审第一轮（Kevin 2026-10-08）结论
 
-- 窗口关闭、进程重启时，Run 目前只是后续每个 observe/act 被拒；是否主动结束或暂停 Run、发事件，待 Runtime 负责人决定（建议新增 `run.target_lost` 事件，另提契约增量）。
+### 4.1 目标失效与 Run 生命周期：现有契约足够，不新增 `run.target_lost`
+
+| 情况 | Runtime 行为 | 契约中的表达 |
+| --- | --- | --- |
+| 窗口关闭 / 最小化 / 移到其他显示器 / 被遮挡 / 同进程其他窗口在前 | observe、act 被拒：`stale_observation`，`details.reason` = window_gone / not_visible / occluded / other_window_of_process_in_front，act `notSent=true` | 每次拒绝写 `action.refused`（`reason.code`） |
+| 绑定进程退出或重启（pid 复用） | 同上，消息"bound process … exited or restarted"（无 `details.reason`） | 同上 |
+| 窗口关闭后重开（新 windowId） | 旧绑定、旧快照都不指向新窗口；只有显式 `window.bind` 才会成为目标，generation +1 | `action.refused`；新绑定可从 `desktop.show` 看到 |
+| 窗口 ID 被他进程复用 | 绑定按 (windowId, 进程启动身份) 判定，他进程同号窗口不是目标 | 同上 |
+| 派发过程中目标失效 | 回执 `delivery=unknown`、`action_delivery_unknown`，Run `unknownActions+1`；下一次输入在派发前被拒，不自动重试 | `action.unknown` |
+| Run 本身 | 不因目标失效自动结束：Delegated Run 由 `run.finish` / `run.cancel` / 控制连接断开结束（ADR v2.2），Durable Run 同其规则 | `run.ended` + `closingReason` |
+
+结论：目标失效后新的观察和输入立即被拒，未确认的投递保持 unknown 且不重试；现有 `action.refused` / `action.unknown` / `run.ended` 足以表达，**不提新事件类型**。可选改进（不阻塞，另行讨论）：进程退出这一条拒绝补上 `details.reason="process_gone"`，与其他原因对齐。
+
+### 4.2 显示器来源识别
+
+两路独立信号（`DisplayOrigin.classify`）：内置屏可信；外接屏必须在 I/O 注册表中有厂商号一致的硬件帧缓冲（Apple 芯片 IOMobileFramebuffer，Intel IODisplayConnect）；引擎虚拟屏（厂商 0x3256 / 型号 2，无论谁建）判为虚拟；其余判为"来源未确认"。只有可信显示器登记为宿主屏，其余 `desktop.create {physical}` 返回 `not_found`——**无法确认来源时安全拒绝**。真机：另一会话的虚拟屏 9 被拒，内置屏 1 可挂接（run4）。局限：伪造与真实外接屏同厂商号的虚拟屏仍可能通过，需要更强信号时可加 EDID 序列号比对。
+
+### 4.3 "一块显示器一个物理 Desktop"不阻碍多窗口
+
+这是第一版的保守限制，不是模型约束：
+- `DesktopRecord` 一个 Desktop 一个绑定窗口；多个 Desktop 指向同一显示器时，各自 G0 检查只看自己绑定的窗口及其遮挡关系，互不依赖。
+- 放开限制需要的只是：把唯一性从"每块显示器"改为"每个窗口（进程身份 + windowId）至多被一个 Desktop 绑定"（`ConflictRegistry` 已按进程串行化输入，可扩展到窗口），并把 `desktops.physical(displayId:)` 的冲突检查换成按窗口检查。
+- 契约不需要变：`physical.displayId` 与 `Desktop.kind` 已足够。
+
+### 4.4 C1
+
+首次记录（run3）保持 failed：脚本断言过严（只认 `window_gone`）。按裁决修正断言为"`stale_observation` 且未发送即等价安全拒绝"，不改 Runtime；新增"窗口消失但进程仍在"的覆盖（run5，⌘M 经 Runtime 发出，原因 `window_gone`），并重跑 C1（run6）。
+
+## 5. 未在本 PR 内的事项
+
 - 多显示器：已支持 `displayId`，但真机只验证了单显示器。
 - CR01（配对认证）、CR03（接管/归还）不受本 PR 影响，仍按原计划独立验收。
 - Windows 后端（C#）未实现物理 Desktop。
 
-## 5. 验收
+## 6. 验收
 
 见 `docs/acceptance/physical-desktop/README.md`。

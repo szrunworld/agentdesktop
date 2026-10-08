@@ -126,3 +126,101 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     // The display can be attached again.
     #expect(data(call(sc.s, sc.c, "desktop.create", params: #"{"physical":{"displayId":1}}"#)) != nil)
 }
+
+// MARK: - Review round 1 (Kevin 2026-10-08): target loss, identity, display origin
+
+@Test func displayOriginTrustsOnlyWhatTheHardwareVouchesFor() {
+    // The built-in panel.
+    #expect(DisplayOrigin.classify(builtin: true, vendor: 0x610, model: 0xa05e, hardwareVendors: []) == .physical)
+    // An external display the I/O registry has a framebuffer for.
+    #expect(DisplayOrigin.classify(builtin: false, vendor: 0x10ac, model: 0x4321, hardwareVendors: [0x10ac]) == .physical)
+    // Any engine virtual display, whoever created it — even if it claims to be built in.
+    if case .virtual = DisplayOrigin.classify(builtin: true, vendor: 0x3256, model: 2, hardwareVendors: [0x3256]) {} else { Issue.record("engine virtual display trusted") }
+    // Unknown origin is refused, not assumed physical.
+    if case .unconfirmed = DisplayOrigin.classify(builtin: false, vendor: 0x1234, model: 1, hardwareVendors: [0x10ac]) {} else { Issue.record("display without a framebuffer trusted") }
+    if case .unconfirmed = DisplayOrigin.classify(builtin: false, vendor: 0, model: 0, hardwareVendors: [0]) {} else { Issue.record("vendorless display trusted") }
+}
+
+@Test func whenTheTargetIsLostTheRunStaysButEveryActIsRefusedAndRecorded() throws {
+    let sc = try physicalScene()
+    let run = try #require(data(call(sc.s, sc.c, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
+    sc.platform.dropWindow(11)
+    let a = act(sc, #"{"kind":"key","key":"return"}"#, runId: run)
+    #expect(code(a) == "stale_observation")
+    #expect(failure(a)?.notSent == true)
+    #expect(sc.platform.performed.isEmpty)
+    // The Run is not ended by the loss; ADR v2.2 ends it (finish, cancel, connection loss).
+    #expect(data(call(sc.s, sc.c, "run.show", params: #"{"runId":"\#(run)"}"#))?["phase"]?.stringValue == "running")
+    // The existing catalog already says what happened: action.refused with the reason code.
+    let events = try #require(data(call(sc.s, sc.c, "run.events", params: #"{"runId":"\#(run)"}"#))?["events"]?.arrayValue)
+    let refused = events.first { $0["type"]?.stringValue == "action.refused" }
+    #expect(refused?["data"]?["reason"]?["code"]?.stringValue == "stale_observation")
+    // A second attempt is refused the same way: nothing retries on its own.
+    #expect(code(act(sc, #"{"kind":"key","key":"return"}"#, runId: run)) == "stale_observation")
+    #expect(sc.platform.performed.isEmpty)
+    #expect(data(call(sc.s, sc.c, "run.finish", params: #"{"runId":"\#(run)","exitCode":1}"#)) != nil)
+}
+
+@Test func aReopenedWindowWithANewIdInheritsNothing() throws {
+    let sc = try physicalScene()
+    // The user closes the window and the app opens a new one in its place.
+    sc.platform.windows[101] = [PlatformWindow(windowId: 19, pid: 101, appName: "Calculator", title: "Calculator",
+                                               frame: Rect(x: 10, y: 20, width: 230, height: 400))]
+    sc.platform.onScreen[11] = nil
+    sc.platform.onScreen[19] = "physical-1"
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(o)?.details?["reason"]?.stringValue == "window_gone")
+    // The old snapshot and the old binding do not reach the new window.
+    #expect(code(act(sc, #"{"kind":"key","key":"return"}"#)) == "stale_observation")
+    #expect(sc.platform.performed.isEmpty)
+    // Only an explicit bind of the new window makes it the target (a new generation).
+    let rebound = try #require(data(call(sc.s, sc.c, "window.bind", params: #"{"desktopId":"\#(sc.desktop)","pid":101,"windowId":19}"#)))
+    #expect(rebound["binding"]?["generation"]?.intValue == 2)
+}
+
+@Test func aRecycledWindowIdOfAnotherProcessIsNotTheTarget() throws {
+    let sc = try physicalScene()
+    // Window 11 now belongs to another process (same number, other owner).
+    sc.platform.windows[101] = []
+    sc.platform.windows[555] = [PlatformWindow(windowId: 11, pid: 555, appName: "Other", title: "别的应用",
+                                               frame: Rect(x: 10, y: 20, width: 230, height: 400))]
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(code(o) == "stale_observation")
+    #expect(code(act(sc, #"{"kind":"key","key":"return"}"#)) == "stale_observation")
+    #expect(sc.platform.performed.isEmpty)
+}
+
+@Test func aWindowMovedToAnotherDisplayStopsObservationAndInput() throws {
+    let sc = try physicalScene()
+    sc.platform.onScreen[11] = "physical-2"
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(o)?.details?["reason"]?.stringValue == "window_gone")
+    #expect(code(act(sc, #"{"kind":"key","key":"return"}"#)) == "stale_observation")
+    #expect(sc.platform.performed.isEmpty)
+}
+
+@Test func aTargetLostWhileInputIsSentIsUnknownAndNeverRetried() throws {
+    let sc = try physicalScene()
+    let run = try #require(data(call(sc.s, sc.c, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
+    sc.platform.onPerform = { sc.platform.dropWindow(11) }
+    let a = act(sc, #"{"kind":"key","key":"return"}"#, runId: run)
+    #expect(code(a) == "action_delivery_unknown")
+    #expect(failure(a)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
+    sc.platform.onPerform = nil
+    // The next input is stopped before dispatch; the unknown one is not repeated.
+    #expect(code(act(sc, #"{"kind":"key","key":"return"}"#, runId: run)) == "stale_observation")
+    #expect(sc.platform.performed.count == 1)
+    let shown = try #require(data(call(sc.s, sc.c, "run.show", params: #"{"runId":"\#(run)"}"#)))
+    #expect(shown["unknownActions"]?.intValue == 1)
+}
+
+@Test func destroyingAPhysicalDesktopLeavesOtherDesktopsAlone() throws {
+    let sc = try physicalScene()
+    let other = try #require(data(call(sc.s, sc.c, "desktop.create", params: #"{"name":"isolated"}"#))?["desktopId"]?.stringValue)
+    _ = call(sc.s, sc.c, "session.close", params: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(data(call(sc.s, sc.c, "desktop.destroy", params: #"{"desktopId":"\#(sc.desktop)"}"#)) != nil)
+    let left = data(call(sc.s, sc.c, "desktop.list"))?["desktops"]?.arrayValue ?? []
+    #expect(left.map { $0["desktopId"]?.stringValue } == [other])
+    #expect(!sc.platform.calls.contains { $0.hasPrefix("destroy") })
+    #expect(sc.platform.quit.isEmpty)
+}

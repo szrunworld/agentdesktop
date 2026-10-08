@@ -1,0 +1,119 @@
+{
+  "probe": "physical-desktop target loss",
+  "at": "2026-10-08T21:00:23+0800",
+  "displaysBefore": 2,
+  "displaysAfter": 2,
+  "steps": [
+    {
+      "id": "L1",
+      "title": "bound and observed before the loss",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "error": null,
+        "windowId": 1302,
+        "pid": 4413
+      }
+    },
+    {
+      "id": "L2",
+      "title": "the app quit (SIGTERM to the bound pid)",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "pid": 4413
+      }
+    },
+    {
+      "id": "L4",
+      "title": "observe after the loss: refused (stale_observation)",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "the bound process 4413 has exited or restarted; bind the window again",
+          "phase": "handler",
+          "retryable": false,
+          "details": {
+            "generation": 1
+          }
+        },
+        "reason": null
+      }
+    },
+    {
+      "id": "L5.1",
+      "title": "input after the loss (attempt 1): refused, not sent",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "process 4413 exited or restarted; bind again",
+          "phase": "handler",
+          "retryable": false,
+          "notSent": true
+        }
+      }
+    },
+    {
+      "id": "L5.2",
+      "title": "input after the loss (attempt 2): refused, not sent",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "process 4413 exited or restarted; bind again",
+          "phase": "handler",
+          "retryable": false,
+          "notSent": true
+        }
+      }
+    },
+    {
+      "id": "L6",
+      "title": "the Run is still running; action.refused records each refusal",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "phase": "running",
+        "unknownActions": 0,
+        "eventTypes": [
+          "run.started",
+          "action.accepted",
+          "action.refused",
+          "action.accepted",
+          "action.refused"
+        ]
+      }
+    },
+    {
+      "id": "L7",
+      "title": "run.finish and desktop.destroy; display count unchanged",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "run": "ended",
+        "destroy": {
+          "desktopId": "d_d075abde4ad4",
+          "destroyed": true,
+          "quitApps": []
+        }
+      }
+    }
+  ],
+  "summary": {
+    "passed": [
+      "L1",
+      "L2",
+      "L4",
+      "L5.1",
+      "L5.2",
+      "L6",
+      "L7"
+    ],
+    "failed": []
+  }
+}
