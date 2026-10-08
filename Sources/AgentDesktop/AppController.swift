@@ -76,6 +76,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var runtimeServer: RuntimeServer?
     /// The AI/GUI service and its endpoint.
     private var aiServer: RpcSocketServer?
+    private var aiService: AgentDesktopService?
+    private let aiWindow = AIWindowController()
     /// Live previews of agent screens, keyed by screen name.
     private var agentPreviews: [String: DisplayPreview] = [:]
 
@@ -149,6 +151,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         aiServer?.stop()
+        aiWindow.close()
         runtimeServer?.stop()
         runtime.stop()
     }
@@ -174,7 +177,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     uid == me ? service.router(callerScope: "uid:\(uid)", trustedOwner: true) : nil
                 }
                 try server.start()
-                await MainActor.run { self.aiServer = server }
+                await MainActor.run {
+                    self.aiServer = server
+                    self.aiService = service
+                }
             } catch {
                 FileHandle.standardError.write(Data("AI service unavailable: \(error)\n".utf8))
             }
@@ -673,6 +679,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
+        let ai = item("AI 与 GUI…", #selector(openAIWindow), on: false)
+        ai.isEnabled = aiService != nil
+        menu.addItem(ai)
         menu.addItem(item("Open Displays Settings…", #selector(openDisplaySettings), on: false))
         menu.addItem(NSMenuItem(
             title: "Quit \(Self.displayName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -755,6 +764,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.target = self
         item.state = on ? .on : .off
         return item
+    }
+
+    @objc private func openAIWindow() {
+        guard let aiService else { NSSound.beep(); return }
+        aiWindow.show(service: aiService)
     }
 
     @objc private func toggleDisplay() {

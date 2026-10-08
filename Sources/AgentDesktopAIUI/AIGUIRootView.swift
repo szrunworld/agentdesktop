@@ -20,7 +20,7 @@ public struct AIGUIRootView: View {
 
     let client: ContractClient
     let allowFixtureAdapter: Bool
-    @State private var page: Page? = .connections
+    @State private var page: Page?
     @StateObject private var connections: ConnectionsModel
     @StateObject private var profiles: ProfilesModel
     @StateObject private var usage: UsageModel
@@ -30,8 +30,9 @@ public struct AIGUIRootView: View {
     @State private var detail: RunDetailModel?
     @State private var attention: AttentionModel?
 
-    public init(client: ContractClient, allowFixtureAdapter: Bool = false) {
+    public init(client: ContractClient, allowFixtureAdapter: Bool = false, initialPage: Page = .connections) {
         self.client = client
+        _page = State(initialValue: initialPage)
         self.allowFixtureAdapter = allowFixtureAdapter
         _connections = StateObject(wrappedValue: ConnectionsModel(client: client))
         _profiles = StateObject(wrappedValue: ProfilesModel(client: client, allowFixtureAdapter: allowFixtureAdapter))
@@ -43,6 +44,7 @@ public struct AIGUIRootView: View {
             List(Page.allCases, selection: $page) { p in Text(p.rawValue).tag(p) }
                 .navigationTitle("AI 与 GUI")
         } detail: {
+            Group {
             switch page ?? .connections {
             case .connections:
                 ConnectionsView(model: connections,
@@ -76,6 +78,9 @@ public struct AIGUIRootView: View {
             case .usage:
                 UsageView(model: usage)
             }
+            }
+            // Pages start at the top left, however short their content.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(minWidth: 900, minHeight: 600)
     }

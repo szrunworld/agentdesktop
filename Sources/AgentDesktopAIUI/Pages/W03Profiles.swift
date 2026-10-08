@@ -329,7 +329,8 @@ public struct ProfilesView: View {
                     }
                 }
             }
-            .frame(minWidth: 260)
+            .padding()
+            .frame(minWidth: 260, maxHeight: .infinity, alignment: .top)
             Form {
                 if let p = model.problem { ProblemBanner(problem: p) }
                 if let n = model.notice { Text(n).foregroundStyle(.green) }
@@ -337,7 +338,7 @@ public struct ProfilesView: View {
                     TextField("名称", text: $model.name)
                     Picker("模型配置", selection: $model.modelProfileId) {
                         ForEach(model.modelProfiles) { m in
-                            Text("\(m.name) · \(m.modelId) · r\(m.revision) · 图像 \(m.imageEvidence) / GUI \(m.guiEvidence)")
+                            Text("\(m.name) · \(m.modelId) · r\(m.revision) · 图像 \(evidenceLabel(m.imageEvidence)) / GUI \(evidenceLabel(m.guiEvidence))")
                                 .tag(Optional(m.id)).disabled(!m.enabled)
                         }
                     }
@@ -375,8 +376,19 @@ public struct ProfilesView: View {
                     Button("保存模型配置") { Task { await model.saveModelProfile() } }
                 }
             }
+            .frame(maxHeight: .infinity, alignment: .top)
             .padding()
         }
         .task { if model.phase == .idle { await model.refresh() } }
+    }
+}
+
+/// Capability evidence states (spec §04.2) as shown to people.
+func evidenceLabel(_ status: String) -> String {
+    switch status {
+    case "verified": return "已验证"
+    case "declared": return "已声明"
+    case "failed": return "失败"
+    default: return "未验证"
     }
 }
