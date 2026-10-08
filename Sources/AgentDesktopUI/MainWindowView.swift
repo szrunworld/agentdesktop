@@ -12,12 +12,15 @@ public struct MainWindowView: View {
     /// Settings content the host supplies (the AI/GUI pages until U6);
     /// nil for an entry shows that it is pending.
     let settings: (SettingsPage) -> AnyView?
+    /// Preview windows (P08), when the host can open them.
+    let previews: PreviewWindowRegistry?
     @State private var confirmStop = false
 
-    public init(store: ShellStore, navigation: ShellNavigation,
+    public init(store: ShellStore, navigation: ShellNavigation, previews: PreviewWindowRegistry? = nil,
                 settings: @escaping (SettingsPage) -> AnyView? = { _ in nil }) {
         self.store = store
         self.navigation = navigation
+        self.previews = previews
         self.settings = settings
     }
 
@@ -85,7 +88,7 @@ public struct MainWindowView: View {
     @ViewBuilder
     func page(_ section: MainSection) -> some View {
         switch section {
-        case .desktops: DesktopsPage(store: store, navigation: navigation)
+        case .desktops: DesktopsPage(store: store, navigation: navigation, openPreview: previews.map { r in { r.show($0) } })
         case .runs: RunsPage(store: store, navigation: navigation)
         case .inbox: InboxNotEnabledView()
         case .settings: SettingsPageView(navigation: navigation, content: settings)

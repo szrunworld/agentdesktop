@@ -30,8 +30,9 @@ final class InProcessRuntimePort: RuntimePort, @unchecked Sendable {
     /// True while the current thread is this port's queue (tests use it).
     static let queueKey = DispatchSpecificKey<Bool>()
 
-    func call(_ method: String, _ params: JSONValue) async throws -> JSONValue {
-        let request = RuntimeRequest(requestId: RuntimeRequest.newId(prefix: "ui"), method: method, params: params)
+    func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue {
+        let request = RuntimeRequest(requestId: RuntimeRequest.newId(prefix: "ui"), method: method, context: context,
+                                     params: params)
         let line = request.json.encodedData()
         let service = self.service
         let connection = self.connection
@@ -58,7 +59,7 @@ final class UnavailableRuntimePort: RuntimePort, @unchecked Sendable {
 
     init(reason: String) { self.reason = reason }
 
-    func call(_ method: String, _ params: JSONValue) async throws -> JSONValue {
+    func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue {
         throw RuntimeError.runtimeOffline(reason, endpoint: "in-process")
     }
 

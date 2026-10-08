@@ -34,10 +34,10 @@ final class GatedRuntime: RuntimePort, @unchecked Sendable {
         c.resume()
     }
 
-    func call(_ method: String, _ params: JSONValue) async throws -> JSONValue {
+    func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue {
         // Read before waiting: the answer reflects the moment of the call.
         let answer: Result<JSONValue, Error>
-        do { answer = .success(try await inner.call(method, params)) } catch { answer = .failure(error) }
+        do { answer = .success(try await inner.call(method, params, context: context)) } catch { answer = .failure(error) }
         if gated.contains(method) {
             await withCheckedContinuation { c in lock.withLock { waiting.append(c) } }
         }

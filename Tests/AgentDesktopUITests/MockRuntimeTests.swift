@@ -46,11 +46,24 @@ struct MockRuntimeTests {
             ("run.cancel", .obj([("runId", runId)])),
             ("runtime.stopAll", .obj([("scope", .string("all_platform_runs"))])),
             ("runtime.enableInput", .obj([])),
+            ("app.launch", .obj([("desktopId", desk), ("bundleId", .string("com.example.probe")), ("newInstance", .bool(true))])),
+            ("window.bind", .obj([("desktopId", desk), ("pid", .int(4242))])),
+            ("observe", .obj([("elements", .bool(false))])),
             ("desktop.destroy", .obj([("desktopId", desk)])),
         ]
+        m.addFreeWindow(pid: 4242, windowId: 9001)
         var seen = Set<String>()
         for (method, params) in calls {
-            let result = try await m.call(method, params)
+            let context = method == "observe" ? RequestContext(desktopId: desk.stringValue) : RequestContext()
+            let result = try await m.call(method, params, context: context)
+            if method == "observe" {
+                let art = result["image"]!["artifactId"]!
+                for (am, ap) in [("artifact.show", JSONValue.obj([("artifactId", art)])), ("artifact.read", .obj([("artifactId", art)]))] {
+                    let r = try await m.call(am, ap)
+                    seen.insert(am)
+                    #expect(RuntimeContract.shared.validate(r, RuntimeContract.shared.method(am)!.result).isEmpty, "\(am)")
+                }
+            }
             seen.insert(method)
             let spec = try #require(RuntimeContract.shared.method(method))
             #expect(RuntimeContract.shared.validate(result, spec.result).isEmpty, "\(method)")
