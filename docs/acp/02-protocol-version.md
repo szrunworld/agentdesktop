@@ -76,6 +76,8 @@
 | 未知通知（含 `$/cancel_request`） | 忽略，不回 |
 | 对不存在 id 的响应 | 忽略 |
 
+**流水线（pipelining）规则**：JSON-RPC 允许不等回复连续发送。连接按到达顺序处理一切：`initialize` 被接受（协商成功）后、它的回复写出之前，后续到达的请求与通知全部暂存；回复写出后按原顺序处理暂存项（服务器接受了 `initialize` 就照常交给服务器，服务器拒绝了就逐个回 -32600「connection not initialized」），处理完暂存项之前新到的消息继续排队，任何消息都不会越过更早的消息。只有在**任何 `initialize` 之前**到达的请求才会被拒绝（-32600），守序的客户端不会遇到。注意 stdin 关闭即视为编辑器断开（ADR v2.2），之后不再写回复，所以用 `printf … | agentdesktop-acp-dev --demo` 复现时要让 stdin 保持打开（如 `(printf …; sleep 2) | …`）。
+
 被拒绝的帧一律不交给服务器；`.closed` 只发一次，之后事件流结束。断开时所有未决的 agent→编辑器请求（`session/request_permission`、`elicitation/create`）一律得到 `.unavailable`，从不当作允许。
 
 ## 五、版本协商与能力声明（已实现）
