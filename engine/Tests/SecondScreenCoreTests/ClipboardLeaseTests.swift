@@ -27,7 +27,12 @@ func scratchLockURL() -> URL {
         let url = scratchLockURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let first = try ClipboardLease.acquire(at: url, timeout: 1)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { first.release() }
+        // A thread of its own: under a full parallel run the shared pools can
+        // be busy for seconds, which would turn this into a timeout.
+        Thread {
+            Thread.sleep(forTimeInterval: 0.2)
+            first.release()
+        }.start()
         let second = try ClipboardLease.acquire(at: url, timeout: 5)
         second.release()
     }
