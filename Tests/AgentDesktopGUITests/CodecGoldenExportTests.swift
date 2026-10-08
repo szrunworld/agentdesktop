@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopGUI
@@ -45,7 +45,7 @@ enum G {
 
     /// {"sourceSize":[w,h], "crop":[x,y,w,h]?, "resized":[w,h]?, "letterbox":[l,t,r,b]?}
     static func pipeline(_ v: JSONValue) throws -> ScreenshotTransform {
-        let crop = v["crop"].map { c -> Rect in let n = nums(c); return Rect(x: n[0], y: n[1], width: n[2], height: n[3]) }
+        let crop = v["crop"].map { c -> GuiRect in let n = nums(c); return GuiRect(x: n[0], y: n[1], width: n[2], height: n[3]) }
         let insets = v["letterbox"].map { l -> Insets in let n = nums(l); return Insets(left: n[0], top: n[1], right: n[2], bottom: n[3]) } ?? .zero
         return try ScreenshotTransform.pipeline(sourceSize: size(v["sourceSize"]), crop: crop,
                                                 resizedSize: v["resized"].map { size($0) }, letterbox: insets)
@@ -130,7 +130,7 @@ enum GoldenEval {
             case "explicitTransform":
                 let n = G.nums(c["sourceSize"])
                 let s = Size(width: n[0], height: n[1])
-                let t = try ScreenshotTransform(sourceSize: s, crop: Rect(origin: Point(x: 0, y: 0), size: s), resizedSize: s,
+                let t = try ScreenshotTransform(sourceSize: s, crop: GuiRect(origin: Point(x: 0, y: 0), size: s), resizedSize: s,
                                                 letterbox: .zero, modelInputSize: s,
                                                 sourceToModel: G.affine(c["sourceToModel"]), modelToSource: G.affine(c["modelToSource"]))
                 return G.affine(t.modelToSource)
@@ -172,7 +172,7 @@ enum GoldenEval {
                                      runGeneration: UInt64(s["runGeneration"]!.intValue!))
         let target = TargetIdentity(appId: "com.agentdesktop.neutral-form", processId: 4242, processStartId: "ps-1",
                                     windowId: "w-1", windowGeometryRevision: 3, backendId: "golden",
-                                    windowFrameDesktopLogical: Rect(x: -1440, y: 120, width: 800, height: 500))
+                                    windowFrameDesktopLogical: GuiRect(x: -1440, y: 120, width: 800, height: 500))
         let shots = try o["screenshots"]!.arrayValue!.map { sh in
             try ScreenshotDescriptor(screenshotId: sh["screenshotId"]!.stringValue!, artifactRef: "art",
                                      sha256: String(repeating: "a", count: 64), mimeType: "image/png", transformVersion: "t1",

@@ -1,12 +1,10 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 
 /// The AI service's operations on the Runtime's single endpoint (A2,
-/// runtime-api-v1-freeze §1, §6). A runtime/1 call is handed to the same
-/// router the main window uses, as the ai/1 request it stands for; the
-/// answer comes back in runtime/1 terms with lowercase error codes. The
-/// ai/1 envelope never crosses a socket any more.
+/// runtime-api-v1-freeze §1, §6). A runtime/1 call goes straight to the
+/// router the main window uses; the answer comes back in runtime/1 terms
+/// with lowercase error codes.
 public enum RuntimeBridge {
     /// How long a call waits for the service when the request has no
     /// deadline. Long work (model refresh, capability tests) answers at once
@@ -24,58 +22,44 @@ public enum RuntimeBridge {
         return out
     }
 
-    /// The service's own capabilities answer (GUI execution backend: actions,
-    /// predicates, concurrency), for the `gui` section of runtime.capabilities.
+    /// What the GUI execution backend supports, for the `gui` section of
+    /// runtime.capabilities.
     public static func guiCapabilities(_ service: AgentDesktopService) -> JSONValue? {
-        let call = ExtensionCall(method: "runtime.capabilities", requestId: UUID().uuidString.lowercased(),
-                                 deadline: Date().addingTimeInterval(5), params: .obj([]),
-                                 clientId: "local:\(getuid())", owner: true)
-        if case let .success(v) = answer(call, service: service, idempotent: false) { return v }
-        return nil
+        service.runs.capabilities()
     }
 
     static func answer(_ call: ExtensionCall, service: AgentDesktopService, idempotent: Bool) -> Result<JSONValue, RuntimeError> {
         // The service scopes configuration by caller; the local owner keeps
-        // the scope the ai.sock connections had.
+        // the scope it has always had.
         let scope = call.clientId.hasPrefix("local:") ? "uid:" + call.clientId.dropFirst("local:".count) : call.clientId
         let router = service.router(callerScope: scope, trustedOwner: call.owner)
-        var context: [(String, JSONValue)] = []
-        if idempotent { context.append(("idempotencyKey", .string(call.requestId))) }
-        if let deadline = call.deadline { context.append(("deadlineAt", .string(Timestamp.string(deadline)))) }
-        var envelope: [(String, JSONValue)] = [("schemaVersion", .string(ContractBundle.schemaVersion)),
-                                               ("requestId", .string(UUID().uuidString.lowercased())),
-                                               ("command", .string(call.method)), ("params", call.params)]
-        if !context.isEmpty { envelope.append(("context", .obj(context))) }
-        let body = Data(JSONValue.obj(envelope).encoded().utf8)
-
-        final class Box: @unchecked Sendable { var reply: Data? }
+        final class Box: @unchecked Sendable { var outcome: Result<JSONValue, ContractError>? }
         let box = Box()
         let done = DispatchSemaphore(value: 0)
+        let deadline = call.deadline.map(Timestamp.string)
         Task.detached {
-            box.reply = await router.respond(toBody: body)
+            box.outcome = await router.answer(method: call.method, params: call.params, deadline: deadline,
+                                              idempotencyKey: idempotent ? call.requestId : nil)
             done.signal()
         }
         let until = call.deadline ?? Date().addingTimeInterval(defaultWait)
-        guard done.wait(timeout: .now() + max(0, until.timeIntervalSinceNow)) == .success, let reply = box.reply else {
-            // Sent to the service; whether a write took effect is unknown.
+        guard done.wait(timeout: .now() + max(0, until.timeIntervalSinceNow)) == .success, let outcome = box.outcome else {
+            // Handed to the service; whether a write took effect is unknown.
             return .failure(idempotent
                 ? RuntimeError("request_acceptance_unknown", "the AI service did not answer in time; look the request up again with the same requestId",
                                phase: .handler, details: .obj([("requestId", .string(call.requestId))]))
                 : RuntimeError("deadline_exceeded", "the AI service did not answer in time", phase: .handler))
         }
-        guard let value = try? StrictJSON.parse(reply.last == 0x0A ? reply.dropLast() : reply) else {
-            return .failure(RuntimeError("internal_error", "the AI service answered with something that is not JSON", phase: .handler))
-        }
-        if value["ok"]?.boolValue == true { return .success(value["result"] ?? .obj([])) }
-        return .failure(runtimeError(value["error"] ?? .obj([])))
+        return outcome.mapError(runtimeError)
     }
 
-    /// ai/1 error → runtime/1 error (runtime-api-v1-freeze §6).
-    static func runtimeError(_ e: JSONValue) -> RuntimeError {
-        let code = e["code"]?.stringValue ?? "INTERNAL_ERROR"
-        let message = e["message"]?.stringValue ?? "the AI service failed"
-        let retryable = e["retryable"]?.boolValue ?? false
-        var details = e["details"]?.objectMembers ?? []
+    /// The service's error → runtime/1 error (runtime-api-v1-freeze §6).
+    /// The service's own classification stays in `details.serviceCode`.
+    static func runtimeError(_ e: ContractError) -> RuntimeError {
+        let code = e.code.rawValue
+        let message = e.message
+        let retryable = e.retryable
+        var details = e.details?.objectMembers ?? []
         func reason(_ r: String) { if !details.contains(where: { $0.0 == "reason" }) { details.append(("reason", .string(r))) } }
         let mapped: String
         switch code {
@@ -107,7 +91,7 @@ public enum RuntimeBridge {
         case "USAGE_UNAVAILABLE": mapped = "internal_error"; reason("usage_unavailable")
         default: mapped = "internal_error"
         }
-        details.append(("aiCode", .string(code)))
+        details.append(("serviceCode", .string(code)))
         return RuntimeError(mapped, message, phase: .handler, retryable: retryable, details: .obj(details))
     }
 }

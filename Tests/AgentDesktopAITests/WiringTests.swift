@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopAI
@@ -57,8 +57,8 @@ struct Wired {
         app = AiApplicationHandlers(store: h.store, http: transport ?? http, runner: runner)
     }
 
-    func router(_ scope: String = "owner") -> RpcRouter {
-        RpcRouter(handlers: app.handlers(callerScope: scope))
+    func router(_ scope: String = "owner") -> ServiceRouter {
+        ServiceRouter(handlers: app.handlers(callerScope: scope))
     }
 
     func call(_ command: String, _ params: JSONValue = .obj([]), scope: String = "owner", key: String? = nil) async throws -> JSONValue {
@@ -72,7 +72,7 @@ struct Wired {
             throw CancellationError()
         }
         let op = ContractBundle.shared.operation(command)!
-        #expect(try ContractBundle.shared.validateRpc(r, "\(op.defPrefix)_result").isEmpty, "\(command) result")
+        #expect(try ContractBundle.shared.validate(r, "\(op.defPrefix)_result").isEmpty, "\(command) result")
         return r
     }
 
@@ -401,7 +401,7 @@ struct CatalogOperationTests {
         #expect(try await restarted.store.operationState(a) == .failed)
         #expect(try await restarted.store.operationState(b) == .cancelled)
         let v = try await restarted.store.operation(a, callerScope: "owner")
-        #expect(try ContractBundle.shared.validateDomain(v, "AiOperation").isEmpty)
+        #expect(try ContractBundle.shared.validate(v, "AiOperation").isEmpty)
     }
 }
 

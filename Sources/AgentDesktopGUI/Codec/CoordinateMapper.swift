@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// Spec §08: model coordinates → model canvas pixels → source screenshot

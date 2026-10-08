@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import Foundation
 
@@ -128,7 +127,12 @@ public final class RuntimeService: @unchecked Sendable {
             guard let handler = extensions.handler(request.method) else {
                 return .failure(request.requestId, .capabilityMissing("\(request.method) is not available: the \(spec.servedBy!) is not running"))
             }
-            return answerExtension(request, handler, on: connection)
+            // Reads go straight to the service. A write's requestId is unique
+            // per caller across every method (runtime/1 §1): the ledger
+            // replays a done write, refuses the same id for another method or
+            // other params, and keeps an unknown outcome unknown.
+            guard spec.mutation else { return answerExtension(request, handler, on: connection) }
+            return ledgeredExtension(request, handler, on: connection)
         }
         guard let spec = contract.method(request.method), let method = RuntimeMethod(rawValue: request.method),
               implemented(method) else {

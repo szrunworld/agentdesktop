@@ -1,8 +1,8 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// Every AI command of contract v1 that the AI module serves, as
-/// `RpcHandler`s for one caller: the configuration commands plus
+/// `ServiceHandler`s for one caller: the configuration commands plus
 /// `ai.models.list/refresh`, `ai.operations.get/cancel` and
 /// `ai.usage.summary`. `ai.tests.start` comes from the GUI module's
 /// capability tests and is passed in through `extra`.
@@ -26,7 +26,7 @@ public struct AiApplicationHandlers: Sendable {
         "ai.models.list", "ai.models.refresh", "ai.operations.get", "ai.operations.cancel", "ai.usage.summary",
     ]
 
-    public func handlers(callerScope: String, extra: [String: RpcHandler] = [:]) -> [String: RpcHandler] {
+    public func handlers(callerScope: String, extra: [String: ServiceHandler] = [:]) -> [String: ServiceHandler] {
         var out = config.handlers(callerScope: callerScope)
         for command in ["ai.models.list", "ai.models.refresh", "ai.operations.get", "ai.operations.cancel", "ai.usage.summary"] {
             out[command] = { req in try await self.handle(req, callerScope: callerScope) }
@@ -35,17 +35,17 @@ public struct AiApplicationHandlers: Sendable {
         return out
     }
 
-    public func handle(_ req: RpcRequest, callerScope: String) async throws -> JSONValue {
+    public func handle(_ req: ServiceRequest, callerScope: String) async throws -> JSONValue {
         let p = req.params
         let s = store
-        switch req.command {
+        switch req.method {
         case "ai.models.list":
             return try await s.listModels(connectionId: p["connectionId"]?.stringValue ?? "",
                                           limit: p["limit"]?.intValue, cursor: p["cursor"]?.stringValue)
         case "ai.models.refresh":
             let id = p["connectionId"]?.stringValue ?? ""
             let rev = p["expectedRevision"]?.intValue ?? 0
-            let result = try await s.runIdempotent(scope: callerScope, command: req.command, key: req.idempotencyKey,
+            let result = try await s.runIdempotent(scope: callerScope, command: req.method, key: req.idempotencyKey,
                                                    semantic: p) { store in
                 _ = try store.connectionForRefresh(id, expectedRevision: rev)
                 let op = try store.createOperation(kind: .modelRefresh, callerScope: callerScope,
@@ -60,7 +60,7 @@ public struct AiApplicationHandlers: Sendable {
             return try await s.operation(p["operationId"]?.stringValue ?? "", callerScope: callerScope)
         case "ai.operations.cancel":
             let id = p["operationId"]?.stringValue ?? ""
-            let result = try await s.runIdempotent(scope: callerScope, command: req.command, key: req.idempotencyKey,
+            let result = try await s.runIdempotent(scope: callerScope, command: req.method, key: req.idempotencyKey,
                                                    semantic: p) { store in
                 let (accepted, state) = try store.requestOperationCancel(id, callerScope: callerScope)
                 return .obj([("operationId", .string(id)), ("accepted", .bool(accepted)),

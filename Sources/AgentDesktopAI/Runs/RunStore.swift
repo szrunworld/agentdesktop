@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// Points where a test can make the run store fail like a full disk.

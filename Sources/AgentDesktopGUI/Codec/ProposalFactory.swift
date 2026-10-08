@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// Builds proposals with their provenance. Identity fields (desktop,
@@ -40,10 +40,10 @@ public struct ProposalFactory: Sendable {
         let proposal = GuiProposal(proposalId: newId(), runId: runId, stepIndex: stepIndex,
                                    inferenceAttemptId: inferenceAttemptId, stamp: observation.stamp,
                                    screenshotId: screenshotId, provenance: provenance, body: body)
-        let violations = try ContractBundle.shared.validateDomain(proposal.json, "GuiProposal")
+        let violations = try ContractBundle.shared.validate(proposal.json, "GuiProposal")
         guard violations.isEmpty else {
             throw ContractError(.validationError, "proposal does not match the contract",
-                                details: Envelope.violationDetails(violations))
+                                details: ServiceRouter.violationDetails(violations, under: ""))
         }
         return proposal
     }

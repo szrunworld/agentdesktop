@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// One earlier step as the model saw it: its screenshot (when kept) and its

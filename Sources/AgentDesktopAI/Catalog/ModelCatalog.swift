@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// Cached model lists per connection (spec §05.3 `ai.models.*`). A list

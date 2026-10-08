@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// The friendly commands of spec §13.1, each a thin mapping onto one
@@ -201,8 +201,8 @@ extension ContractCLI {
                 throw LocalFailure.usage("\(paramsFile) is not one JSON object")
             }
             guard let members = value.objectMembers else { throw LocalFailure.usage("\(paramsFile) must hold a JSON object") }
-            if members.contains(where: { $0.key == "schemaVersion" || $0.key == "command" }) {
-                throw LocalFailure.usage("--params-file holds params only; a whole envelope goes to `rpc --request-file`")
+            if members.contains(where: { $0.key == "apiVersion" || $0.key == "method" }) {
+                throw LocalFailure.usage("--params-file holds params only; a whole request goes to `rpc --request-file`")
             }
             if spec.paramsFile == .patch {
                 try put("patch", value, from: "--params-file")
@@ -238,17 +238,15 @@ extension ContractCLI {
         return inv
     }
 
-    func envelope(_ command: String, _ params: JSONValue, key: String?, deadlineAt: String? = nil) -> JSONValue {
+    /// One runtime/1 request. A write's idempotency key is its requestId.
+    func envelope(_ method: String, _ params: JSONValue, key: String?, deadlineAt: String? = nil) -> JSONValue {
         var m: [(String, JSONValue)] = [
-            ("schemaVersion", .string(ContractBundle.schemaVersion)),
-            ("requestId", .string(UUID().uuidString.lowercased())),
-            ("command", .string(command)),
-            ("params", params),
+            ("apiVersion", .string(RuntimeAPI.version)),
+            ("requestId", .string(key ?? RuntimeRequest.newId())),
+            ("method", .string(method)),
         ]
-        var ctx: [(String, JSONValue)] = []
-        if let deadlineAt { ctx.append(("deadlineAt", .string(deadlineAt))) }
-        if let key { ctx.append(("idempotencyKey", .string(key))) }
-        if !ctx.isEmpty { m.append(("context", .obj(ctx))) }
+        if let deadlineAt { m.append(("deadline", .string(deadlineAt))) }
+        m.append(("params", params))
         return .obj(m)
     }
 
@@ -259,6 +257,11 @@ extension ContractCLI {
         do { inv = try buildInvocation(spec, rest) } catch let LocalFailure.usage(m) {
             return usageError(m)
         } catch { return usageError(nil) }
+        // `ai capabilities` is the Runtime's own runtime.capabilities; the
+        // GUI backend's part is its `gui` section.
+        if spec.command == RuntimeMethod.capabilities.rawValue {
+            return submit(envelope(spec.command, .obj([]), key: nil).encodedData(), socket: socket, dryRun: inv.dryRun)
+        }
         guard let op = ContractBundle.shared.operation(spec.command) else { return usageError("unknown command") }
         if op.requiresIdempotencyKey && inv.idempotencyKey == nil {
             return usageError("\(spec.words.joined(separator: " ")) changes state: pass --idempotency-key, and reuse it when retrying")
@@ -272,29 +275,13 @@ extension ContractCLI {
         return waitFor(request, spec: spec, socket: socket, inv: inv)
     }
 
-    /// Send one request; nil reply means the exit code says why.
-    func exchange(_ request: JSONValue, socket: String) -> (JSONValue?, ExitCode) {
-        var frame = request.encodedData()
-        frame.append(0x0A)
-        guard case let .frame(body) = send(frame, socket),
-              let response = try? StrictJSON.parse(body),
-              (try? ContractBundle.shared.validateRpc(response, "Response"))?.isEmpty == true,
-              response["requestId"] == request["requestId"] else {
-            stderr("agentdesktop: no valid response from the runtime at \(socket)")
-            return (nil, .runtimeUnavailable)
-        }
-        return (response, response["ok"]?.boolValue == true ? .ok : .rejected)
-    }
-
     /// `--wait`: submit, then poll get until a terminal state; stdout is the
     /// last get envelope; the acceptance goes to stderr.
     func waitFor(_ request: JSONValue, spec: CommandSpec, socket: String, inv: Invocation) -> ExitCode {
-        guard case .request = Envelope.decode(request.encodedData()) else {
-            return submit(request.encodedData(), socket: socket, dryRun: true)
-        }
+        guard Self.problems(request) == nil else { return submit(request.encodedData(), socket: socket, dryRun: true) }
         let (accepted, code) = exchange(request, socket: socket)
         guard let accepted else { return code }
-        guard code == .ok, let result = accepted["result"] else {
+        guard code == .ok, let result = accepted["data"] else {
             stdout(accepted.encoded())
             return mapError(accepted)
         }
@@ -321,7 +308,7 @@ extension ContractCLI {
             let (reply, code) = exchange(get, socket: socket)
             guard let reply else { return code }
             last = reply
-            guard code == .ok, let state = reply["result"]?["state"]?.stringValue else {
+            guard code == .ok, let state = reply["data"]?["state"]?.stringValue else {
                 stdout(reply.encoded())
                 return mapError(reply)
             }
@@ -343,29 +330,29 @@ extension ContractCLI {
     /// `gui events --follow`: one complete response per line (NDJSON) until
     /// the run is terminal and no events remain.
     func follow(_ request: JSONValue, socket: String, inv: Invocation) -> ExitCode {
-        guard case let .request(req) = Envelope.decode(request.encodedData()) else {
+        guard Self.problems(request) == nil, let p = request["params"] else {
             return submit(request.encodedData(), socket: socket, dryRun: true)
         }
-        let runId = req.params["runId"]!.stringValue!
-        var after = req.params["afterSequence"]?.intValue ?? 0
+        let runId = p["runId"]!.stringValue!
+        var after = p["afterSequence"]?.intValue ?? 0
         let started = nowMs()
         while true {
             if interrupted() { return .interrupted }
             var params: [(String, JSONValue)] = [("runId", .string(runId)), ("afterSequence", .int(after))]
-            if let limit = req.params["limit"] { params.append(("limit", limit)) }
+            if let limit = p["limit"] { params.append(("limit", limit)) }
             let (reply, code) = exchange(envelope("gui.runs.events", .obj(params), key: nil), socket: socket)
             guard let reply else { return code }
             stdout(reply.encoded())
-            guard code == .ok, let result = reply["result"] else { return mapError(reply) }
+            guard code == .ok, let result = reply["data"] else { return mapError(reply) }
             after = result["nextAfterSequence"]?.intValue ?? after
             if result["hasMore"]?.boolValue == true { continue }
             let (status, sc) = exchange(envelope("gui.runs.get", .obj([("runId", .string(runId))]), key: nil), socket: socket)
             guard let status else { return sc }
-            let state = status["result"]?["state"]?.stringValue ?? ""
+            let state = status["data"]?["state"]?.stringValue ?? ""
             if ["succeeded", "failed", "cancelled"].contains(state) {
                 // One last read so events written with the terminal state are not lost.
                 let (tail, _) = exchange(envelope("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(after))]), key: nil), socket: socket)
-                if let tail, tail["result"]?["events"]?.arrayValue?.isEmpty == false { stdout(tail.encoded()) }
+                if let tail, tail["data"]?["events"]?.arrayValue?.isEmpty == false { stdout(tail.encoded()) }
                 return .ok
             }
             if nowMs() - started >= UInt64(inv.waitTimeoutMs) { return .waitTimedOut }
@@ -373,10 +360,5 @@ extension ContractCLI {
         }
     }
 
-    func mapError(_ response: JSONValue) -> ExitCode {
-        switch response["error"]?["code"]?.stringValue {
-        case ErrorCode.unsupportedSchema.rawValue, ErrorCode.unsupportedCommand.rawValue: return .runtimeUnavailable
-        default: return .rejected
-        }
-    }
+    func mapError(_ response: JSONValue) -> ExitCode { Self.exitCode(response) }
 }

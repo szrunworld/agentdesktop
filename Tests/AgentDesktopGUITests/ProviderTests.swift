@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopGUI

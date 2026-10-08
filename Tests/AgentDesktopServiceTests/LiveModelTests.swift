@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import Testing
 @testable import AgentDesktopService
@@ -32,17 +32,10 @@ struct LiveModelTests {
             databasePath: dir.appendingPathComponent("config.sqlite").path, credentials: InMemoryCredentialStore()))
         let router = service.router(callerScope: "owner", trustedOwner: true)
         func ok(_ command: String, _ params: JSONValue, key: String? = nil) async throws -> JSONValue {
-            var m: [(String, JSONValue)] = [("schemaVersion", .string("agentdesktop.ai/1")),
-                                            ("requestId", .string(UUID().uuidString.lowercased())),
-                                            ("command", .string(command)), ("params", params)]
-            if let key { m.append(("context", .obj([("idempotencyKey", .string(key))]))) }
-            var out = await router.respond(toBody: JSONValue.obj(m).encodedData())
-            out.removeLast()
-            let v = try StrictJSON.parse(out)
-            guard v["ok"]?.boolValue == true, let r = v["result"] else {
-                throw ContractError(.internalError, "\(command): \(v["error"]?.encoded() ?? "?")")
+            switch await router.answer(method: command, params: params, idempotencyKey: key) {
+            case let .success(r): return r
+            case let .failure(e): throw ContractError(.internalError, "\(command): \(e.json.encoded())")
             }
-            return r
         }
         let conn = try await ok("ai.connections.create", .obj([
             ("name", .string("Ark live")), ("protocol", .string("openai_chat")),

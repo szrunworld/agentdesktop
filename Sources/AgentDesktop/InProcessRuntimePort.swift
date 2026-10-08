@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import AgentDesktopRuntime
 import AgentDesktopUI

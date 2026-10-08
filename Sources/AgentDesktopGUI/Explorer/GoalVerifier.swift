@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// The V1 verifier (spec §06.4): does the bound window, in this

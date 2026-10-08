@@ -1,7 +1,6 @@
 import AgentDesktopAI
-import AgentDesktopContracts
-import AgentDesktopGUI
 import AgentDesktopProtocol
+import AgentDesktopGUI
 import AgentDesktopService
 import CoreGraphics
 import Foundation
@@ -157,14 +156,10 @@ final class Upstream: HTTPTransport, @unchecked Sendable {
             features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]))))
     let router = service.router(callerScope: "owner", trustedOwner: true)
     func ai(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil) async throws -> JSONValue {
-        var m: [(String, JSONValue)] = [("schemaVersion", .string("agentdesktop.ai/1")), ("requestId", .string(UUID().uuidString.lowercased())),
-                                        ("command", .string(command)), ("params", params)]
-        if let key { m.append(("context", .obj([("idempotencyKey", .string(key))]))) }
-        var out = await router.respond(toBody: JSONValue.obj(m).encodedData())
-        out.removeLast()
-        let r = try StrictJSON.parse(out)
-        guard r["ok"]?.boolValue == true, let result = r["result"] else { throw ContractError(.internalError, "\(command): \(r.encoded())") }
-        return result
+        switch await router.answer(method: command, params: params, idempotencyKey: key) {
+        case let .success(v): return v
+        case let .failure(e): throw ContractError(.internalError, "\(command): \(e.json.encoded())")
+        }
     }
     func until(_ check: () async throws -> Bool) async throws {
         for _ in 0..<500 { if try await check() { return }; try await Task.sleep(nanoseconds: 10_000_000) }

@@ -17,7 +17,7 @@ public struct Size: Equatable, Sendable {
     public init(width: Double, height: Double) { self.width = width; self.height = height }
 }
 
-public struct Rect: Equatable, Sendable {
+public struct GuiRect: Equatable, Sendable {
     public let origin: Point
     public let size: Size
     public init(origin: Point, size: Size) { self.origin = origin; self.size = size }

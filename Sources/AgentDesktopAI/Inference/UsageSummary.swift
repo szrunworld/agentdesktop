@@ -1,5 +1,5 @@
 import Foundation
-import AgentDesktopContracts
+import AgentDesktopProtocol
 
 /// One ledger row as usage sees it.
 public struct UsageRow: Equatable, Sendable {

@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// A failure as a page shows it: a stable code, Chinese text that says what

@@ -1,7 +1,6 @@
-import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 import Foundation
 import Testing
-@testable import AgentDesktopProtocol
 @testable import AgentDesktopRuntime
 
 // RT-23A/B (MAC-001): a slow or stuck accessibility read delays only the

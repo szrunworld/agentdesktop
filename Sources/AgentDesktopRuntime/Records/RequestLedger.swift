@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import CryptoKit
 import Foundation
@@ -106,6 +105,19 @@ public final class RequestLedger: @unchecked Sendable {
     public func markDispatching(caller: uid_t, requestId: String) throws {
         try db.execute("UPDATE requests SET dispatch_started_at = ? WHERE caller = ? AND request_id = ?",
                         [.text(Timestamp.string(now())), .int(Int64(caller)), .text(requestId)])
+    }
+
+    /// Drop a fresh request that certainly did nothing, so its requestId can
+    /// be retried; duplicates waiting on it then run as fresh.
+    public func forget(caller: uid_t, requestId: String) throws {
+        defer {
+            inFlight.lock()
+            running.remove("\(caller)/\(requestId)")
+            inFlight.broadcast()
+            inFlight.unlock()
+        }
+        try db.execute("DELETE FROM requests WHERE caller = ? AND request_id = ? AND state = 'accepted'",
+                       [.int(Int64(caller)), .text(requestId)])
     }
 
     /// Store the outcome of a fresh request.

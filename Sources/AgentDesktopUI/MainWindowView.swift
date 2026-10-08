@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import SwiftUI
 
 /// The one main window's content (docs/plan/06 §6.1): frame, six entries,

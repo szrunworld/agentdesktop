@@ -4,7 +4,7 @@
 // redirects refused, upstream body never passed on), rewritten async and
 // without the hard-coded thinking/top_p fields.
 import Foundation
-import AgentDesktopContracts
+import AgentDesktopProtocol
 
 /// What one chat completions call returned, before any GUI parsing.
 public struct ChatCompletion: Equatable, Sendable {

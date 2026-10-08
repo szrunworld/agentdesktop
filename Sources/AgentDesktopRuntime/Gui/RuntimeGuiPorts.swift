@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import CoreGraphics
 import CryptoKit
@@ -107,7 +106,7 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
             appId: service.backend.applications(includeBackground: true).first { $0.process.pid == b.process.pid }?.bundleId ?? b.appName,
             processId: Int(b.process.pid), processStartId: b.process.startedAt ?? "unknown", windowId: String(b.windowId),
             windowGeometryRevision: revision, backendId: Self.backendId,
-            windowFrameDesktopLogical: AgentDesktopContracts.Rect(x: frame.x, y: frame.y, width: frame.width, height: frame.height))
+            windowFrameDesktopLogical: GuiRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height))
 
         // The model sees the bound window: cropped from the screenshot and,
         // when large, scaled down. The transform says so exactly.
@@ -151,15 +150,15 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
 
     /// The window in screenshot pixels, clipped to the image.
     static func cropRect(window f: AgentDesktopProtocol.Rect, origin: (Double, Double), scale: Double,
-                         image: (width: Int, height: Int)) -> AgentDesktopContracts.Rect {
+                         image: (width: Int, height: Int)) -> GuiRect {
         let x0 = max(0, ((f.x - origin.0) * scale).rounded(.down))
         let y0 = max(0, ((f.y - origin.1) * scale).rounded(.down))
         let x1 = min(Double(image.width), ((f.x + f.width - origin.0) * scale).rounded(.up))
         let y1 = min(Double(image.height), ((f.y + f.height - origin.1) * scale).rounded(.up))
-        return AgentDesktopContracts.Rect(x: x0, y: y0, width: max(1, x1 - x0), height: max(1, y1 - y0))
+        return GuiRect(x: x0, y: y0, width: max(1, x1 - x0), height: max(1, y1 - y0))
     }
 
-    static func render(source: String, crop: AgentDesktopContracts.Rect, to size: Size) throws -> Data {
+    static func render(source: String, crop: GuiRect, to size: Size) throws -> Data {
         guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: source) as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(src, 0, nil),
               let cropped = image.cropping(to: CGRect(x: crop.origin.x, y: crop.origin.y, width: crop.size.width, height: crop.size.height)),
@@ -201,7 +200,7 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
             return TargetIdentity(appId: b.appName, processId: Int(b.process.pid), processStartId: b.process.startedAt ?? "unknown",
                                   windowId: String(b.windowId), windowGeometryRevision: lock.withLock { geometry[rb.desktopId]?.revision ?? 1 },
                                   backendId: Self.backendId,
-                                  windowFrameDesktopLogical: AgentDesktopContracts.Rect(x: f.x, y: f.y, width: f.width, height: f.height))
+                                  windowFrameDesktopLogical: GuiRect(x: f.x, y: f.y, width: f.width, height: f.height))
         }
         let act = JSONValue.obj([("snapshotId", .string(proposal.stamp.snapshotId)), ("action", Self.actJSON(action))])
         let requestId = Self.requestId(for: actionId)

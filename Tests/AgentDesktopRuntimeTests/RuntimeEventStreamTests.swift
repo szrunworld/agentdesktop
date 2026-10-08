@@ -1,8 +1,7 @@
 import AgentDesktopClient
-import AgentDesktopContracts
+@testable import AgentDesktopProtocol
 import Foundation
 import Testing
-@testable import AgentDesktopProtocol
 @testable import AgentDesktopRuntime
 
 // events.subscribe (runtime-api-v1-freeze §4): pushed frames on the same

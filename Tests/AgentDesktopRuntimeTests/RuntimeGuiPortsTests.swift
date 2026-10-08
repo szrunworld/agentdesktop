@@ -1,4 +1,3 @@
-import AgentDesktopContracts
 import AgentDesktopProtocol
 import CryptoKit
 import Foundation
@@ -57,7 +56,7 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
     #expect(o.target.windowId == "11" && o.target.processId == 101 && o.target.backendId == "2ndscreen-engine")
     let shot = try #require(o.screenshots.first)
     // The Runtime's image already is the window (2100,100) 400x300 at 2x (G0).
-    #expect(shot.transform.crop == AgentDesktopContracts.Rect(x: 0, y: 0, width: 800, height: 600))
+    #expect(shot.transform.crop == GuiRect(x: 0, y: 0, width: 800, height: 600))
     #expect(shot.transform.modelInputSize == Size(width: 800, height: 600))
     let corner = shot.sourceToDesktop.apply(Point(x: 0, y: 0))
     #expect(corner == Point(x: 2100, y: 100))

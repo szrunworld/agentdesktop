@@ -11,9 +11,8 @@ import SecondScreenCore
 import SecondScreenRuntime
 import AgentDesktopAI
 import AgentDesktopAIUI
-import AgentDesktopContracts
-import AgentDesktopGUI
 import AgentDesktopProtocol
+import AgentDesktopGUI
 import AgentDesktopRuntime
 import AgentDesktopService
 import AgentDesktopUI
@@ -119,7 +118,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
                     databasePath: records + "/ai.sqlite", credentials: credentials, executionBackend: backend))
                 // A2: one endpoint. The AI service answers ai.* through the
-                // Runtime's server; there is no ai.sock any more.
+                // Runtime's server; it has no socket of its own.
                 let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
                 runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
                 runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
@@ -127,7 +126,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self.aiService = service
                     // The AI/GUI pages live in Settings and keep their
                     // contract v1 client until U6.
-                    let client = InProcessContractClient(router: service.router(callerScope: "uid:\(getuid())", trustedOwner: true))
+                    let client = InProcessContractClient(router: service.router(callerScope: "uid:\(getuid())", trustedOwner: true),
+                                                         guiCapabilities: { service.runs.capabilities() })
                     self.mainWindow.attachAISettings(AISettingsModel(client: client))
                 }
             } catch {

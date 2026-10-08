@@ -1,4 +1,4 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import SwiftUI
 
 /// One action's receipt as a card (P20): the result level per §6.4, the

@@ -2,7 +2,7 @@
 // agent-ledgers.ts: every started call is a row, unknown counts are never
 // added up as zero. Durable SQLite storage comes with the config store (T03).
 import Foundation
-import AgentDesktopContracts
+import AgentDesktopProtocol
 
 /// An `AiCallLedgerPort` held in memory, for tests and until the SQLite
 /// store implements the same port. Faults can be injected.

@@ -1,9 +1,9 @@
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
-/// The configuration commands of contract v1 as `RpcHandler`s backed by
+/// The configuration commands of contract v1 as `ServiceHandler`s backed by
 /// one `ConfigStore`. Params arrive already validated against
-/// `<command>_params`; results are checked by `RpcRouter`.
+/// `<command>_params`; results are checked by `ServiceRouter`.
 public struct ConfigApplicationService: Sendable {
     public let store: ConfigStore
 
@@ -24,28 +24,28 @@ public struct ConfigApplicationService: Sendable {
     /// Handlers for one caller. Idempotency records are scoped to
     /// `callerScope`, so another caller's key never returns this caller's
     /// result (RPC-007).
-    public func handlers(callerScope: String) -> [String: RpcHandler] {
-        var out: [String: RpcHandler] = [:]
+    public func handlers(callerScope: String) -> [String: ServiceHandler] {
+        var out: [String: ServiceHandler] = [:]
         for command in Self.commands {
             out[command] = { req in try await self.handle(req, callerScope: callerScope) }
         }
         return out
     }
 
-    public func handle(_ req: RpcRequest, callerScope: String) async throws -> JSONValue {
+    public func handle(_ req: ServiceRequest, callerScope: String) async throws -> JSONValue {
         let p = req.params
         func str(_ k: String) -> String { p[k]?.stringValue ?? "" }
         func int(_ k: String) -> Int { p[k]?.intValue ?? 0 }
         let s = store
         let scope = callerScope
         let key = req.idempotencyKey
-        let command = req.command
+        let command = req.method
 
         func mutate(_ body: @escaping @Sendable (isolated ConfigStore) throws -> JSONValue) async throws -> JSONValue {
             try await s.runIdempotent(scope: scope, command: command, key: key, semantic: p, body)
         }
 
-        switch req.command {
+        switch req.method {
         case "ai.connections.list":
             return try await s.list(.connection, limit: p["limit"]?.intValue, cursor: p["cursor"]?.stringValue,
                                     includeDisabled: p["includeDisabled"]?.boolValue ?? false)

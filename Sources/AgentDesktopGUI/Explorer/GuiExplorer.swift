@@ -1,5 +1,5 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 
 /// What the Runtime hands the explorer: observation, the one execution

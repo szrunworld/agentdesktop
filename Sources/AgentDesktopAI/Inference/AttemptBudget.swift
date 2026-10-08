@@ -1,5 +1,5 @@
 import Foundation
-import AgentDesktopContracts
+import AgentDesktopProtocol
 
 /// Model-attempt accounting for one run or one capability-test operation
 /// (spec §07.3, §09.1). Reservations are atomic: two concurrent steps cannot

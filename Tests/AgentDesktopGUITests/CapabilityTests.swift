@@ -1,11 +1,11 @@
 import AgentDesktopAI
-import AgentDesktopContracts
+import AgentDesktopProtocol
 import Foundation
 import ImageIO
 import Testing
 @testable import AgentDesktopGUI
 
-// T08 four-layer capability tests (spec §11), through the real RpcRouter.
+// T08 four-layer capability tests (spec §11), through the real ServiceRouter.
 // Case IDs refer to docs/ai-gui/tests/cases.csv. No real network, no real
 // key, no desktop: the upstream is a stub keyed on what each layer asks.
 
@@ -105,22 +105,19 @@ struct Rig {
         app = AiApplicationHandlers(store: store, http: upstream, runner: runner)
     }
 
-    func router(_ scope: String = "owner") -> RpcRouter {
-        RpcRouter(handlers: app.handlers(callerScope: scope, extra: tests.handlers(callerScope: scope)))
+    func router(_ scope: String = "owner") -> ServiceRouter {
+        ServiceRouter(handlers: app.handlers(callerScope: scope, extra: tests.handlers(callerScope: scope)))
     }
 
     func call(_ command: String, _ params: JSONValue, scope: String = "owner", key: String? = nil) async throws -> JSONValue {
-        var m: [(String, JSONValue)] = [
-            ("schemaVersion", .string("agentdesktop.ai/1")), ("requestId", .string(UUID().uuidString.lowercased())),
-            ("command", .string(command)), ("params", params),
-        ]
-        if ContractBundle.shared.operation(command)!.requiresIdempotencyKey || key != nil {
-            m.append(("context", .obj([("idempotencyKey", .string(key ?? "k-\(UUID().uuidString)"))])))
+        let key = ContractBundle.shared.operation(command)!.requiresIdempotencyKey || key != nil ? (key ?? "k-\(UUID().uuidString)") : nil
+        let out: JSONValue
+        switch await router(scope).answer(method: command, params: params, idempotencyKey: key) {
+        case let .success(v): out = .obj([("ok", .bool(true)), ("result", v)])
+        case let .failure(e): out = .obj([("ok", .bool(false)), ("error", e.json)])
         }
-        var out = await router(scope).respond(toBody: JSONValue.obj(m).encodedData())
-        #expect(!String(decoding: out, as: UTF8.self).contains(testKey), "no response carries the key")
-        out.removeLast()
-        return try StrictJSON.parse(out)
+        #expect(!out.encoded().contains(testKey), "no response carries the key")
+        return out
     }
 
     func ok(_ command: String, _ params: JSONValue, scope: String = "owner", key: String? = nil) async throws -> JSONValue {
@@ -129,7 +126,7 @@ struct Rig {
             Issue.record("\(command) failed: \(v.encoded())")
             throw CancellationError()
         }
-        #expect(try ContractBundle.shared.validateRpc(r, "\(ContractBundle.shared.operation(command)!.defPrefix)_result").isEmpty)
+        #expect(try ContractBundle.shared.validate(r, "\(ContractBundle.shared.operation(command)!.defPrefix)_result").isEmpty)
         return r
     }
 
