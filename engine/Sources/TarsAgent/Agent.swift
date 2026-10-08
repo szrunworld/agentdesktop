@@ -43,7 +43,8 @@ public final class TarsAgent {
         /// Show the model the app's controls each step. On by default.
         public var listElements = true
         /// Whether the screen takes swipes and drags; off for iPhone
-        /// Mirroring, which ignores them.
+        /// Mirroring, where this backend has no reliable background gesture
+        /// (see `IPhoneCapabilities`).
         public var gestures = true
         /// The actions offered to the model; `TarsAgent.phoneActionSpaces`
         /// for a phone.
@@ -129,9 +130,10 @@ public final class TarsAgent {
         call_user() # Submit the task and call the user when the task is unsolvable, or when you need the user's help.
         """
 
-    /// For an iPhone through iPhone Mirroring: taps, typing and Home only.
-    /// Mirroring ignores every swipe and scroll from the Mac, and an iPhone
-    /// has no Back key.
+    /// For an iPhone through iPhone Mirroring: taps, typing and Home only,
+    /// the actions `IPhoneCapabilities` declares supported. Swipes and
+    /// scrolls posted in the background had no effect, so this backend offers
+    /// none (a person's mouse or trackpad can swipe); an iPhone has no Back key.
     public static let iPhoneActionSpaces = """
         click(start_box='[x1, y1, x2, y2]')
         type(content='') #Tap the text field first. If you want to submit your input, use "\\n" at the end of `content`.
