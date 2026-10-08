@@ -470,6 +470,8 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let report = try phone.reconnect(timeout: 20)
         #expect(report.pressed == "继续")
         #expect(report.state == .ready)
+        #expect(report.outcome == .ready && report.phase == .ready)
+        #expect(report.readyReadings == IPhoneConnectionTracker.defaultStableReadings)
         #expect(!report.timedOut)
     }
 
@@ -670,5 +672,253 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
         #expect(try phone.perform(tap(3100, 300)).ok)
         #expect(fake.inputs.count == 1)
+    }
+}
+
+/// 2026-10-09 F8: after Resume, reconnect reported ready on one look, and
+/// seconds later Mirroring showed "iPhone Mirroring Is Locked". Ready now
+/// takes steady looks of the current connection generation.
+@Suite struct IPhoneReconnectGenerationTests {
+    static let needed = IPhoneConnectionTracker.defaultStableReadings
+
+    /// Paused, with Resume; ready from the first look after the press.
+    func pausedPhone() -> (FakeMirroring, IPhoneAgentScreen) {
+        let fake = FakeMirroring()
+        fake.ax = ["Connection Paused", "Resume"]
+        fake.buttons = ["Resume"]
+        return (fake, IPhoneAgentScreen(screen: "phone", system: fake))
+    }
+
+    @Test func readyOnlyAfterSteadyLooksSinceThePress() throws {
+        let (fake, phone) = pausedPhone()
+        var phases: [IPhoneConnectionPhase] = []
+        let start = fake.clock
+        fake.onSleep = {
+            if fake.sleeps == 1 { fake.ax = [] }
+            phases.append(phone.connection.phase)
+        }
+        let report = try phone.reconnect(timeout: 20)
+        #expect(report.outcome == .ready && report.isReady)
+        #expect(report.pressed == "Resume" && fake.pressed == ["Resume"])
+        #expect(report.readyReadings == Self.needed)
+        #expect(fake.sleeps == Self.needed)
+        #expect(fake.clock.timeIntervalSince(start) >= Double(Self.needed - 1))
+        // Connecting after the press, then connected, verifying, ready.
+        #expect(phases.first == .connecting)
+        #expect(phone.connection.phase == .ready && !phone.connection.awaitingConfirmation)
+        #expect(try phone.screenshot(size: CGSize(width: 330, height: 720)).isEmpty == false)
+        #expect(try phone.perform(tap(3100, 300)).ok)
+    }
+
+    /// F8 itself: ready right after Resume, then locked. Not ready, and no
+    /// input until a reconnect confirms the phone.
+    @Test func readyThenLockedIsNeverReported() throws {
+        let (fake, phone) = pausedPhone()
+        fake.onSleep = {
+            if fake.sleeps == 1 { fake.ax = [] }
+            if fake.sleeps == 3 { fake.ax = ["iPhone Mirroring Is Locked"] }
+        }
+        let report = try phone.reconnect(timeout: 20)
+        #expect(report.outcome == .needsUser && !report.isReady)
+        #expect(report.state == .authRequired && report.label == "iPhone Mirroring Is Locked")
+        #expect(report.phase == .disconnected && report.pressed == "Resume")
+        #expect(fake.pressed == ["Resume"])
+        // Even if the next screenshot happens to show the phone, input waits
+        // for a reconnect that confirms it.
+        fake.ax = []
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        let refused = try phone.perform(tap(3100, 300))
+        #expect(refused.error?.hasPrefix("not_connected (unconfirmed)") == true)
+        #expect(fake.inputs.isEmpty)
+        fake.onSleep = nil
+        let again = try phone.reconnect(timeout: 20)
+        #expect(again.outcome == .ready && again.pressed == nil)
+        #expect(try phone.perform(tap(3100, 300)).ok)
+        #expect(fake.inputs.count == 1)
+    }
+
+    @Test func readyThenDisconnectedTimesOutUnconfirmed() throws {
+        let (fake, phone) = pausedPhone()
+        fake.onSleep = {
+            if fake.sleeps == 1 { fake.ax = [] }
+            if fake.sleeps == 3 { fake.ax = ["Connection Interrupted"]; fake.buttons = [] }
+        }
+        let report = try phone.reconnect(timeout: 8)
+        #expect(report.outcome == .pressedUnconfirmed && report.timedOut && !report.isReady)
+        #expect(report.state == .disconnected && report.readyReadings == 0)
+        #expect(phone.connection.awaitingConfirmation)
+    }
+
+    /// A moment of ready at the timeout is not ready: the stable window
+    /// never closed.
+    @Test func readyAtTheTimeoutIsStillUnconfirmed() throws {
+        let (fake, phone) = pausedPhone()
+        fake.onSleep = { if fake.sleeps == 2 { fake.ax = [] } }
+        let report = try phone.reconnect(timeout: 3)
+        #expect(report.state == .ready)
+        #expect(report.outcome == .pressedUnconfirmed && report.timedOut && !report.isReady)
+        #expect(report.readyReadings < Self.needed)
+    }
+
+    /// Two reconnects back to back: the ready looks of the first do not
+    /// count toward the second, which needs its own after its own press.
+    @Test func aQuickSecondReconnectStartsCountingAgain() throws {
+        let (fake, phone) = pausedPhone()
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = [] } }
+        let first = try phone.reconnect(timeout: Double(Self.needed - 2))
+        #expect(first.outcome == .pressedUnconfirmed && first.readyReadings == Self.needed - 2)
+        #expect(first.generation == 2)
+
+        fake.ax = ["Connection Interrupted", "Try Again"]
+        fake.buttons = ["Try Again"]
+        let sleepsBefore = fake.sleeps
+        var readingsSeen: [Int] = []
+        fake.onSleep = {
+            fake.ax = []
+            readingsSeen.append(phone.connection.readyStreak)
+        }
+        let second = try phone.reconnect(timeout: 20)
+        #expect(second.outcome == .ready && second.pressed == "Try Again")
+        #expect(second.generation == 4)
+        #expect(fake.sleeps - sleepsBefore == Self.needed)
+        // Counting started from nothing after the second press.
+        #expect(readingsSeen.first == 0)
+    }
+
+    /// A slow look of an earlier generation, arriving after a new press,
+    /// is dropped: ready looks from before do not make the new one ready.
+    @Test func aLateLookOfAnEarlierGenerationIsIgnored() throws {
+        let (fake, phone) = pausedPhone()
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = [] } }
+        _ = try phone.reconnect(timeout: Double(Self.needed - 2))
+        let old = phone.connection.generation
+
+        fake.ax = ["Connection Paused", "Resume"]
+        var accepted: [Bool] = []
+        fake.onSleep = {
+            // The phone stays paused; only stale "ready" looks arrive.
+            for step in 0..<Self.needed {
+                accepted.append(phone.record(IPhoneConnectionObservation(
+                    generation: old, state: .ready, windowID: 7,
+                    at: fake.clock.addingTimeInterval(Double(step)))))
+            }
+        }
+        let report = try phone.reconnect(timeout: 5)
+        #expect(accepted.allSatisfy { !$0 } && !accepted.isEmpty)
+        #expect(report.outcome == .pressedUnconfirmed && !report.isReady)
+        #expect(report.readyReadings == 0)
+        #expect(report.state == .disconnected)
+    }
+
+    @Test func aBarrierStillUpKeepsItFromReady() throws {
+        let (fake, phone) = pausedPhone()
+        try fake.inputBarrier.raise("may hold a half-finished paste")
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = [] } }
+        let report = try phone.reconnect(timeout: 20)
+        #expect(report.outcome == .notReady && !report.isReady)
+        #expect(report.blockedBy?.contains("half-finished paste") == true)
+        fake.inputBarrier.lower()
+    }
+
+    @Test func aWindowSwappedMidwayStartsTheCountAgain() throws {
+        let (fake, phone) = pausedPhone()
+        var streakAtSwap = -1
+        fake.onSleep = {
+            if fake.sleeps == 1 { fake.ax = [] }
+            if fake.sleeps == 3 {
+                streakAtSwap = phone.connection.readyStreak
+                fake.windowsByPID[42] = [IPhoneWindow(pid: 42, windowID: 9, frame: CGRect(x: 3010, y: 40, width: 330, height: 720))]
+            }
+        }
+        let report = try phone.reconnect(timeout: 20)
+        #expect(streakAtSwap == 2)
+        #expect(report.outcome == .ready && phone.binding?.windowID == 9)
+        #expect(fake.sleeps == 2 + Self.needed)
+    }
+}
+
+/// The tracker alone: generations, spacing, resets.
+@Suite struct IPhoneConnectionTrackerTests {
+    let t0 = Date(timeIntervalSince1970: 2_000_000)
+
+    func look(_ generation: Int, _ state: IPhoneConnectionState, _ seconds: Double, window: CGWindowID? = 7)
+        -> IPhoneConnectionObservation {
+        IPhoneConnectionObservation(generation: generation, state: state, windowID: window, at: t0.addingTimeInterval(seconds))
+    }
+
+    @Test func phasesGoConnectingConnectedVerifyingReady() {
+        var tracker = IPhoneConnectionTracker(stableReadings: 3, spacing: 1)
+        let g = tracker.begin(at: t0, pressed: true)
+        #expect(tracker.phase == .connecting && tracker.awaitingConfirmation)
+        tracker.record(look(g, .ready, 0.5)); #expect(tracker.phase == .connected)
+        tracker.record(look(g, .ready, 1.0)); #expect(tracker.phase == .connected)  // too soon: not counted
+        tracker.record(look(g, .ready, 1.5)); #expect(tracker.phase == .verifying)
+        tracker.record(look(g, .ready, 2.5)); #expect(tracker.phase == .ready)
+        #expect(tracker.isReady(window: 7) && !tracker.isReady(window: 8))
+        #expect(!tracker.awaitingConfirmation)
+    }
+
+    @Test func anyOtherLookStartsOver() {
+        var tracker = IPhoneConnectionTracker(stableReadings: 3, spacing: 1)
+        let g = tracker.begin(at: t0, pressed: true)
+        for (state, phase) in [(IPhoneConnectionState.uncertain, IPhoneConnectionPhase.connecting),
+                               (.reconnecting, .connecting), (.authRequired, .disconnected), (.disconnected, .disconnected)] {
+            tracker.begin(at: t0, pressed: true)
+            let g = tracker.generation
+            tracker.record(look(g, .ready, 1)); tracker.record(look(g, .ready, 2))
+            tracker.record(look(g, state, 3))
+            #expect(tracker.readyStreak == 0 && tracker.phase == phase)
+            tracker.record(look(g, .ready, 4))
+            #expect(tracker.phase == .connected)
+        }
+        _ = g
+    }
+
+    @Test func looksOfEarlierGenerationsOrBeforeThePressAreDropped() {
+        var tracker = IPhoneConnectionTracker(stableReadings: 2, spacing: 1)
+        let first = tracker.begin(at: t0, pressed: true)
+        tracker.record(look(first, .ready, 1))
+        let second = tracker.begin(at: t0.addingTimeInterval(5), pressed: true)
+        let r1 = tracker.record(look(first, .ready, 6))
+        #expect(!r1)
+        let r2 = tracker.record(look(first, .ready, 7))
+        #expect(!r2)
+        let beforePress = tracker.record(look(second, .ready, 4))  // began before the press
+        #expect(!beforePress)
+        #expect(tracker.phase == .connecting && tracker.readyStreak == 0)
+        let r3 = tracker.record(look(second, .ready, 6))
+        #expect(r3)
+        let r4 = tracker.record(look(second, .ready, 7))
+        #expect(r4)
+        #expect(tracker.phase == .ready)
+    }
+
+    @Test func aLookOlderThanTheLatestIsDropped() {
+        var tracker = IPhoneConnectionTracker(stableReadings: 2, spacing: 1)
+        let g = tracker.begin(at: t0, pressed: true)
+        tracker.record(look(g, .authRequired, 3))
+        let r5 = tracker.record(look(g, .ready, 1))
+        #expect(!r5)
+        let r6 = tracker.record(look(g, .ready, 2))
+        #expect(!r6)
+        #expect(tracker.phase == .disconnected)
+    }
+
+    @Test func aCheckWithoutAPressDoesNotClearAnUnconfirmedOne() {
+        var tracker = IPhoneConnectionTracker(stableReadings: 2, spacing: 1)
+        tracker.begin(at: t0, pressed: true)
+        let g = tracker.begin(at: t0.addingTimeInterval(1), pressed: false)
+        #expect(tracker.awaitingConfirmation)
+        tracker.record(look(g, .authRequired, 2))
+        #expect(tracker.awaitingConfirmation)
+        tracker.record(look(g, .ready, 3)); tracker.record(look(g, .ready, 4))
+        #expect(!tracker.awaitingConfirmation)
+    }
+
+    @Test func aReadyLookWithNoWindowIsNotReady() {
+        var tracker = IPhoneConnectionTracker(stableReadings: 1, spacing: 1)
+        let g = tracker.begin(at: t0, pressed: true)
+        tracker.record(look(g, .ready, 1, window: nil))
+        #expect(tracker.phase == .connecting && !tracker.isReady(window: nil))
     }
 }

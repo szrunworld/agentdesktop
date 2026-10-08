@@ -163,45 +163,137 @@ public final class IPhoneAgentScreen: AgentScreen {
         return state(of: try capturedWindow())
     }
 
+    /// How `reconnect` ended.
+    public enum ReconnectOutcome: String {
+        /// The phone was seen ready, steadily, after any press: input may go on.
+        case ready
+        /// A button was pressed, but the phone was not seen ready for long
+        /// enough before the timeout. Not a success; input stays refused.
+        case pressedUnconfirmed = "pressed_unconfirmed"
+        /// The phone is in use, locked, or Mirroring needs the user (password,
+        /// Touch ID, Bluetooth…): nothing more is pressed.
+        case needsUser = "needs_user"
+        /// Not ready and nothing pressed: no button to press, the state
+        /// unknown, or an input barrier still up.
+        case notReady = "not_ready"
+    }
+
     public struct ReconnectReport {
+        public var outcome: ReconnectOutcome
+        /// Where the last generation stood when it returned.
+        public var phase: IPhoneConnectionPhase
+        public var generation: Int
+        /// Ready looks counted in a row, of `stableReadings` needed.
+        public var readyReadings: Int
+        /// What the window showed at the last look counted.
         public var state: IPhoneConnectionState
         public var label: String?
         /// The button pressed, if one was.
         public var pressed: String?
         public var timedOut: Bool
+        /// Why a connection seen ready is still not reported ready.
+        public var blockedBy: String?
+
+        /// Only a confirmed ready is a success.
+        public var isReady: Bool { outcome == .ready }
+    }
+
+    /// The connection as `reconnect` left it in this process. A press not
+    /// yet confirmed ready keeps input refused.
+    public private(set) var connection = IPhoneConnectionTracker()
+
+    /// Count a look at the window toward the connection; false when it was
+    /// of an earlier generation and dropped.
+    @discardableResult
+    func record(_ look: IPhoneConnectionObservation) -> Bool {
+        connection.record(look)
+    }
+
+    /// One look at the window, stamped with the generation current when it
+    /// began. A look that fails is not ready.
+    private func look() -> IPhoneConnectionObservation {
+        let generation = connection.generation
+        let at = system.now
+        guard let (state, label) = try? connectionState() else {
+            return IPhoneConnectionObservation(generation: generation, state: .uncertain, windowID: nil, at: at)
+        }
+        return IPhoneConnectionObservation(generation: generation, state: state, label: label,
+                                           windowID: binding?.windowID, at: at)
     }
 
     /// Ask a disconnected Mirroring to connect again and wait, until
-    /// `timeout` or `deadline`, for it to settle. Presses nothing when the
-    /// phone is in use, locked or needs the user: those are for the user.
+    /// `timeout` or `deadline`, for the phone to be ready. Presses nothing
+    /// when the phone is in use, locked or needs the user: those are for
+    /// the user.
+    ///
+    /// Each call, and each press, starts a new connection generation (see
+    /// `IPhoneConnectionTracker`): only looks taken after it count. Ready is
+    /// reported only when the phone was seen ready
+    /// `IPhoneConnectionTracker.defaultStableReadings` times in a row, a
+    /// second or more apart, in the bound phone window, with the latest look
+    /// ready and no input barrier up. A status page needing the user at any
+    /// look ends it as `needsUser` (2026-10-09 F8: "ready" right after Resume,
+    /// "iPhone Mirroring Is Locked" seconds later).
     public func reconnect(timeout: TimeInterval = 20) throws -> ReconnectReport {
         let until = min(deadline ?? .distantFuture, system.now.addingTimeInterval(timeout))
-        var (state, label) = try connectionState()
+        connection.begin(at: system.now, pressed: false)
+        let generation = connection.generation
+        let at = system.now
+        let (state, label) = try connectionState()
+        connection.record(IPhoneConnectionObservation(generation: generation, state: state, label: label,
+                                                      windowID: binding?.windowID, at: at))
         var pressed: String?
         switch state {
-        case .ready, .phoneInUse, .authRequired, .needsUser, .uncertain:
-            return ReconnectReport(state: state, label: label, pressed: nil, timedOut: false)
+        case .phoneInUse, .authRequired, .needsUser:
+            return report(.needsUser, pressed: nil, timedOut: false)
+        case .uncertain:
+            return report(.notReady, pressed: nil, timedOut: false)
         case .disconnected:
             // Stopped already: press nothing, not even Connect or Resume.
             if let stop = stopReason() { throw stop }
             guard let pid = binding?.pid,
                   let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid, windowID: binding?.windowID)
-            else { return ReconnectReport(state: state, label: label, pressed: nil, timedOut: false) }
+            else { return report(.notReady, pressed: nil, timedOut: false) }
             pressed = title
-        case .reconnecting:
+            // What was seen before the press says nothing about after it.
+            connection.begin(at: system.now, pressed: true)
+        case .ready, .reconnecting:
             break
         }
         while true {
+            if let done = readyReport(pressed: pressed) { return done }
             if let stop = stopReason() { throw stop }
             let left = until.timeIntervalSince(system.now)
-            if left <= 0 { return ReconnectReport(state: state, label: label, pressed: pressed, timedOut: true) }
-            system.sleep(min(1, left))
+            if left <= 0 { return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true) }
+            system.sleep(min(connection.spacing, left))
             // The window may be gone or remade while it connects.
-            if let now = try? connectionState() { (state, label) = now }
-            if state != .reconnecting && state != .disconnected {
-                return ReconnectReport(state: state, label: label, pressed: pressed, timedOut: false)
+            let seen = look()
+            connection.record(seen)
+            switch seen.state {
+            case .phoneInUse, .authRequired, .needsUser:
+                return report(.needsUser, pressed: pressed, timedOut: false)
+            case .ready, .reconnecting, .disconnected, .uncertain:
+                continue
             }
         }
+    }
+
+    /// The report when the connection is ready in the bound window, nil
+    /// while it is not.
+    private func readyReport(pressed: String?) -> ReconnectReport? {
+        guard connection.isReady(window: binding?.windowID) else { return nil }
+        if let reason = invalidated ?? system.inputBarrier.reason(now: system.now) {
+            var blocked = report(.notReady, pressed: pressed, timedOut: false)
+            blocked.blockedBy = "input barrier: \(reason); take a screenshot first"
+            return blocked
+        }
+        return report(.ready, pressed: pressed, timedOut: false)
+    }
+
+    private func report(_ outcome: ReconnectOutcome, pressed: String?, timedOut: Bool) -> ReconnectReport {
+        ReconnectReport(outcome: outcome, phase: connection.phase, generation: connection.generation,
+                        readyReadings: connection.readyStreak, state: connection.latest?.state ?? .uncertain,
+                        label: connection.latest?.label, pressed: pressed, timedOut: timedOut)
     }
 
     // MARK: Cancellation
@@ -347,6 +439,15 @@ public final class IPhoneAgentScreen: AgentScreen {
         guard status.state == .ready else {
             throw IPhoneError("not_connected", reason: status.state.rawValue,
                               "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint)")
+        }
+        // A reconnect pressed a button and the phone was not seen ready for
+        // long enough since: a moment of "ready" may still turn into a lock
+        // screen (F8). Only a reconnect that confirms it lets input go on.
+        if connection.awaitingConfirmation {
+            throw IPhoneError("not_connected", reason: "unconfirmed",
+                              "iPhone Mirroring was asked to connect (generation \(connection.generation), "
+                                  + "\(connection.phase.rawValue)) and has not been confirmed ready; "
+                                  + "run `agentdesktop iphone reconnect` again")
         }
         return now
     }

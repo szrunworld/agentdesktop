@@ -314,6 +314,145 @@ public enum IPhoneConnection {
     }
 }
 
+// MARK: Connection lifecycle
+
+/// Where a connection attempt stands, as `iphone reconnect` sees it:
+/// disconnected → connecting → connected → verifying → ready. Only `ready`
+/// lets reconnect report success and input continue after a press.
+public enum IPhoneConnectionPhase: String {
+    /// A status page that needs a press or the user, or nothing yet seen.
+    case disconnected
+    /// A button was pressed or Mirroring says it is connecting; the phone
+    /// has not been seen since.
+    case connecting
+    /// The phone was seen once in this generation; nothing more is known
+    /// (2026-10-09 F8: "ready" a moment after Resume, then "iPhone
+    /// Mirroring Is Locked").
+    case connected
+    /// The phone has been seen more than once, spaced apart, with nothing
+    /// else in between; not yet for long enough.
+    case verifying
+    /// The phone was seen `stableReadings` times in a row, at least
+    /// `spacing` apart, in the same window, all in this generation.
+    case ready
+}
+
+/// One look at the phone's window, stamped with the connection generation
+/// current when the look began.
+public struct IPhoneConnectionObservation: Equatable {
+    public var generation: Int
+    public var state: IPhoneConnectionState
+    public var label: String?
+    /// The window looked at; nil when the look failed.
+    public var windowID: CGWindowID?
+    /// When the look began.
+    public var at: Date
+
+    public init(generation: Int, state: IPhoneConnectionState, label: String? = nil,
+                windowID: CGWindowID?, at: Date) {
+        self.generation = generation
+        self.state = state
+        self.label = label
+        self.windowID = windowID
+        self.at = at
+    }
+}
+
+/// Decides when a connection is ready from looks at the window, and only
+/// from looks of the current generation. Every Connect / Resume / Try Again
+/// press starts a new generation: a look that began before it, or that
+/// belongs to an earlier one (a slow read, an earlier reconnect), is
+/// dropped and changes nothing. Ready needs `stableReadings` ready looks in
+/// a row, each at least `spacing` after the last counted one, of the same
+/// window; any look that is not ready starts the count again.
+public struct IPhoneConnectionTracker {
+    public static let defaultStableReadings = 4
+    public static let defaultSpacing: TimeInterval = 1
+
+    public let stableReadings: Int
+    public let spacing: TimeInterval
+
+    public private(set) var generation = 0
+    public private(set) var phase: IPhoneConnectionPhase = .disconnected
+    /// When the current generation began; earlier looks do not count.
+    public private(set) var since: Date = .distantPast
+    /// True from a press until a generation reaches ready: input to the
+    /// phone is refused meanwhile. A later check without a press does not
+    /// clear it; only seeing the phone ready does.
+    public private(set) var awaitingConfirmation = false
+    /// The last look counted in this generation.
+    public private(set) var latest: IPhoneConnectionObservation?
+    /// Ready looks counted in a row, and the window they were of.
+    public private(set) var readyStreak = 0
+    private var streakWindow: CGWindowID?
+    private var lastReadyAt: Date?
+
+    public init(stableReadings: Int = defaultStableReadings, spacing: TimeInterval = defaultSpacing) {
+        self.stableReadings = max(1, stableReadings)
+        self.spacing = spacing
+    }
+
+    /// Start a new generation at `now`, after a press (`pressed`) or for a
+    /// fresh check; what was seen before counts no more.
+    @discardableResult
+    public mutating func begin(at now: Date, pressed: Bool) -> Int {
+        generation += 1
+        since = now
+        if pressed { awaitingConfirmation = true }
+        phase = pressed ? .connecting : .disconnected
+        latest = nil
+        resetStreak()
+        return generation
+    }
+
+    /// Count `look` if it is of this generation; false when dropped.
+    @discardableResult
+    public mutating func record(_ look: IPhoneConnectionObservation) -> Bool {
+        guard look.generation == generation, look.at >= since else { return false }
+        if let latest, look.at < latest.at { return false }
+        latest = look
+        switch look.state {
+        case .ready:
+            guard let window = look.windowID else {
+                resetStreak()
+                phase = .connecting
+                return true
+            }
+            if streakWindow != window {
+                // Another window is another session: start over with it.
+                resetStreak()
+                streakWindow = window
+            }
+            if let last = lastReadyAt, look.at.timeIntervalSince(last) < spacing - 0.001 {
+                // Too soon after the last counted look to say anything new.
+                return true
+            }
+            readyStreak += 1
+            lastReadyAt = look.at
+            phase = readyStreak >= stableReadings ? .ready : (readyStreak == 1 ? .connected : .verifying)
+            if phase == .ready { awaitingConfirmation = false }
+        case .reconnecting, .uncertain:
+            resetStreak()
+            phase = .connecting
+        case .disconnected, .phoneInUse, .authRequired, .needsUser:
+            resetStreak()
+            phase = .disconnected
+        }
+        return true
+    }
+
+    /// Whether the ready looks were of `windowID`.
+    public func isReady(window windowID: CGWindowID?) -> Bool {
+        phase == .ready && windowID != nil && streakWindow == windowID && latest?.state == .ready
+    }
+
+    private mutating func resetStreak() {
+        readyStreak = 0
+        streakWindow = nil
+        lastReadyAt = nil
+    }
+}
+
 // MARK: Images and files
 
 public enum IPhoneFrames {
