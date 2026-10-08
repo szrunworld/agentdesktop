@@ -145,6 +145,8 @@ public enum ACPActionLevel: Equatable, Sendable {
     /// The Runtime cannot tell; never retried, shown as "待核实".
     case unknown
     case refused(code: String)
+    /// Dispatched, then the execution failed (receipt execution=failed).
+    case failed(code: String)
 }
 
 public struct ACPToolCall: Equatable, Sendable {

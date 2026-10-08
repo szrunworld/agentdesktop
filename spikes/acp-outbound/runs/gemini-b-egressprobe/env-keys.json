@@ -1,0 +1,15 @@
+[
+ "GEMINI_API_KEY",
+ "GEMINI_FORCE_FILE_STORAGE",
+ "GOOGLE_GEMINI_BASE_URL",
+ "HOME",
+ "HTTPS_PROXY",
+ "HTTP_PROXY",
+ "LANG",
+ "NO_PROXY",
+ "PATH",
+ "TMPDIR",
+ "http_proxy",
+ "https_proxy",
+ "no_proxy"
+]

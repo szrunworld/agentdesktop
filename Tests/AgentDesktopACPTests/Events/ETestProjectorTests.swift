@@ -70,7 +70,7 @@ import Testing
         #expect(c.level == .unknown)
         // An event named completed whose receipt says failed is failed.
         let f = try #require(call(p.project(ETest.event("action.completed", [("receipt", ETest.receipt(execution: "failed"))]), policy: strict)))
-        #expect(f.level == .refused(code: "execution_failed") && f.status == .failed)
+        #expect(f.level == .failed(code: "execution_failed") && f.status == .failed)
         // An unrecognised axis combination is never success.
         let odd = try #require(call(p.project(ETest.event("action.completed", [("receipt", ETest.receipt(delivery: "maybe"))]), policy: strict)))
         #expect(odd.level == .unknown)

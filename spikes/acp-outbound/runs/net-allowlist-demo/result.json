@@ -1,0 +1,18 @@
+{
+  "inSandbox": {
+    "direct_1_1_1_1_443": "error EPERM",
+    "direct_localhost_other_port": "error EPERM",
+    "proxy_api_anthropic": "HTTP/1.1 200 Connection Established",
+    "proxy_other_host": "HTTP/1.1 403 Forbidden"
+  },
+  "proxyDecisions": [
+    {
+      "target": "api.anthropic.com:443",
+      "allowed": true
+    },
+    {
+      "target": "exfil.example.com:443",
+      "allowed": false
+    }
+  ]
+}

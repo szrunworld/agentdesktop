@@ -63,6 +63,7 @@ enum ETest {
         case .contradicted: return .string("contradicted")
         case .unknown: return .string("unknown")
         case let .refused(code): return .string("refused:\(code)")
+        case let .failed(code): return .string("failed:\(code)")
         }
     }
 
