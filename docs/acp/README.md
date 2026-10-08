@@ -127,3 +127,27 @@ LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test                                
 Runtime 桥对阻塞调用的隔离由 `RuntimeBridge` 的闸门测试覆盖（`ACPBridgeExecutor`，见 07 文档与 #72），这些测试保留，不得为通过 CI 而删除或放宽。
 
 **下一阶段**：先与 f1 对齐三项契约增量（调用方身份、Run 最新游标、事件目录）对应的 PR 与交付顺序，40 的 `unit.run` 同为 P0；契约落地后立即做 R、E 集成，优先打通 Zed → ACP → Runtime → GUI 执行 → 事件回传 → Zed 的最小真实链路；真实端到端由 Q 在隔离测试副本上执行，不得影响其他会话的 WindowServer 环境。ACP 不新增第二套 Runtime、执行调度或 GUI 控制入口，所有 GUI 操作经 runtime/1。
+
+## 九、第四、五次裁决：以 main 为基线与合并权限（2026-10-08 晚）
+
+**#111 有条件追认**：保留 #111 合入 main 的代码，不回滚；不认可未经批准的合并流程。条件：ACP 开发入口不进正式发布包、实验功能默认不对正式用户开放、只走 runtime/1、A4 前不绕过权限边界、未授权动作一律拒绝、main 相关测试通过、G0～G5 完成前不宣布可用。协调者已在 main@dddc0db 核对打包边界：release 的 `agentdesktop` 与 `AgentDesktopApp` 中 ACP 符号与字符串均为 0，`bundle-app.sh` 只复制这两个产品，CLI 没有 `acp` 子命令（06 G0-14）。
+
+**基线**：`agentdesktop/main → ACP 功能分支 → PR → main`；`acp-skeleton` 退役，不再维护第二套长期集成分支。
+
+**合并权限**（ACP 协调者是项目角色，不绑定任何会话名称；负责人按仓库职责与 PR 记录识别）：
+
+| PR 类型 | 合并权限 |
+| --- | --- |
+| ACP 文档、测试、普通 UI、事件投影适配 | ACP 协调者 |
+| ACP 内部实现，不改变平台安全边界 | ACP 协调者 |
+| Runtime 契约、身份认证、Run 生命周期 | Runtime / 集成负责人审核 |
+| 审批、授权、外发或执行权限扩大 | Kevin 明确批准 |
+| ACP 正式发布或打开实验功能入口 | Kevin 明确批准 |
+
+每个 PR：CI 全绿；作者不能是唯一审核人，至少一位非作者审核（独立审核记录以 PR 评论留档）；不绕过分支保护；禁止未经授权的批量合并与自动合并；跨多条工作线的集成 PR 必须先明确授权范围。注意：本仓库为私有免费套餐，GitHub 不提供分支保护与规则集（API 403），「required checks」目前按约定执行，无法强制。
+
+**#102 的两处差异**（Kevin 确认）：保留 `action.refused`（送达前拒绝，无回执）；`action.failed` 为送达后失败（有回执）；unknown 保持 unknown；同一操作不得产生矛盾终态。`runtime.schema.json` 是权威事件目录，`methods.json` 只管 RPC 方法，Swift 生成副本由测试守护。两个缺口单独整改（#115 冻结文档手写目录、#116 RunEvent/EventFrame 校验到目录），不阻断 #114，ACP 正式发布前必须完成。
+
+**剩余契约优先级**：A4 调用方身份 P0、Run 最新事件游标 P0；结束原因固定枚举、`run.ended` 的任务类型与待核实动作数、验证结果、事件敏感级别 P1。验证结果落地前，ACP 不得把「已执行」或「已收到回执」显示为「已验证」。
+
+合并授权记录见 [merge-log.md](merge-log.md)。
