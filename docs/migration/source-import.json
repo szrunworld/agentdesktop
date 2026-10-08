@@ -1,0 +1,8 @@
+{
+  "repository": "szrunworld/agentdesktop",
+  "importCommit": "49218be42ed0af1cdaeee424d684103551d79a31",
+  "importTree": "9615b6a03a0b463ae494d8439fb38c7ec849d143",
+  "sourceRepository": "szrunworld/2ndscreen",
+  "sourceCommit": "da5677c2be421dc2d35cdda5cdf66b7134f6a381",
+  "targetBase": "91cfd09a9c0213baf35e8191f135319db93a29f1"
+}

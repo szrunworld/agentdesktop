@@ -1,0 +1,358 @@
+da5677c2be421dc2d35cdda5cdf66b7134f6a381	2026-10-07T23:10:09+08:00	szrunworld	Merge pull request #63 from szrunworld/c01a-generic-startup
+968c65736cd88fece131e2e0a9fa322a2ca24ea0	2026-10-07T23:10:09+08:00	szrunworld	Merge pull request #62 from szrunworld/control-server-eof
+b4d6e5646ec073d33451f0f893a9af3a4e140c08	2026-10-07T22:13:16+08:00	szrunworld	Task runtime starts with no business package (C01a)
+e9121630671560f7dcfd3a7a5bda6100b94f18b1	2026-10-07T22:06:42+08:00	szrunworld	ControlServer: refuse a connection whose SIGPIPE guard cannot be set
+cb6985b3e515718a0540eca7eea7fcf68dfc1aec	2026-10-07T21:39:45+08:00	szrunworld	ControlServer: a client that leaves early no longer ends the host
+7a9615406b4bbc2fcf09224a30667404b4765ecb	2026-10-07T16:50:02+08:00	szrunworld	Merge pull request #60 from szrunworld/release-0.2.0
+6f5a5abaeee9a03c244d921aa139430881e6e760	2026-10-07T16:49:55+08:00	szrunworld	Version 0.2.0: Agent Desktop preview for macOS
+a8f98b4c0462de7195443d1779ac010b6ad27c4c	2026-10-07T16:35:50+08:00	szrunworld	Merge pull request #59 from szrunworld/agent-stderr-log
+adfc93ed155b0912288a61bf5276926004d9c359	2026-10-07T16:35:43+08:00	szrunworld	Keep each hosted agent's stderr in agents/logs/<agent id>.log
+9b3018275f39f3e1004d7c28edfb56784806497a	2026-10-07T15:47:21+08:00	szrunworld	Merge pull request #58 from szrunworld/act-confirms
+db86dbf24a5a4a9e7a04c98924c798b54b83e077	2026-10-07T15:47:13+08:00	szrunworld	Let the confirm click of an external-submit count as the same use
+0d22edec33059ec6f8a7308c803b80a1f7822ef3	2026-10-07T15:24:10+08:00	szrunworld	Merge pull request #57 from szrunworld/action-log
+ee68ae24b465fa7b95869a71adb7dce335f9bd1a	2026-10-07T15:24:02+08:00	szrunworld	Keep a click record: every desktop action of every agent
+e76197dc48a34dd3bb43cdf52ae1cb765fb8dda9	2026-10-07T14:39:59+08:00	szrunworld	Merge pull request #55 from szrunworld/wait-for-login
+b0aee848152d4c04c7807de75b350b6946faccd0	2026-10-07T14:39:47+08:00	szrunworld	Keep an app that waits for a login open, and say so
+b4703de9bcff675b3ba1cf7121ed1c4123f3e0e5	2026-10-07T13:50:37+08:00	szrunworld	Merge pull request #54 from szrunworld/resident-wait-handover
+865515645f784adcbb1e9ba400c4f2946d7ea045	2026-10-07T13:50:24+08:00	szrunworld	Wait for an app the user holds instead of giving up on it
+99c769dfbc6c7c7e5762c251a1e20d994bc541e0	2026-10-07T13:45:49+08:00	szrunworld	Merge pull request #53 from szrunworld/builtin-agents
+8038cbbc93c2551ff2c2d99ecd9132193870aed1	2026-10-07T13:45:41+08:00	szrunworld	Merge pull request #52 from szrunworld/agent-run-unit
+72511975f64fd22d18b181dbd8162862474e4463	2026-10-07T12:38:41+08:00	szrunworld	Builtin skills as agents of the hub, through the same check chain
+97f39f2b4c82ea14a41fec6e7aeaf92465e7dc29	2026-10-07T12:33:33+08:00	szrunworld	Offer the runner's units to agents: run_unit
+d9ab9f52830ebe0817ca7bbe02eda6fa0640e905	2026-10-07T12:11:19+08:00	szrunworld	Merge pull request #51 from szrunworld/heartbeat-while-answering
+7fe176ea011b4a8224f45af1df59ce2292ab49a6	2026-10-07T12:11:10+08:00	szrunworld	Do not count time the host spends answering as an agent's silence
+1c69b709a3ca76f422f8f3a2cff590d5d49b6584	2026-10-07T12:04:11+08:00	szrunworld	Merge pull request #50 from szrunworld/agent-worker-merge
+c9f13c622dbd5e61cafe0845611962a8a0ce998d	2026-10-07T12:03:55+08:00	szrunworld	Host agents in the worker, with their tasks in tasks.db
+275a6f67f85992122dba8a2daf384c08751d8695	2026-10-07T11:00:23+08:00	szrunworld	Merge pull request #49 from szrunworld/app-quit
+ae077f6928efde4aaa03c0ac91b9d73a7a7399b2	2026-10-07T11:00:05+08:00	szrunworld	Quit apps the runtime launched as ⌘Q would, before any signal
+ed787b288f2d720caca908067d7300abc30e9510	2026-10-07T10:43:42+08:00	szrunworld	Merge pull request #48 from szrunworld/agent-submit
+70aa74ceec85b4b75f8acde99303b97dddb59d5e	2026-10-07T10:43:21+08:00	szrunworld	Hand tasks to hosted agents from any process, and keep their outcomes
+1967c2cc93da5b5c0b027016d58285b75c062496	2026-10-07T10:32:50+08:00	szrunworld	Merge pull request #47 from szrunworld/agent-manage
+ee87c024499151ca583bd7c9a9cb6970df528404	2026-10-07T10:32:29+08:00	szrunworld	Manage agents while they run: grants from the command line, live reload
+e81a5b9619af6704ff6f4c0b22734346a23c4e6e	2026-10-07T09:40:25+08:00	szrunworld	Merge pull request #46 from szrunworld/fix-index-export
+cfe9b68beb720741e572301003c24b74c44931bd	2026-10-07T09:40:17+08:00	szrunworld	Rename the agent host's session request so the package index compiles
+ebc6ea8105bd1850517354bf331d5a122f1ecdf4	2026-10-07T09:39:02+08:00	szrunworld	Merge pull request #45 from szrunworld/agent-hostd
+b9125b614c7aa8dae555c32ddfd171195513a92f	2026-10-07T09:38:53+08:00	szrunworld	Run resident agents in a long-lived agent host (RFC 0001 P1)
+bca01556b6cc9293b49fdc82b9d337118c84b1cc	2026-10-07T09:15:58+08:00	szrunworld	Merge pull request #44 from szrunworld/agent-inbox
+0136e07e5c00c4ab90120ef7213610ecbd302b55	2026-10-07T09:15:49+08:00	szrunworld	Let a person approve and answer agents from any process
+2688320c9952783954e32e3a00d27d125ad83407	2026-10-07T09:05:11+08:00	szrunworld	Merge pull request #43 from szrunworld/agent-resident
+0270964e13d27d4730f38dffa9f74e0c0dadabfd	2026-10-07T09:05:01+08:00	szrunworld	Keep resident agents running through their work hours (RFC 0001 P1)
+16410ec2a56d97b5279144b7f8fab28b3ded16ce	2026-10-07T02:38:10+08:00	szrunworld	Merge pull request #42 from szrunworld/agent-status-usage
+4675bdc99a1abd2970a7b58640f3da08eae4868b	2026-10-07T02:37:55+08:00	szrunworld	Show which agent is stuck, answer its questions, and count its provider use
+27f4424f1712c6edab2a674de73b94d34903f4fd	2026-10-07T02:23:20+08:00	szrunworld	Merge pull request #41 from szrunworld/agent-host
+da44f32c163c1c7552bdb3187c2d5bfd88a2bbd5	2026-10-07T02:23:05+08:00	szrunworld	Merge pull request #39 from szrunworld/agent-contracts
+f85115f8443dc3ed48d8e2366eb8fc65ac54e76e	2026-10-07T02:23:01+08:00	szrunworld	Merge pull request #38 from szrunworld/skills-hub-design
+4bb35a1286b92c32553e5fd29154cbac37c85029	2026-10-07T02:22:58+08:00	szrunworld	Merge pull request #35 from szrunworld/remove-agents-boss
+bdfea90128ea63c2e338de286f31fa8ec375612c	2026-10-07T02:18:37+08:00	szrunworld	Host task-mode process agents behind the pre-action check chain (RFC 0001 P1)
+cc0d31a0cf87275121a0cd6e95aef6fe9657c8e2	2026-10-07T02:09:25+08:00	szrunworld	Add the agent manifest and agent JSONL protocol contracts (RFC 0001 P1)
+613ac53b53c04b8e6b95b5064ca179b17cf06826	2026-10-06T23:09:39+08:00	szrunworld	Remove the BOSS直聘 assistant prototype from this repository
+9d1ddf26dd84e0b1b2fb52389e7633312d8f0d4f	2026-10-07T01:52:51+08:00	szrunworld	Retitle the hub RFC: it hosts agents, and the product is Agent Desktop
+8cb915f55a89e703b818052f72383e96ae88592e	2026-10-07T01:42:42+08:00	szrunworld	Fill in the hub's management plane from the SKILL.md managers
+c27cc0045e8c1c3b5d45fe4119a30f52576662cc	2026-10-07T01:36:58+08:00	szrunworld	Shape the skills hub approvals after OpenShell, and file it as RFC 0001
+9450d10cfdf66870bc35bf4e64c35906f45bc226	2026-10-07T01:28:53+08:00	szrunworld	Merge pull request #37 from szrunworld/runtime-library
+77c066c0e38a634bac84ea98f1fb20038232b6c5	2026-10-07T01:02:52+08:00	szrunworld	Propose the agent skills hub: skills mount into the runtime by protocol
+d8b6b1418341b7046f8819f8c4930a34337ea0bd	2026-10-07T00:53:26+08:00	szrunworld	Let host apps embed the agent runtime as a library
+a879db0f51f9a64e80bbadaa89c409f66386df36	2026-10-06T23:17:49+08:00	szrunworld	Merge pull request #36 from szrunworld/szrunworld/runtime-owns-boss-workflow
+2d461ea1d32179964e0126ba8ef007e3b7ff728d	2026-10-06T23:17:25+08:00	szrunworld	Move the BOSS resume workflow into the task runtime
+dee412f4acb368e7a57d7aba04fa9eecc878afd3	2026-10-06T23:10:34+08:00	szrunworld	Merge pull request #34 from szrunworld/szrunworld/task-runtime-merge
+fe70396124332f0eca919197355dddda0a7efb2e	2026-10-06T23:04:14+08:00	szrunworld	Merge the archived task runtime into vdisplay-prototype
+5bd583af7f57a7f46751f6cbeb9834f0182b9984	2026-10-06T22:08:23+08:00	szrunworld	Merge pull request #32 from szrunworld/ax-press-docs
+c15f85dff72718e005e5324fbcb4b82a9c6ce8d7	2026-10-06T21:31:09+08:00	szrunworld	Merge pull request #33 from szrunworld/document-routes
+d19c2d75a7cc81051b85ba6cfea2c83921ef531a	2026-10-06T21:28:39+08:00	szrunworld	Document what each action route means and when to verify
+3314cd36d32a8ac3865b76ba32978b587cb0b17d	2026-10-06T21:26:04+08:00	szrunworld	Mention ax-press in the usage, README and skill
+5f1ac7030a2f393ab3a76a04335bb845c7d86a3c	2026-10-06T21:09:01+08:00	szrunworld	Merge pull request #31 from szrunworld/window-containment
+401c1947273d7bde55935c0d016ec69203042aa9	2026-10-06T21:08:37+08:00	szrunworld	Salvage the display-sleep and configuration fixes, and ax-press, from the archived runtime branch (#29)
+7617b93386a4c35d86b7eb04949e614ab6521fb5	2026-10-06T20:59:32+08:00	szrunworld	Keep windows wholly on their screen, refuse clipped screenshots, and type faster
+c3c647df7c3f068d23d0f4a811fa06242cb31197	2026-10-06T19:39:15+08:00	szrunworld	Hover in the background, for menus and panels a page opens on hover (#28)
+34c9e75eea9937ade93189bca007676bd3ab4dfc	2026-10-06T18:58:45+08:00	szrunworld	Hover in the background, for menus and panels a page opens on hover
+13792dacc27c65bf3fbafd4b203eeea5c93c780f	2026-10-04T15:45:14+08:00	szrunworld	docs: record guided five-resume batch acceptance
+63072b5928996bd038bc479d4f0b83ea6120a289	2026-10-04T15:02:25+08:00	szrunworld	docs: record restored accessibility and complete live task acceptance
+7b14956cc965dc674d41103659659d6be7258ac9	2026-10-04T14:56:52+08:00	szrunworld	Merge window containment and clipped screenshot protections
+406c58989ceea3f0107bfcb9b05610bcc15ba588	2026-10-04T14:56:24+08:00	szrunworld	Check every screenshot against the screen as it is now
+4b7fe1a1abcdbce15f4602ca9e6176bc852d03c2	2026-10-04T14:53:55+08:00	szrunworld	Bind only windows wholly on their screen and refuse clipped screenshots
+e3891f83d2469b1ce561481b0ba58a531ec1416d	2026-10-04T14:37:47+08:00	szrunworld	Merge verified BOSS OCR activity separator fix
+6b1690dadec0490dcc0273f48f80a8e837807667	2026-10-04T14:37:29+08:00	szrunworld	Accept one bullet between the resume header name and its activity note
+609b8313a881889c264d7750aea5884170430a8b	2026-10-04T14:10:23+08:00	szrunworld	docs: record authorized BOSS restart and cross-app AX failure
+423d30c04849e499e71f8d561a3a78227d3850f2	2026-10-04T13:56:09+08:00	szrunworld	docs: record A9 native acceptance and remaining BOSS AX blocker
+e37ced4d0d6086f24bf119600e09c9114d4e80b9	2026-10-04T13:52:19+08:00	szrunworld	Merge verified display sleep detection and deterministic wait test
+e9db6012f75428329d0331eb1af90ce46eeacfba	2026-10-04T13:51:42+08:00	szrunworld	Make the pending-configuration wait test deterministic with an injected clock
+0579d3bbdaa635786e2c4db6b667e30302685f4f	2026-10-04T13:49:07+08:00	szrunworld	Judge display sleep by an active, awake physical display, not every one asleep
+851736d8ffac1b6860c7a0964560b8820a78ff77	2026-10-04T13:45:13+08:00	szrunworld	Merge reviewed native display configuration and lifecycle fixes
+876037eaabaf6b992927e4468e8b84d5123965a7	2026-10-04T13:44:44+08:00	szrunworld	Bind each display attempt's termination to its own screen and report superseded sizes
+ce2861e11832be3c5efa5ffb8bd4ace3df09b133	2026-10-04T13:43:43+08:00	szrunworld	Recheck screen admission after the display-work wait and act only on the same screen
+a1ba562b3384789ccd3b0134bf82360e0d15d438	2026-10-04T13:39:30+08:00	szrunworld	docs: A9 display configuration and sleep guard report
+29240031ebd08ab11fc18c5377ae24393d974dbd	2026-10-04T13:39:30+08:00	szrunworld	Keep display configuration off the main thread and out of display sleep
+9a78375f6238a69a85ac505aae194155437197ed	2026-10-04T13:33:47+08:00	szrunworld	docs: record display wake recovery and current BOSS accessibility blocker
+3dfd8d7d5abe7a4f27796f978d721a3ef7dacca9	2026-10-04T13:01:32+08:00	szrunworld	docs: record independent integration acceptance and remaining P0 blocker
+05bce344eef549d27f2ba54d4ce9f6e52ca9f955	2026-10-04T12:59:27+08:00	szrunworld	Merge reviewed MCP task resource links and reads
+6a3e1e16561071efb50ca7a376ff4cdc2a5d13d5	2026-10-04T12:57:55+08:00	szrunworld	docs: A7 report records the resource review fixes
+e78df2bda9f2e7bf005d80375134d89359f6d539	2026-10-04T12:57:55+08:00	szrunworld	MCP task resources: require exit status 0 and check task IDs over the whole string
+90b64d6011a881d1ad4d2f08ece27f1d43ca22d5	2026-10-04T12:57:13+08:00	szrunworld	Merge branch 'szrunworld/ss-runtime-integration' into szrunworld/ss-a7
+64b5c863fbc5b05b433c9be57536da7f1f140c95	2026-10-04T12:56:56+08:00	szrunworld	docs: A7 report adds the MCP task resources and drops the duplicate heading
+0613f5c26cba1b8d223e05dacf0741075ac5eae7	2026-10-04T12:56:56+08:00	szrunworld	MCP task resources: link each task's status and artifacts and read them through the task commands
+c768ed1951889b169f09d3a2987d34fd87eaab5d	2026-10-04T12:53:15+08:00	szrunworld	Merge reviewed real conversation and resume header fixes
+b1f382083702a076308f8fd98fb886e269f09fe3	2026-10-04T12:52:39+08:00	szrunworld	Merge reviewed task runtime assembly and product entry
+97d501c12fe63cc9252087b0e21a1b640178b274	2026-10-04T12:51:05+08:00	szrunworld	docs: A4 follow-up report (spawn hooks, header fragments, header mark)
+f047a2c35d7ef92005560be11a27d90c4fe0fd84	2026-10-04T12:50:34+08:00	szrunworld	docs: A7 report covers the review fixes and the spawn hook wiring
+8011998c0dec181e44ea6903b6a5509c4e5b053e	2026-10-04T12:50:27+08:00	szrunworld	Read the whole conversation header name and the marked resume header
+2f62c24e69c3b50d06f945ea1d5e7119b171fc67	2026-10-04T12:49:40+08:00	szrunworld	Merge branch 'szrunworld/ss-runtime-integration' into szrunworld/ss-a7
+d499d17d8e74341aa5f24e0707caa85ea6db6e60	2026-10-04T12:49:18+08:00	szrunworld	docs: record native route validation and display reinitialization blocker
+534a6b54d26737df2e42e0db8e86c61f75cee73c	2026-10-04T12:47:59+08:00	szrunworld	Record each 2ndscreen command as its exact group through A4's spawn hook; keep unrecorded announcements
+6360f71039d2e08550b891933179216d90ba77d8	2026-10-04T12:46:10+08:00	szrunworld	Merge reviewed command process spawn hooks
+7f8830d3ae8ae0810d9c6df153f7f8c863153207	2026-10-04T12:46:07+08:00	szrunworld	Merge A4 command-runner spawn hook 161f492 (pending coordinator review) for wiring
+161f49287098b5ad475f5b8718052ccd5eb4d0c3	2026-10-04T12:40:40+08:00	szrunworld	Report each command's spawned process group through onSpawn and onSettled hooks
+0565678ff59d3f3545e3003dfa58144468009e16	2026-10-04T12:42:05+08:00	szrunworld	Merge branch 'szrunworld/ss-runtime-integration' into szrunworld/ss-a7
+4d6088c3c7a9def3d3394a45590c53ea518e5fb2	2026-10-04T12:41:31+08:00	szrunworld	Unreported command spawns stay unproven; standby must show its own record; release on a failed start
+c2a66e1489f21767fc68daf489cf0ff66ff5a6f8	2026-10-04T12:38:23+08:00	szrunworld	Merge reviewed explicit AX press and BOSS job menu route
+a4c340700253c5fbeee3d772c38687ae45761fde	2026-10-04T12:37:11+08:00	szrunworld	docs: A7 report
+04b43627b47ecbd1da670b1bde5aed24c111ba28	2026-10-04T12:36:15+08:00	szrunworld	docs: explicit accessibility press contract and A4-ax report
+6d8de396e4788e227dfd42570ce783a8fe083520	2026-10-04T12:36:15+08:00	szrunworld	Open the BOSS job menu by an explicit accessibility press on its arrow
+91efb4e22b2e4190c5d542c9074e223d9103f874	2026-10-04T12:35:31+08:00	szrunworld	Tests never let the runtime start the real app's side instance
+69d847d12329ad67a8f21f8ac0b7799970851593	2026-10-04T12:33:49+08:00	szrunworld	docs: record real header OCR and fragmented AX identity findings
+b89ea94434f66d0a2d101c2a25be83623e621126	2026-10-04T12:32:08+08:00	szrunworld	README: skill tasks, the bundled runtime and the shared BOSS直聘 lease
+bd903ce8243b0b156bda5c76f4161783d51134c1	2026-10-04T12:31:42+08:00	szrunworld	Bound the verifier: kill grace below the daemon's verifyTimeoutMs, abort honored while stopping
+3f1d179cf6ccdeebf1c02d420434fe6f80a19886	2026-10-04T12:30:29+08:00	szrunworld	Merge branch 'szrunworld/ss-runtime-integration' into szrunworld/ss-a7
+912e7ae2ed0bce7c10f80b257a6f25d4f7fa8af8	2026-10-04T12:30:12+08:00	szrunworld	Run the lifecycle and MCP smoke against an installed runtime on its own Node
+c17d0e772b32b403036466d6a793959577157d29	2026-10-04T12:27:35+08:00	szrunworld	Record A1's detached commands, start a standby after a crash, and test the built runtime's lifecycle
+c948b97464ac856b8d6dad7e9d2c78b9762b7b0a	2026-10-04T12:25:27+08:00	szrunworld	Merge reviewed A6 task runner and verified actor lifecycle
+2822ba4693b9ca36d339e73ef7c2ce46b37c823e	2026-10-04T12:23:22+08:00	szrunworld	docs: A6 report records the second review-fix commit
+595f59ad88af38696b882529e4869379f4a41206	2026-10-04T12:23:22+08:00	szrunworld	Publish no end state after a failed close, guard terminal tasks' actors, and act only as a current owner
+287dbce8a7e0fa8c952e80a7e3c2a7dadaddb112	2026-10-04T12:20:55+08:00	szrunworld	Prove worker exits conservatively and wire the verifier, account and readiness into the assembly
+4e69ba4bd75be49bc08d5632893f736d9aa29979	2026-10-04T12:17:26+08:00	szrunworld	Merge reviewed raster-only resume identity validation
+c83257db4ef258c9019ab0c3156353a2913a5be1	2026-10-04T12:16:36+08:00	szrunworld	Merge branch 'szrunworld/ss-runtime-integration' into szrunworld/ss-a4-live
+969f8293cbc8e7d080e1181f3991db4a0cd88b9b	2026-10-04T12:16:03+08:00	szrunworld	Merge A6 revised API 5b45d07 (provisional, approved for wiring)
+91aa5b9fa5109a11a5332968d39430a4315f8548	2026-10-04T12:16:03+08:00	szrunworld	Bundle the task runtime and the matching CLI into 2ndscreen.app; MCP account tool
+a36d2a907f227183fe38ecb6c7e2c530b1a77d54	2026-10-04T12:15:32+08:00	szrunworld	Take resume identity from the image header only, never from side-column text
+5b45d0757c826432195d22af9110e23e5656ba0c	2026-10-04T12:12:28+08:00	szrunworld	docs: A6 report records the review-fix commit
+9d869200dbf505f9bb67877941cdfd3d7acb2de7	2026-10-04T12:12:28+08:00	szrunworld	Decide on a task only with proof its actor stopped, not on an expired lease
+6c318b55a87d3f6e6f205f0e176803d0ff39d2d7	2026-10-04T12:12:25+08:00	szrunworld	docs: record parallel review fixes and AX route ownership
+9eb43ac0dc3c290a3710580fafc97f79417ab6c8	2026-10-04T12:10:07+08:00	szrunworld	docs: verify explicit AX press route for BOSS job filter
+7bbed261a312436359b09093cd67ae50f89181b0	2026-10-04T12:09:32+08:00	szrunworld	Assemble the task runtime: CLI client, detached worker, actor registry, pinned Node install
+892f88f87c77e89b729ea5121da9acedfe2257ad	2026-10-04T12:09:13+08:00	szrunworld	docs: A4 live report, resume header identity round
+6f8fc7546e58621d4b849d21c22a16be81d42662	2026-10-04T12:09:13+08:00	szrunworld	Confirm open_resume identity from the resume image header when the side column names nobody
+8ee295cd73e07c78170bdc8938d9647fca604802	2026-10-04T11:59:38+08:00	szrunworld	Share the BOSS直聘 lease between the reply assistant and task runs
+a25dc4d65d0bf2a6476fb5612a84fe341a7a8cf5	2026-10-04T11:59:32+08:00	szrunworld	docs: record recovered display and real workflow review findings
+b8a2d5f5f8dcbcafb98fa36baa3a82a4987dde7c	2026-10-04T11:54:48+08:00	szrunworld	Merge provisional A6 8c3ab6b (not yet accepted) for compilation
+0babf72c142a1dbd1d3eb2be10fdef82d9447608	2026-10-04T11:52:44+08:00	szrunworld	Merge reviewed A4 real-page header and loading fixes
+cb458f89936b5b30a17a95a1ebc62ebce0dc5d9a	2026-10-04T11:52:16+08:00	szrunworld	Merge reviewed A7 CLI and MCP entry preparation
+ad2beebcb8a4161d4ff4fb10a22efc00e285ca1a	2026-10-04T11:46:51+08:00	szrunworld	docs: A4 live follow-up report
+5fd791a92280593e327b4cfb7911aacd9baf0019	2026-10-04T11:46:04+08:00	szrunworld	Confirm the resume top by its header name and wait out a loading conversation header
+8c3ab6b5fcf3bad3177bfa8652ed5ecef2bff4c3	2026-10-04T11:46:00+08:00	szrunworld	docs: A6 report records the implementation commit
+ed993c8823bc7ac590d788ade3d8667bbfe01da0	2026-10-04T11:45:51+08:00	szrunworld	Run tasks durably: candidate loop, ledger-checked counts, leased daemon and persisted usage
+049084686a3b25a48a60997f21ddafb51c6b9dad	2026-10-04T11:43:30+08:00	szrunworld	A7 prep: task CLI over injected TaskControl, native entries, MCP task tools, boss-resumes skill
+151b134feaf88cbc6b2a7553104f1fb38f852a3b	2026-10-04T11:27:14+08:00	szrunworld	docs: parallelize A7 entry preparation with A6 runtime implementation
+c4b660af285b61f7d01d8dc703fa48eef636105f	2026-10-04T11:26:03+08:00	szrunworld	docs: record live integration blocked at native display creation
+e235dc8ae263a43654a0621e1e711f71efff21e2	2026-10-04T11:16:38+08:00	szrunworld	Merge reviewed A4 BOSS resume workflow and verified capture bounds
+0fcf1021c3af45513f8874844f5f466af7577004	2026-10-04T11:15:04+08:00	szrunworld	Leave the clipped top border row out of the resume's content region
+6ad3534de229f12ff9cefcd0660060bb4d788dbf	2026-10-04T11:12:50+08:00	szrunworld	docs: A4 report covers the final review fixes
+c97765c303f2d92ec2926c8aca236798a6830f75	2026-10-04T11:12:50+08:00	szrunworld	Accept only an exactly resolved job, prove list ends, and close only the overlay's own control
+7f0197826a081cdf3c54e47a91614becdedc7556	2026-10-04T11:09:20+08:00	szrunworld	docs: A4 report covers the scrollbar gutter fix
+5e6c46b0f51dd9e116b3e7bafd42354aeeec0e43	2026-10-04T11:09:20+08:00	szrunworld	Compare and stitch the resume without its scrollbar gutter
+6ceff1131378457ab206a8c6f492d0510a316498	2026-10-04T11:07:41+08:00	szrunworld	docs: record P0 native composition verification and content bounds
+14b80ee5e6f4831e0bdfc2dd1c02434e54d72394	2026-10-04T11:05:13+08:00	szrunworld	docs: A4 report for the BOSS resume workflow
+01e7540bbedec27bfa260e854d21a24bc52cf4be	2026-10-04T11:03:33+08:00	szrunworld	Stitch through the contract's LocalVision.compose instead of a local mirror
+83fd805d31ca48367027d1eaf3e8b5ad4d5c53b0	2026-10-04T11:01:12+08:00	szrunworld	Merge integration 9a2bddd (A8 compose contract) into A4
+eed5c7b5dd21deb85f693616fca9b6968fa096f6	2026-10-04T11:01:07+08:00	szrunworld	Collect visible BOSS resumes without sending: pages, identity, list progress and evidence-based capture
+f2acded441063237f106e9ee8f4dc6d5a47c51aa	2026-10-04T11:00:05+08:00	szrunworld	Merge reviewed A5 exploration bridge and lifecycle handling
+f606c449fde6bd0ab41627ed4b3799d8201d9a70	2026-10-04T10:57:39+08:00	szrunworld	docs: A5 report covers the final lifecycle fixes
+4cef1916adab61d32f10f39e4058e809b0581102	2026-10-04T10:57:15+08:00	szrunworld	Never report a bridge process group gone without seeing it gone
+9a2bddd6c2f8730dbb5bde2de386fa5c9973c7d0	2026-10-04T10:55:06+08:00	szrunworld	Merge reviewed A8 local vision and compose validation
+d80cc23dd5234227092774ae731186928d3d0a11	2026-10-04T10:53:35+08:00	szrunworld	docs: A8 report covers the review fixes
+81a476113ecddbc22377358ef4fbda75947d89f5	2026-10-04T10:53:01+08:00	szrunworld	docs: A5 report covers the review fixes
+2526ec09524a971545188eb23cfefd67f12f9f2c	2026-10-04T10:52:28+08:00	szrunworld	Hold bridge lines to their start, and stop the bridge's whole process group
+414e6a722d6c53fb5b0fb22b037c5d079fe0e35a	2026-10-04T10:52:28+08:00	szrunworld	Refuse BOSS send and request controls, and send nothing after the deadline
+223e560fc29834dbe11b2fec881dbbf754740238	2026-10-04T10:51:55+08:00	szrunworld	Keep local vision cancellation reliable when kill throws or abort races spawn
+54917d2e709410274699ee959e145cc9a7ec768b	2026-10-04T10:51:11+08:00	szrunworld	Never let equal pixels alone pass a compose as continuous
+be75aa55a64330a9f823357a2b09a1b684739344	2026-10-04T10:49:48+08:00	szrunworld	Give each compose its own partial file and never delete one it did not create
+b1b1ff4af223003d4308c2c1413d27c81f70c544	2026-10-04T10:47:45+08:00	szrunworld	Integrate reviewed A8 compose contract from 629048f
+5bce7afafa74d2060c7bb1205331c4fcb00b874d	2026-10-04T10:47:22+08:00	szrunworld	docs: A5 report for the exploration bridge
+66e578eeeb70dd269c5e36d0f75cc8ae31abb6b2	2026-10-04T10:46:36+08:00	szrunworld	Report rounds lost to an unreadable screen as an error, not a spent budget
+a2ae40168e28d5b2379c264da8bf97421c820ea8	2026-10-04T10:46:29+08:00	szrunworld	docs: A8 report for local vision
+629048fc2c8c664f6dd72ee8ee77127333d242ee	2026-10-04T10:45:40+08:00	szrunworld	Read resume screens on device: Vision OCR, scroll progress and page compose
+50e2345e85ddcf6228f7fbbd9e148e42983051c0	2026-10-04T10:44:05+08:00	szrunworld	Run one runtime unit through the UI-TARS agent as JSON lines
+4c009aa93d0eb192b20992daf97bf8c614caf4ef	2026-10-04T10:42:31+08:00	szrunworld	Document continuous supervision and scoped bridge integration changes
+e5903e64cc5609efce358791d8c9ac6b9a0877af	2026-10-04T10:35:45+08:00	szrunworld	Let an exploration request say why the model is called
+634dcab5355dee24e306ab721a010bd2be24db39	2026-10-04T03:32:55+08:00	szrunworld	Merge reviewed A2 durable ledger and artifact validation
+619d75b22da8466004000e5100f9cbcd5e6b5937	2026-10-04T03:30:13+08:00	szrunworld	docs: A2 report states the real XML parser and JPEG bounds
+0cc861e1917f93c3a7fca95cc99b4dc7eae02928	2026-10-04T03:30:13+08:00	szrunworld	Judge DOCX XML with a real parser and bound JPEG size before decoding
+175402cc1ae7583c1662b8e975e1aa827aa5e530	2026-10-04T03:22:23+08:00	szrunworld	docs: A2 report for the task ledger and artifact store
+4c6a55fbb029e073acdcef8fa6295d0b9dfd5821	2026-10-04T03:21:16+08:00	szrunworld	Keep the task ledger in SQLite and archive resume files so a crash never loses or double-counts one
+3bdc6cf9e6daa8cf9f20207306741b2a293fc22c	2026-10-04T03:13:54+08:00	szrunworld	Merge reviewed A1 session and desktop adapter
+9994765ad10722ebbdb7f282532e64efc392df3f	2026-10-04T03:12:57+08:00	szrunworld	Act on the window as it is now, and touch only what this session owns
+0cd38fedd7680602daa814fcd8a6140990b09930	2026-10-04T03:10:59+08:00	szrunworld	Merge reviewed A3 procedures and bounded recovery
+a5a4b752bc789c123a12d3f7ad95fb5179656f8b	2026-10-04T03:10:01+08:00	szrunworld	Hold recovery to the task deadline and reconcile bridge usage before calling anything repaired
+8c4cab6814ca2727839cf54a7c3baac4341ec45c	2026-10-04T03:07:04+08:00	szrunworld	Hold one app window per task: lease, binding, snapshots and the CLI adapter
+e20f38e0105d508fa9c914c647ced298c4dadb47	2026-10-04T03:06:34+08:00	szrunworld	Fence local recovery by the wall clock, keep overrun bridges and unproven rollbacks from counting
+82936ad942479f86d1424ac137f86cc670ac1561	2026-10-04T03:04:19+08:00	szrunworld	Replay, learn and recover task procedures without a model on the stable path
+6625708049a338247d6ea1dee0266a1f2033c6a3	2026-10-04T02:09:00+08:00	szrunworld	docs: verify isolated integration baseline
+7bb02137d62213a9938f84a3a6be4b7aba18bbce	2026-10-04T02:06:40+08:00	szrunworld	docs: record P0 macOS evidence and isolated agent ownership
+67b34c517243f77e4fdaa4172cecee22b54f70cb	2026-10-04T02:05:49+08:00	szrunworld	Merge pull request #26 from szrunworld/iphone-commands
+644b172a5e7a9a7e162c8bbd220b5745e9fc0c92	2026-10-04T02:04:27+08:00	szrunworld	Merge reviewed task runtime contracts
+c6ed7176d85a5a92911e4af524f32a284424e3b4	2026-10-04T02:00:43+08:00	szrunworld	Stop on unknown tokens under a cap, reset promotion on any failure, and make same-app leases conflict
+4108e74372a5c978d6c4495428374b13ccd9079b	2026-10-04T01:59:54+08:00	szrunworld	Drive iPhone Mirroring from the command line like an Android phone, and paste in the background
+4f9b02a7b147bc848f0e0fb2d83eb5a3d9d46e87	2026-10-04T01:57:23+08:00	szrunworld	Define the task runtime's shared contracts so five workers can build apart
+5debf332ea665221ccbe32267581c42d807e3edd	2026-10-04T01:47:18+08:00	szrunworld	Leave a BOSS直聘 message box that already holds text alone (#25)
+c3ba3aa8328ef82f1cef698c94b3e559dfa53608	2026-10-04T01:45:38+08:00	szrunworld	docs: define macOS skill runtime plan and parallel ownership
+258cda4d5f0488281c4a22d84ebd6b684400971d	2026-10-04T01:40:59+08:00	szrunworld	Leave a BOSS直聘 message box that already holds text alone
+5c0f1d1c8570134cfc2442806cad10d517c87ab3	2026-10-04T01:16:06+08:00	szrunworld	Merge pull request #23 from szrunworld/learned-procedures-windows
+329e05276e34447f962a2922f15bd32197795862	2026-10-04T01:05:54+08:00	szrunworld	Merge the latest vdisplay-prototype
+e3472b38b73741a0ead7b5b7e2b54677a0137ac9	2026-10-04T01:03:44+08:00	szrunworld	Do not replay a procedure whose slot swallowed a further step
+efc7378b3658b5916e66a9db6aa08bee7eb69f96	2026-10-04T00:58:19+08:00	szrunworld	Let the BOSS直聘 assistant run for hours, and stop misreporting text writes (#13)
+ecd6454254fd9c0ceac0c9399838e9de1ba2ba53	2026-10-04T00:48:50+08:00	szrunworld	See past leftover popups, and keep no answer for tasks that ask nothing
+b64b977847fc218b93def6df199ea02485f75fc1	2026-10-04T00:36:24+08:00	szrunworld	Merge remote-tracking branch 'origin/vdisplay-prototype' into boss-supervise
+37bdb2cf35c5aa89e6d610b3046ee01e6dc2ddda	2026-10-04T00:29:34+08:00	szrunworld	Merge the latest vdisplay-prototype
+0cdd8c9f56afe50ca88cfb217ded4dc8e9f3b139	2026-10-04T00:25:29+08:00	szrunworld	Press what lies under a click on Windows, and never answer from memory
+6ecb0d40b51cb3418c9665a3f497cb6e33b718b1	2026-10-04T00:17:39+08:00	szrunworld	Merge pull request #24 from szrunworld/iphone-agent
+976ee1b07c25f8170009b5286897eef3ddfe10eb	2026-10-04T00:02:45+08:00	szrunworld	Take the UI-TARS panel out of the Android and iPhone windows
+0844e3760c8d092e260abd1ba390daf18083e194	2026-10-03T23:45:01+08:00	szrunworld	Read an answer again from text whose label is the answer
+05536914ad6cbf400c76516955dc6863155ce314	2026-10-03T23:38:38+08:00	szrunworld	Let the vision agent use an iPhone through iPhone Mirroring
+67c7ce885fab38e8725a6f19e8eea5865f4dce03	2026-10-03T23:36:54+08:00	szrunworld	Stop reporting text that landed as failed, and never type it twice
+acbd464ecee38eb370447e65e27de714f7e39d86	2026-10-03T23:29:12+08:00	szrunworld	Merge remote-tracking branch 'origin/vdisplay-prototype' into boss-supervise
+2eec37a4cb679ae97da4defa14c8aa9489c02719	2026-10-03T23:19:46+08:00	szrunworld	Merge the latest vdisplay-prototype
+28fc7dc3e55f724720af705ed0ede9ba58a93276	2026-10-03T23:19:31+08:00	szrunworld	WIP: iPhone agent screen and iphone setup
+0bba074850de98101db52ff9697369afe4fd7604	2026-10-03T23:18:15+08:00	szrunworld	Merge pull request #22 from szrunworld/agent-panel
+4c0d9ba83736b49998745afe48a7a8388d72031a	2026-10-03T23:14:45+08:00	szrunworld	Add turn and volume buttons to the preview, and stop clipping its buttons
+5c67cccdafb951acb96ea329dc2ec248b8eda0e5	2026-10-03T23:12:14+08:00	szrunworld	Space the mirror's three keys apart
+ece5cbef125491133fa61e3b03c4ef6f785feaee	2026-10-03T23:10:04+08:00	szrunworld	Keep the mirror's title bar to the phone's three keys
+27b051b107a4920bee6229ee79b879ee4ce98502	2026-10-03T23:02:15+08:00	szrunworld	Drop the landscape phone size, and disable sizes too small for the window
+685b442fd6f3af82a4008173541880f130fdd8c9	2026-10-03T23:00:36+08:00	szrunworld	Run the UI-TARS panel's agent in the app, and make the panel take any screen
+63284467d5520f8d85fefc501179f6f572c51164	2026-10-03T22:58:41+08:00	szrunworld	Put screen sizing in the menu and zoom buttons on the preview
+05c62097649e5ea89c97a77784aacf3be10e5c3d	2026-10-03T22:53:09+08:00	szrunworld	Learn from runs that worked on Windows too
+e6938d51997c065361754513dbfa671e374cb6d9	2026-10-03T22:46:38+08:00	szrunworld	Let an agent screen follow its window's size, and resize screens
+04b0a6b09a1113218f6d2c87d3278bc2f07040de	2026-10-03T22:45:41+08:00	szrunworld	Merge pull request #20 from szrunworld/single-app
+155221c6ff4609955a467dab1e93de92df0e30b6	2026-10-03T22:43:11+08:00	szrunworld	Keep agents' test copies of 2ndscreen off the menu bar
+a52642b755ff6cfad5b7ac6932678a918e24baf0	2026-10-03T22:38:00+08:00	szrunworld	Merge the latest vdisplay-prototype
+117774935ad7d477ddafb973821054ab476bc492	2026-10-03T22:37:35+08:00	szrunworld	Merge pull request #19 from szrunworld/audio-delay-menu
+393f05b5b56e2ab73cb1976b576217346ab7c2ca	2026-10-03T22:36:19+08:00	szrunworld	Set the phone's sound delay from the menu bar
+4a5cfd67bc6fd36e1fbc4a8ab4ee728c72beaaf0	2026-10-03T22:32:59+08:00	szrunworld	Merge pull request #18 from szrunworld/av-sync
+3f9429b03175827326fa0d0ea04964d4576eabd1	2026-10-03T22:31:54+08:00	szrunworld	Hold the phone's sound back a second by default
+4cc599cc56d9d12ccb9f81d00e5c9f6a693eec9d	2026-10-03T22:25:00+08:00	szrunworld	Measure the phone's sound against its picture, and let its delay be set
+8a93a0820d8b81cf1c663f77a088c93b592d2c2a	2026-10-03T22:29:10+08:00	szrunworld	Merge small-fixes' later commits
+e887489e496f9892c87a4fc0c216c5871533f57f	2026-10-03T22:29:10+08:00	szrunworld	Save the Windows e2e script with a BOM
+8ef024a76896f315fd750b638a081b6c707618ff	2026-10-03T22:28:31+08:00	szrunworld	Merge tars-driver: drive programs from 2ndscreen itself on Windows
+76e87c0b3fe4c0ffa34f62f22c3d559a28810163	2026-10-03T22:28:18+08:00	szrunworld	Merge pull request #17 from szrunworld/learned-procedures
+ceaee1d3310a47ed2f7fa60a8a1c5d9146fe35fa	2026-10-03T22:13:45+08:00	szrunworld	Merge the latest vdisplay-prototype: phones and held actions
+57898e81de803dedaa52b91320ea3abebfb63ea5	2026-10-03T22:08:33+08:00	szrunworld	Merge pull request #16 from szrunworld/fix-phone-screenshot
+53b1a417207c70a820df080732a357b4ddb55249	2026-10-03T22:04:36+08:00	szrunworld	Show the phone agent its screen, and let its scrolls swipe the full reach
+b3cbafead1bfe7d35ff91341cf067e9338d62df8	2026-10-03T22:03:24+08:00	szrunworld	Learn from runs that worked, and replay them without the model
+67558f7143c7b76dcd1fec984bd253b7f906be78	2026-10-03T21:58:56+08:00	szrunworld	Read BOSS直聘 conversations from 2ndscreen's own reader
+27894a3ffed17751985017de2d0224f387fff0d8	2026-10-03T21:52:47+08:00	szrunworld	Merge pull request #15 from szrunworld/android-mainline
+b396beee98fd34b01d4dfed586d6b7d48872082a	2026-10-03T21:48:48+08:00	szrunworld	Merge remote-tracking branch 'origin/vdisplay-prototype' into android-mainline
+bfb4d5729e0ddea9cbf4e5ada7f5609120425563	2026-10-03T21:47:44+08:00	szrunworld	Keep the audio clock running when the buffer runs low
+78cc2687574338297b3ab38624dc430f5e1638f8	2026-10-03T21:36:53+08:00	szrunworld	Size the phone's audio buffer to the hold-ups the network shows
+a908d91ec71d210155e85246061f9fe5fa5545d0	2026-10-03T21:31:32+08:00	szrunworld	Merge pull request #14 from szrunworld/sharp-phone-preview
+e1da1d008080a205f04a5d636ad9a221676217dc	2026-10-03T21:29:59+08:00	szrunworld	Send the phone's video at 3 Mbit/s, start audio with 200 ms, and log underruns
+998985fb1cb5914f4da99fd623ef026feb996149	2026-10-03T21:13:40+08:00	szrunworld	Keep the preview sharp: pixel-exact when it fits, Lanczos when not
+96d556e911ab0d74941d23bf1ed665dc50df3d7e	2026-10-03T21:01:17+08:00	szrunworld	Merge Android mirroring, with sound, and run the vision agent on phones
+3f22269616780cc1a689160fc74fc81d175485aa	2026-10-03T20:58:10+08:00	szrunworld	Let the BOSS直聘 assistant keep its own surroundings for hours
+8ed620c3e4a0ec570e7bf6d7cbb14bc6e9993d1e	2026-10-03T20:51:18+08:00	szrunworld	Two fixes from today's WeChat and BOSS直聘 runs (#12)
+8f91bbf6a390eada68e634e5fcf68608d672f9f4	2026-10-03T20:48:30+08:00	szrunworld	Restore only the user's displays after an agent screen goes
+b4e7efa202846585a43e9b2a35ff91f6649c78b6	2026-10-03T20:48:30+08:00	szrunworld	Wait for Chromium to apply a replaced value before calling it failed
+d88fc902d5682e2879a5921e9a6235cc6aa01c7d	2026-10-03T20:46:44+08:00	szrunworld	Play off a queue left by a Wi-Fi burst at 5% faster
+c3ddc481adb84895603f266de4b8e3160a167571	2026-10-03T20:44:30+08:00	szrunworld	List controls before plain text when the element list is full (#11)
+a32ce8bbecb27640f8ac2bec28ef756c53dfd817	2026-10-03T19:57:52+08:00	szrunworld	Ask Chromium browsers and Electron apps to expose their pages to accessibility
+966978843b732cc4e349bbc5468b586827078eac	2026-10-03T19:43:51+08:00	szrunworld	Name the agent's model with AGENT_MODEL_* as well as ARK_*
+b6b2597996f18991b4905f29547f0e6eaaa51933	2026-10-03T19:42:34+08:00	szrunworld	Grow the audio buffer when Wi-Fi pauses run it dry
+29e778cdd3bd65de008617fbbb5ed32161542961	2026-10-03T19:00:44+08:00	szrunworld	Read audio config packets by scrcpy 4's flags, and keep at most 150 ms queued
+feca57f8e474344f0e4f32930b6c8d990fa20312	2026-10-03T18:30:25+08:00	szrunworld	Play an Android phone's sound on the Mac while it is mirrored
+932d78e2d34e76a26b9457885a1225264da7fb8b	2026-10-03T19:03:21+08:00	szrunworld	Let the vision agent act on the controls accessibility lists (#10)
+87d337eda292862d7295d81594379441d12dba5d	2026-10-03T18:57:22+08:00	szrunworld	Give the model two minutes and one retry
+4348da85710a45627fe52ab85acfe0d80cd61ef3	2026-10-03T18:50:36+08:00	szrunworld	Run the vision agent against a live model in the Windows e2e
+d3db3e4c6ebf8f6990ee789a6af0d93a7f998fe0	2026-10-03T18:43:29+08:00	szrunworld	Describe the Windows routes for WPF and Chromium, and the vision agent
+6b46865969394719fa37da8734aa81efdacca1aa	2026-10-03T18:39:19+08:00	szrunworld	Put the user's window back in front by sending the last input when sharing the queue is not enough
+971b891deb4adfaba7a6d6cee97d9d437d160aae	2026-10-03T18:34:16+08:00	szrunworld	Watch for programs that bring themselves forward late, and wait for browser values
+cd280b8a01e7b8c6e16dadc74306119b94fbb234	2026-10-03T18:29:34+08:00	szrunworld	Scroll through UI Automation under the point, and take shortcuts in the foreground where only that works
+982e14091e5eeb297b2592b40997e3994f6e5242	2026-10-03T18:27:09+08:00	szrunworld	Run UI-TARS from a panel in the Android mirror window
+95d9f985329e814bd08fea6c52bb8d86accef514	2026-10-03T18:24:27+08:00	szrunworld	Port the UI-TARS agent to Windows, and reach Chromium pages through UI Automation
+f0c7d3f6d88890fea0234b75ea6f94e3d5525e24	2026-10-03T18:19:16+08:00	szrunworld	Test WPF and Edge in the Windows e2e, and type into web fields with keys
+655c1fbbb8d614e4e003d2374fd2c369cf260c01	2026-10-03T18:18:26+08:00	szrunworld	Drop a phone's address connection when adb also has it by mDNS name
+118546149e247747030c402e0aa38220e8d237bb	2026-10-03T18:12:03+08:00	szrunworld	Let key name the control, for programs nothing has focused yet
+e8c702a9df00adda14985e9e08fd85610bda4820	2026-10-03T18:08:10+08:00	szrunworld	Run UI-TARS on an Android phone
+097e68bee856f8c9af2ba4d75343e3823392461b	2026-10-03T18:08:10+08:00	szrunworld	Open both mirror sockets before waiting for the device name
+972325cb789c9c43d6c613772beaeac4913f1e4b	2026-10-03T18:07:46+08:00	szrunworld	Drive programs from 2ndscreen itself on Windows
+49771342ad70d57dc6a0c02798b47e28b1beafaf	2026-10-03T18:02:34+08:00	szrunworld	Tell the recruiter's own BOSS直聘 messages by their alignment (#9)
+cab91702530e7c0c53b6865cedeab00db4836acf	2026-10-03T18:01:37+08:00	szrunworld	Tell the recruiter's own BOSS直聘 messages by their alignment
+5d694d53b221a8f04b6087ce5fea93a14d561010	2026-10-03T18:00:36+08:00	szrunworld	Merge branch 'ui-tars-operator' into android
+b266fe2026b90cd828bca0dad9b4990a6380282d	2026-10-03T17:59:42+08:00	szrunworld	Let agents look at and act on Android phones
+3e6bbb0897003403574845a3f1b42e8615f57b49	2026-10-03T17:56:11+08:00	szrunworld	Merge the display placement fix (#7)
+345a2c11296b148ee9cd13ab8a070146f303981d	2026-10-03T17:56:11+08:00	szrunworld	Merge tars-driver's latest: drop mentions of cua-driver from the macOS driver
+dcb26a93dd64a07bc3c01c551da966fab9487ae8	2026-10-03T17:55:51+08:00	szrunworld	Merge the agents (#8) onto tars-driver's input engine
+09bfe6f6c0b5387c0bc54be890abd8bc73f8c66a	2026-10-03T17:55:33+08:00	szrunworld	Drop mentions of cua-driver from the macOS driver
+bdd249b5312cdc8ec426322bdecbcdc3252b0ede	2026-10-03T17:53:05+08:00	szrunworld	Keep the user's display arrangement when agent screens come and go (#7)
+5dc865d2563b6f56ca437a256ec4bcec28212cf6	2026-10-03T17:52:23+08:00	szrunworld	Merge tars-driver's latest: click into a field when the plan sends later
+379867ed87714ed37b2f9530a65b16d467a17386	2026-10-03T17:52:33+08:00	szrunworld	Agents that work in native apps: a UI-TARS operator and a BOSS直聘 assistant (#8)
+c95e9cf4e17e4b4589884d14b247657d09e03675	2026-10-03T17:52:12+08:00	szrunworld	Merge tars-driver: drive apps from 2ndscreen itself on macOS
+06f2fd1b1a0f30468dbc5dd0f38cef6144aa77de	2026-10-03T17:50:19+08:00	szrunworld	Let the agent click into a field when its plan sends later
+dc4111b7e2dbd413eb35aefd5dfb21bfb2dc7251	2026-10-03T17:47:33+08:00	szrunworld	Draft BOSS直聘 replies for a person to approve
+15770f48e101e6ae3361f148805156de21299d0e	2026-10-03T17:32:45+08:00	szrunworld	Merge origin/windows into tars-driver
+311a849cc1dcde6771ad0f70e77413ace7c08bd7	2026-10-03T17:29:35+08:00	szrunworld	Drive apps and run UI-TARS from 2ndscreen itself on macOS
+a8ffa18c502e1dc45c264d44ac69b737ce4d48eb	2026-10-03T17:29:29+08:00	szrunworld	Read BOSS直聘's message list from its accessibility tree
+0a80d35d8fb11c811bee1bb5e8cdfb7be6b0ed5b	2026-10-03T15:58:31+08:00	szrunworld	Stop before clicks the model says will send
+44b5838659d7857f36dcc21705b3abf0de45fb8c	2026-10-03T15:54:01+08:00	szrunworld	Run on Doubao Seed 2.1 lite, and read boxes the parser misses
+06144660c6c81f4e230b2f560e476300e6d7b0df	2026-10-03T15:31:00+08:00	szrunworld	Use Ark's model ID for Doubao UI-TARS, and note its retirement
+5d02400fe70a237afa196d6eff13709595b6e650	2026-10-03T15:18:49+08:00	szrunworld	Drive agent screens with a UI-TARS vision model
+84b1a7fc5b62060b1f9dc9275b6c9c7772033c3c	2026-10-03T17:23:16+08:00	szrunworld	Type into Electron and Chromium apps in the background on macOS (#5)
+068796a74d0791c51db9c5d0e6281bfec19a0e53	2026-10-03T17:21:16+08:00	szrunworld	Tell agents to name the field when typing into Electron apps
+bb40dbc977f47dc5f012ae0114d6e0bccb565e8b	2026-10-03T17:20:56+08:00	szrunworld	Type into Electron and Chromium apps in the background on macOS
+312ae4a17697d2857f5401888d29b24d3965a7f0	2026-10-03T17:10:55+08:00	szrunworld	Scroll Electron and Chromium apps in the background on macOS (#4)
+415c5a0015f575373ca38f7e0c16353597240d32	2026-10-03T17:09:39+08:00	szrunworld	Merge fix-binding-session's latest
+67feafa31bf62dadb886df937bb5ff8c8160b95f	2026-10-03T17:06:45+08:00	szrunworld	Merge windows into fix-binding-session
+8695582512fed86a8cee9995f5ac5060a1a59cee	2026-10-03T17:01:31+08:00	szrunworld	Scroll Electron and Chromium apps in the background on macOS
+44acd754000b8dae09b55a8efe05bbfc6a269214	2026-10-03T16:59:10+08:00	szrunworld	Merge fix-agent-screen-bugs and fix-binding-session
+a9d8ebb175991cd9bead40d726bf29fdd9220fa4	2026-10-03T16:53:12+08:00	szrunworld	Merge remote-tracking branch 'origin/fix-agent-screen-bugs' into integrate
+26c7756407a3b03671788c72ffcdf9a493432460	2026-10-03T16:32:42+08:00	szrunworld	Give each agent screen a serial no recent screen used
+af3fe9b8fbe8d9ae1d0935bf509b3d3368ed051e	2026-10-03T16:29:19+08:00	szrunworld	Mirror and control Android phones over Wi-Fi
+11cbb5d4fff72ed72253ca300869837e9138e534	2026-10-03T16:24:19+08:00	szrunworld	Merge branch 'ui-tars-operator' into tars-driver
+b2460440e1916eda9742b473b7ed7ffa24404075	2026-10-03T16:19:36+08:00	szrunworld	Keep the e2e's program path apart from the arguments that name it
+de9cab06223a72960b7f8a1c42624412b3b566d5	2026-10-03T16:15:57+08:00	szrunworld	Check window binding last in the Windows e2e
+e2d88d1ab5ebc89e70ab9afd65a0a08a6f0e4548	2026-10-03T16:10:51+08:00	szrunworld	Leave a program's own windows alone on Windows too
+849cacb2964ab15cc02b7ccbcf54972738ae9f81	2026-10-03T16:09:29+08:00	szrunworld	Leave an app's own windows alone when an agent takes one of them
+bc67c7d084999dee465fffdf95706e5376417c5a	2026-10-03T16:08:39+08:00	szrunworld	Read monitors and the pointer in physical pixels in the Windows e2e test
+7a427b90ea145b7d14b3261517679e8e2a36cb97	2026-10-03T15:58:31+08:00	szrunworld	Stop before clicks the model says will send
+44b714eb7586a5987c3f0656eb319980bc95689f	2026-10-03T15:54:01+08:00	szrunworld	Run on Doubao Seed 2.1 lite, and read boxes the parser misses
+c764c4ab7e34d216b76b4932d238b9b87bf912cd	2026-10-03T15:51:53+08:00	szrunworld	Merge branch 'input-actions' into windows
+721571da8e85a397008546efe0a23f6835246b92	2026-10-03T15:31:00+08:00	szrunworld	Use Ark's model ID for Doubao UI-TARS, and note its retirement
+0f5b84f8b9aebb025e7ac6da149e177266410eb4	2026-10-03T15:18:49+08:00	szrunworld	Drive agent screens with a UI-TARS vision model
+530d83b90d516832703420498d33564bb280d9d0	2026-10-03T15:03:09+08:00	szrunworld	Place the e2e pad from the list, which UI Automation does name
+56964d813a782d24471e5aad7d0afec259eac273	2026-10-03T15:01:07+08:00	szrunworld	Follow handed-off windows when launching on Windows
+8ffb631ca9350d84fb8dbd69b9dfce32c946ecd4	2026-10-03T14:59:47+08:00	szrunworld	Find the e2e pad by its text, and wheel back up from the list's end
+7d250330ab4e5bf6b3a7338329245435802e59f3	2026-10-03T14:56:16+08:00	szrunworld	Let agents scroll, drag, right-click and double-click
+46d52e2665218f00b786113855b16b1e9f7f3686	2026-10-03T14:15:22+08:00	szrunworld	Read and write UTF-8 between 2ndscreen and cua-driver on Windows
+2b0c7dfc5d8e90de0210c85286aefde5d598a97a	2026-10-03T14:04:24+08:00	szrunworld	Keep windows on 2ndscreen's screens on every Windows desktop
+d37dcfb06763c5a0dab2a5f4417e3edbe1bbf098	2026-10-03T13:55:53+08:00	szrunworld	Explain the two kinds of screens in the Windows tray menu
+2441d93d47fd0f3721c6bb8b6a8b1b011e992da8	2026-10-03T13:44:46+08:00	szrunworld	Reserve three virtual monitors on Windows instead of nine
+6b809d255d73968354e1d92a3cb39b40337d8ef2	2026-10-03T13:28:58+08:00	szrunworld	Match the main display pixel for pixel on Windows, and survive menu errors
+1ecd373cd17d7065a9177483302a9f91208f310c	2026-10-03T13:16:24+08:00	szrunworld	Show the Windows preview full screen on a desktop of its own
+dcb0581718b38b961847060fce7c5ede1145b943	2026-10-03T12:57:04+08:00	szrunworld	Remove the Windows agent cursor
+cb84698bd6942e38b7261a2138359b2270273122	2026-10-03T12:47:53+08:00	szrunworld	Show the agent cursor and the mouse pointer in the Windows preview
+e6cdde039e7a61cbff86059424d15c8811c049f9	2026-10-03T12:22:52+08:00	szrunworld	Fix agent screens found while running iPhone Mirroring on one
+110f8f7af89e5f82222c67689fe1541128a80e84	2026-10-03T12:09:08+08:00	szrunworld	Stop blaming a missing GPU when no virtual monitor attaches
+fff0780a7c6edb0a0e86359cd46016f22b1aa2c7	2026-10-03T12:05:38+08:00	szrunworld	Retry binding the Virtual Display Driver on a fresh machine
+555c18a12de5060f1d0f4db15453b286ccb93d63	2026-10-03T12:01:29+08:00	szrunworld	Start cua-driver's daemon without handing it our output
+b823a0dc06a0177c8a981cf387289be30df36f82	2026-10-03T11:58:26+08:00	szrunworld	Document the Windows port
+dd4122e092e3fbd2c686e97c0f8b48682908fca9	2026-10-03T11:34:16+08:00	szrunworld	Keep the Windows virtual monitors usable on real hardware
+6f9d8508fe1b452c9640cb099fb287f5d7c75664	2026-10-03T07:12:13+08:00	szrunworld	Start cua-driver's daemon on Windows when it is not running
+89852a17c1412d4a4d2ad837dadd74969da157a0	2026-10-03T07:09:05+08:00	szrunworld	Test the rest of Windows 2ndscreen where no virtual monitor can attach
+b10ae40d40c28f70e8d9f96de594a4376a20ec92	2026-10-03T07:05:07+08:00	szrunworld	Show display topology paths in 2ndscreen doctor
+47bf1a275ccb31229f74afb15a02d9ab7ffbd35f	2026-10-03T07:01:58+08:00	szrunworld	Attach virtual displays through the display topology API
+ecaa056e36aad7535cff69389345e3dbb94b44fa	2026-10-03T06:57:04+08:00	szrunworld	Explain why attaching a virtual display fails
+91db784cba77b58129fcf0dac31e5bbb08c8740c	2026-10-03T06:53:26+08:00	szrunworld	Do not shadow the driver INF variable when reporting devices
+9cf1eb73aa7ed0d8d5c48f206746519decb5c013	2026-10-03T06:53:02+08:00	szrunworld	Bind the display driver after creating its device node
+83cd12faffb14d457408cb67865868f815ffbb15	2026-10-03T06:49:21+08:00	szrunworld	Make e2e results honest and add driver diagnostics to CI
+696ace99b32d7833edad8f12b526b7a39eaf94bb	2026-10-03T06:45:12+08:00	szrunworld	Fix the e2e script's alias clash; add 2ndscreen doctor
+9ca9cdcbf09324e9e0753e8f8fa21ecf7597551e	2026-10-03T06:40:37+08:00	szrunworld	Add the Windows version: tray app, CLI, MCP server, and CI
+68af2f0c689bcaf8945bce16f0fe3321df92b920	2026-10-03T00:56:45+08:00	szrunworld	Keep a patched cua-driver that respects the user's app switches
+e9a713ae0f08c291d4eb7415c37a42a454a66ef1	2026-10-03T00:38:16+08:00	szrunworld	Serve the CLI as an MCP server
+3a223bce3c3a3abfca03aab45affc83f03d8b03f	2026-10-03T00:35:21+08:00	szrunworld	Expire agent screens by TTL, idle time, or owner exit
+0cf9316a923cc0c09f069823b1101790b093e977	2026-10-03T00:15:26+08:00	szrunworld	Let agents observe and drive apps on their screens
+ace2b57ceef8e54cdc3ee1e778acb2e0773ebb06	2026-10-03T00:00:49+08:00	szrunworld	Add agent screens: create screens and launch apps on them from a CLI
+35ff13bb5383ef3677b828bda3ea2f37e066674b	2026-10-02T23:26:19+08:00	szrunworld	Harden the preview, add a move-window hot key and a README
+52434687cf856307db73a4e0c1d96ba36e5b9732	2026-10-02T21:24:03+08:00	szrunworld	Keep the full-screen preview from collapsing to 0x0
+fce336b836a15c06d17870c8961ffcb995669c0f	2026-10-02T21:16:59+08:00	szrunworld	Fix frozen full-screen Space after a resolution change
+20e72caa885b7a3a4097f5aca401d1fe1d9072ce	2026-10-02T21:09:58+08:00	szrunworld	Match the virtual display to a real display's size and scale
+aaf1019370cb9865c2b8397685d17e2e11d61960	2026-10-02T20:49:12+08:00	szrunworld	Add agent-click: show the agent cursor, then click in the background
+66615168860244a10553698f9ec5e0795f4d09d1	2026-10-02T19:58:59+08:00	szrunworld	Add window management to the menu
+87a3a4342931308e85d6565ad59a9d312164427a	2026-10-02T19:51:45+08:00	szrunworld	Keep the Screen Recording grant across rebuilds; add agent cursor
+0bedbeaa77edd0e8f4c340f88af3a6a69cbd697a	2026-10-02T19:14:55+08:00	szrunworld	Add 2ndscreen menu bar app and shared core
+8d59714226f0a752cee3e1fad89886febdc86e28	2026-10-02T18:45:03+08:00	szrunworld	Add live preview window for the virtual display
+73fe9bf46ef85076bb0f8cabf89ac884803fa901	2026-10-02T18:41:48+08:00	szrunworld	Add vdisplay: software virtual display prototype

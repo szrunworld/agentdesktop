@@ -1,0 +1,1406 @@
+{
+  "sourceFiles": 233,
+  "currentFiles": 116,
+  "historyOnlyFiles": 117,
+  "modifiedCurrentFiles": 56,
+  "files": [
+    {
+      "sourcePath": ".github/workflows/windows.yml",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": ".gitignore",
+      "currentPath": "engine/.gitignore",
+      "disposition": "current",
+      "currentSha256": "c579d9861b2de891d4cf66ddc4207f0a51ee126d4576554aa7e49e2ba1220e5e"
+    },
+    {
+      "sourcePath": "Package.swift",
+      "currentPath": "engine/Package.swift",
+      "disposition": "current",
+      "currentSha256": "6d86714b30818a514c666c65fc0f90bf0f1353a80c102ca9dce27de04dc1f261"
+    },
+    {
+      "sourcePath": "README.md",
+      "currentPath": "engine/README.md",
+      "disposition": "current",
+      "currentSha256": "f2dce66c8872f00ba6d0b688556865a2e003e1f5eda9fed0494931d676832319"
+    },
+    {
+      "sourcePath": "Sources/CGVirtualDisplayPrivate/include/CGVirtualDisplayPrivate.h",
+      "currentPath": "engine/Sources/CGVirtualDisplayPrivate/include/CGVirtualDisplayPrivate.h",
+      "disposition": "current",
+      "currentSha256": "98287490ee6de85067b7473d60fec547f030a1b2af668233654a06c9ce6120a6"
+    },
+    {
+      "sourcePath": "Sources/CGVirtualDisplayPrivate/shim.m",
+      "currentPath": "engine/Sources/CGVirtualDisplayPrivate/shim.m",
+      "disposition": "current",
+      "currentSha256": "a66ce5e85f71c2c9d8397de93f12cbf1f4fc524a9a9d213026b7a2201a04adec"
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/AgentBridge.swift",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/AgentCommand.swift",
+      "currentPath": "engine/Sources/ScreenCLI/AgentCommand.swift",
+      "disposition": "current",
+      "currentSha256": "2267d786c461fc6b511b7a0ecc6ba42080e46b6784fd7723ee001621e403b03a"
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/AndroidCommands.swift",
+      "currentPath": "engine/Sources/ScreenCLI/AndroidCommands.swift",
+      "disposition": "current",
+      "currentSha256": "b3d14e7e34ef2f521083a8cfd0f59d1b79106d7a042ed08aaec10b4238e679d2"
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/AppQuit.swift",
+      "currentPath": "engine/Sources/ScreenCLI/AppQuit.swift",
+      "disposition": "current",
+      "currentSha256": "5ffd2a6f9916f40c0ba488183749204ad1d69e877772f3e547a3d09c478e5341"
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/DriverCommands.swift",
+      "currentPath": "engine/Sources/ScreenCLI/DriverCommands.swift",
+      "disposition": "current",
+      "currentSha256": "3b8b2db5993d7e5b2e317778b5980504879d55a6cacedb2ae9f9f9ada02df022"
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/IPhoneAgent.swift",
+      "currentPath": "engine/Sources/ScreenCLI/IPhoneAgent.swift",
+      "disposition": "current",
+      "currentSha256": "79c95a6a635fedc65b8dd49d3ca220cbaeaeaa416649d63fcdce9693b66db258"
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/LocalVision.swift",
+      "currentPath": "engine/Sources/ScreenCLI/LocalVision.swift",
+      "disposition": "current",
+      "currentSha256": "d4fbcfe3c1f9d19aad9228df8aaf1bbac1535bf84e3f1da3d5351a3473915a62"
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/MCPServer.swift",
+      "currentPath": "engine/Sources/ScreenCLI/MCPServer.swift",
+      "disposition": "current",
+      "currentSha256": "bce7f8dde85cbf54a73f39af70836686aafaa1d233ca73e4d2a1a2a3e9837436"
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/TaskCommand.swift",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "Sources/ScreenCLI/main.swift",
+      "currentPath": "engine/Sources/ScreenCLI/main.swift",
+      "disposition": "current",
+      "currentSha256": "1bf1507dcc0438e51f85b4aacdffbbd3bf8b9821ee749c12e97e8d9ded847db0"
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AndroidAudio.swift",
+      "currentPath": "engine/optional/mobile/macos/AndroidAudio.swift",
+      "disposition": "current",
+      "currentSha256": "57e6af0c73e6c038783e7db5b63c0a97fc3ab0b8430f1597c25afa60dbc55fb1"
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AndroidMirror.swift",
+      "currentPath": "engine/optional/mobile/macos/AndroidMirror.swift",
+      "disposition": "current",
+      "currentSha256": "cefd94f6ea3f2768d8dc5689a29bc349e383fd8415ced67507631f1824cbf7e2"
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AndroidMirrorWindow.swift",
+      "currentPath": "engine/optional/mobile/macos/AndroidMirrorWindow.swift",
+      "disposition": "current",
+      "currentSha256": "d9e14f01348d420c78605822a5c0089f7a4ba8e2cf6e92e8081d16b52006cd7f"
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AndroidPairing.swift",
+      "currentPath": "engine/optional/mobile/macos/AndroidPairing.swift",
+      "disposition": "current",
+      "currentSha256": "66266f8f4818d4a86793c09c1e4f871c298133efefce59a2780ac0889a67df94"
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/AppController.swift",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/HotKey.swift",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "Sources/SecondScreen/main.swift",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/ADB.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/ADB.swift",
+      "disposition": "current",
+      "currentSha256": "7c6051569a3f180789871b08d1c544ebd85a3ec16118763244d0d36436fa4cb2"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/Accessibility.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/Accessibility.swift",
+      "disposition": "current",
+      "currentSha256": "5cfd9ea1cdc7f5a2200b9c464a9667011582a39ffa6662619c17abafc9463972"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/AgentCursorEvent.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/AgentCursorEvent.swift",
+      "disposition": "current",
+      "currentSha256": "e5295376c1e8bf5881e1611df412caa01bddaef71ca1be1f5c302707cf0e6adb"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/AgentScreenAdmission.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/AgentScreenAdmission.swift",
+      "disposition": "current",
+      "currentSha256": "1a93d9f318de7a1d960dbbf63e52360fce48ee1c3ac3724f2350e76fa7f759d9"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/BackgroundInput.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/BackgroundInput.swift",
+      "disposition": "current",
+      "currentSha256": "a528a34e5d2de6a2d3e49a7c602add8590e553fbb6b0b625c58164d913d897ff"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/ControlProtocol.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/ControlProtocol.swift",
+      "disposition": "current",
+      "currentSha256": "8ed0324bd8e63115bc8d97cb021ddc559bfaf2de31894c845a35631040871f23"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/DisplayConfigurator.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/DisplayConfigurator.swift",
+      "disposition": "current",
+      "currentSha256": "8e1f78c6b932551af498ce6f7cf4faf79c02d3ca2a9154d104ba0714bceefea4"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/DisplayLayout.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/DisplayLayout.swift",
+      "disposition": "current",
+      "currentSha256": "201f5742d8219e58b9a6d0cd45f18079661b004e9804cd82e0ffa9e058cdbd98"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/DisplayPreview.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/DisplayPreview.swift",
+      "disposition": "current",
+      "currentSha256": "b578dd4f3ac74031226468ae033c86c0f8b9a61dbd668c1a009f655edf0103b2"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/DisplaySleep.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/DisplaySleep.swift",
+      "disposition": "current",
+      "currentSha256": "d9f21049619a65e231f17fda3234a5d58c7c183558c65677b0f3c924cd57d1e9"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/FocusGuard.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/FocusGuard.swift",
+      "disposition": "current",
+      "currentSha256": "bc8d4285fa08fede91c2f9fbf1c1225c8935baa716e165d2e6061af6e04eb5cf"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/Images.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/Images.swift",
+      "disposition": "current",
+      "currentSha256": "31bd6fae899118bf2f47ac90645c817c7af752a3b8a3702829b2d31655e771a6"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/InputEngine.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/InputEngine.swift",
+      "disposition": "current",
+      "currentSha256": "e3be9a371d7773bb61684f28ab07e384fb688331469b83a84c3dc7034faee880"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/JitterBuffer.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/JitterBuffer.swift",
+      "disposition": "current",
+      "currentSha256": "1fd2e0b330f4e695c5c75399d2c83ad35885a5464718a110d3cd218ccd97ff59"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/LocalVision.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/LocalVision.swift",
+      "disposition": "current",
+      "currentSha256": "06794bfb86cdea83b9382b4ca4f38d6a6aebb49cf4b4920ae1b65e84e0301c60"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/SkyLight.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/SkyLight.swift",
+      "disposition": "current",
+      "currentSha256": "def4a0930f24569b7b65281b1c6ccd77695b369ce5d9812fb52c352a039db8a0"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/SystemVolume.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/SystemVolume.swift",
+      "disposition": "current",
+      "currentSha256": "b51eb9375907a2651f94200e6151cf6d2eb858a27c94067cc2bf7e843ccf4f8b"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/VirtualDisplay.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/VirtualDisplay.swift",
+      "disposition": "current",
+      "currentSha256": "35fde0932bcea83c3bb5455c35eede96fe20275dab9292eda201e0b9a04eccdf"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/WindowContainment.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/WindowContainment.swift",
+      "disposition": "current",
+      "currentSha256": "6cc30e04b510066d29e6f1dfe4c3df8408a2dc29264a68da4e105931787824f3"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenCore/WindowMover.swift",
+      "currentPath": "engine/Sources/SecondScreenCore/WindowMover.swift",
+      "disposition": "current",
+      "currentSha256": "809b567c1b9bdae9df0627a6bf525b6da3d8c2a5230c626281fb76955d1b4cfa"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/AgentCursorOverlay.swift",
+      "currentPath": "engine/Sources/SecondScreenRuntime/AgentCursorOverlay.swift",
+      "disposition": "current",
+      "currentSha256": "ba3b67a6603575d34f296400f94071b7d370807bfdfdcb0a0c59bcd46cbc34ba"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/AgentRuntime.swift",
+      "currentPath": "engine/Sources/SecondScreenRuntime/AgentRuntime.swift",
+      "disposition": "current",
+      "currentSha256": "ece07e1ba801d733f92590db1f1f008d4b518be00f43ec7c2d8b9d52c0820e3a"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/AgentScreens.swift",
+      "currentPath": "engine/Sources/SecondScreenRuntime/AgentScreens.swift",
+      "disposition": "current",
+      "currentSha256": "26428f40b6568cdcc965da26e6a7d7c12d4a169e18b98742356ce44dd12ba541"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/ControlServer.swift",
+      "currentPath": "engine/Sources/SecondScreenRuntime/ControlServer.swift",
+      "disposition": "current",
+      "currentSha256": "55bca4d7d14ee611074a08efc74651d3283070f71b371b1beed351724373e53b"
+    },
+    {
+      "sourcePath": "Sources/SecondScreenRuntime/DisplayMatch.swift",
+      "currentPath": "engine/Sources/SecondScreenRuntime/DisplayMatch.swift",
+      "disposition": "current",
+      "currentSha256": "cc4ed766761feeda413cc9f262c1d43f057822916af4d3a582831901972a8178"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/ActionParser.swift",
+      "currentPath": "engine/Sources/TarsAgent/ActionParser.swift",
+      "disposition": "current",
+      "currentSha256": "8187044164f3070acfe692a49657224b62edb28bafdacff77466071d944c6ce4"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Agent.swift",
+      "currentPath": "engine/Sources/TarsAgent/Agent.swift",
+      "disposition": "current",
+      "currentSha256": "62c30c3b6a04619ca19012eaf788e9d5dc4c2500f5c8baa6ff18a599dbd404a2"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/AndroidPlan.swift",
+      "currentPath": "engine/Sources/TarsAgent/AndroidPlan.swift",
+      "disposition": "current",
+      "currentSha256": "921ae908044de1dc75092a8b8cf907bb2835acc078120408ae0d6f6bc9847931"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Bridge.swift",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Describe.swift",
+      "currentPath": "engine/Sources/TarsAgent/Describe.swift",
+      "disposition": "current",
+      "currentSha256": "e05185fdeff5ccbc65fad57c3b740aa987d9a0b139fe0c05e38ea7aaee6a762e"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/IPhoneScreen.swift",
+      "currentPath": "engine/Sources/TarsAgent/IPhoneScreen.swift",
+      "disposition": "current",
+      "currentSha256": "31a5a34f4ff3227fede30330958e497dfdf61a4fd045b7a90d922b5326e4581b"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Learning.swift",
+      "currentPath": "engine/Sources/TarsAgent/Learning.swift",
+      "disposition": "current",
+      "currentSha256": "8ead80ec5b7c8bde102c368903c77a15dbd7a5120a748f7c1a8f157a8ca71162"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Model.swift",
+      "currentPath": "engine/Sources/TarsAgent/Model.swift",
+      "disposition": "current",
+      "currentSha256": "74f054c9fc74e58ca9cd2c59f1c3c2ac066d67bf3a0a90ed11a16b0f116da8ce"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Planner.swift",
+      "currentPath": "engine/Sources/TarsAgent/Planner.swift",
+      "disposition": "current",
+      "currentSha256": "2158f7b76caf764083a3ebe09024f63c7887fa283f0a022254ffdf4d39e4b8b8"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Procedure.swift",
+      "currentPath": "engine/Sources/TarsAgent/Procedure.swift",
+      "disposition": "current",
+      "currentSha256": "fa49e00125109ae86ff5ad5f2fbca89542ef813d7bc0e460027a9f5e5e0b6aed"
+    },
+    {
+      "sourcePath": "Sources/TarsAgent/Screens.swift",
+      "currentPath": "engine/Sources/TarsAgent/Screens.swift",
+      "disposition": "current",
+      "currentSha256": "4d0d3e43b70c210ab31d8601a9124c4e6eff7f3e7f249cb2d1e046422262559c"
+    },
+    {
+      "sourcePath": "Sources/vdisplay/main.swift",
+      "currentPath": "engine/Sources/vdisplay/main.swift",
+      "disposition": "current",
+      "currentSha256": "8b0f3d65e25cba2d27dfa8574c72bd2001e89d7592a9454e19275fa58982bc6a"
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/AccessibilityPressTests.swift",
+      "currentPath": "engine/Tests/SecondScreenCoreTests/AccessibilityPressTests.swift",
+      "disposition": "current",
+      "currentSha256": "8a243342b0e1419e22fc4dd1a99936b7181e8f9b2cbfbb4539e62109affa1520"
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/AgentScreenAdmissionTests.swift",
+      "currentPath": "engine/Tests/SecondScreenCoreTests/AgentScreenAdmissionTests.swift",
+      "disposition": "current",
+      "currentSha256": "612a5e79d6a914b1fa788117e7bdc7be06597e78c1533824811fe983428b8de9"
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/DisplayConfiguratorTests.swift",
+      "currentPath": "engine/Tests/SecondScreenCoreTests/DisplayConfiguratorTests.swift",
+      "disposition": "current",
+      "currentSha256": "149dd33129760b81c7db4b6934086bf7136b4464c8db62c5691782f0cd8904ff"
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/DisplaySleepTests.swift",
+      "currentPath": "engine/Tests/SecondScreenCoreTests/DisplaySleepTests.swift",
+      "disposition": "current",
+      "currentSha256": "2fbf67febddf195315da92ab30104957e6001dd5659048abef94e8331b1e932c"
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/JitterBufferTests.swift",
+      "currentPath": "engine/Tests/SecondScreenCoreTests/JitterBufferTests.swift",
+      "disposition": "current",
+      "currentSha256": "78d49eedbf662359206e85e442b53181d79c74514e4473fc55b187ed6b113270"
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/LocalVisionTests.swift",
+      "currentPath": "engine/Tests/SecondScreenCoreTests/LocalVisionTests.swift",
+      "disposition": "current",
+      "currentSha256": "85af95af8adb969f48056825d30e08b7a9ff5f04360bc7b50ea64b5058e392da"
+    },
+    {
+      "sourcePath": "Tests/SecondScreenCoreTests/WindowContainmentTests.swift",
+      "currentPath": "engine/Tests/SecondScreenCoreTests/WindowContainmentTests.swift",
+      "disposition": "current",
+      "currentSha256": "f121eec588a959577a93b1a83fc6abcbad8ca4dc9b7ff67ba39b852c8c4b9eef"
+    },
+    {
+      "sourcePath": "Tests/SecondScreenRuntimeTests/AgentRuntimeTests.swift",
+      "currentPath": "engine/Tests/SecondScreenRuntimeTests/AgentRuntimeTests.swift",
+      "disposition": "current",
+      "currentSha256": "67b7713789e8d42b81a7b9c70f704479f1b0a063be3f628cc9c47e4f43d395a1"
+    },
+    {
+      "sourcePath": "Tests/SecondScreenRuntimeTests/ControlServerTests.swift",
+      "currentPath": "engine/Tests/SecondScreenRuntimeTests/ControlServerTests.swift",
+      "disposition": "current",
+      "currentSha256": "db9f9adf70078953708b10788738bd7521079b76d2ff37b9c50980cb9e6ce470"
+    },
+    {
+      "sourcePath": "Tests/TarsAgentTests/BridgeTests.swift",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "Tests/TarsAgentTests/TarsAgentTests.swift",
+      "currentPath": "engine/Tests/TarsAgentTests/TarsAgentTests.swift",
+      "disposition": "current",
+      "currentSha256": "6c81ecfac798d6b934f0109583cf07e7fcc6a0fb7be69401d0e0c9a8d7f40181"
+    },
+    {
+      "sourcePath": "docs/agent-reports/A0.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A1.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A2.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A3.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4-ax.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4-followup.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4-geometry.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4-live.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A4.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A5.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A6.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A7-prep.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A7.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A8.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/A9-display.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/agent-reports/Coordinator-review.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/boss-macos-baseline.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/boss-macos-capabilities.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/parallel-agent-tasks.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/rfc/0001-agent-hub/README.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/skill-runtime-boss-plan.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "docs/task-runtime-contracts.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/package-lock.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/package.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/scripts/build.mjs",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/actors.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/adapters/agent-bridge.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/adapters/local-vision.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/adapters/second-screen.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-config.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-contracts.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-daemon.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-host.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-hosting.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-inbox.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-ledgers.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-providers.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-requests.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-status.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/agent-units.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/artifacts.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/bootstrap.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/actions.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/candidates.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/capture.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/chat.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/pages.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/parse.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/validators.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/boss/workflow.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/builtin-agents.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/cli.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/contracts.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/daemon.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/index.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/learning.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/main.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/procedures.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/recovery.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/runner.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/session.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/store.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/telemetry.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/worker.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/src/workflows.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/actors.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-bridge.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-contracts.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-host.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-hostd.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-inbox.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-resident.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-status.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/agent-units.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/artifacts.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/boss-chat.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/boss-parse.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/boss-resumes.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/boss-skill.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/builtin-agents.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/cli-native.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/cli.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/contracts.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/daemon.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/fixtures/actor-worker.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/fixtures/boss/chat-labels.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/fixtures/boss/chat.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/fixtures/boss/list.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/generic-runtime.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/learning.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/lifecycle.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/procedures-fixtures.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/procedures.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/recovery.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/runner.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/second-screen.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/session.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/store.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tests/vision.test.ts",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "packages/task-runtime/tsconfig.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "scripts/bundle-app.sh",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "scripts/fetch-android-tools.sh",
+      "currentPath": "engine/scripts/fetch-android-tools.sh",
+      "disposition": "current",
+      "currentSha256": "d078b77a512953a7579bfcb525122d16a964e65ac2c173ca8c2b33868863745e"
+    },
+    {
+      "sourcePath": "scripts/fetch-node.sh",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "scripts/install-task-runtime.sh",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "skills/2ndscreen/SKILL.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "skills/boss-resumes/SKILL.md",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "skills/boss-resumes/procedures/open_resume.seed.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "skills/boss-resumes/procedures/return_to_list.seed.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "skills/boss-resumes/profiles/macos/boss-macos-1440x900.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "skills/boss-resumes/task.json",
+      "currentPath": null,
+      "disposition": "import_history",
+      "currentSha256": null
+    },
+    {
+      "sourcePath": "windows/Directory.Build.props",
+      "currentPath": "engine/windows/Directory.Build.props",
+      "disposition": "current",
+      "currentSha256": "2d8019e2764a6cd2501edb6e6690dc62dd608e17af3b2b5e6d2c6bb70001d711"
+    },
+    {
+      "sourcePath": "windows/README.md",
+      "currentPath": "engine/windows/README.md",
+      "disposition": "current",
+      "currentSha256": "45c8d98ab2abfd98e6789d63f19dbb312d462021067bd48b058b0948ce13c79a"
+    },
+    {
+      "sourcePath": "windows/SecondScreen.sln",
+      "currentPath": "engine/windows/SecondScreen.sln",
+      "disposition": "current",
+      "currentSha256": "a3af9368aae3b1d4c9e7bd647847878bb222acb1db074e4fed5cb2a4b061be79"
+    },
+    {
+      "sourcePath": "windows/scripts/e2e.ps1",
+      "currentPath": "engine/windows/scripts/e2e.ps1",
+      "disposition": "current",
+      "currentSha256": "b87064675b8f716b467255b38357b512208761f832ec28f5414809373bd71c10"
+    },
+    {
+      "sourcePath": "windows/scripts/install-driver.ps1",
+      "currentPath": "engine/windows/scripts/install-driver.ps1",
+      "disposition": "current",
+      "currentSha256": "33f15a78af81fb452af64c63d28454c056f9eb4926454c1d02f5cc16711ad00e"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/AppLauncher.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/AppLauncher.cs",
+      "disposition": "current",
+      "currentSha256": "068fffd57e60db9383b577bce957cfbb5bf91ac8a639c3a4d44ebaba65a48177"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/ControlServer.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/ControlServer.cs",
+      "disposition": "current",
+      "currentSha256": "de11b1e72904421820effce8f03402df4273c0d13240760439e5552e09414442"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/DisplayScale.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/DisplayScale.cs",
+      "disposition": "current",
+      "currentSha256": "0fb33fc81fd5c9671f8ff0bdacf660301971b937d448bd04828e370044426107"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/PreviewForm.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/PreviewForm.cs",
+      "disposition": "current",
+      "currentSha256": "3fe61d893f5a048a3695f99b34212871af27e4a3dae4967bfbbfd8019db93faf"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/Program.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/Program.cs",
+      "disposition": "current",
+      "currentSha256": "860af943df047c67ec3a2182432ecbd9b219a610d257e8ae441f607201da2081"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/ScreenCapture.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/ScreenCapture.cs",
+      "disposition": "current",
+      "currentSha256": "31dc295bcd6efc64e81cc5f13500cc554c406b91d1b7561d06f106500a479bd1"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/Screens.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/Screens.cs",
+      "disposition": "current",
+      "currentSha256": "cb88cbbdd08279daee6da2e85bdb274b5e8cec0d7328bfce7c651f00714b4a21"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/SecondScreen.App.csproj",
+      "currentPath": "engine/windows/src/SecondScreen.App/SecondScreen.App.csproj",
+      "disposition": "current",
+      "currentSha256": "30b395ab37766bb050ccf718256ea367fdb6904fc2956ed30f9e51c4e2ce3307"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/TrayApp.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/TrayApp.cs",
+      "disposition": "current",
+      "currentSha256": "29416f5e395ba0be2a85adfdc8adba3c573b77618b7db69a2dcff3625e76b110"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/VirtualDesktops.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/VirtualDesktops.cs",
+      "disposition": "current",
+      "currentSha256": "6e037576150e3080b4301851fde4b50a3fb516adc29efddc7cf352547fc15ad7"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.App/VirtualDisplayDriver.cs",
+      "currentPath": "engine/windows/src/SecondScreen.App/VirtualDisplayDriver.cs",
+      "disposition": "current",
+      "currentSha256": "f17e402624127ee1199f0406e0bfa91b5e5ee3aa11fb115d3339984eba952fe7"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/AgentCommand.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/AgentCommand.cs",
+      "disposition": "current",
+      "currentSha256": "4e2ea6f89628f2c1d52463e22eab30b395e355df6512e52df1f244a83fc3d67f"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Automation.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/Automation.cs",
+      "disposition": "current",
+      "currentSha256": "e82c3b757465255e87f13742b75875912ffe34134755391e6492ab3fa9d56c0e"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Doctor.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/Doctor.cs",
+      "disposition": "current",
+      "currentSha256": "ee4e6cebeffa5626fd3ee9c2eb28e64994fa6e0cfa83b0589f47a9820055d5d2"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/DriverCommands.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/DriverCommands.cs",
+      "disposition": "current",
+      "currentSha256": "e54eba7df3fa92daefdede702d2968819f60a8cd5fc61c2f93cdbd64af929269"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Input.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/Input.cs",
+      "disposition": "current",
+      "currentSha256": "a783942f0de9889081f4e30a7ad9cb3ede9cced2c3d56e8313ec3186b2014246"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Mcp.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/Mcp.cs",
+      "disposition": "current",
+      "currentSha256": "dd1aac312e56981678aff3efe354565871f2b90c89cfc464174842a67195b308"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Program.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/Program.cs",
+      "disposition": "current",
+      "currentSha256": "83debfa79afde27eff463c7e934441bb87a58370e13a1361b02e266a9c692008"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/SecondScreen.Cli.csproj",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/SecondScreen.Cli.csproj",
+      "disposition": "current",
+      "currentSha256": "9157553e09115067ce3d716aab5867480ae425fbcf6a4b0c198f1f4ec01b4862"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/Win32.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/Win32.cs",
+      "disposition": "current",
+      "currentSha256": "b48dfd4d400607e1009cdf247ac7ff427d4353f56832f17e44f7ae888432047c"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Cli/WindowCapture.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Cli/WindowCapture.cs",
+      "disposition": "current",
+      "currentSha256": "0150503a4ea0f6964cb042a3113309f0987c064c42fdf92f52d1c4b8a0f8796a"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/ControlPipe.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/ControlPipe.cs",
+      "disposition": "current",
+      "currentSha256": "6fe7c35ce5cd420083accca68ffba3af907497ff710c450b798127b81219d719"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Desktop.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Desktop.cs",
+      "disposition": "current",
+      "currentSha256": "ba39278b33e88b44f4cadf01a13f808ab3c794377513a531ef7720b22f67243f"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/InputLogic.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/InputLogic.cs",
+      "disposition": "current",
+      "currentSha256": "e3ecd0e7c9f7d8395d6526cd16e45dfe189ed60538bc947de94ca4c4a97fb5a2"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Logic.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Logic.cs",
+      "disposition": "current",
+      "currentSha256": "0e3761230df8cf7f0a7e71e948e2eeeb2b96f37b58e0f517e0b18634d882eb52"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Native.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Native.cs",
+      "disposition": "current",
+      "currentSha256": "4df8e20eed4ade6f287a238c8499944b680f56fb0df831ba31d3d1fc5df09b99"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Protocol.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Protocol.cs",
+      "disposition": "current",
+      "currentSha256": "7d8417a300ea8620259f9f60bb5b326df0024f574af0cb280500e62b92a0856c"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/SecondScreen.Core.csproj",
+      "currentPath": "engine/windows/src/SecondScreen.Core/SecondScreen.Core.csproj",
+      "disposition": "current",
+      "currentSha256": "5d76eb636d39b11a094808798e813de50dfb1ee939ff76b61c4f2274fc8d8c45"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/ActionParser.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Tars/ActionParser.cs",
+      "disposition": "current",
+      "currentSha256": "d782e4d508c6a94ed750747a9d91db9a5616281955035d65ca9a739ea8b39298"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Agent.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Tars/Agent.cs",
+      "disposition": "current",
+      "currentSha256": "153f7efd077efa421c653992b390df01ea2e845f04ebd3f12ba3276f4d475099"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Learning.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Tars/Learning.cs",
+      "disposition": "current",
+      "currentSha256": "03109961334575bbd07fbb0637ebda0dbe21dfe15ae0a84d9164f8163308594a"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Model.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Tars/Model.cs",
+      "disposition": "current",
+      "currentSha256": "c35a02ff2ac34fa97a3e8f144f862ba0f55df801deb0a3ccef3c6a451ca74824"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Planner.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Tars/Planner.cs",
+      "disposition": "current",
+      "currentSha256": "7c7ce542c40a9345928b4d4c2a5978c1ab3fc3b0685f4c26d812daad72f32d5c"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Tars/Procedure.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Tars/Procedure.cs",
+      "disposition": "current",
+      "currentSha256": "328a5a404803e21fd373ea890168b60abb92d68b0a2a1415dfb2fb9288f4a270"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/Topology.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/Topology.cs",
+      "disposition": "current",
+      "currentSha256": "a9193a7fc8e01072801b5c22acfabf0b9e94ad98efee656fa8a4ac6ba6226cb9"
+    },
+    {
+      "sourcePath": "windows/src/SecondScreen.Core/VddSettings.cs",
+      "currentPath": "engine/windows/src/SecondScreen.Core/VddSettings.cs",
+      "disposition": "current",
+      "currentSha256": "e94f40155ab8d24ad7151cf8acf1e10bf722404507a3788926eafea94f31f1fd"
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/CoreTests.cs",
+      "currentPath": "engine/windows/tests/SecondScreen.Tests/CoreTests.cs",
+      "disposition": "current",
+      "currentSha256": "a31cd5c68cbb7dd1cda7d8f5f9dab7d6a6b592f5dc43650c04732b80fef2356c"
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/Fixtures/mac-error.json",
+      "currentPath": "engine/windows/tests/SecondScreen.Tests/Fixtures/mac-error.json",
+      "disposition": "current",
+      "currentSha256": "cbbdd31d3ec218c186bf8568e96e8a0302ec2aca6a50640cbd375c8cf3487663"
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/Fixtures/mac-screen-create.json",
+      "currentPath": "engine/windows/tests/SecondScreen.Tests/Fixtures/mac-screen-create.json",
+      "disposition": "current",
+      "currentSha256": "433b0627c7b8efcfa73aaecb0d8c74b3ff342dc77c325d63f2d537710b7ee792"
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/Fixtures/mac-screen-list.json",
+      "currentPath": "engine/windows/tests/SecondScreen.Tests/Fixtures/mac-screen-list.json",
+      "disposition": "current",
+      "currentSha256": "e580694e7c7e52402366af1ca83f5b4c89c5b2114c4945d837a53eb654a0967a"
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/LearningTests.cs",
+      "currentPath": "engine/windows/tests/SecondScreen.Tests/LearningTests.cs",
+      "disposition": "current",
+      "currentSha256": "4011374bda696bef317d480a8ec4a6d52b96de4adf9ecb289a02c7ffef48c2b9"
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/SecondScreen.Tests.csproj",
+      "currentPath": "engine/windows/tests/SecondScreen.Tests/SecondScreen.Tests.csproj",
+      "disposition": "current",
+      "currentSha256": "00d3b3acf8e8ece2c7bfffea03a4ab593b88d661ff385ead599c53d56c208ef1"
+    },
+    {
+      "sourcePath": "windows/tests/SecondScreen.Tests/TarsTests.cs",
+      "currentPath": "engine/windows/tests/SecondScreen.Tests/TarsTests.cs",
+      "disposition": "current",
+      "currentSha256": "7719087bf31507e3d6b7596e3b64b62b3d8a7a154212bc47fd61a89317f800dc"
+    },
+    {
+      "sourcePath": "windows/tests/TestTarget/Program.cs",
+      "currentPath": "engine/windows/tests/TestTarget/Program.cs",
+      "disposition": "current",
+      "currentSha256": "ed57910f1bd55e8eedd8ecf871d3385753e2cd9d101cd66e3ed29a13339ec765"
+    },
+    {
+      "sourcePath": "windows/tests/TestTarget/TestTarget.csproj",
+      "currentPath": "engine/windows/tests/TestTarget/TestTarget.csproj",
+      "disposition": "current",
+      "currentSha256": "cd4be3f18ecc651c03f542981dcaf42a1fb6cc1c5b2c308b217c9355d07cee36"
+    },
+    {
+      "sourcePath": "windows/tests/TestTargetWpf/Program.cs",
+      "currentPath": "engine/windows/tests/TestTargetWpf/Program.cs",
+      "disposition": "current",
+      "currentSha256": "8e418401c9e49ebfd5840de52a9e426ef0c49c93f06584ad404aefbb1781ca24"
+    },
+    {
+      "sourcePath": "windows/tests/TestTargetWpf/TestTargetWpf.csproj",
+      "currentPath": "engine/windows/tests/TestTargetWpf/TestTargetWpf.csproj",
+      "disposition": "current",
+      "currentSha256": "30f997d50e9aa4517a427bb8a24ab112142e88c58b69862f2e058ed5ea269038"
+    }
+  ]
+}

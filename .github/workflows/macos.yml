@@ -8,21 +8,24 @@ on:
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: swift --version
-      - name: Dependencies resolve exactly as pinned
+      - name: Core is local
         run: |
+          ./scripts/check-local-engine.sh
           swift package resolve
-          git diff --exit-code Package.resolved
-          test ! -d Packages
-      - name: Build checks have their regression cases
-        run: ./scripts/test-check-engine-checkout.sh
+          ./scripts/check-local-engine.sh
+          test ! -d .build/checkouts/2ndscreen
+          test ! -e Package.resolved || ! grep -q 2ndscreen Package.resolved
       - name: Build
         run: swift build -c release
-      - name: Unit tests
+      - name: Product unit tests
         run: swift test
+      - name: Native core unit tests
+        run: swift test --package-path engine
       - name: Bundle the app
         run: ./scripts/bundle-app.sh
       - name: Bundle contents
@@ -32,12 +35,6 @@ jobs:
           codesign --verify --strict "build/Agent Desktop.app"
       - name: The archive matches its manifest
         run: ./scripts/verify-archive.sh build/Agent\ Desktop-*.zip build/Agent\ Desktop-*.manifest.json
-      - name: The bundled command line refuses tasks without the product's runtime
-        run: |
-          out="$("build/Agent Desktop.app/Contents/Resources/bin/2ndscreen" task status nope || true)"
-          echo "$out"
-          echo "$out" | grep -q '"capability_missing"'
-          echo "$out" | grep -q 'Agent Desktop.app/Contents/Resources/bin/../task-runtime'
       - name: The product CLI is the native agentdesktop and needs no Runtime for help and version
         run: |
           CLI="build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
@@ -48,6 +45,8 @@ jobs:
           cat status.json
           test "$code" = 3
           python3 -c 'import json; d=json.load(open("status.json")); assert d["error"]["code"] == "runtime_offline", d'
+      - name: The packaged CLI exposes only the current command surface
+        run: python3 scripts/verify-command-surface.py "build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
       - name: Keep the archive and manifest
         uses: actions/upload-artifact@v4
         with:

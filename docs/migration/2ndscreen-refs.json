@@ -1,0 +1,114 @@
+[
+  {
+    "ref": "refs/heads/vdisplay-prototype",
+    "sha": "7a9615406b4bbc2fcf09224a30667404b4765ecb"
+  },
+  {
+    "ref": "refs/remotes/origin/HEAD",
+    "sha": "da5677c2be421dc2d35cdda5cdf66b7134f6a381"
+  },
+  {
+    "ref": "refs/remotes/origin/act-confirms",
+    "sha": "db86dbf24a5a4a9e7a04c98924c798b54b83e077"
+  },
+  {
+    "ref": "refs/remotes/origin/action-log",
+    "sha": "ee68ae24b465fa7b95869a71adb7dce335f9bd1a"
+  },
+  {
+    "ref": "refs/remotes/origin/agent-run-unit",
+    "sha": "97f39f2b4c82ea14a41fec6e7aeaf92465e7dc29"
+  },
+  {
+    "ref": "refs/remotes/origin/agent-stderr-log",
+    "sha": "adfc93ed155b0912288a61bf5276926004d9c359"
+  },
+  {
+    "ref": "refs/remotes/origin/agent-worker-merge",
+    "sha": "c9f13c622dbd5e61cafe0845611962a8a0ce998d"
+  },
+  {
+    "ref": "refs/remotes/origin/archive/llm-worker",
+    "sha": "150258f097fea393f6340ed4bc3e88a130c57d08"
+  },
+  {
+    "ref": "refs/remotes/origin/archive/monitor-v1",
+    "sha": "67017628b0dd4be8e0bac6ff59fd590ecbe8f112"
+  },
+  {
+    "ref": "refs/remotes/origin/archive/ss-runtime-integration",
+    "sha": "13792dacc27c65bf3fbafd4b203eeea5c93c780f"
+  },
+  {
+    "ref": "refs/remotes/origin/builtin-agents",
+    "sha": "72511975f64fd22d18b181dbd8162862474e4463"
+  },
+  {
+    "ref": "refs/remotes/origin/heartbeat-while-answering",
+    "sha": "7fe176ea011b4a8224f45af1df59ce2292ab49a6"
+  },
+  {
+    "ref": "refs/remotes/origin/import-pr-56",
+    "sha": "dcccbf3cc176d0b9bb3ba32b279249099bee83ca"
+  },
+  {
+    "ref": "refs/remotes/origin/import-pr-64",
+    "sha": "b71328fc213f350142d9fc92385bdad5fedc003d"
+  },
+  {
+    "ref": "refs/remotes/origin/import-pr-65",
+    "sha": "9a739cb1d8e858ba1227cb736a7f3cf105cdbdf1"
+  },
+  {
+    "ref": "refs/remotes/origin/import-pr-66",
+    "sha": "61293ec3145b505ba60f9985187ff79ba87a85cd"
+  },
+  {
+    "ref": "refs/remotes/origin/import-pr-67",
+    "sha": "b44b96be0582a12815e82cd6c3875883d03f34ab"
+  },
+  {
+    "ref": "refs/remotes/origin/import-pr-68",
+    "sha": "de7391544240d7e185498851fc4eea0b5c6f03c4"
+  },
+  {
+    "ref": "refs/remotes/origin/import-pr-69",
+    "sha": "4b0171b776f33a7d40c218e280180c0f23267aa1"
+  },
+  {
+    "ref": "refs/remotes/origin/release-0.2.0",
+    "sha": "6f5a5abaeee9a03c244d921aa139430881e6e760"
+  },
+  {
+    "ref": "refs/remotes/origin/resident-wait-handover",
+    "sha": "865515645f784adcbb1e9ba400c4f2946d7ea045"
+  },
+  {
+    "ref": "refs/remotes/origin/runtime-library",
+    "sha": "d8b6b1418341b7046f8819f8c4930a34337ea0bd"
+  },
+  {
+    "ref": "refs/remotes/origin/szrunworld/rfc-0002-acp",
+    "sha": "dcccbf3cc176d0b9bb3ba32b279249099bee83ca"
+  },
+  {
+    "ref": "refs/remotes/origin/vdisplay-prototype",
+    "sha": "da5677c2be421dc2d35cdda5cdf66b7134f6a381"
+  },
+  {
+    "ref": "refs/remotes/origin/wait-for-login",
+    "sha": "b0aee848152d4c04c7807de75b350b6946faccd0"
+  },
+  {
+    "ref": "refs/remotes/origin/windows",
+    "sha": "a52642b755ff6cfad5b7ac6932678a918e24baf0"
+  },
+  {
+    "ref": "refs/tags/v0.1.0",
+    "sha": "e99f41131ec3221994dad52f04cb2fcdaa859585"
+  },
+  {
+    "ref": "refs/tags/v0.2.0",
+    "sha": "7aded4b5ca19ea78225a409f9dbcfd25d1f982cc"
+  }
+]

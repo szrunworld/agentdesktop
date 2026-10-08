@@ -1,0 +1,959 @@
+diff --git a/README.md b/README.md
+index c752564..387e617 100644
+--- a/README.md
++++ b/README.md
+@@ -637,6 +637,21 @@ task runtime work unchanged. macOS asks the host app for Screen Recording
+ and Accessibility. The serial base keeps the host's displays apart from
+ 2ndscreen.app's on the same Mac: macOS remembers each serial's arrangement.
+ 
++A control endpoint has one owner. Starting the runtime takes a lock beside
++the socket (`control.sock` → `control.lock`, held with `flock`), so two
++hosts started at once end with one owner: the other gets an `EndpointError`
++naming who holds it, and removes nothing. Only the owner creates the socket
++and, on stop, removes socket and lock; a socket a crashed owner left behind
++(its lock gone with it, and refusing connections) is replaced by the next
++owner. A socket with no lock that still answers a request belongs to a
++host from before locks (v0.2.0): it is never taken over, and the new host
++says so and leaves. Set
++`runtime.identity` before `start`: it goes into the lock file and is what
++`2ndscreen host info` answers, with the protocol and engine versions and
++the host's capabilities, so a client can check which instance it reached.
++`host info` on an endpoint nobody answers says whether it is free, stale,
++or held by a host that is still starting.
++
+ ## Command-line display
+ 
+ `vdisplay` creates a display without the app, for scripting:
+diff --git a/Sources/ScreenCLI/HostCommand.swift b/Sources/ScreenCLI/HostCommand.swift
+new file mode 100644
+index 0000000..a31bfd6
+--- /dev/null
++++ b/Sources/ScreenCLI/HostCommand.swift
+@@ -0,0 +1,38 @@
++import Foundation
++import SecondScreenCore
++
++/// `2ndscreen host info`: who answers on the control endpoint, so a client
++/// can check it reached the host it meant and that they agree on the
++/// protocol. When nobody answers, the endpoint's lock says whether it is
++/// free, left behind by a crash, or held by a host that is still starting.
++enum HostCommand {
++    static func run(_ args: Arguments) -> Never {
++        guard args.positional.dropFirst().first == "info" else {
++            fail("usage: 2ndscreen host info")
++        }
++        let socket = ControlProtocol.socketURL.path
++        do {
++            var response = try sendControlRequest(ControlRequest(command: .hostInfo))
++            if response.ok, response.host == nil {
++                // An older host answers commands it does not know with a failure, never this; be explicit anyway.
++                response = .failure("the host at \(socket) did not say who it is")
++            }
++            finish(response)
++        } catch ControlClientError.notRunning {
++            let state: String
++            var owner: EndpointRecord?
++            switch (try? EndpointOwnership.inspect(socketPath: socket)) ?? .free {
++            case .free: state = "free"
++            case .stale: state = "stale"
++            case .activeLegacy: state = "served by a host from before endpoint locks"
++            case .starting(let record): state = "starting"; owner = record
++            case .active(let record): state = "active"; owner = record
++            }
++            var response = ControlResponse.failure("no host answers at \(socket): the endpoint is \(state)")
++            response.host = owner?.identity
++            finish(response)
++        } catch {
++            fail(error.localizedDescription, code: 1)
++        }
++    }
++}
+diff --git a/Sources/ScreenCLI/main.swift b/Sources/ScreenCLI/main.swift
+index 354fb89..41a5f15 100644
+--- a/Sources/ScreenCLI/main.swift
++++ b/Sources/ScreenCLI/main.swift
+@@ -17,6 +17,7 @@ usage:
+   2ndscreen window move --screen NAME --pid PID [--window-id ID] [--fill | --fit-screen]
+   2ndscreen window release --screen NAME --pid PID [--window-id ID]
+   2ndscreen screenshot --screen NAME --output FILE.png [--windows]
++  2ndscreen host info       who answers on the control socket: product, bundle id, pid, protocol version
+ 
+   2ndscreen state --screen NAME --pid PID [--window-id ID] [--query TEXT] [--screenshot FILE.png]
+   2ndscreen click --screen NAME --pid PID (--index N | --text TEXT | --x X --y Y) [--right | --double]
+@@ -198,6 +199,9 @@ if args.positional.first == "iphone" {
+ if args.positional.prefix(2).joined(separator: " ") == "app quit" {
+     AppQuitCommand.run(args)
+ }
++if args.positional.first == "host" {
++    HostCommand.run(args)
++}
+ let verb = args.positional.prefix(2).joined(separator: " ")
+ 
+ var request: ControlRequest
+diff --git a/Sources/SecondScreen/AppController.swift b/Sources/SecondScreen/AppController.swift
+index 6b53184..c5d38fd 100644
+--- a/Sources/SecondScreen/AppController.swift
++++ b/Sources/SecondScreen/AppController.swift
+@@ -113,16 +113,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
+             preferences.hiDPI = main.hiDPI
+         }
+ 
+-        if preferences.enabled, !ControlProtocol.isSideInstance {
+-            enableDisplay()
+-        }
+-
+-        let known = preferences.androidAddresses
+-        DispatchQueue.global().async {
+-            ADB.restartStaleServer()
+-            Self.reconnect(known, keeping: [])
+-        }
+-
+         runtime.hostScreens = { [weak self] in self?.primaryScreenInfo().map { [$0] } ?? [] }
+         runtime.excludedFromDefaultSize = { [weak self] in self?.display?.displayID }
+         runtime.fallback = { [weak self] request in
+@@ -133,10 +123,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
+             guard let preview = self?.agentPreviews[name] else { return }
+             Task { @MainActor in try? await preview.restartStream() }
+         }
++        runtime.identity = HostIdentity.current(capabilities: HostIdentity.defaultCapabilities + ["android"])
++        // The endpoint is taken before any display is made: a second copy
++        // started at the same time finds it held and leaves without a trace.
+         do {
+             try runtime.start()
++        } catch let error as EndpointError {
++            FileHandle.standardError.write("2ndscreen: not starting: \(error.localizedDescription)\n".data(using: .utf8)!)
++            exit(0)
+         } catch {
+-            presentError("Agents cannot reach 2ndscreen: \(error.localizedDescription)")
++            // Without its endpoint the app is of no use to agents or to the
++            // menu that lists their screens: say so and leave, making no display.
++            presentError("2ndscreen cannot start its control socket: \(error.localizedDescription)")
++            exit(1)
++        }
++
++        if preferences.enabled, !ControlProtocol.isSideInstance {
++            enableDisplay()
++        }
++
++        let known = preferences.androidAddresses
++        DispatchQueue.global().async {
++            ADB.restartStaleServer()
++            Self.reconnect(known, keeping: [])
+         }
+     }
+ 
+diff --git a/Sources/SecondScreen/main.swift b/Sources/SecondScreen/main.swift
+index 5f2a374..40220bd 100644
+--- a/Sources/SecondScreen/main.swift
++++ b/Sources/SecondScreen/main.swift
+@@ -2,11 +2,26 @@ import AppKit
+ import SecondScreenCore
+ 
+ // One usual instance only: a second would try to create the same virtual
+-// display (macOS refuses a duplicate) and add a second preview. Side
+-// instances, which agents run to test a build, do not count: they keep to
+-// the background, and the usual app starts beside them.
+-if !ControlProtocol.isSideInstance, ControlProtocol.isListening(ControlProtocol.primarySocketURL) {
+-    exit(0)
++// display (macOS refuses a duplicate) and add a second preview. The endpoint
++// is owned through a lock (EndpointOwnership): this early look keeps a
++// second copy quiet when the usual one is plainly running or starting, and
++// AppController takes the lock itself before it makes a display, so two
++// copies started at once still end with one owner. Side instances, which
++// agents run to test a build, keep to the background on their own sockets
++// and do not count.
++if !ControlProtocol.isSideInstance {
++    let socket = ControlProtocol.primarySocketURL.path
++    switch (try? EndpointOwnership.inspect(socketPath: socket)) ?? .free {
++    case .active(let record), .starting(let record):
++        let owner = record.map { "\($0.identity.product) (pid \($0.identity.pid))" } ?? "another process"
++        FileHandle.standardError.write("2ndscreen: \(owner) owns \(socket); not starting\n".data(using: .utf8)!)
++        exit(0)
++    case .activeLegacy:
++        FileHandle.standardError.write("2ndscreen: an older 2ndscreen still serves \(socket); not starting\n".data(using: .utf8)!)
++        exit(0)
++    case .free, .stale:
++        break
++    }
+ }
+ 
+ // Menu bar only: no Dock icon, no main window. Top-level code runs on the
+diff --git a/Sources/SecondScreenCore/ControlProtocol.swift b/Sources/SecondScreenCore/ControlProtocol.swift
+index 3f3ba2e..7458fa9 100644
+--- a/Sources/SecondScreenCore/ControlProtocol.swift
++++ b/Sources/SecondScreenCore/ControlProtocol.swift
+@@ -6,6 +6,11 @@ import Foundation
+ /// Each connection carries one JSON request line and one JSON response line
+ /// over a Unix socket that only the current user can open.
+ public enum ControlProtocol {
++    /// The request/response protocol's version; a client checks it against `host.info`.
++    public static let version = "1"
++    /// The engine release this library was built from (the package tag).
++    public static let engineVersion = "0.2.0"
++
+     /// `~/Library/Application Support/2ndscreen/control.sock`, or
+     /// `$SECONDSCREEN_SOCKET`, which lets a second build of the app run beside
+     /// the usual one, as when testing a change.
+@@ -61,6 +66,8 @@ public struct ControlRequest: Codable {
+         case windowState = "window.state"
+         /// Click, type, press keys, scroll or drag in a window, in the background.
+         case input
++        /// Who answers on this endpoint: product, bundle id, pid, protocol and engine versions, capabilities.
++        case hostInfo = "host.info"
+         case androidList = "android.list"
+         case androidShow = "android.show"
+         case androidHide = "android.hide"
+@@ -296,6 +303,8 @@ public struct ControlResponse: Codable {
+     public var route: String?
+     public var element: AXElementInfo?
+     public var android: [AndroidDeviceInfo]?
++    /// `host.info`: the host that answered.
++    public var host: HostIdentity?
+ 
+     public init(ok: Bool = true) {
+         self.ok = ok
+diff --git a/Sources/SecondScreenCore/EndpointOwnership.swift b/Sources/SecondScreenCore/EndpointOwnership.swift
+new file mode 100644
+index 0000000..2d6d207
+--- /dev/null
++++ b/Sources/SecondScreenCore/EndpointOwnership.swift
+@@ -0,0 +1,299 @@
++import Foundation
++
++/// The host answering on a control endpoint: what it is, which process, and
++/// what it speaks. The owner writes it into the endpoint's lock file, and
++/// answers it to `host.info`, so a client can tell which instance it reached
++/// and whether they agree on the protocol.
++public struct HostIdentity: Codable, Equatable, Sendable {
++    public var product: String
++    public var bundleId: String
++    public var pid: Int32
++    public var protocolVersion: String
++    public var engineVersion: String
++    public var capabilities: [String]
++
++    public init(product: String, bundleId: String, pid: Int32 = ProcessInfo.processInfo.processIdentifier,
++                protocolVersion: String = ControlProtocol.version, engineVersion: String = ControlProtocol.engineVersion,
++                capabilities: [String] = HostIdentity.defaultCapabilities) {
++        self.product = product
++        self.bundleId = bundleId
++        self.pid = pid
++        self.protocolVersion = protocolVersion
++        self.engineVersion = engineVersion
++        self.capabilities = capabilities
++    }
++
++    /// What every host built on the runtime offers.
++    public static let defaultCapabilities = ["screen", "window", "input", "screenshot", "host.info"]
++
++    /// This process, as its bundle (or, outside one, its executable) names it.
++    public static func current(capabilities: [String] = defaultCapabilities) -> HostIdentity {
++        let bundle = Bundle.main
++        let name = (bundle.infoDictionary?["CFBundleName"] as? String) ?? ProcessInfo.processInfo.processName
++        return HostIdentity(product: name, bundleId: bundle.bundleIdentifier ?? "process." + ProcessInfo.processInfo.processName,
++                            capabilities: capabilities)
++    }
++}
++
++/// What the lock file beside an endpoint says about it.
++public struct EndpointRecord: Codable, Sendable {
++    public var identity: HostIdentity
++    /// The owner has bound and listens on the socket; before that it is starting.
++    public var listening: Bool
++    public var since: Date
++}
++
++public enum EndpointState: Sendable {
++    /// No lock is held and no socket file exists.
++    case free
++    /// No lock is held and the socket file refuses connections: an owner that crashed. The next owner replaces it.
++    case stale
++    /// No lock is held, yet the socket answers requests: a host from before
++    /// locks (v0.2.0) is running. It is not taken over; it has to quit first.
++    case activeLegacy
++    /// The lock is held and the owner has not started listening yet.
++    case starting(EndpointRecord?)
++    /// The lock is held by a listening owner.
++    case active(EndpointRecord?)
++}
++
++public enum EndpointError: LocalizedError {
++    /// Another process holds the endpoint. The record is what its lock file said, if it could be read.
++    case held(socket: String, by: EndpointRecord?)
++    /// A host from before locks answers on the socket; it cannot be taken over.
++    case legacyActive(socket: String)
++    /// The socket path cannot be an endpoint: too long for a Unix socket, or its lock path would be itself.
++    case badPath(String)
++    case io(String)
++
++    public var errorDescription: String? {
++        switch self {
++        case .held(let socket, let record):
++            if let record {
++                let identity = record.identity
++                return "\(socket) is owned by \(identity.product) (\(identity.bundleId), pid \(identity.pid), protocol \(identity.protocolVersion))"
++                    + (record.listening ? "" : ", which is still starting")
++            }
++            return "\(socket) is owned by another process"
++        case .legacyActive(let socket):
++            return "\(socket) is served by a host from before 2ndscreen took endpoint locks; quit that host first"
++        case .badPath(let message), .io(let message): return message
++        }
++    }
++}
++
++/// What a request round trip to a socket found.
++public enum EndpointProbe: Sendable {
++    /// A host answered a request: it is alive.
++    case answered
++    /// The socket file refuses connections or is gone: nobody serves it.
++    case refused
++    /// Connected, but no reply came in time, or the reply was cut off. Treated as alive: never taken over.
++    case silent
++}
++
++/// Ownership of a control endpoint, taken atomically through a lock file
++/// beside the socket (`control.sock` → `control.lock`) with `flock`.
++///
++/// Only the holder creates, replaces or removes the socket. A process that
++/// fails to take the lock removes nothing, and can read who holds it. When
++/// the holder dies the kernel drops the lock, so a socket file left behind
++/// is recognised as stale and replaced by the next owner; while the lock is
++/// held but the socket is not yet listening, the endpoint is starting. A
++/// socket with no lock holder that still answers requests belongs to a host
++/// from before locks: it is left alone.
++public final class EndpointOwnership {
++    public let socketPath: String
++    public let lockPath: String
++    public let identity: HostIdentity
++    private var fd: Int32 = -1
++
++    /// `control.sock` → `control.lock`, in the same directory. A socket path
++    /// whose lock path would be itself cannot be an endpoint.
++    public static func lockPath(forSocket socketPath: String) throws -> String {
++        let base = (socketPath as NSString).deletingPathExtension
++        let lock = (base as NSString).appendingPathExtension("lock") ?? base + ".lock"
++        guard lock != socketPath else {
++            throw EndpointError.badPath("\(socketPath) cannot be a control socket: its lock file would be the socket itself")
++        }
++        return lock
++    }
++
++    private init(socketPath: String, lockPath: String, identity: HostIdentity, fd: Int32) {
++        self.socketPath = socketPath
++        self.lockPath = lockPath
++        self.identity = identity
++        self.fd = fd
++    }
++
++    deinit {
++        if fd >= 0 { close(fd) }
++    }
++
++    /// Whether this object still holds the lock.
++    public var isHeld: Bool { fd >= 0 }
++
++    /// How often, and how long apart, a non-blocking lock is retried before
++    /// the endpoint counts as held: an `inspect` holds the shared lock for a
++    /// moment, and must not turn a starting owner away.
++    static let lockAttempts = 10
++    static let lockRetryInterval: useconds_t = 20_000
++
++    /// Take the endpoint for `identity`, or throw: `held` with what the lock
++    /// file says about its owner, `legacyActive` when a host without a lock
++    /// answers on the socket. Taking it removes a socket that nobody serves;
++    /// it never touches a living host's.
++    public static func acquire(socketPath: String, identity: HostIdentity,
++                               probe: (String) -> EndpointProbe = probe) throws -> EndpointOwnership {
++        let lockPath = try lockPath(forSocket: socketPath)
++        let directory = (socketPath as NSString).deletingLastPathComponent
++        try FileManager.default.createDirectory(
++            atPath: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
++        // A lock on a file that was unlinked under us guards nothing; look again.
++        for _ in 0..<8 {
++            let fd = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
++            guard fd >= 0 else { throw EndpointError.io("open \(lockPath): \(String(cString: strerror(errno)))") }
++            if !(try lock(fd, lockPath: lockPath)) {
++                close(fd)
++                throw EndpointError.held(socket: socketPath, by: readRecord(lockPath, waitingUpTo: 0.5))
++            }
++            var locked = stat(), named = stat()
++            guard fstat(fd, &locked) == 0, stat(lockPath, &named) == 0, locked.st_ino == named.st_ino, locked.st_dev == named.st_dev else {
++                close(fd)  // the file we locked is gone; retry on the one now at the path
++                continue
++            }
++            let ownership = EndpointOwnership(socketPath: socketPath, lockPath: lockPath, identity: identity, fd: fd)
++            // Held now. A socket at the path belongs to nobody who holds a lock; but a
++            // host from before locks may serve it, and only a request can tell.
++            if FileManager.default.fileExists(atPath: socketPath) {
++                switch probe(socketPath) {
++                case .refused:
++                    unlink(socketPath)
++                case .answered, .silent:
++                    ownership.release(removingSocket: false)
++                    throw EndpointError.legacyActive(socket: socketPath)
++                }
++            }
++            do {
++                try ownership.write(listening: false)
++            } catch {
++                ownership.release(removingSocket: false)
++                throw error
++            }
++            return ownership
++        }
++        throw EndpointError.io("could not settle the lock at \(lockPath)")
++    }
++
++    /// The exclusive lock, retried a bounded number of times: false when
++    /// another process holds it after the retries.
++    private static func lock(_ fd: Int32, lockPath: String) throws -> Bool {
++        for attempt in 0..<lockAttempts {
++            if flock(fd, LOCK_EX | LOCK_NB) == 0 { return true }
++            let code = errno
++            guard code == EWOULDBLOCK || code == EAGAIN else {
++                throw EndpointError.io("flock \(lockPath): \(String(cString: strerror(code)))")
++            }
++            if attempt + 1 < lockAttempts { usleep(lockRetryInterval) }
++        }
++        return false
++    }
++
++    /// Record that the socket is bound and listening.
++    public func markListening() throws {
++        try write(listening: true)
++    }
++
++    /// Give the endpoint up: the socket file (if asked) and the lock file,
++    /// then the lock itself. Only while held; a released or never-held
++    /// ownership removes nothing.
++    public func release(removingSocket: Bool) {
++        guard fd >= 0 else { return }
++        if removingSocket { unlink(socketPath) }
++        // Unlinked while still locked: a racing acquirer that locked this inode sees it vanish and retries.
++        unlink(lockPath)
++        close(fd)
++        fd = -1
++    }
++
++    private func write(listening: Bool) throws {
++        guard fd >= 0 else { throw EndpointError.io("the endpoint is not held") }
++        let record = EndpointRecord(identity: identity, listening: listening, since: Date())
++        let encoder = JSONEncoder()
++        encoder.dateEncodingStrategy = .iso8601
++        var data = try encoder.encode(record)
++        data.append(0x0A)
++        guard ftruncate(fd, 0) == 0, lseek(fd, 0, SEEK_SET) == 0 else {
++            throw EndpointError.io("truncate \(lockPath): \(String(cString: strerror(errno)))")
++        }
++        try writeAll(fd, data)
++        fsync(fd)
++    }
++
++    /// What the lock file says, if it is readable and well formed. With
++    /// `waitingUpTo`, an empty or half-written file is read again for that
++    /// long: a holder that has just taken the lock is still writing it.
++    public static func readRecord(_ lockPath: String, waitingUpTo seconds: TimeInterval = 0) -> EndpointRecord? {
++        let deadline = Date().addingTimeInterval(seconds)
++        repeat {
++            if let data = FileManager.default.contents(atPath: lockPath), !data.isEmpty {
++                let decoder = JSONDecoder()
++                decoder.dateDecodingStrategy = .iso8601
++                if let record = try? decoder.decode(EndpointRecord.self, from: data) { return record }
++            }
++            if Date() >= deadline { return nil }
++            usleep(10_000)
++        } while true
++    }
++
++    /// Ask the socket a harmless question (`screen.list`) and see whether
++    /// anything answers. A full round trip, never a bare connect: a host from
++    /// before locks ends on a connection that closes without a request.
++    public static func probe(socketPath: String) -> EndpointProbe {
++        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
++        guard fd >= 0 else { return .silent }
++        defer { close(fd) }
++        var seconds = timeval(tv_sec: 2, tv_usec: 0)
++        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &seconds, socklen_t(MemoryLayout<timeval>.size))
++        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &seconds, socklen_t(MemoryLayout<timeval>.size))
++        var noSignal: Int32 = 1
++        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
++        guard var address = try? unixAddress(socketPath) else { return .refused }
++        let connected = withUnsafePointer(to: &address) {
++            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
++                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
++            }
++        }
++        guard connected == 0 else {
++            return errno == ECONNREFUSED || errno == ENOENT ? .refused : .silent
++        }
++        guard var payload = try? JSONEncoder().encode(ControlRequest(command: .screenList)) else { return .silent }
++        payload.append(0x0A)
++        guard (try? writeAll(fd, payload)) != nil, (try? readLine(fd)) != nil else { return .silent }
++        return .answered
++    }
++
++    /// The endpoint's state as seen from outside, without taking it.
++    public static func inspect(socketPath: String, probe: (String) -> EndpointProbe = probe) throws -> EndpointState {
++        let lockPath = try lockPath(forSocket: socketPath)
++        let socketExists = FileManager.default.fileExists(atPath: socketPath)
++        func unheld() -> EndpointState {
++            guard socketExists else { return .free }
++            switch probe(socketPath) {
++            case .refused: return .stale
++            case .answered, .silent: return .activeLegacy
++            }
++        }
++        let fd = open(lockPath, O_RDONLY | O_CLOEXEC)
++        guard fd >= 0 else { return unheld() }
++        defer { close(fd) }
++        if flock(fd, LOCK_SH | LOCK_NB) == 0 {
++            // Nobody holds it exclusively.
++            flock(fd, LOCK_UN)
++            return unheld()
++        }
++        let record = readRecord(lockPath)
++        if record?.listening == true, socketExists { return .active(record) }
++        return .starting(record)
++    }
++}
+diff --git a/Sources/SecondScreenRuntime/AgentRuntime.swift b/Sources/SecondScreenRuntime/AgentRuntime.swift
+index caa7643..8d6012b 100644
+--- a/Sources/SecondScreenRuntime/AgentRuntime.swift
++++ b/Sources/SecondScreenRuntime/AgentRuntime.swift
+@@ -29,6 +29,8 @@ public final class AgentRuntime {
+     public var onScreensChanged: (() -> Void)?
+     /// When an agent last sent a request.
+     public private(set) var lastRequest = Date()
++    /// Who this host is, as `host.info` and the endpoint's lock file report it. Set before `start`.
++    public var identity: HostIdentity = .current()
+ 
+     private var server: ControlServer?
+     /// One agent cursor overlay per agent screen, keyed by display ID.
+@@ -43,7 +45,7 @@ public final class AgentRuntime {
+     /// Listen for agents on `socketPath`; the `2ndscreen` command finds it
+     /// through `$SECONDSCREEN_SOCKET` when it is not the usual one.
+     public func start(socketPath: String = ControlProtocol.socketURL.path) throws {
+-        let server = ControlServer(path: socketPath) { [weak self] request in
++        let server = ControlServer(path: socketPath, identity: identity) { [weak self] request in
+             await self?.handle(request) ?? .failure("the agent runtime is shutting down")
+         }
+         try server.start()
+@@ -89,6 +91,10 @@ public final class AgentRuntime {
+         }
+ 
+         switch request.command {
++        case .hostInfo:
++            var response = ControlResponse()
++            response.host = identity
++            return response
+         case .screenCreate:
+             // By default, match the main display's full-screen area, so a
+             // full-screen preview of the new screen is pixel for pixel.
+diff --git a/Sources/SecondScreenRuntime/ControlServer.swift b/Sources/SecondScreenRuntime/ControlServer.swift
+index 3ed4b28..480c522 100644
+--- a/Sources/SecondScreenRuntime/ControlServer.swift
++++ b/Sources/SecondScreenRuntime/ControlServer.swift
+@@ -4,6 +4,12 @@ import SecondScreenCore
+ /// Serves `ControlProtocol` requests on a Unix socket in the user's
+ /// Application Support folder, readable only by the user.
+ ///
++/// The socket is created only by the process that owns the endpoint
++/// (`EndpointOwnership`): starting takes the lock beside it, so two hosts
++/// started at once cannot both listen, and a host that finds the endpoint
++/// held fails with who holds it and removes nothing. Stopping removes the
++/// socket and the lock only while this server still owns them.
++///
+ /// Each client connection is read on a background queue; the handler runs
+ /// on the main actor, where all display and window state lives.
+ public final class ControlServer {
+@@ -11,35 +17,55 @@ public final class ControlServer {
+ 
+     private let path: String
+     private let handler: Handler
++    /// Who this server says it is: written into the lock file, answered to `host.info`.
++    public let identity: HostIdentity
+     private var listener: Int32 = -1
+     private var source: DispatchSourceRead?
++    private var ownership: EndpointOwnership?
+     private let clients = DispatchQueue(label: "2ndscreen.control.clients", attributes: .concurrent)
+ 
+-    public init(path: String = ControlProtocol.socketURL.path, handler: @escaping Handler) {
++    public init(path: String = ControlProtocol.socketURL.path, identity: HostIdentity = .current(), handler: @escaping Handler) {
+         self.path = path
++        self.identity = identity
+         self.handler = handler
+     }
+ 
+-    public func start() throws {
+-        let directory = (path as NSString).deletingLastPathComponent
+-        try FileManager.default.createDirectory(
+-            atPath: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+-        // A previous instance that crashed leaves its socket file behind.
+-        unlink(path)
++    /// Whether this server owns the endpoint right now.
++    public var isOwner: Bool { ownership?.isHeld == true }
+ 
+-        listener = socket(AF_UNIX, SOCK_STREAM, 0)
+-        guard listener >= 0 else { throw ControlClientError.io("socket: \(String(cString: strerror(errno)))") }
+-        var address = try unixAddress(path)
+-        let bound = withUnsafePointer(to: &address) {
+-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+-                bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+-            }
++    public func start() throws {
++        // Taking the endpoint also clears a socket nobody serves; a living owner makes this throw.
++        let ownership = try EndpointOwnership.acquire(socketPath: path, identity: identity)
++        // Whatever fails from here on is undone: the listener closed, the lock
++        // given back, and only what this start made removed. The caller is
++        // never left with a server that holds the endpoint.
++        var fd: Int32 = -1
++        var bound = false
++        func undo(_ error: Error) -> Error {
++            if fd >= 0 { close(fd) }
++            ownership.release(removingSocket: bound)
++            return error
+         }
+-        guard bound == 0, chmod(path, 0o600) == 0, listen(listener, 16) == 0 else {
+-            let message = String(cString: strerror(errno))
+-            close(listener)
+-            throw ControlClientError.io("could not listen on \(path): \(message)")
++        do {
++            fd = socket(AF_UNIX, SOCK_STREAM, 0)
++            guard fd >= 0 else { throw ControlClientError.io("socket: \(String(cString: strerror(errno)))") }
++            var address = try unixAddress(path)
++            let ok = withUnsafePointer(to: &address) {
++                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
++                    bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
++                }
++            }
++            guard ok == 0 else { throw ControlClientError.io("could not listen on \(path): \(String(cString: strerror(errno)))") }
++            bound = true
++            guard chmod(path, 0o600) == 0, listen(fd, 16) == 0 else {
++                throw ControlClientError.io("could not listen on \(path): \(String(cString: strerror(errno)))")
++            }
++            try ownership.markListening()
++        } catch {
++            throw undo(error)
+         }
++        self.ownership = ownership
++        listener = fd
+ 
+         let source = DispatchSource.makeReadSource(fileDescriptor: listener, queue: clients)
+         source.setEventHandler { [weak self] in self?.acceptClient() }
+@@ -54,7 +80,9 @@ public final class ControlServer {
+             close(listener)
+             listener = -1
+         }
+-        unlink(path)
++        // A server that never owned the endpoint, or lost it, leaves the owner's files alone.
++        ownership?.release(removingSocket: true)
++        ownership = nil
+     }
+ 
+     private func acceptClient() {
+diff --git a/Tests/SecondScreenRuntimeTests/EndpointOwnershipTests.swift b/Tests/SecondScreenRuntimeTests/EndpointOwnershipTests.swift
+new file mode 100644
+index 0000000..5e6ecdb
+--- /dev/null
++++ b/Tests/SecondScreenRuntimeTests/EndpointOwnershipTests.swift
+@@ -0,0 +1,299 @@
++import Foundation
++import Testing
++@testable import SecondScreenRuntime
++import SecondScreenCore
++
++/// Who may create, use and clean up a control endpoint when two hosts try
++/// at once, one dies, one leaves, or one from before locks is still there
++/// (roadmap C02, first step).
++@MainActor
++struct EndpointOwnershipTests {
++    private func temporaryDirectory() -> String {
++        // Unix socket paths are short; keep out of the long temporary directory.
++        let dir = "/tmp/2ndscreen-own-\(UUID().uuidString.prefix(8))"
++        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
++        return dir
++    }
++
++    private func temporarySocket() -> String { temporaryDirectory() + "/control.sock" }
++
++    private func identity(_ product: String) -> HostIdentity {
++        HostIdentity(product: product, bundleId: "test.\(product)", capabilities: ["test"])
++    }
++
++    private func server(_ path: String, _ product: String) -> ControlServer {
++        ControlServer(path: path, identity: identity(product)) { _ in .failure(product) }
++    }
++
++    private func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: path) }
++    private func lock(_ path: String) -> String { try! EndpointOwnership.lockPath(forSocket: path) }
++
++    @Test func twoHostsStartedAtOnceEndWithOneOwnerAndTheLoserRemovesNothing() async throws {
++        let path = temporarySocket()
++        let a = server(path, "A")
++        let b = server(path, "B")
++        let outcomes = Outcomes()
++        // Both race for the same endpoint from two threads.
++        DispatchQueue.concurrentPerform(iterations: 2) { i in
++            do {
++                try (i == 0 ? a : b).start()
++                outcomes.record(i, nil)
++            } catch {
++                outcomes.record(i, error)
++            }
++        }
++        let errors = outcomes.errors
++        #expect(errors.count == 1, "exactly one start fails: \(errors)")
++        let winner = a.isOwner ? a : b
++        let loser = a.isOwner ? b : a
++        #expect(winner.isOwner && !loser.isOwner)
++        if case .held(_, let record)? = errors.first.flatMap({ $0 as? EndpointError }) {
++            // The loser reads who holds it; whether the winner had bound the socket by then is timing.
++            #expect(record?.identity.pid == ProcessInfo.processInfo.processIdentifier)
++            #expect(record?.identity.product == winner.identity.product)
++        } else {
++            Issue.record("the loser must learn who holds the endpoint: \(errors)")
++        }
++        #expect(ControlProtocol.isListening(URL(fileURLWithPath: path)), "the winner listens")
++        #expect(exists(lock(path)))
++
++        // The loser's stop leaves the owner's files alone.
++        loser.stop()
++        #expect(exists(path) && exists(lock(path)))
++        #expect(ControlProtocol.isListening(URL(fileURLWithPath: path)))
++        if case .active(let record) = try EndpointOwnership.inspect(socketPath: path) {
++            #expect(record?.identity.product == winner.identity.product)
++        } else {
++            Issue.record("the endpoint is active while the winner runs")
++        }
++
++        // The owner's stop removes both.
++        winner.stop()
++        #expect(!exists(path) && !exists(lock(path)))
++        if case .free = try EndpointOwnership.inspect(socketPath: path) {} else { Issue.record("free after the owner left") }
++    }
++
++    @Test func aSocketLeftByADeadOwnerIsReplacedByTheNextOwner() throws {
++        let path = temporarySocket()
++        // A crash leaves the socket file bound by nobody; the kernel has dropped the lock.
++        let fd = try Self.bindOnly(path)
++        close(fd)
++        try "stale".write(toFile: lock(path), atomically: true, encoding: .utf8)
++        if case .stale = try EndpointOwnership.inspect(socketPath: path) {} else { Issue.record("a socket nobody serves is stale") }
++
++        let next = server(path, "Next")
++        try next.start()
++        defer { next.stop() }
++        #expect(next.isOwner)
++        #expect(ControlProtocol.isListening(URL(fileURLWithPath: path)))
++    }
++
++    @Test func aHostFromBeforeLocksIsNotTakenOver() async throws {
++        let path = temporarySocket()
++        // v0.2.0 style: a listener on the socket, no lock file, answering requests.
++        let legacy = try LegacyHost(path)
++        defer { legacy.close() }
++        if case .activeLegacy = try EndpointOwnership.inspect(socketPath: path) {} else { Issue.record("an answering socket without a lock is a legacy host") }
++
++        let next = server(path, "Next")
++        #expect(throws: EndpointError.self) { try next.start() }
++        #expect(!next.isOwner)
++        #expect(exists(path), "the legacy host's socket is left alone")
++        #expect(!exists(lock(path)), "the failed start left no lock file")
++        #expect(legacy.answered.value >= 1, "it was identified by a full request, not a bare connect")
++        #expect(ControlProtocol.isListening(URL(fileURLWithPath: path)), "the legacy host still serves")
++
++        // Once it quits, its socket file is stale and the next owner takes the endpoint.
++        legacy.close()
++        if case .stale = try EndpointOwnership.inspect(socketPath: path) {} else { Issue.record("stale once the legacy host is gone") }
++        try next.start()
++        #expect(next.isOwner)
++        next.stop()
++    }
++
++    @Test func anInspectHoldingTheSharedLockDoesNotTurnAStartingOwnerAway() throws {
++        let path = temporarySocket()
++        let lockPath = lock(path)
++        // Something holds the shared lock for a while, as inspect does for a moment.
++        let shared = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
++        #expect(flock(shared, LOCK_SH | LOCK_NB) == 0)
++        let started = DispatchSemaphore(value: 0)
++        let released = DispatchSemaphore(value: 0)
++        DispatchQueue.global().async {
++            started.wait()
++            usleep(60_000)  // three retry intervals
++            flock(shared, LOCK_UN)
++            close(shared)
++            released.signal()
++        }
++        started.signal()
++        let ownership = try EndpointOwnership.acquire(socketPath: path, identity: identity("Patient"))
++        released.wait()
++        #expect(ownership.isHeld)
++        ownership.release(removingSocket: true)
++    }
++
++    @Test func aHeldEndpointThatIsNotListeningYetIsStartingNotStale() throws {
++        let path = temporarySocket()
++        // An owner that took the lock but has not bound the socket: starting.
++        let starting = try EndpointOwnership.acquire(socketPath: path, identity: identity("Slow"))
++        if case .starting(let record) = try EndpointOwnership.inspect(socketPath: path) {
++            #expect(record?.identity.product == "Slow")
++            #expect(record?.listening == false)
++        } else {
++            Issue.record("held but not listening is starting")
++        }
++        let other = server(path, "Other")
++        #expect(throws: EndpointError.self) { try other.start() }
++        #expect(!other.isOwner)
++        #expect(exists(lock(path)), "the loser removed nothing")
++        starting.release(removingSocket: true)
++        #expect(!exists(lock(path)))
++        // Now free: the other can take it.
++        try other.start()
++        #expect(other.isOwner)
++        other.stop()
++    }
++
++    @Test func aReleasedOwnershipRemovesNothingTwice() throws {
++        let path = temporarySocket()
++        let first = try EndpointOwnership.acquire(socketPath: path, identity: identity("First"))
++        first.release(removingSocket: true)
++        #expect(!first.isHeld)
++        let second = try EndpointOwnership.acquire(socketPath: path, identity: identity("Second"))
++        // A late release of the first must not take the second's lock file away.
++        first.release(removingSocket: true)
++        #expect(exists(lock(path)))
++        #expect(EndpointOwnership.readRecord(lock(path))?.identity.product == "Second")
++        second.release(removingSocket: true)
++    }
++
++    @Test func aStartThatFailsAfterTakingTheLockGivesItBack() throws {
++        let dir = temporaryDirectory()
++        // Too long for a Unix socket: bind cannot happen, and unixAddress refuses it.
++        let long = dir + "/" + String(repeating: "s", count: 110) + ".sock"
++        let server = server(long, "Long")
++        #expect(throws: (any Error).self) { try server.start() }
++        #expect(!server.isOwner)
++        #expect(!exists(lock(long)), "no lock file is left behind")
++        #expect(!exists(long))
++        // The same server starts on a path that fits.
++        let short = dir + "/control.sock"
++        let again = self.server(short, "Short")
++        try again.start()
++        #expect(again.isOwner)
++        again.stop()
++        #expect(!exists(short) && !exists(lock(short)))
++    }
++
++    @Test func aSocketWhoseLockPathWouldBeItselfIsRefused() throws {
++        let path = temporaryDirectory() + "/control.lock"
++        #expect(throws: EndpointError.self) { try EndpointOwnership.lockPath(forSocket: path) }
++        #expect(throws: EndpointError.self) { try EndpointOwnership.acquire(socketPath: path, identity: identity("Bad")) }
++        #expect(throws: EndpointError.self) { try server(path, "Bad").start() }
++        #expect(!exists(path))
++    }
++
++    @Test func hostInfoAnswersTheIdentityTheHostSet() async {
++        let runtime = AgentRuntime(serialBase: 950)
++        runtime.identity = HostIdentity(product: "Agent Desktop", bundleId: "com.agentdesktop.app", capabilities: ["screen", "host.info"])
++        let response = await runtime.handle(ControlRequest(command: .hostInfo))
++        #expect(response.ok)
++        #expect(response.host == runtime.identity)
++        #expect(response.host?.protocolVersion == ControlProtocol.version)
++        #expect(response.host?.engineVersion == ControlProtocol.engineVersion)
++    }
++
++    @Test func hostInfoTravelsOverTheSocket() async throws {
++        let path = temporarySocket()
++        let server = ControlServer(path: path, identity: identity("Wire")) { request in
++            var response = ControlResponse()
++            response.host = request.command == .hostInfo ? HostIdentity(product: "Wire", bundleId: "test.Wire") : nil
++            return response
++        }
++        try server.start()
++        defer { server.stop() }
++        // The handler runs on the main actor, so the client must wait off it.
++        let response = try await Task.detached { try Self.request(path, ControlRequest(command: .hostInfo)) }.value
++        #expect(response.host?.product == "Wire")
++        #expect(response.host?.bundleId == "test.Wire")
++    }
++
++    nonisolated private static func bindOnly(_ path: String) throws -> Int32 {
++        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
++        var address = try unixAddress(path)
++        let bound = withUnsafePointer(to: &address) {
++            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
++        }
++        guard bound == 0 else { throw ControlClientError.io("bind: \(String(cString: strerror(errno)))") }
++        return fd
++    }
++
++    nonisolated private static func request(_ path: String, _ request: ControlRequest) throws -> ControlResponse {
++        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
++        defer { close(fd) }
++        var address = try unixAddress(path)
++        let connected = withUnsafePointer(to: &address) {
++            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
++        }
++        guard connected == 0 else { throw ControlClientError.notRunning }
++        var payload = try JSONEncoder().encode(request)
++        payload.append(0x0A)
++        try writeAll(fd, payload)
++        return try JSONDecoder().decode(ControlResponse.self, from: try readLine(fd))
++    }
++}
++
++/// A host as v0.2.0 ran it: a listening socket with no lock file, answering
++/// every request line with an empty screen list.
++private final class LegacyHost: @unchecked Sendable {
++    private var listener: Int32
++    private let source: DispatchSourceRead
++    let answered = Counter()
++
++    init(_ path: String) throws {
++        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
++        var address = try unixAddress(path)
++        let bound = withUnsafePointer(to: &address) {
++            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
++        }
++        guard bound == 0, listen(fd, 4) == 0 else { throw ControlClientError.io("legacy listen: \(String(cString: strerror(errno)))") }
++        listener = fd
++        let answered = self.answered
++        source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: DispatchQueue(label: "legacy"))
++        source.setEventHandler {
++            let client = accept(fd, nil, nil)
++            guard client >= 0 else { return }
++            var noSignal: Int32 = 1
++            setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
++            if (try? readLine(client)) != nil {
++                answered.increment()
++                try? writeAll(client, Data("{\"ok\":true,\"screens\":[]}\n".utf8))
++            }
++            Darwin.close(client)
++        }
++        source.resume()
++    }
++
++    /// Quit as a crash would: the socket file stays, nobody serves it.
++    func close() {
++        guard listener >= 0 else { return }
++        source.cancel()
++        Darwin.close(listener)
++        listener = -1
++    }
++}
++
++private final class Counter: @unchecked Sendable {
++    private let lock = NSLock()
++    private var count = 0
++    var value: Int { lock.withLock { count } }
++    func increment() { lock.withLock { count += 1 } }
++}
++
++private final class Outcomes: @unchecked Sendable {
++    private let lock = NSLock()
++    private var results: [Int: Error?] = [:]
++    func record(_ i: Int, _ error: Error?) { lock.withLock { results[i] = error } }
++    var errors: [Error] { lock.withLock { results.values.compactMap { $0 } } }
++}
