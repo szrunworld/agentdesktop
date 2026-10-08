@@ -1,0 +1,30 @@
+{
+  "profile": "qtest-echo",
+  "agent": [
+    "node",
+    "/Users/kevinshi/orca/agentdesktop-acp-q/scripts/acp/fake-editor/dist/echo-agent.js"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T06:26:20.467Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "SceneD-approval-unavailable",
+      "cases": [
+        "ACP-P2D-01",
+        "ACP-P2D-02"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "turn: text \"executed\" does not match /not_executed:approval_(unavailable|cancelled)/"
+      ],
+      "transcript": "SceneD-approval-unavailable/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T06:26:20.625Z",
+  "counts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 0
+  }
+}

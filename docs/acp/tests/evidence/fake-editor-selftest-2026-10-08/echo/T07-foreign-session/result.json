@@ -1,0 +1,28 @@
+{
+  "id": "T07-foreign-session",
+  "cases": [
+    "ACP-T07-01",
+    "ACP-T07-02",
+    "ACP-T07-03"
+  ],
+  "title": "身份 B 看不到、加载不了、也不能向身份 A 的会话发 prompt",
+  "status": "PASS",
+  "durationMs": 204,
+  "failures": [],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "echo hello-from-fake-editor",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "prompt",
+      "text": "echo hello-from-fake-editor",
+      "outcome": "error",
+      "error": {
+        "code": -32002,
+        "message": "Resource not found: qs-69638-1"
+      }
+    }
+  ]
+}

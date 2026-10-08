@@ -1,0 +1,13 @@
+{
+  "id": "T08-concurrent-sessions",
+  "cases": [
+    "ACP-T08-01"
+  ],
+  "title": "同一连接上两个会话并发 prompt，各自只收到自己的更新",
+  "status": "BLOCKED",
+  "durationMs": 0,
+  "failures": [
+    "blocked: profile sdk-example-agent lacks echo.marker"
+  ],
+  "steps": []
+}

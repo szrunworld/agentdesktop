@@ -1,0 +1,1 @@
+FAIL    T01-valid-requests  ACP-T01-01,ACP-T01-02,ACP-T01-03  — connection 1: 1 non-ACP lines on stdout (stdout must carry only ACP frames)

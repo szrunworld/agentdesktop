@@ -1,0 +1,15 @@
+{
+  "id": "T07-foreign-session",
+  "cases": [
+    "ACP-T07-01",
+    "ACP-T07-02",
+    "ACP-T07-03"
+  ],
+  "title": "身份 B 看不到、加载不了、也不能向身份 A 的会话发 prompt",
+  "status": "BLOCKED",
+  "durationMs": 0,
+  "failures": [
+    "blocked: profile sdk-example-agent lacks session.load, session.list, identity.second"
+  ],
+  "steps": []
+}

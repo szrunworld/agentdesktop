@@ -1,0 +1,22 @@
+{
+  "name": "agentdesktop-acp",
+  "comment": "Real target, shipped command `agentdesktop acp` from a bundled side-instance copy (scripts/bundle-app.sh, copied to /tmp/adt-acp). Needs the CLI `acp` subcommand (f1). Endpoint is a SIDE INSTANCE under /tmp/adt-acp (docs/acp/tests/e2e-runbook.md), never the product endpoint. Features are switched on as their external dependencies land: task.slow/approval need A6 and PR4; identity.second needs A4. Prompt vars are placeholders until the task catalog (A6) names the neutral sample task.",
+  "agent": ["/tmp/adt-acp/Agent Desktop.app/Contents/Resources/bin/agentdesktop", "acp"],
+  "env": { "AGENTDESKTOP_ENDPOINT": "/tmp/adt-acp/side.runtime.sock" },
+  "features": [],
+  "vars": {
+    "SUPPORTED_VERSIONS": "[1]",
+    "PROMPT_ECHO": "/desktops",
+    "ECHO_TEXT": "",
+    "ECHO_PREFIX": "",
+    "PROMPT_SLOW": "TBD-after-A6: neutral sample task, long variant",
+    "PROMPT_SLOW_LONG": "TBD-after-A6: neutral sample task, long variant",
+    "CANCEL_AFTER_MS": "1500",
+    "DISCONNECT_AFTER_MS": "1500",
+    "PROMPT_ACT": "TBD-after-PR4: neutral sample task that needs approval",
+    "OVERSIZE_BYTES": "17825792",
+    "OVERSIZE_ALLOW_CLOSE": "false",
+    "SCOPED_ENDED_TEXT": "TBD-lane-E: wording for owner_lost",
+    "REFUSAL_EXPLAINED_RE": "TBD-lane-E"
+  }
+}

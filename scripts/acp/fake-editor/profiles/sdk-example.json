@@ -1,0 +1,18 @@
+{
+  "name": "sdk-example-agent",
+  "comment": "The official @agentclientprotocol/sdk 1.7.0 example agent (dist/examples/agent.js). It has a fixed script: every prompt streams text, one read tool call and one edit tool call that asks for permission, ~1 s per step. No session/load or list.",
+  "agent": ["node", "${FAKE_EDITOR_DIR}/node_modules/@agentclientprotocol/sdk/dist/examples/agent.js"],
+  "features": ["task.slow", "approval"],
+  "vars": {
+    "SUPPORTED_VERSIONS": "[1]",
+    "PROMPT_ECHO": "hello",
+    "ECHO_TEXT": "I'll help you",
+    "PROMPT_SLOW": "hello",
+    "CANCEL_AFTER_MS": "1500",
+    "DISCONNECT_AFTER_MS": "1500",
+    "PROMPT_ACT": "hello",
+    "OVERSIZE_BYTES": "2097152",
+    "OVERSIZE_ALLOW_CLOSE": "false",
+    "REFUSAL_EXPLAINED_RE": ".*"
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "id": "T07-foreign-session",
+  "cases": [
+    "ACP-T07-01",
+    "ACP-T07-02",
+    "ACP-T07-03"
+  ],
+  "title": "身份 B 看不到、加载不了、也不能向身份 A 的会话发 prompt",
+  "requires": [
+    "session.load",
+    "session.list",
+    "identity.second"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "sA"
+    },
+    {
+      "op": "prompt",
+      "session": "sA",
+      "text": "${PROMPT_ECHO}",
+      "expect": {
+        "stopReason": "end_turn"
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    },
+    {
+      "op": "connect",
+      "identity": "second"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "listSessions",
+      "expect": {
+        "excludes": [
+          "sA"
+        ]
+      }
+    },
+    {
+      "op": "resume",
+      "session": "sA",
+      "method": "load",
+      "expect": {
+        "ok": false,
+        "noReplay": true
+      }
+    },
+    {
+      "op": "prompt",
+      "session": "sA",
+      "text": "${PROMPT_ECHO}",
+      "expect": {
+        "stopReason": "error"
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

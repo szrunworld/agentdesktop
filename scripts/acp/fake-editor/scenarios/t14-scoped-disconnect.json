@@ -1,0 +1,87 @@
+{
+  "id": "T14-scoped-disconnect",
+  "cases": [
+    "ACP-T14-01",
+    "ACP-T14-02"
+  ],
+  "title": "connection_scoped 的一轮执行中编辑器断开：不再产生新动作，重连加载后不自动继续",
+  "requires": [
+    "task.slow",
+    "session.load"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_SLOW_LONG}",
+      "disconnectAfterMs": "${DISCONNECT_AFTER_MS}",
+      "timeoutMs": 30000,
+      "expect": {
+        "stopReasonIn": [
+          "disconnected"
+        ]
+      }
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    },
+    {
+      "op": "mark",
+      "name": "afterExit"
+    },
+    {
+      "op": "wait",
+      "ms": 1500
+    },
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "resume",
+      "session": "s1",
+      "method": "load",
+      "expect": {
+        "ok": true,
+        "replayIncludes": [
+          "${SCOPED_ENDED_TEXT}"
+        ]
+      }
+    },
+    {
+      "op": "wait",
+      "ms": 2000
+    },
+    {
+      "op": "assert",
+      "noNewToolCallsSince": "afterExit",
+      "toolCallsNotCompletedSince": "afterExit"
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

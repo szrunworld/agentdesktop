@@ -1,0 +1,54 @@
+{
+  "id": "SceneD-approval-unavailable",
+  "cases": [
+    "ACP-P2D-01",
+    "ACP-P2D-02"
+  ],
+  "title": "场景 D：编辑器不能回答审批（方法不存在）时动作保持未执行，并给出可解释的拒绝",
+  "requires": [
+    "approval"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ACT}",
+      "permission": "none",
+      "timeoutMs": 30000,
+      "expect": {
+        "stopReasonIn": [
+          "end_turn",
+          "refusal",
+          "error"
+        ],
+        "permissionRequested": true,
+        "deniedToolsNotCompleted": true,
+        "textMatches": "${REFUSAL_EXPLAINED_RE}"
+      }
+    },
+    {
+      "op": "expectAlive",
+      "ms": 300
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}
