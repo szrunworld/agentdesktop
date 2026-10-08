@@ -121,6 +121,9 @@ public struct ACPEventContext: Equatable, Sendable {
     public var openActions: [String: String] = [:]
     /// toolCallId → runId, for `openActions`.
     public var actionRuns: [String: String] = [:]
+    /// toolCallId → runId: actions whose result is unknown while the Run is
+    /// active. Made terminal at `run.ended` (ruling P2).
+    public var unknownActions: [String: String] = [:]
     public init() {}
 
     /// Learn from one event (after projecting it).
@@ -144,14 +147,19 @@ public struct ACPEventContext: Equatable, Sendable {
             let id = ACPProjector.toolCallId(f)
             announced.insert(id)
             openActions[id] = nil; actionRuns[id] = nil
+            let unknown = f.type == ACPEventType.actionUnknown.rawValue
+                || (f.type != ACPEventType.actionRefused.rawValue
+                    && f.receipt.map { ACPProjector.level(receipt: $0, errorCode: nil) == .unknown } == true)
+            unknownActions[id] = unknown ? f.runId : nil
         case ACPEventType.actionVerified.rawValue, ACPEventType.verificationSucceeded.rawValue,
              ACPEventType.verificationFailed.rawValue:
             // A verification result is a result: the action is no longer open.
             let id = ACPProjector.toolCallId(f)
             announced.insert(id)
-            openActions[id] = nil; actionRuns[id] = nil
+            openActions[id] = nil; actionRuns[id] = nil; unknownActions[id] = nil
         case ACPEventType.runEnded.rawValue:
             for (id, run) in actionRuns where run == f.runId { openActions[id] = nil; actionRuns[id] = nil }
+            for (id, run) in unknownActions where run == f.runId { unknownActions[id] = nil }
         default:
             break
         }

@@ -205,9 +205,9 @@ public enum ACPRedactor {
 
     private static func redactJSON(_ value: JSONValue, as cls: ACPDataClass, policy: ACPPrivacyPolicy) -> JSONValue {
         switch cls {
-        case .credential, .typedValue, .screenshot, .withheld:
+        case .credential, .typedValue, .screenshot, .withheld, .windowTitle, .identity:
             return value.isNull ? .null : .string(ACPRedactMask.hidden)
-        case .windowTitle, .pageText:
+        case .pageText:
             if !policy.pageText { return value.isNull ? .null : .string(ACPRedactMask.hidden) }
         case .url:
             return value.isNull ? .null : .string(ACPRedactMask.url)
@@ -223,6 +223,9 @@ public enum ACPRedactor {
             return .array(items.map { redactJSON($0, as: cls, policy: policy) })
         case let .string(s):
             switch cls {
+            // Free text can quote a window title or a name, which no pattern
+            // finds (ruling P1): logs and stores keep codes and ids only.
+            case .freeText: return .string(ACPRedactMask.hidden)
             case .identifier: return .string(identifier(s))
             case .code: return .string(s.range(of: #"^[a-z][a-z0-9_.-]{0,63}$"#, options: .regularExpression) != nil ? s : redact(s))
             case .scalar: return .string(redact(s))
@@ -240,8 +243,11 @@ public enum ACPRedactor {
         return "run=\(identifier(event.runId)) cursor=\(event.cursor) type=\(type) data=\(redactJSON(event.payload).encoded())"
     }
 
-    /// An error description for logs: never the raw message.
+    /// An error for logs: its catalogue code, never its message (a Runtime
+    /// message can name another app's window or a person; ruling P1).
     public static func logSafe(_ error: Error) -> String {
-        redact(String(describing: error))
+        if let e = error as? ACPError { return "error code=\(e.code) reason=\(errorCode(e.reason))" }
+        let type = String(describing: Swift.type(of: error))
+        return "error type=" + (type.range(of: #"^[A-Za-z_][A-Za-z0-9_.<>]{0,63}$"#, options: .regularExpression) != nil ? type : "unrecognized")
     }
 }

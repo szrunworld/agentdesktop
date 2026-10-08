@@ -126,12 +126,13 @@ import Testing
         }
         #expect(out["kind"] == .string("type"))
         #expect(out["target"]?["windowId"] == .int(813))
-        #expect(out["summary"] == .string("sent to [邮箱]"))
+        #expect(out["summary"] == .string(ACPRedactMask.hidden), "free text is hidden in logs (ruling P1)")
 
         var wide = ACPPrivacyPolicy()
         wide.pageText = true
         let w = ACPRedactor.redactJSON(payload, policy: wide)
-        #expect(w["title"] == .string("Inbox – [邮箱]"))
+        #expect(w["title"] == .string(ACPRedactMask.hidden), "window titles stay hidden under pageText (ruling P1)")
+        #expect(w["target"]?["label"] == .string("[电话]"), "page body text is widened, still redacted")
         #expect(w["text"] == .string(ACPRedactMask.hidden), "typed text stays hidden under pageText")
         #expect(w["attachToken"] == .string(ACPRedactMask.hidden))
     }
@@ -143,6 +144,8 @@ import Testing
         #expect(ETest.leaks(in: line).isEmpty, "\(line)")
         #expect(line.contains("type=unrecognized"))
         struct Boom: Error, CustomStringConvertible { var description: String { "failed for example@email.com" } }
-        #expect(ACPRedactor.logSafe(Boom()) == "failed for [邮箱]")
+        #expect(ACPRedactor.logSafe(Boom()) == "error type=Boom")
+        #expect(ACPRedactor.logSafe(ACPError(code: -32000, reason: "stale_observation", message: "window 901 (WeChat – 李四) covers"))
+            == "error code=-32000 reason=stale_observation")
     }
 }

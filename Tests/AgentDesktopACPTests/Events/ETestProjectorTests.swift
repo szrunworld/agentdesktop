@@ -84,11 +84,11 @@ import Testing
         #expect(c.title.contains("待核实"))
         #expect(c.detail.contains { $0.contains("不会自动重试") })
         let ended = messages(p.project(ETest.event("run.ended", [("outcome", .string("unknown"))]), policy: strict))
-        #expect(ended.first?.contains("待核实") == true)
+        #expect(ended.first?.contains("结果未知 · 需要核实") == true)
         #expect(ended.first?.contains("完成") == false)
     }
 
-    @Test(arguments: [("success", "已投递"), ("failed", "失败"), ("cancelled", "已取消"), ("unknown", "待核实"), ("", "待核实"), ("weird", "待核实")])
+    @Test(arguments: [("success", "已投递"), ("failed", "失败"), ("cancelled", "已取消"), ("unknown", "需要核实"), ("", "需要核实"), ("weird", "需要核实")])
     func runEndedOutcomes(_ outcome: String, _ shown: String) {
         let m = messages(p.project(ETest.event("run.ended", [("outcome", .string(outcome))]), policy: strict))
         #expect(m.count == 1)
@@ -197,7 +197,8 @@ import Testing
         for s in ["Inbox", "Resume", "Read the page"] { #expect(!off.contains(s)) }
         var wide = ACPPrivacyPolicy(); wide.pageText = true
         let on = ETest.strings(p.project(e, policy: wide)).joined(separator: "\n")
-        #expect(on.contains("窗口：Inbox - Mail") && on.contains("元素：Resume of Alice"))
+        #expect(on.contains("元素：Resume of Alice"))
+        for s in ["Inbox", "窗口：", "Read the page"] { #expect(!on.contains(s), "ruling P1: \(s)") }
     }
 
     @Test func t21MetadataLeak() {
@@ -239,7 +240,7 @@ import Testing
         #expect(ACPDataClass.credential.tier == .protected)
         #expect(ACPDataClass.screenshot.tier == .protected)
         #expect(ACPDataClass.withheld.tier == .protected)
-        #expect(ACPDataClass.windowTitle.tier == .sensitive)
+        #expect(ACPDataClass.windowTitle.tier == .protected)
         #expect(ACPDataClass.pageText.tier == .sensitive)
         #expect(ACPDataClass.code.tier == .normal)
         #expect(ACPDataClassifier.classify(key: "params") == .typedValue)
@@ -326,5 +327,111 @@ import Testing
         let c = try #require(call(p.project(e, policy: Self.wide)))
         #expect(c.detail == ["状态：已执行，未验证"])
         #expect(c.level == .executed)
+    }
+
+    // MARK: Kevin's second ruling (README §七)
+
+    /// P1: a bound-window title with a person's name never appears in any
+    /// update, log line or stored JSON, even with every opt-in widened.
+    @Test func p1WindowTitleNameNeverLeaves() {
+        let name = "王小明"
+        let title = "候选人 \(name) 的简历 – Preview"
+        let target = JSONValue.obj([("windowId", .int(813)), ("elementRef", .string("el_7")), ("title", .string(title)),
+                                    ("windowTitle", .string(title)), ("appName", .string("Preview \(name)")),
+                                    ("label", .string("下载简历"))])
+        let events = [
+            ETest.event("run.started", [("kind", .string("act")), ("title", .string(title))]),
+            ETest.event("action.accepted", [("requestId", .string("req_000aaaaa0009")), ("kind", .string("click")),
+                                            ("title", .string("Click download on \(title)")), ("target", target)], cursor: 2),
+            ETest.event("action.completed", [("receipt", ETest.receipt().setting("target", target)), ("target", target),
+                                             ("summary", .string("Opened \(name)'s resume")), ("windowTitle", .string(title)),
+                                             ("name", .string(name))], cursor: 3),
+            ETest.event("unit.started", [("unitType", .string("resume.open")), ("name", .string(name))], cursor: 4),
+            ETest.event("run.ended", [("outcome", .string("success")), ("windowTitle", .string(title))], cursor: 5),
+        ]
+        var session = ACPProjectorSession()
+        var out: [String] = []
+        for e in events {
+            out += ETest.strings(session.project(e, policy: Self.wide))
+            out.append(ACPRedactor.logLine(e))
+            out.append(ACPRedactor.redactJSON(e.payload, policy: Self.wide).encoded())
+        }
+        for s in out {
+            #expect(!s.contains(name), "name in \(s)")
+            #expect(!s.contains("候选人"), "title in \(s)")
+            #expect(!s.contains("Preview"), "title in \(s)")
+        }
+        // Page body text is still governed by pageText: the label shows.
+        #expect(out.contains { $0.contains("元素：下载简历") })
+        #expect(ACPDataClass.windowTitle.tier == .protected)
+        #expect(ACPDataClass.identity.tier == .protected)
+        #expect(ACPDataClassifier.classify(key: "appName") == .identity)
+    }
+
+    func session(_ events: [ACPRuntimeEvent]) -> [[ACPSessionUpdate]] {
+        var s = ACPProjectorSession()
+        return events.map { s.project($0, policy: strict) }
+    }
+
+    /// P2: unknown is in progress while the Run is active and becomes a
+    /// terminal "结果未知 · 需要核实" (status failed, level unknown) at run.ended.
+    @Test func p2UnknownBecomesTerminalAtRunEnd() throws {
+        let out = session([
+            ETest.event("run.started", [("kind", .string("act"))]),
+            ETest.event("action.accepted", [("requestId", .string("req_0001aaaabbbb")), ("kind", .string("type"))], cursor: 2),
+            ETest.event("action.dispatched", [("requestId", .string("req_0001aaaabbbb"))], cursor: 3),
+            ETest.event("action.unknown", [("receipt", ETest.receipt(delivery: "unknown", execution: "unknown"))], cursor: 4),
+            ETest.event("run.ended", [("outcome", .string("unknown"))], cursor: 5),
+        ])
+        let during = try #require(call(out[3]))
+        #expect(during.level == .unknown && during.status == .inProgress)
+        let final = try #require(call(out[4]))
+        #expect(final.toolCallId == during.toolCallId)
+        #expect(final.status == .failed)
+        #expect(final.level == .unknown)
+        #expect(final.title == "输入文字 — 结果未知 · 需要核实")
+        #expect(final.detail.contains("执行已终止，结果未知"))
+        #expect(final.detail.contains { $0.contains("不会重试") && $0.contains("AgentDesktop 主窗口") })
+    }
+
+    @Test func p2DispatchedWithoutResultIsTerminalUnknown() throws {
+        let out = session([
+            ETest.event("run.started", [("kind", .string("act"))]),
+            ETest.event("action.accepted", [("requestId", .string("req_0001aaaabbbb")), ("kind", .string("click"))], cursor: 2),
+            ETest.event("action.dispatched", [("requestId", .string("req_0001aaaabbbb"))], cursor: 3),
+            ETest.event("run.ended", [("outcome", .string("unknown")), ("reason", .string("runtime_restarted"))], cursor: 4),
+        ])
+        let final = try #require(call(out[3]))
+        #expect(final.level == .unknown && final.status == .failed)
+        if case .failed = final.level! { Issue.record("never level .failed") }
+    }
+
+    @Test func p2CompletedReceiptWithUnknownDeliveryIsTerminalToo() throws {
+        let out = session([
+            ETest.event("run.started", [("kind", .string("act"))]),
+            ETest.event("action.completed", [("receipt", ETest.receipt(delivery: "unknown"))], cursor: 2),
+            ETest.event("run.ended", [("outcome", .string("unknown"))], cursor: 3),
+        ])
+        let final = try #require(call(out[2]))
+        #expect(final.level == .unknown && final.status == .failed)
+    }
+
+    @Test func p2VerifiedOrKnownActionsAreNotReopened() {
+        let out = session([
+            ETest.event("run.started", [("kind", .string("unit"))]),
+            ETest.event("action.unknown", [("receipt", ETest.receipt(delivery: "unknown", execution: "unknown"))], cursor: 2),
+            ETest.event("action.verified", [("requestId", .string("req_0001aaaabbbb")), ("verification", .string("matched"))], cursor: 3),
+            ETest.event("action.completed", [("receipt", ETest.receipt(requestId: "req_0002ccccdddd"))], cursor: 4),
+            ETest.event("run.ended", [("outcome", .string("success"))], cursor: 5),
+        ])
+        #expect(call(out[4]) == nil, "no terminal update for verified or executed actions: \(out[4])")
+    }
+
+    @Test func p2OtherRunsUnaffected() {
+        let out = session([
+            ETest.event("action.unknown", [("receipt", ETest.receipt(delivery: "unknown", execution: "unknown"))], run: "run_aaaaaaaaaaaa"),
+            ETest.event("run.ended", [("outcome", .string("unknown"))], run: "run_bbbbbbbbbbbb", cursor: 2),
+        ])
+        #expect(call(out[1]) == nil)
     }
 }
