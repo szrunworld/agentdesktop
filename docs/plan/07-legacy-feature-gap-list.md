@@ -2,7 +2,7 @@
 
 对照来源：2ndscreen@da5677c 的 CLI 命令表与 README（已由 #20 完整保全在本仓提交 49218be，当前树在 main 的 `engine/`）、TS task-runtime 与 Agent Hub、Windows C# 引擎、Android 与 iPhone、旧菜单栏 App；`docs/migration/runtime-semantics-to-port.md` 的七项接缝。
 
-「现状」列：**R** = 新 runtime/1 已有（ai-gui-foundation）；**E** = 只在 main 的 `engine/` 旧实现里（旧 CLI `agentdesktop-cli`，A0 后退出发布路径）；**H** = 只在导入历史；**—** = 没有。
+「现状」列：**R** = 新 runtime/1 已有（原在 ai-gui-foundation，2026-10-08 经 #2 合入 main）；**E** = 只在 main 的 `engine/` 旧实现里（旧 CLI `agentdesktop-cli`，A0 后退出发布路径）；**H** = 只在导入历史；**—** = 没有。
 
 ## 7.1 桌面与窗口
 

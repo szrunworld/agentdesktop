@@ -8,7 +8,7 @@
 
 | 分支 | 提交 | 说明 |
 | --- | --- | --- |
-| `origin/ai-gui-foundation` | `5db0cec`（#41 合入后） | 本文所有「现状」的依据 |
+| `origin/ai-gui-foundation` | `5db0cec`（#41 合入后） | 本文所有「现状」的依据（历史快照；foundation 已于 2026-10-08 经 #2 合入 main，最新状态以 02 文件 2.2 节为准） |
 | `origin/main` | `501ff01`（#20） | 含 `engine/` 与 `docs/migration/` |
 | `origin/plan-ui-brief` | PR #42 | 09 文件与 06 的 6.4 |
 | `origin/a02-main-window` | PR #1 | 旧 A02 主窗口，已过时 |
@@ -147,7 +147,7 @@ Observation = 某 Desktop 的一次观察（snapshotId，D20：界面显示为�
 | #41 `runtime-events-subscribe` | **已合入**（5db0cec） | PR2e 完成，U1 Store 可用订阅 |
 | #37 MAC-001 验收记录 | 开放 | 「投递成功而窗口无变化」：6.4 与 RT-24 的 UI 文案依据 |
 | #29 CLI PR3（MCP、SDK） | 草稿 | P10 MCP 配置示例的 `--desktop-id` 依赖它（A7） |
-| #2 foundation → main | 开放 | A0 的一部分 |
+| #2 foundation → main | 已合入 134b451（2026-10-08） | A0 的一部分 |
 | #1 旧 A02 主窗口 | 开放，已过时 | 只取 1.7 所列 |
 | **A0 仓库收敛** | **未开 PR** | U1b 起的全部接线 PR 阻塞于它 |
 
