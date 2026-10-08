@@ -105,6 +105,8 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
                         frame: Rect(x: 2100, y: 150, width: 200, height: 24)),
     ]
     var screenRecordingGranted = true
+    /// Write decodable PNGs (the GUI ports crop them).
+    var realImages = false
     var nextDisplay: UInt32 = 900
     var lastScreenshot: String?
 
@@ -167,7 +169,12 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         guard screenRecordingGranted else {
             throw PlatformError(.permission, "needs the Screen Recording permission to take screenshots")
         }
-        try Data("PNG".utf8).write(to: URL(fileURLWithPath: path))
+        let w = Int(screen.frame.width) * 2, h = Int(screen.frame.height) * 2
+        if realImages {
+            try pngData(width: w, height: h).write(to: URL(fileURLWithPath: path))
+        } else {
+            try Data("PNG".utf8).write(to: URL(fileURLWithPath: path))
+        }
         lock.withLock { lastScreenshot = path }
         return (Int(screen.frame.width) * 2, Int(screen.frame.height) * 2)
     }
@@ -212,4 +219,28 @@ func platformService(_ platform: FakePlatform = FakePlatform(), backend: FixedBa
     RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                              endpoint: "/tmp/t.sock", buildSource: "unknown"),
                    backend: backend, platform: platform, ledger: ledger)
+}
+
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
+
+/// A solid PNG of the given size.
+func pngData(width: Int, height: Int) throws -> Data {
+    let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1)
+    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    let data = NSMutableData()
+    let dest = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)!
+    CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
+    CGImageDestinationFinalize(dest)
+    return data as Data
+}
+
+func pngSize(_ data: Data) -> (Int, Int)? {
+    guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+          let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+          let w = p[kCGImagePropertyPixelWidth] as? Int, let h = p[kCGImagePropertyPixelHeight] as? Int else { return nil }
+    return (w, h)
 }

@@ -10,8 +10,12 @@ import AppKit
 import Carbon.HIToolbox
 import SecondScreenCore
 import SecondScreenRuntime
+import AgentDesktopAI
+import AgentDesktopContracts
+import AgentDesktopGUI
 import AgentDesktopProtocol
 import AgentDesktopRuntime
+import AgentDesktopService
 
 /// Persisted user choices. The app restores them on launch.
 struct Preferences {
@@ -70,6 +74,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var agentScreens: AgentScreens { runtime.screens }
     /// The Runtime API endpoint every product entry uses (CLI plan v1.2).
     private var runtimeServer: RuntimeServer?
+    /// The AI/GUI service and its endpoint.
+    private var aiServer: RpcSocketServer?
     /// Live previews of agent screens, keyed by screen name.
     private var agentPreviews: [String: DisplayPreview] = [:]
 
@@ -142,8 +148,37 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        aiServer?.stop()
         runtimeServer?.stop()
         runtime.stop()
+    }
+
+    /// Model connections, profiles, capability tests and GUI runs. GUI runs
+    /// get the Runtime's ports only when real GUI input is switched on;
+    /// otherwise gui.runs.start answers CAPABILITY_MISMATCH.
+    private func startAIService(runtime: RuntimeService, records: String) {
+        let path = role.aiEndpoint.path
+        let enabled = role.guiExecutionEnabled
+        let ports = RuntimeGuiPorts(service: runtime)
+        Task {
+            do {
+                let backend = enabled ? GuiExecutionBackend(
+                    ports: GuiExplorerPorts(observation: ports, execution: ports, audit: NoGuiAudit()),
+                    sessions: ports,
+                    features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"],
+                                                 independentDesktopConcurrency: true)) : nil
+                let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
+                    databasePath: records + "/ai.sqlite", credentials: KeychainCredentialStore(), executionBackend: backend))
+                let me = getuid()
+                let server = RpcSocketServer(path: path) { uid in
+                    uid == me ? service.router(callerScope: "uid:\(uid)", trustedOwner: true) : nil
+                }
+                try server.start()
+                await MainActor.run { self.aiServer = server }
+            } catch {
+                FileHandle.standardError.write(Data("AI service unavailable: \(error)\n".utf8))
+            }
+        }
     }
 
     private func startRuntimeServer() {
@@ -163,6 +198,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let server = RuntimeServer(path: path, service: service)
             try server.start()
             runtimeServer = server
+            startAIService(runtime: service, records: records)
         } catch {
             let message = "The agentdesktop command cannot reach \(Self.displayName): \(error)"
             if role.isSideInstance {
@@ -779,4 +815,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.informativeText = message
         alert.runModal()
     }
+}
+
+/// Placeholder audit for the backend: AgentDesktopService replaces it with
+/// its durable audit (durableAudit, the default).
+private struct NoGuiAudit: GuiAuditPort {
+    func reserveInference(runId: String, stepIndex: Int, snapshotId: String) {}
+    func recordInference(_ receipt: GuiInferenceReceipt) {}
+    func reserveAction(_ proposal: GuiProposal) -> String { "act_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "") }
+    func recordAction(_ receipt: GuiActionReceipt) {}
 }
