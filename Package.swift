@@ -156,7 +156,19 @@ let package = Package(
         // knows the service only through contract v1.
         .target(
             name: "AgentDesktopAIUI",
-            dependencies: ["AgentDesktopContracts"]
+            dependencies: ["AgentDesktopContracts", "AgentDesktopUI"]
+        ),
+        // Main window shell (docs/plan/10 U1a): design tokens, components,
+        // page states, navigation, the async Runtime port, a contract-only
+        // Mock and the Store. Consumes runtime/1 through RuntimeAPI only;
+        // it links no Runtime, engine, AI or GUI target.
+        .target(
+            name: "AgentDesktopUI",
+            dependencies: ["AgentDesktopProtocol", "AgentDesktopContracts"]
+        ),
+        .testTarget(
+            name: "AgentDesktopUITests",
+            dependencies: ["AgentDesktopUI", "AgentDesktopProtocol", "AgentDesktopContracts"]
         ),
         .testTarget(
             name: "AgentDesktopAIUITests",
