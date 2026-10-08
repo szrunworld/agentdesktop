@@ -125,7 +125,9 @@ public final class IPhoneAgentScreen: AgentScreen {
                                         pixelSize: size, capturedAt: system.now)
         // Whoever took it can now see what an uncertain input left.
         invalidated = nil
-        if let barrierSeen { system.inputBarrier.lower(ifStill: barrierSeen) }
+        // Nor while a paste is under way in any process: its outcome is not
+        // yet known, so this picture does not show what the field will hold.
+        if let barrierSeen, !system.pasteInProgress { system.inputBarrier.lower(ifStill: barrierSeen) }
         return png
     }
 
@@ -276,7 +278,20 @@ public final class IPhoneAgentScreen: AgentScreen {
         request.pid = pid
         request.windowID = window.windowID
         request.input = action
-        let response = try system.deliver(request)
+        let response: ControlResponse
+        do {
+            response = try system.deliver(request)
+        } catch {
+            // The request may have gone out before the transport failed: the
+            // input's effect is unknown, as when the window changes under it.
+            block("may hold the result of an input whose delivery failed midway")
+            var unknown = ControlResponse.failure(IPhoneError(
+                "action_delivery_unknown", reason: "transport_error",
+                "sending the input failed (\(error.localizedDescription)); it may or may not have reached the phone. "
+                    + "Take a new screenshot before deciding on another action", notSent: false).localizedDescription)
+            unknown.route = "\(action.kind.rawValue).unknown"
+            return unknown
+        }
         // Checking and sending cannot be one step: if the window changed
         // around the send, the input may have gone elsewhere. Unknown, not
         // success, and nothing more until the window is read again.
@@ -301,8 +316,11 @@ public final class IPhoneAgentScreen: AgentScreen {
         do {
             try system.inputBarrier.raise(reason)
         } catch {
-            // Kept here at least, for this process.
+            // Kept here at least, for this process, and said: other processes
+            // will not see this barrier.
             invalidated = reason
+            FileHandle.standardError.write(Data(("agentdesktop: the iPhone input barrier could not be shared with "
+                + "other processes (\(error.localizedDescription)); only this process holds back input\n").utf8))
         }
     }
 

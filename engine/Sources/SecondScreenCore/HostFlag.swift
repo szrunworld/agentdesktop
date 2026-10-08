@@ -37,6 +37,12 @@ public struct HostFlag: Sendable {
         let fd = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
         defer { close(fd) }
+        // Someone else's file, or not a plain file, is not ours to trust.
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_uid == getuid(), (info.st_mode & S_IFMT) == S_IFREG else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        if info.st_mode & 0o077 != 0 { fchmod(fd, 0o600) }
         while flock(fd, LOCK_EX) != 0 {
             guard errno == EINTR else { throw CocoaError(.fileWriteUnknown) }
         }

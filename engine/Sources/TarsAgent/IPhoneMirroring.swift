@@ -67,6 +67,10 @@ public protocol IPhoneMirroringSystem {
     /// Where the phone's input barrier is kept for every process: raised
     /// when nobody knows what an input did, lowered by the next screenshot.
     var inputBarrier: HostFlag { get }
+    /// Whether some process is in a paste: holding the clipboard lease, or
+    /// waiting out a phone that may still fetch (the pending mark). While it
+    /// is, a screenshot shows a field in flux and lowers no barrier.
+    var pasteInProgress: Bool { get }
 }
 
 // MARK: Observation
@@ -399,6 +403,13 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     /// One phone per Mac (iPhone Mirroring mirrors one at a time), so one
     /// barrier.
     public var inputBarrier: HostFlag { .named("iphone-input-barrier") }
+
+    public var pasteInProgress: Bool {
+        if HostFlag.named("clipboard.pending").reason() != nil { return true }
+        guard let lease = try? ClipboardLease.acquire(timeout: 0) else { return true }
+        lease.release()
+        return false
+    }
 
     public init(bundleID: String = IPhoneAgentScreen.bundleID) {
         self.bundleID = bundleID

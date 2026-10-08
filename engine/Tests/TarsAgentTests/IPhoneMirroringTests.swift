@@ -28,6 +28,8 @@ class FakeMirroring: IPhoneMirroringSystem {
     var sleeps = 0
     var onSleep: (() -> Void)?
     var createFails = false
+    var pasteInProgress = false
+    var deliverThrows = false
     let inputBarrier = HostFlag(url: FileManager.default.temporaryDirectory
         .appendingPathComponent("agentdesktop-barrier-\(UUID().uuidString)/iphone-input-barrier"))
     var createdScreens = 0
@@ -45,8 +47,10 @@ class FakeMirroring: IPhoneMirroringSystem {
                                    windowID: windowID, frame: frame)
     }
 
+    struct TransportLost: Error {}
     func deliver(_ request: ControlRequest) throws -> ControlResponse {
         delivered.append(request)
+        if deliverThrows, request.command == .input { throw TransportLost() }
         if request.command == .screenCreate {
             if createFails { return .failure("a screen named \"\(request.screen ?? "")\" already exists") }
             createdScreens += 1
@@ -220,6 +224,37 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         // A screenshot lowers the barrier for everyone.
         _ = try next.screenshot(size: CGSize(width: 400, height: 720))
         #expect(try phone.perform(tap(3100, 300)).ok)
+    }
+
+    /// Independent review: a screenshot taken while another process is in a
+    /// paste must not lower the barrier that paste raised.
+    @Test func aScreenshotDuringAPasteKeepsTheBarrier() throws {
+        let fake = FakeMirroring()
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.frame()
+        try fake.inputBarrier.raise("may hold a half-finished paste")
+        fake.pasteInProgress = true
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        #expect(fake.inputBarrier.reason() != nil)
+        fake.pasteInProgress = false
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        #expect(fake.inputBarrier.reason() == nil)
+    }
+
+    /// Independent review: an input whose transport failed may have landed.
+    @Test func aFailedDeliveryIsUnknownAndBlocks() throws {
+        let fake = FakeMirroring()
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.frame()
+        fake.deliverThrows = true
+        let first = try phone.perform(tap(3100, 300))
+        #expect(first.error?.hasPrefix("action_delivery_unknown (transport_error)") == true)
+        #expect(first.route == "click.unknown")
+        #expect(TarsAgent.isIndeterminate(first))
+        fake.deliverThrows = false
+        let next = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try next.frame()
+        #expect(try next.perform(tap(3100, 300)).error?.contains("delivery_unknown") == true)
     }
 
     @Test func noInputBeforeTheWindowIsRead() throws {

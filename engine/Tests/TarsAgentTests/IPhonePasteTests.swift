@@ -171,33 +171,55 @@ func fast() -> PasteWatcher {
         #expect(fast().paste("first line\nsecond line", verify: true, driver: phone) == .confirmed)
     }
 
+    /// Unconfirmed text is `.delivered` only when the phone was seen
+    /// fetching and then finished; quiet alone may come before a slow fetch.
+    static let noTransfer = PasteOutcome.unknown("no_transfer_seen: the phone was never seen fetching the clipboard "
+        + "and the text is not on screen, so the fetch may still come")
+
     @Test func textAlreadyOnScreenIsNotConfirmation() {
         let message = [line("see you at 5", y: 0.2)]
-        let phone = ScriptedPhone(baseline: message + keyboard, [message + keyboard])
-        #expect(fast().paste("see you at 5", verify: true, driver: phone)
+        let quiet = ScriptedPhone(baseline: message + keyboard, [message + keyboard])
+        #expect(fast().paste("see you at 5", verify: true, driver: quiet) == Self.noTransfer)
+        let fetched = ScriptedPhone(baseline: message + keyboard, [message + keyboard + pasting, message + keyboard])
+        #expect(fast().paste("see you at 5", verify: true, driver: fetched)
             == .delivered("the text was not seen on screen"))
     }
 
     /// A protected field shows dots.
     @Test func deliveredWhenTheTextIsNotSeen() {
-        let phone = ScriptedPhone(baseline: keyboard, [keyboard + [line("••••••••", y: 0.3)]])
-        #expect(fast().paste("hunter22", verify: true, driver: phone) == .delivered("the text was not seen on screen"))
+        let dots = keyboard + [line("••••••••", y: 0.3)]
+        #expect(fast().paste("hunter22", verify: true, driver: ScriptedPhone(baseline: keyboard, [dots]))
+            == Self.noTransfer)
+        let fetched = ScriptedPhone(baseline: keyboard, [keyboard + pasting, dots])
+        #expect(fast().paste("hunter22", verify: true, driver: fetched) == .delivered("the text was not seen on screen"))
     }
 
     @Test func emojiCannotBeChecked() {
-        let phone = ScriptedPhone(baseline: keyboard, [keyboard])
-        #expect(fast().paste("👍🎉", verify: true, driver: phone) == .delivered("too little readable text to check"))
+        #expect(fast().paste("👍🎉", verify: true, driver: ScriptedPhone(baseline: keyboard, [keyboard])) == Self.noTransfer)
+        let fetched = ScriptedPhone(baseline: keyboard, [keyboard + pasting, keyboard])
+        #expect(fast().paste("👍🎉", verify: true, driver: fetched) == .delivered("too little readable text to check"))
     }
 
     @Test func noCheckWithoutABaseline() {
-        let phone = ScriptedPhone(baseline: nil, [keyboard + [line("hello", y: 0.3)]])
-        #expect(fast().paste("hello", verify: true, driver: phone)
+        let after = keyboard + [line("hello", y: 0.3)]
+        #expect(fast().paste("hello", verify: true, driver: ScriptedPhone(baseline: nil, [after])) == Self.noTransfer)
+        let fetched = ScriptedPhone(baseline: nil, [keyboard + pasting, after])
+        #expect(fast().paste("hello", verify: true, driver: fetched)
             == .delivered("the screen before the paste could not be read"))
     }
 
     @Test func notVerifiedWhenAskedNotTo() {
-        let phone = ScriptedPhone(baseline: keyboard, [keyboard + [line("hello", y: 0.3)]])
-        #expect(fast().paste("hello", verify: false, driver: phone) == .delivered(nil))
+        let after = keyboard + [line("hello", y: 0.3)]
+        #expect(fast().paste("hello", verify: false, driver: ScriptedPhone(baseline: keyboard, [after])) == Self.noTransfer)
+        let fetched = ScriptedPhone(baseline: keyboard, [keyboard + pasting, after])
+        #expect(fast().paste("hello", verify: false, driver: fetched) == .delivered(nil))
+    }
+
+    /// Independent review: a system-looking alert already on screen before
+    /// ⌘V (a page, a picture of one) is never pressed.
+    @Test func anAlertShownBeforeThePasteIsNotPressed() {
+        #expect(PastePrompt.read(alert + keyboard, baseline: alert + keyboard) == .none)
+        #expect(isAllow(PastePrompt.read(alert + keyboard, baseline: keyboard)))
     }
 
     @Test func pressesAllowThenConfirms() {

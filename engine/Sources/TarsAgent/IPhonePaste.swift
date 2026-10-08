@@ -148,14 +148,16 @@ public enum PastePrompt: Equatable {
             let text = clean(line.text)
             return promptPhrases.contains { text.range(of: $0, options: .caseInsensitive) != nil } && centred(line)
         }
-        for allow in allows where centred(allow) {
+        // Shown before ⌘V, it is not this paste's prompt (a page, a picture
+        // of one): never pressed, whatever it looks like.
+        let allowBefore = (baseline ?? []).contains { allowPasteLabels.contains(clean($0.text)) }
+        for allow in allows where centred(allow) && !allowBefore {
             func near(_ part: PhoneText) -> Bool { abs(part.center.y - allow.center.y) <= alertSpan }
             if denies.contains(where: near), messages.contains(where: near) { return .allow(allow.center) }
         }
         if seen.contains(where: { line in pastingLabels.contains { clean(line.text).hasPrefix($0) } }) {
             return .pasting
         }
-        let allowBefore = (baseline ?? []).contains { allowPasteLabels.contains(clean($0.text)) }
         if !allows.isEmpty && !allowBefore { return .unverifiedAllow }
         return .none
     }
@@ -174,7 +176,7 @@ public struct PasteWatcher {
     /// twenty seconds, enough for a slow transfer.
     public var maxLooks = 25
     /// Looks in a row with no prompt or progress before the paste is over.
-    public var quietLooks = 2
+    public var quietLooks = 3
     /// Presses of Allow Paste before its coming back counts as a failure.
     public var maxAllowPresses = 2
     /// Whether something else has written the Mac's clipboard since the
@@ -261,6 +263,9 @@ public struct PasteWatcher {
         var blind = 0
         var last: PastePrompt?
         var settled: [PhoneText]?
+        // Whether the phone was seen fetching ("Pasting from"). Quiet screens
+        // after ⌘V without that may be a fetch not yet begun.
+        var sawTransfer = false
         for _ in 0..<maxLooks {
             driver.pause(interval)
             guard let seen = try? driver.look(), !seen.isEmpty else {
@@ -271,6 +276,7 @@ public struct PasteWatcher {
             }
             let prompt = PastePrompt.read(seen, baseline: baseline)
             last = prompt
+            if case .pasting = prompt { sawTransfer = true }
             if othersWrote?() == true {
                 switch prompt {
                 case .allow, .pasting, .unverifiedAllow: return stopForeignPaste(seen, prompt: prompt, driver: driver)
@@ -313,8 +319,13 @@ public struct PasteWatcher {
             }
             return .unknown("timed_out: \(state)")
         }
-        guard verify else { return .delivered(nil) }
-        return Self.check(text, before: baseline, after: settled)
+        // The text on screen proves the paste is over. Without it, only a
+        // fetch seen to start and end does: quiet alone may come before a
+        // slow fetch, which would then get the user's restored clipboard.
+        let checked = verify ? Self.check(text, before: baseline, after: settled) : .delivered(nil)
+        if checked == .confirmed || sawTransfer { return checked }
+        return .unknown("no_transfer_seen: the phone was never seen fetching the clipboard and the text is not on "
+            + "screen, so the fetch may still come")
     }
 
     /// After a paste that did not settle: watch up to `looks` more times for
