@@ -40,7 +40,7 @@ ADR 树里的 Home 即 Desktops 总览。Design v2.0 侧栏的「Agent 接入」
 | GUI Explorer | — | — | G03–G06、G08 | U7 只做运行历史；其余 L4 | gui.knowledge.*、gui.procedures.*、gui.validations.* |
 | Inbox | — | W06 | — | U9（P1） | inbox.list/show/resolve |
 | Settings › 通用 | P21 | — | — | U6 | 本地偏好 |
-| Settings › 权限 | P02、P22 | — | — | U6 | runtime.status 的 PermissionState |
+| Settings › 权限 | P02、P22 | — | — | U6 | runtime.capabilities 的 PermissionState（权限状态以 capabilities 为准，status 不重复提供） |
 | Settings › AI 连接、GUI 配置、能力测试 | P23–P26 | — | G08 部分 | U6 | ai.connections.*、ai.profiles.*、ai.tests.start、ai.operations.* |
 | Settings › 核实 | P17 的核实部分 | W07 | — | U9（P1） | run.reconcile、request.list |
 | Settings › 诊断与用量 | P30 | W08 | — | U6 做用量，U9 做诊断导出 | ai.usage.summary、runtime.capabilities |
