@@ -190,3 +190,30 @@ func runJSON(_ sc: Scene, _ id: String, on c: ConnectionState? = nil) -> JSONVal
     #expect(code(call(sc.s, client, "run.show", params: #"{"runId":"\#(d.runId)"}"#)) == "not_found")
     #expect(code(call(sc.s, client, "runtime.stopAll", params: #"{"scope":"all_platform_runs"}"#)) == "permission_denied")
 }
+
+@Test func thePersistentRuntimeKeepsRunsAcrossARestart() throws {
+    let dir = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let identity = RuntimeIdentity(instanceId: "rt_p", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                   endpoint: dir + "/r.sock", buildSource: "unknown")
+    var runId = ""
+    do {
+        let s = try RuntimeService.persistent(identity: identity, backend: FixedBackend(), platform: FakePlatform(), records: dir)
+        let c = handshaken(s)
+        let d = try created(s, c)
+        _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
+        let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
+        runId = try #require(data(call(s, c, "run.start", context: #"{"sessionId":"\#(sid)"}"#))?["run"]?["runId"]?.stringValue)
+        // The host dies with the Run live.
+    }
+    for f in ["requests.sqlite", "runs.sqlite"] {
+        var st = stat()
+        #expect(stat(dir + "/" + f, &st) == 0 && st.st_mode & 0o777 == 0o600, "\(f)")
+    }
+    let again = try RuntimeService.persistent(identity: identity, backend: FixedBackend(), platform: FakePlatform(), records: dir)
+    let c = handshaken(again)
+    let run = try #require(data(call(again, c, "run.show", params: #"{"runId":"\#(runId)"}"#)))
+    #expect(run["phase"]?.stringValue == "ended" && run["quiescence"]?.stringValue == "confirmed")
+    #expect(run["closingReason"]?.stringValue == "runtime_restarted")
+    #expect(data(call(again, c, "run.list"))?["runs"]?.arrayValue?.count == 1)
+}
