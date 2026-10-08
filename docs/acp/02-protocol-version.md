@@ -76,6 +76,11 @@
 | 未知通知（含 `$/cancel_request`） | 忽略，不回 |
 | 对不存在 id 的响应 | 忽略 |
 
+**结果未知的动作**（README 第七节 P2）：ACP v1 的工具调用状态只有 `pending`、`in_progress`、`completed`（成功完成）、`failed`（出错失败），**没有中性终态**。映射集中在 `ACPWireV1` 一处：
+- 级别 `.unknown` 且状态已终结（`.failed` 或 `.completed`）：线上状态取常量 `ACPWireV1.terminalUnknownStatus`（当前 `failed`，选它是因为 `completed` 会被读成已成功；Kevin 若改选 `completed` 只改这一个常量），`rawOutput` 为 `{"execution":"terminated","outcome":"unknown"}`；标题由 E 线投影器给出（「结果未知 · 需要核实」）。
+- 级别 `.unknown` 且尚未终结（`pending` / `in_progress`）：状态不变，`rawOutput` 为 `{"outcome":"unknown"}`。
+- 其它级别不带 `rawOutput`。内部模型始终是 unknown，不记为失败、不重试；`_meta.agentdesktop.actionLevel` 仍为 `unknown`。v1 schema 中 `rawOutput` 是自由格式，一致性测试已校验。
+
 **输出顺序**：所有帧经同一个串行写出器发出。调用方先 `await send(sessionId:_:)`、再 `await reply(to:_:)`，线上顺序就是调用顺序（例如 `session/load` 先回放历史更新、再回复 load；测试 `t01UpdatesThenReplyKeepCallOrder` 用 200 条更新验证）。没有先后等待的并发调用之间不保证顺序。
 
 **流水线（pipelining）规则**：JSON-RPC 允许不等回复连续发送。连接按到达顺序处理一切：`initialize` 被接受（协商成功）后、它的回复写出之前，后续到达的请求与通知全部暂存；回复写出后按原顺序处理暂存项（服务器接受了 `initialize` 就照常交给服务器，服务器拒绝了就逐个回 -32600「connection not initialized」），处理完暂存项之前新到的消息继续排队，任何消息都不会越过更早的消息。只有在**任何 `initialize` 之前**到达的请求才会被拒绝（-32600），守序的客户端不会遇到。注意 stdin 关闭即视为编辑器断开（ADR v2.2），之后不再写回复，所以用 `printf … | agentdesktop-acp-dev --demo` 复现时要让 stdin 保持打开（如 `(printf …; sleep 2) | …`）。

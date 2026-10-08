@@ -339,14 +339,37 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
         }
     }
 
+    /// Wire status of an action whose Run ended with its outcome unknown
+    /// (docs/acp/README.md §7, P2). ACP v1 has no neutral terminal status:
+    /// `completed` means success and `failed` means an error. `failed` is
+    /// chosen so nobody reads it as success; the title and `rawOutput` say
+    /// "terminated, outcome unknown". Switch here to `.completed` if Kevin
+    /// prefers; nothing else changes.
+    public static let terminalUnknownStatus: ACPToolStatus = .failed
+
+    /// `rawOutput` for an unknown outcome: terminated when the action is
+    /// over, otherwise only the outcome. Nil for every other level.
+    static func unknownOutcome(_ call: ACPToolCall) -> (status: ACPToolStatus, rawOutput: JSONValue)? {
+        guard call.level == .unknown else { return nil }
+        switch call.status {
+        case .failed, .completed:
+            return (terminalUnknownStatus,
+                    .obj([("execution", .string("terminated")), ("outcome", .string("unknown"))]))
+        case .pending, .inProgress:
+            return (call.status, .obj([("outcome", .string("unknown"))]))
+        }
+    }
+
     private func toolCallFields(_ call: ACPToolCall, lines: [String]) -> [(String, JSONValue)] {
+        let unknown = Self.unknownOutcome(call)
         var m: [(String, JSONValue)] = [
             ("toolCallId", .string(call.toolCallId)),
             ("title", .string(call.title)),
             ("kind", .string(call.kind.rawValue)),
-            ("status", .string(call.status.rawValue)),
+            ("status", .string((unknown?.status ?? call.status).rawValue)),
             ("content", .array(lines.map { .obj([("type", .string("content")), ("content", textBlock($0))]) })),
         ]
+        if let raw = unknown?.rawOutput { m.append(("rawOutput", raw)) }
         if let level = call.level {
             m.append(("_meta", .obj([("agentdesktop", .obj([("actionLevel", .string(Self.levelName(level)))]))])))
         }
