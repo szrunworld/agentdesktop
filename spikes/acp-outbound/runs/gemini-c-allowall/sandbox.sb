@@ -1,0 +1,19 @@
+(version 1)
+(allow default)
+
+; --- files: no reads under user/tmp areas except the allowlist ---------------
+(deny file-read-data (subpath "/Users") (subpath "/private/tmp") (subpath "/private/var/folders") (subpath "/Volumes"))
+(allow file-read-data (subpath "/private/tmp/adt-o-gemini-c-allowall-1791440739169/home") (subpath "/private/tmp/adt-o-gemini-c-allowall-1791440739169/work") (subpath "/Users/kevinshi/orca/agentdesktop-acp-o/spikes/acp-outbound") (subpath "/Users/kevinshi/.local/share/fnm/node-versions/v22.23.2/installation"))
+
+; --- writes only inside the run's home and work dir ---------------------------
+(deny file-write*)
+(allow file-write* (subpath "/private/tmp/adt-o-gemini-c-allowall-1791440739169/home") (subpath "/private/tmp/adt-o-gemini-c-allowall-1791440739169/work")
+  (literal "/dev/null") (literal "/dev/zero") (regex #"^/dev/tty") (regex #"^/dev/fd/"))
+
+; --- exec only the agent runtime itself (no shells, curl, downloaded binaries)
+(deny process-exec)
+(allow process-exec (literal "/Users/kevinshi/.local/share/fnm/node-versions/v22.23.2/installation/bin/node") (literal "/bin/sh"))
+
+; --- network: only the model endpoint ------------------------------------------
+(deny network-outbound)
+(allow network-outbound (remote ip "localhost:51772"))

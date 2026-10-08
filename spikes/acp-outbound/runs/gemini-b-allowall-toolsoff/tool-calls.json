@@ -1,0 +1,34 @@
+[
+ {
+  "t": 1791440777596,
+  "u": "tool_call",
+  "id": "mcp_adt_get_run_status__mcp_adt_get_run_status_1791440777533_0",
+  "title": "get_run_status(run_id: run-123)",
+  "kind": "other",
+  "status": "pending"
+ },
+ {
+  "t": 1791440777605,
+  "u": "tool_call_update",
+  "id": "mcp_adt_get_run_status__mcp_adt_get_run_status_1791440777533_0",
+  "title": "get_run_status(run_id: run-123)",
+  "kind": "other",
+  "status": "completed"
+ },
+ {
+  "t": 1791440777615,
+  "u": "tool_call",
+  "id": "mcp_adt_get_redacted_result__mcp_adt_get_redacted_result_1791440777609_0",
+  "title": "get_redacted_result(run_id: run-123)",
+  "kind": "other",
+  "status": "pending"
+ },
+ {
+  "t": 1791440777621,
+  "u": "tool_call_update",
+  "id": "mcp_adt_get_redacted_result__mcp_adt_get_redacted_result_1791440777609_0",
+  "title": "get_redacted_result(run_id: run-123)",
+  "kind": "other",
+  "status": "completed"
+ }
+]

@@ -1,0 +1,15 @@
+[
+ "ANTHROPIC_API_KEY",
+ "ANTHROPIC_BASE_URL",
+ "CLAUDE_CONFIG_DIR",
+ "HOME",
+ "HTTPS_PROXY",
+ "HTTP_PROXY",
+ "LANG",
+ "NO_PROXY",
+ "PATH",
+ "TMPDIR",
+ "http_proxy",
+ "https_proxy",
+ "no_proxy"
+]
