@@ -199,6 +199,7 @@ extension RuntimeService {
         pa.count = a["count"]?.intValue
         pa.direction = a["direction"]?.stringValue
         pa.amount = a["amount"]?.intValue
+        var pressed: PlatformElement?
         if let ref = a["target"]?["elementRef"]?.stringValue {
             // Element numbers are valid only while this snapshot is the
             // latest read of the window.
@@ -210,6 +211,7 @@ extension RuntimeService {
                 throw RuntimeError("invalid_target", "snapshot \(snap.snapshotId) has no element \(ref)", phase: .handler, notSent: true)
             }
             pa.elementIndex = e.index
+            pressed = e
         } else if let ip = a["target"]?["imagePoint"] {
             guard let t = snap.transform, let size = snap.imageSize else {
                 throw RuntimeError("invalid_target", "snapshot \(snap.snapshotId) has no screenshot to place an image point on",
@@ -227,6 +229,13 @@ extension RuntimeService {
                                    phase: .handler, notSent: true)
             }
             pa.point = (gx, gy)
+        }
+        // G2: nothing goes through the user's clipboard, whoever asks.
+        if let path = ClipboardPolicy.path(of: pa, pressing: pressed) {
+            throw RuntimeError("permission_denied",
+                               "this action would use the system clipboard (\(path)); input never goes through the clipboard: type the text instead",
+                               phase: .handler, notSent: true,
+                               details: .obj([("reason", .string("clipboard_path_refused")), ("path", .string(path))]))
         }
         return pa
     }

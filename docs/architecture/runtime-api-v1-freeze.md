@@ -200,3 +200,17 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
   - CLI 的 `rpc` / `ai` / `gui` 命令直接发 runtime/1 请求，输出 runtime/1 应答；`rpc --request-file` 只接受 runtime/1 请求，旧信封在本地即被拒绝；
   - `AgentDesktopContracts` 模块已并入 `AgentDesktopProtocol`，GUI 几何的 `Rect` 改名为 `GuiRect`。
 - `contracts/ai-gui/v1` 只剩 Windows 的 C# 合同层在用，待 Windows 线迁移到 runtime/1 后删除。
+
+## 10. 输入不经过系统剪贴板（G2，Kevin 2026-10-08）
+
+剪贴板属于用户：粘贴会把用户最近复制的内容（常常是密码）送进 Agent 操作的应用，复制或剪切会覆盖用户的内容。Runtime 在发送输入前统一拒绝走剪贴板的动作，**不看调用方怎么声明文本**，也没有任何运行模式、来源或主体可以解除这条限制（fail closed）。
+
+- 拦截点只有一个：`RuntimeService.platformAction`（act 把动作解析成平台动作的地方）。CLI、MCP、SDK、ACP、独立 Agent、主窗口 GUI 探索都经过 `act`，`platform.perform` 在 Sources 里只有这一个调用点；有测试保证这一点。
+- 被拒绝的动作：
+  - 带 cmd 的 v / c / x 键，包括再加 shift 或 option 的变体，例如"粘贴并匹配样式"；`details.path = "shortcut"`。
+  - 点击角色为菜单项或按钮、标签恰好是 Paste / Copy / Cut / 粘贴 / 拷贝 / 复制 / 剪切（及"匹配样式"等变体）的控件；`details.path = "control"`。
+- 应答：`permission_denied`，`notSent: true`，`details.reason = "clipboard_path_refused"`。Run 历史里记一条 `action.refused`。一次性 Run 以 failed 结束；exec Run 不受影响，可以继续发其他输入。
+- 打字本身：macOS 上 `act type` 只走辅助功能写值或 unicode 按键事件，从不使用剪贴板；有测试保证 InputEngine、BackgroundInput、Accessibility、EnginePlatform 里不出现剪贴板 API。
+- 已知边界：
+  - 应用自己的界面元素如果只能用屏幕坐标点击（imagePoint），而且没有可识别的标签，Runtime 无法知道它会不会读剪贴板。这类情况只能靠元素标签判断，属于残余风险。
+  - iPhone 等设备后端（G1）将来接入 Runtime 时，如果它的打字依赖剪贴板，就必须走同一条规则：拒绝，除非 Kevin 另行裁决并有可信授权（PR3 的 grants）。
