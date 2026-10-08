@@ -289,7 +289,7 @@ final class IdCounter: @unchecked Sendable {
     func next() -> Int { lock.withLock { n += 1; return n } }
 }
 
-/// Config store + GUI run service behind real RpcRouters, as a caller sees them.
+/// Config store + GUI run service behind real ServiceRouters, as a caller sees them.
 final class GuiHarness: @unchecked Sendable {
     let form = NeutralForm()
     let store: ConfigStore
