@@ -7,7 +7,7 @@
 | 集成负责人 | 公共契约（contracts/runtime/v1）、合并顺序、跨模块 E2E、发布门禁 | 2ndscreen-5c（Runtime 会话，已实现 #21 #25 #26 #33） |
 | L-Runtime | AgentDesktopRuntime、执行器、账本、Hub Core 的 Runtime 侧、CLI、MCP、SDK | 2ndscreen-5c |
 | L-AIGUI | AgentDesktopAI、AgentDesktopGui（Explorer）、迁入 runtime/1、学习层 | 2ndscreen-40（原 1d）（已实现 #3–#8 #11 #13 #18） |
-| L-UI | 主窗口、导航、各页面、菜单栏、预览窗口 | 待指派。09:40 决定是 2ndscreen-40；若 1d 同时负责 L-AIGUI，建议另开一个会话专做 UI |
+| L-UI | 主窗口、导航、各页面、菜单栏、预览窗口 | 待指派。09:40 决定是 2ndscreen-40；若 2ndscreen-40 同时负责 L-AIGUI，建议另开一个会话专做 UI |
 | L-Win | Windows C# 对等实现与契约一致性 | 2ndscreen-40（已有 #16 #22 #23） |
 
 规则：公共契约只由集成负责人改；其他线需要新字段时提 issue 或在 A1 之后的契约 PR 里加；各线不得各自定义临时状态机。
