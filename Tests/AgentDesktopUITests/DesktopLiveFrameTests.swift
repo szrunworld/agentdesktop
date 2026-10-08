@@ -219,4 +219,38 @@ struct DesktopLiveFrameTests {
         #expect(notice.contains("Probe") && notice.contains("不改变操作范围"))
         #expect(DesktopFrameView.sizeText(nil).hasPrefix("整个显示器"))
     }
+
+    // Review of #98: moving between pages of the same Desktop may release
+    // the old view before the new one acquires; within the grace the
+    // stream keeps running, and it stops once the grace has passed.
+    @Test func releaseThenReacquireKeepsTheStream() async throws {
+        var made: [FakeDesktopFrameSource] = []
+        let hub = DesktopFrameHub(releaseGraceMs: 50) { r in
+            let s = FakeDesktopFrameSource(request: r)
+            made.append(s)
+            return s
+        }
+        let (a, _) = hub.acquire(displayId: 7, scope: DesktopFrameHub.mainScope)
+        #expect(hub.startedCount == 1)
+        hub.release(a)
+        let (b, feed) = hub.acquire(displayId: 7, scope: DesktopFrameHub.mainScope)
+        #expect(hub.startedCount == 1 && hub.streamCount == 1, "no stop and start in between")
+        made[0].push(width: 10, height: 10)
+        #expect(feed.frame != nil)
+        hub.release(b)
+        #expect(hub.streamCount == 1, "still within the grace")
+        for _ in 0..<100 where hub.streamCount > 0 { try await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(hub.streamCount == 0 && hub.retainedFrameCount == 0)
+    }
+
+    // Review of #98: a display held only by hidden windows reads paused,
+    // not "connecting", even if it never started.
+    @Test func heldOnlyByHiddenWindowsIsPaused() {
+        let fake = FakeDesktopFrames()
+        fake.hub.setScopeVisible(DesktopFrameHub.mainScope, false)
+        let (t, feed) = fake.hub.acquire(displayId: 9, scope: DesktopFrameHub.mainScope)
+        #expect(fake.hub.streamCount == 0)
+        #expect(feed.status == .paused)
+        fake.hub.release(t)
+    }
 }

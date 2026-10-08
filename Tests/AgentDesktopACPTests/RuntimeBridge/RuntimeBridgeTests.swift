@@ -172,6 +172,28 @@ import Testing
         #expect(server.methodCalls("unit.run").count == 1)
     }
 
+    /// A4 finding F-1: a refusal message is free text and may echo a
+    /// credential; the submission log must never write it to disk, and only
+    /// catalogued error codes may reach the file.
+    @Test func refusalMessagesAndUnlistedCodesNeverReachTheSubmissionLog() async throws {
+        let secret = "sk-live-CANARY-7f3a9c"
+        for (code, expectedOnDisk) in [("control_busy", "control_busy"), ("weird_\(secret)", "unlisted_error")] {
+            let server = RTestRuntime()
+            server.methods.append("unit.run")
+            server.unitRun = .refuseWith(code: code, message: "token=\(secret) was rejected")
+            let path = RTest.tempLogPath()
+            let port = try RTest.port(server, logPath: path)
+            guard case .refused = try await port.submit(RTest.submission()) else { Issue.record("not refused"); continue }
+            let onDisk = try String(contentsOfFile: path, encoding: .utf8)
+            let leaked = onDisk.contains(secret)
+            #expect(!leaked, "the refusal message or code leaked to submissions.json")
+            #expect(onDisk.contains("\"\(expectedOnDisk)\""))
+            let reloaded = try ACPSubmissionLog(path: path).entry("sess-1/prompt-1")
+            #expect(reloaded?.refusalMessage == nil)
+            #expect(reloaded?.refusalCode == expectedOnDisk)
+        }
+    }
+
     @Test func certainlyNotSentMayBeSentLater() async throws {
         let server = RTestRuntime()
         server.methods.append("unit.run")
