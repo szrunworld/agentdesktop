@@ -278,11 +278,23 @@ def known_udids(r: dict) -> list[str]:
     if r["native_browse"]["ok"]:
         for d in r["native_browse"]["result"] or []:
             add(d.get("udid"))
+    # tunneld's raw UDID -> tunnels map counts on its own: get_tunneld_devices() silently skips a
+    # tunnel whose RSD endpoint cannot be opened, and that device must still get a matrix that
+    # records the failed tunnel instead of vanishing from the report.
+    for u in tunneld_tunnels(r):
+        add(u)
     rsd = r.get("rsd_services") or {}
     if rsd.get("ok"):
         for d in rsd.get("result") or []:
             add(d.get("udid"))
     return seen
+
+
+def tunneld_tunnels(r: dict) -> dict:
+    """tunneld's raw UDID -> tunnel list map, or {} when tunneld is not running / answered oddly."""
+    tunneld = r.get("tunneld") or {}
+    tunnels = tunneld.get("tunnels") if tunneld.get("running") else None
+    return tunnels if isinstance(tunnels, dict) else {}
 
 
 # operation capability -> (RSD service that must be advertised first, extra note)
@@ -384,9 +396,24 @@ def build_matrix(r: dict, udid: Optional[str] = None) -> dict:
                                "needs a paired, reachable device")
 
     # ---- tunnels
-    tunneld_for_device = (tunneld.get("tunnels") or {}).get(udid) if isinstance(tunneld.get("tunnels"), dict) else None
-    if tunneld.get("running") and tunneld_for_device:
-        m["tunnel_tunneld"] = cap(SUPPORTED, {"address": tunneld["address"], "tunnels": tunneld_for_device})
+    tunneld_for_device = tunneld_tunnels(r).get(udid)
+    rsd_via_tunneld = rsd.get("via") == "tunneld"
+    if tunneld.get("running") and tunneld_for_device and rsd_via_tunneld and rsd_devices:
+        m["tunnel_tunneld"] = cap(SUPPORTED, {"address": tunneld["address"], "tunnels": tunneld_for_device,
+                                              "rsd": "RSD handshake through this tunnel succeeded"})
+    elif tunneld.get("running") and tunneld_for_device:
+        # tunneld lists the device, but no RSD endpoint of it could be opened: the tunnel is not usable.
+        if rsd_via_tunneld and rsd.get("ok"):
+            rsd_error = "get_tunneld_devices() skipped this tunnel (its RSD endpoint could not be opened)"
+        elif rsd_via_tunneld:
+            rsd_error = rsd.get("result")
+        else:
+            rsd_error = "RSD through tunneld was not attempted"
+        m["tunnel_tunneld"] = cap(
+            UNSUPPORTED if rsd_via_tunneld else UNVERIFIED,
+            {"address": tunneld["address"], "tunnels": tunneld_for_device, "rsd_error": rsd_error},
+            "tunneld reports a tunnel to this device, but its RSD endpoint could not be opened",
+            "Kevin: check the phone is unlocked and reachable, then restart tunneld in his own terminal")
     elif tunneld.get("running"):
         m["tunnel_tunneld"] = cap(UNVERIFIED, {"address": tunneld["address"], "running": True},
                                   "tunneld is running but holds no tunnel to this device")
@@ -416,6 +443,9 @@ def build_matrix(r: dict, udid: Optional[str] = None) -> dict:
 
     def advertised(name: str) -> dict:
         if not rsd_devices:
+            if tunneld_for_device:
+                return cap(UNVERIFIED, None, "no RSD service list for this device (tunneld lists a tunnel "
+                                             "but its RSD endpoint could not be opened, see tunnel_tunneld)")
             return cap(UNVERIFIED, None, "no RSD service list for this device (no tunnel to it)")
         hits = [i for i, d in enumerate(rsd_devices) if name in d.get("services", [])]
         if hits:

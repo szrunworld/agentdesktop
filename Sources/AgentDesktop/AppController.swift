@@ -7,6 +7,7 @@
 // stays in engine/ as history.
 
 import AppKit
+import Combine
 import SecondScreenCore
 import SecondScreenRuntime
 import AgentDesktopAI
@@ -36,6 +37,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// the host, so closing the window changes nothing in the Runtime.
     private(set) var store: ShellStore!
     private(set) var mainWindow: MainWindowController!
+    private var showOnFirstDesktop: AnyCancellable?
 
     init(role: HostRole) {
         self.role = role
@@ -90,7 +92,18 @@ final class AppController: NSObject, NSApplicationDelegate {
             mainWindow.show()
         } else if let request = role.mainWindowForTest {
             quit.testDisplay = request.displayID
-            mainWindow.showInBackground(onDisplay: request.displayID)
+            if request.onFirstDesktop {
+                showOnFirstDesktop = store.$desktops.sink { [weak self] list in
+                    guard let self, let id = list.first.flatMap(DesktopFrameHub.displayId(of:)) else { return }
+                    self.showOnFirstDesktop = nil
+                    DispatchQueue.main.async {
+                        self.quit.testDisplay = id
+                        self.mainWindow.showInBackground(onDisplay: id)
+                    }
+                }
+            } else {
+                mainWindow.showInBackground(onDisplay: request.displayID)
+            }
             if let d = request.displayID, ProcessInfo.processInfo.environment["AGENTDESKTOP_MENU_PANEL"] == "1" {
                 panel.showTestWindow(onDisplay: d)
             }
@@ -129,13 +142,17 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quitEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
-        quit?.requestQuit()
+        guard let quit else { return }
+        quit.holdQuitEvent()
+        quit.requestQuit()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quit == nil || quit.approved { return .terminateNow }
         if role.isSideInstance, role.mainWindowForTest == nil, !role.quitDialogForTest { return .terminateNow }
         if quit.isAsking { return .terminateLater }
+        quit.markAsking()
+        quit.markAsking()
         Task { await quit.begin() }
         return .terminateLater
     }

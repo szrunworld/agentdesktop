@@ -28,6 +28,9 @@ public final class ACPSubmissionLog: @unchecked Sendable {
         public var state: State
         public var runId: String?
         public var refusalCode: String?
+        /// Never persisted: a Runtime refusal message is free text that may
+        /// echo a credential or another window's content (A4 finding F-1).
+        /// Kept only in memory for the current process; always nil after a load.
         public var refusalMessage: String?
         public var updatedAt: String
 
@@ -75,7 +78,7 @@ public final class ACPSubmissionLog: @unchecked Sendable {
             if let d = Self.date(at), d < cutoff { continue }
             entries[key] = Entry(submissionKey: key, requestId: rid, method: method, state: state,
                                  runId: item["runId"]?.stringValue, refusalCode: item["refusalCode"]?.stringValue,
-                                 refusalMessage: item["refusalMessage"]?.stringValue, updatedAt: at)
+                                 refusalMessage: nil, updatedAt: at)
         }
     }
 
@@ -127,8 +130,8 @@ public final class ACPSubmissionLog: @unchecked Sendable {
                                             ("method", .string(e.method)), ("state", .string(e.state.rawValue)),
                                             ("updatedAt", .string(e.updatedAt))]
             if let r = e.runId { m.append(("runId", .string(r))) }
-            if let c = e.refusalCode { m.append(("refusalCode", .string(c))) }
-            if let msg = e.refusalMessage { m.append(("refusalMessage", .string(msg))) }
+            // Only catalogued error codes reach disk (anything else becomes unlisted_error).
+            if let c = e.refusalCode { m.append(("refusalCode", .string(ACPRedactor.errorCode(c)))) }
             return .obj(m)
         }
         let body = JSONValue.obj([("version", .int(1)), ("entries", .array(list))]).encodedData()

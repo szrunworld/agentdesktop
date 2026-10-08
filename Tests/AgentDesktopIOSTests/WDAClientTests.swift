@@ -646,6 +646,22 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         #expect(report.observationEvidence.contains { $0.contains("wda/screen") })
     }
 
+    @Test func geometryTimeoutKeepsTheDecodedScreenshot() async throws {
+        let fake = FakeWDA()
+        let geometry = ["value": ["width": 390, "height": 844], "sessionId": "S1"] as [String: Any]
+        fake.override("GET", "/window/size", .delayed(5, .json(200, geometry)))
+        let client = fake.client()
+        try await client.ensureSession()
+        let report = await client.probe(deadline: .now + .milliseconds(800))
+        #expect(report.capability(.screenshot)?.state == .supported)
+        #expect(report.capability(.screenshot)?.evidence.contains { $0.contains("decoded PNG 1170x2532") } == true)
+        #expect(report.observation == nil)
+        #expect(report.observationState == .unverified)
+        #expect(report.observationEvidence.contains { $0.contains("window/size") })
+        // The screenshot is not fetched again with the spent deadline.
+        #expect(fake.requests("GET", suffix: "/screenshot").count == 1)
+    }
+
     @Test func missingScreenshotRouteIsUnsupported() async throws {
         let fake = FakeWDA()
         fake.override("GET", "/screenshot", .json(404, ["value": ["error": "unknown command", "message": "no route"]]))

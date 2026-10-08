@@ -27,7 +27,7 @@ public final class ScreenCaptureFrameSource: DesktopFrameSource {
 
     /// The factory the app hands to its hub.
     public static func hub() -> DesktopFrameHub {
-        DesktopFrameHub { ScreenCaptureFrameSource(request: $0) }
+        DesktopFrameHub(releaseGraceMs: 800) { ScreenCaptureFrameSource(request: $0) }
     }
 
     public func start(frame: @escaping @MainActor (DesktopFrame) -> Void,
@@ -42,7 +42,8 @@ public final class ScreenCaptureFrameSource: DesktopFrameSource {
         let request = self.request
         Task { @MainActor [weak self] in
             do {
-                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+                // Only the display is needed, not every window.
+                let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
                 guard let self, gen == self.generation else { return }
                 guard let display = content.displays.first(where: { $0.displayID == request.displayId }) else {
                     failure(.unavailable("找不到这个 Desktop 的显示器（\(request.displayId)）。"))
@@ -131,8 +132,11 @@ public final class ScreenCaptureFrameSource: DesktopFrameSource {
             guard type == .screen, Self.isComplete(sampleBuffer),
                   let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
             let ci = CIImage(cvPixelBuffer: pixels)
-            // A copy: the IOSurface goes back to the stream at once.
-            guard let image = context.createCGImage(ci, from: ci.extent) else { return }
+            // A copy rendered now (not deferred), so the IOSurface goes
+            // back to the stream at once and no frame pins its buffer.
+            guard let image = context.createCGImage(ci, from: ci.extent, format: .BGRA8,
+                                                    colorSpace: CGColorSpace(name: CGColorSpace.sRGB),
+                                                    deferred: false) else { return }
             let frame = DesktopFrame(image: image, scale: scale)
             let schedule: Bool = lock.withLock {
                 guard !cancelled else { return false }

@@ -76,12 +76,15 @@ struct IPhoneCapabilitiesTests {
             #expect(!IPhoneCapabilities.hostEffects(for: action).usesPhysicalPointer, "\(action)")
         }
         let tap = IPhoneCapabilities.hostEffects(for: .tap)
-        #expect(tap.borrowsKeyFocus && !tap.mayTemporarilyActivateApp && !tap.usesHostClipboard)
+        // BackgroundInput.click puts the user's app back if the click brought
+        // Mirroring forward: it may be front for a moment.
+        #expect(tap.borrowsKeyFocus && tap.mayTemporarilyActivateApp && !tap.usesHostClipboard)
         for shortcut: IPhoneCapabilities.Action in [.home, .appSwitcher, .spotlight] {
             #expect(IPhoneCapabilities.hostEffects(for: shortcut).mayTemporarilyActivateApp, "\(shortcut)")
         }
         let type = IPhoneCapabilities.hostEffects(for: .typeText)
-        #expect(type.usesHostClipboard && !type.mayTemporarilyActivateApp)
+        // Allow Paste is pressed with the same click.
+        #expect(type.usesHostClipboard && type.mayTemporarilyActivateApp && type.borrowsKeyFocus)
         let enter = IPhoneCapabilities.hostEffects(for: .pressReturn)
         #expect(!enter.borrowsKeyFocus && !enter.mayTemporarilyActivateApp && !enter.usesHostClipboard)
         // What is refused touches nothing.

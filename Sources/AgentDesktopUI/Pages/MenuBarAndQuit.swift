@@ -51,7 +51,10 @@ public final class QuitFlow: ObservableObject {
     public var countTimeoutMs = 5_000
     /// Pause before asking again while the count is unavailable.
     public var countRetryMs = 2_000
-    private var pendingRead: Task<ActiveCount, Never>?
+    /// A read of the count has been sent and not answered yet.
+    private var readInFlight = false
+    /// The dialog was answered: no more reads, no late updates.
+    public private(set) var closed = false
 
     private let runtime: RuntimePort
     private let clock: PollClock
@@ -65,52 +68,52 @@ public final class QuitFlow: ObservableObject {
     }
 
     /// Active Runs right now (for the dialog's first line).
-    public func activeNow() async -> [JSONValue] {
-        ((try? await runtime.call("run.list", .obj([("active", .bool(true)), ("limit", .int(200))])))?["runs"]?.arrayValue) ?? []
+    /// nil when the Runtime gives no list: unknown is never "none".
+    public func activeNow() async -> [JSONValue]? {
+        (try? await runtime.call("run.list", .obj([("active", .bool(true)), ("limit", .int(200))])))?["runs"]?.arrayValue
     }
 
     /// Reads the count for the dialog's first line until it is known, while
     /// the user is still choosing. A slow or unreachable Runtime shows as
     /// unavailable, never as zero; a Runtime that comes back fills it in.
-    /// A read still in flight is waited for again rather than sent twice,
-    /// so a stalled Runtime does not pile up requests.
+    /// Only one read is in flight at a time, so a stalled Runtime does not
+    /// pile up requests, and nothing waits on a read that never answers.
     public func countActive() async {
-        while !Task.isCancelled, phase == .choosing {
-            let result = await readCountOnce()
-            if case .known = result {
-                activeCount = result
-                return
-            }
-            activeCount = result
+        while !Task.isCancelled, phase == .choosing, !closed {
+            if !readInFlight { startRead() }
+            do { try await clock.pause(milliseconds: countTimeoutMs) } catch { return }
+            if case .known = activeCount { return }
+            if readInFlight, !closed { activeCount = .unavailable("Runtime 在 \(countTimeoutMs / 1000) 秒内没有回答") }
             do { try await clock.pause(milliseconds: countRetryMs) } catch { return }
+            if case .known = activeCount { return }
         }
     }
 
-    private func readCountOnce() async -> ActiveCount {
-        let read: Task<ActiveCount, Never>
-        if let pendingRead {
-            read = pendingRead
-        } else {
-            let runtime = self.runtime
-            read = Task {
-                do {
-                    let r = try await runtime.call("run.list", .obj([("active", .bool(true)), ("limit", .int(200))]))
-                    return .known(r["runs"]?.arrayValue?.count ?? 0)
-                } catch {
-                    return .unavailable(RuntimeProblem(error).title)
+    private func startRead() {
+        readInFlight = true
+        let runtime = self.runtime
+        Task { [weak self] in
+            let result: ActiveCount
+            do {
+                let r = try await runtime.call("run.list", .obj([("active", .bool(true)), ("limit", .int(200))]))
+                if let runs = r["runs"]?.arrayValue {
+                    result = .known(runs.count)
+                } else {
+                    result = .unavailable("Runtime 的回答里没有运行列表")
                 }
+            } catch {
+                result = .unavailable(RuntimeProblem(error).title)
             }
-            pendingRead = read
+            guard let self else { return }
+            self.readInFlight = false
+            if !self.closed, self.phase == .choosing { self.activeCount = result }
         }
-        let clock = self.clock, timeout = countTimeoutMs
-        let first: ActiveCount? = await withCheckedContinuation { (k: CheckedContinuation<ActiveCount?, Never>) in
-            let once = ResumeOnce(k)
-            let timer = Task { try? await clock.pause(milliseconds: timeout); once.resume(nil) }
-            Task { let v = await read.value; timer.cancel(); once.resume(v) }
-        }
-        guard let first else { return .unavailable("Runtime 在 \(timeout / 1000) 秒内没有回答") }
-        pendingRead = nil
-        return first
+    }
+
+    /// The dialog is answered: stop reading the count and ignore late
+    /// answers.
+    public func close() {
+        closed = true
     }
 
     public func stopAndWait() {
@@ -128,14 +131,23 @@ public final class QuitFlow: ObservableObject {
 
     func run() async {
         do {
+            // The Runtime's answers can arrive after the user called the
+            // quit off (an in-process call does not stop on cancellation):
+            // a cancelled stop never turns quiet or failed afterwards.
             let r = try await runtime.call("runtime.stopAll", .obj([("scope", .string("all_platform_runs"))]))
+            guard stillStopping else { return }
             stoppedIds = (r["runs"]?.arrayValue ?? []).compactMap { $0["runId"]?.stringValue }
-            while !Task.isCancelled {
+            while stillStopping {
                 checks += 1
-                let active = try await runtime.call("run.list", .obj([("active", .bool(true)), ("limit", .int(200))]))["runs"]?.arrayValue ?? []
+                let listed = try await runtime.call("run.list", .obj([("active", .bool(true)), ("limit", .int(200))]))
+                guard stillStopping else { return }
+                guard let active = listed["runs"]?.arrayValue else {
+                    throw RuntimeError("internal_error", "run.list answered without runs", phase: .handler)
+                }
                 var notQuiet = active
                 for id in stoppedIds where !active.contains(where: { $0["runId"]?.stringValue == id }) {
                     let run = try await runtime.call("run.show", .obj([("runId", .string(id))]))
+                    guard stillStopping else { return }
                     if !Self.isQuiet(run) { notQuiet.append(run) }
                 }
                 remaining = notQuiet
@@ -148,9 +160,11 @@ public final class QuitFlow: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
-            if !Task.isCancelled { phase = .failed(RuntimeProblem(error)) }
+            if stillStopping { phase = .failed(RuntimeProblem(error)) }
         }
     }
+
+    private var stillStopping: Bool { !Task.isCancelled && phase == .stopping }
 
     /// Ended and confirmed quiet: the only state that allows quitting.
     public static func isQuiet(_ run: JSONValue) -> Bool {

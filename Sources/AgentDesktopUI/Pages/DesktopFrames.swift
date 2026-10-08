@@ -129,12 +129,20 @@ public final class DesktopFrameHub {
     private var nextId = 0
     /// Sources started over the hub's life (tests, diagnostics).
     public private(set) var startedCount = 0
+    /// How long a released display keeps its stream before it stops.
+    /// SwiftUI may run the old view's onDisappear before the new view's
+    /// onAppear when moving between pages of the same Desktop; without a
+    /// grace the stream would stop and start again in between.
+    public let releaseGraceMs: Int
+    private var graceTask: Task<Void, Never>?
 
     public init(framesPerSecond: Int = DesktopFrameHub.defaultFramesPerSecond,
                 maxPixelWidth: Int = DesktopFrameHub.defaultMaxPixelWidth,
+                releaseGraceMs: Int = 0,
                 makeSource: @escaping DesktopFrameSourceFactory) {
         self.framesPerSecond = max(1, min(5, framesPerSecond))
         self.maxPixelWidth = max(1, maxPixelWidth)
+        self.releaseGraceMs = max(0, releaseGraceMs)
         self.makeSource = makeSource
     }
 
@@ -169,7 +177,17 @@ public final class DesktopFrameHub {
     /// does nothing.
     public func release(_ token: Token) {
         guard consumers.removeValue(forKey: token.id) != nil else { return }
-        reconcile()
+        guard releaseGraceMs > 0 else { reconcile(); return }
+        // A consumer that comes back within the grace keeps the stream;
+        // acquiring reconciles at once, so only stopping waits.
+        graceTask?.cancel()
+        let ms = releaseGraceMs
+        graceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.graceTask = nil
+            self.reconcile()
+        }
     }
 
     /// A window was shown, hidden, occluded or uncovered.
@@ -206,6 +224,8 @@ public final class DesktopFrameHub {
 
     /// App quit: stop every stream and drop every frame.
     public func stopAll() {
+        graceTask?.cancel()
+        graceTask = nil
         consumers.removeAll()
         reconcile()
     }
@@ -215,7 +235,10 @@ public final class DesktopFrameHub {
         let wanted = Set(consumers.values.filter { !hiddenScopes.contains($0.scope) }.map(\.displayId))
         for d in Array(sources.keys) where !wanted.contains(d) {
             sources.removeValue(forKey: d)?.stop()
-            if feeds[d]?.status == .live || feeds[d]?.status == .starting { feeds[d]?.set(.paused) }
+        }
+        // Held only by hidden windows: paused, whether it ran or not yet.
+        for d in held.subtracting(wanted) where feeds[d]?.status == .live || feeds[d]?.status == .starting {
+            feeds[d]?.set(.paused)
         }
         for d in Array(feeds.keys) where !held.contains(d) { feeds[d] = nil }
         failed.formIntersection(held)

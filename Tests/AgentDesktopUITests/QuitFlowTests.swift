@@ -13,7 +13,7 @@ struct QuitFlowTests {
     @Test func uc51_quitWaitsForQuiescence() async throws {
         let m = MockRuntime.sample()
         let flow = QuitFlow(runtime: m, clock: FastClock(), pollMs: 1)
-        #expect(await flow.activeNow().count == 2)
+        #expect(await flow.activeNow()?.count == 2)
         flow.stopAndWait()
         await waitFor("stop accepted") { flow.stoppedIds.count == 2 }
         await waitFor("several checks") { flow.checks >= 3 }
@@ -119,5 +119,21 @@ struct QuitFlowTests {
         }
         #expect(!QuitFlow.isQuiet(.obj([("phase", .string("stopping")), ("quiescence", .string("confirmed"))])))
         #expect(QuitFlow.isQuiet(.obj([("phase", .string("ended")), ("quiescence", .string("confirmed"))])))
+    }
+
+    // Review of #101: an answer without a list of Runs is not "no Runs".
+    @Test func anAnswerWithoutRunsIsUnavailableNotZero() async {
+        final class NoRuns: RuntimePort, @unchecked Sendable {
+            let isSample = false
+            func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue { .obj([]) }
+            func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> { AsyncThrowingStream { $0.finish() } }
+        }
+        let flow = QuitFlow(runtime: NoRuns(), clock: FastClock(), pollMs: 1)
+        let counting = Task { await flow.countActive() }
+        await waitFor("unavailable") { if case .unavailable = flow.activeCount { return true }; return false }
+        #expect(!QuitDialogView.activeLine(flow.activeCount).contains("没有进行中的运行"))
+        #expect(await flow.activeNow() == nil)
+        flow.close()
+        await counting.value
     }
 }
