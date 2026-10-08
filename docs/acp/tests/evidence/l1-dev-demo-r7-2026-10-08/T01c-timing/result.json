@@ -10,17 +10,17 @@
   "steps": [
     {
       "op": "initialize",
-      "ms": 6,
+      "ms": 5,
+      "ok": true
+    },
+    {
+      "op": "session/new",
+      "ms": 4,
       "ok": true
     },
     {
       "op": "session/new",
       "ms": 3,
-      "ok": true
-    },
-    {
-      "op": "session/new",
-      "ms": 1,
       "ok": true
     }
   ]

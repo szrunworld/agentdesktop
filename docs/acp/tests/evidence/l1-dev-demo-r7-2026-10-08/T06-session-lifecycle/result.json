@@ -8,17 +8,17 @@
   ],
   "title": "创建、列表、断开后重连加载（回放历史）、关闭；加载不存在的会话被拒",
   "status": "PASS",
-  "durationMs": 33,
+  "durationMs": 53,
   "failures": [],
   "steps": [
     {
       "op": "initialize",
-      "ms": 6,
+      "ms": 8,
       "ok": true
     },
     {
       "op": "session/new",
-      "ms": 3,
+      "ms": 6,
       "ok": true
     },
     {
@@ -38,7 +38,7 @@
     },
     {
       "op": "session/load",
-      "ms": 5,
+      "ms": 10,
       "ok": true
     },
     {
@@ -64,12 +64,12 @@
     },
     {
       "op": "session/close",
-      "ms": 0,
+      "ms": 1,
       "ok": true
     },
     {
       "op": "session/list",
-      "ms": 1,
+      "ms": 2,
       "ok": true
     }
   ]

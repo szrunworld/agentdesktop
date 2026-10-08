@@ -5,7 +5,7 @@
   ],
   "title": "带未知字段与 _meta 的 initialize、session/new 按正常请求处理，不报错，不回显未知字段",
   "status": "PASS",
-  "durationMs": 314,
+  "durationMs": 313,
   "failures": [],
   "steps": [
     {
@@ -51,7 +51,7 @@
           "jsonrpc": "2.0",
           "id": "raw-new",
           "result": {
-            "sessionId": "acps_52c5c179-f35e-4a1f-a9f1-137af7370ee3",
+            "sessionId": "acps_be2b1d5d-07d6-4038-8549-e7854f8c0e07",
             "configOptions": [
               {
                 "id": "mode",

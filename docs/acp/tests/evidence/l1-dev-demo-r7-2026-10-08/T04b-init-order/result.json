@@ -6,12 +6,12 @@
   ],
   "title": "initialize 之前的 session/new 被拒且不建会话；同一连接第二次 initialize 被拒，已有会话不受影响",
   "status": "PASS",
-  "durationMs": 333,
+  "durationMs": 344,
   "failures": [],
   "steps": [
     {
       "op": "initialize",
-      "ms": 7,
+      "ms": 8,
       "ok": true
     },
     {
@@ -35,7 +35,7 @@
     },
     {
       "op": "initialize",
-      "ms": 0,
+      "ms": 1,
       "ok": true
     },
     {
@@ -45,12 +45,12 @@
     },
     {
       "op": "session/new",
-      "ms": 2,
+      "ms": 7,
       "ok": true
     },
     {
       "op": "session/list",
-      "ms": 3,
+      "ms": 2,
       "ok": true
     },
     {
@@ -74,7 +74,7 @@
     },
     {
       "op": "session/list",
-      "ms": 2,
+      "ms": 1,
       "ok": true
     }
   ]

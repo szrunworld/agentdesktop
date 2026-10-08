@@ -5,7 +5,7 @@
   ],
   "title": "带敏感正文的非法请求：错误回复与 stderr 都不含请求正文",
   "status": "PASS",
-  "durationMs": 315,
+  "durationMs": 322,
   "failures": [],
   "steps": [
     {
@@ -15,7 +15,7 @@
     },
     {
       "op": "session/new",
-      "ms": 3,
+      "ms": 6,
       "ok": true
     },
     {

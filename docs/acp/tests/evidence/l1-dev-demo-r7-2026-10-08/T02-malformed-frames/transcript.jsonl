@@ -1,27 +1,27 @@
 {"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
-{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
-{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":7,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
-{"ms":7,"dir":"step","step":"raw","at":{"op":"raw","line":"{not json","expect":{"errorCode":-32700}}}
-{"ms":7,"conn":1,"dir":"out-raw","raw":"{not json"}
-{"ms":7,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error: syntax at byte 1"}}}
-{"ms":7,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-1","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}","expect":{"errorCode":-32601}}}
-{"ms":7,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}"}
-{"ms":7,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-1","error":{"code":-32601,"message":"method not found: qtest/no_such_method"}}}
-{"ms":7,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-2","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}","expect":{"errorCodeIn":[-32602,-32600]}}}
-{"ms":7,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}"}
-{"ms":8,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-2","error":{"code":-32602,"message":"session/prompt needs sessionId"}}}
-{"ms":8,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":300}}
-{"ms":310,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
-{"ms":310,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"<repo>/docs/acp/tests/evidence/l1-dev-demo-r7-2026-10-08/T02-malformed-frames/run","mcpServers":[]}}}
-{"ms":317,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"acps_5ccf0a57-2d5b-497d-b615-0fbe102d5fff","configOptions":[{"id":"mode","name":"执行确认","category":"mode","type":"select","currentValue":"ask","options":[{"value":"ask","name":"ask"},{"value":"auto","name":"auto"}]},{"id":"screenshots","name":"截图","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"submit","name":"submit"},{"value":"all","name":"all"}]},{"id":"pageText","name":"页面文字","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"on","name":"on"}]}]}}}
-{"ms":318,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"/help","expect":{"stopReason":"end_turn"}}}
-{"ms":318,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"acps_5ccf0a57-2d5b-497d-b615-0fbe102d5fff","prompt":[{"type":"text","text":"/help"}]}}}
-{"ms":319,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_5ccf0a57-2d5b-497d-b615-0fbe102d5fff","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"demo-echo","description":"演示：三步进度后结束","input":{"hint":"<text>"}},{"name":"help","description":"列出可用命令"},{"name":"status","description":"查看本会话任务的状态","input":{"hint":"[runId]"}},{"name":"runs","description":"列出本会话的任务"},{"name":"cancel","description":"请求停止本会话正在运行的任务","input":{"hint":"[runId]"}}]}}}}
-{"ms":319,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_5ccf0a57-2d5b-497d-b615-0fbe102d5fff","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"身份说明：Runtime 尚未认证调用方身份，本会话暂按本机所有者占位身份（[已隐藏]）归属。"}}}}}
-{"ms":323,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_5ccf0a57-2d5b-497d-b615-0fbe102d5fff","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"可用命令：\n/demo-echo <text>：演示：三步进度后结束\n/help：列出可用命令\n/status [runId]：查看本会话任务的状态\n/runs：列出本会话的任务\n/cancel [runId]：请求停止本会话正在运行的任务"}}}}}
-{"ms":323,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
-{"ms":323,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
-{"ms":323,"conn":1,"dir":"disconnect","mode":"close-stdin"}
-{"ms":324,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
-{"ms":325,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":2,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":2,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":8,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
+{"ms":8,"dir":"step","step":"raw","at":{"op":"raw","line":"{not json","expect":{"errorCode":-32700}}}
+{"ms":8,"conn":1,"dir":"out-raw","raw":"{not json"}
+{"ms":8,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error: syntax at byte 1"}}}
+{"ms":8,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-1","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}","expect":{"errorCode":-32601}}}
+{"ms":8,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}"}
+{"ms":9,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-1","error":{"code":-32601,"message":"method not found: qtest/no_such_method"}}}
+{"ms":9,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-2","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}","expect":{"errorCodeIn":[-32602,-32600]}}}
+{"ms":9,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}"}
+{"ms":9,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-2","error":{"code":-32602,"message":"session/prompt needs sessionId"}}}
+{"ms":9,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":300}}
+{"ms":312,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":313,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"<repo>/docs/acp/tests/evidence/l1-dev-demo-r7-2026-10-08/T02-malformed-frames/run","mcpServers":[]}}}
+{"ms":361,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"acps_0a01ccf2-c1f2-42e7-8e93-1bc2b2cf43af","configOptions":[{"id":"mode","name":"执行确认","category":"mode","type":"select","currentValue":"ask","options":[{"value":"ask","name":"ask"},{"value":"auto","name":"auto"}]},{"id":"screenshots","name":"截图","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"submit","name":"submit"},{"value":"all","name":"all"}]},{"id":"pageText","name":"页面文字","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"on","name":"on"}]}]}}}
+{"ms":361,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"/help","expect":{"stopReason":"end_turn"}}}
+{"ms":361,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"acps_0a01ccf2-c1f2-42e7-8e93-1bc2b2cf43af","prompt":[{"type":"text","text":"/help"}]}}}
+{"ms":361,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_0a01ccf2-c1f2-42e7-8e93-1bc2b2cf43af","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"demo-echo","description":"演示：三步进度后结束","input":{"hint":"<text>"}},{"name":"help","description":"列出可用命令"},{"name":"status","description":"查看本会话任务的状态","input":{"hint":"[runId]"}},{"name":"runs","description":"列出本会话的任务"},{"name":"cancel","description":"请求停止本会话正在运行的任务","input":{"hint":"[runId]"}}]}}}}
+{"ms":362,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_0a01ccf2-c1f2-42e7-8e93-1bc2b2cf43af","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"身份说明：Runtime 尚未认证调用方身份，本会话暂按本机所有者占位身份（[已隐藏]）归属。"}}}}}
+{"ms":367,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_0a01ccf2-c1f2-42e7-8e93-1bc2b2cf43af","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"可用命令：\n/demo-echo <text>：演示：三步进度后结束\n/help：列出可用命令\n/status [runId]：查看本会话任务的状态\n/runs：列出本会话的任务\n/cancel [runId]：请求停止本会话正在运行的任务"}}}}}
+{"ms":367,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":367,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":367,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":367,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":369,"conn":1,"dir":"exit","code":0,"signal":null}

@@ -5,27 +5,27 @@
   ],
   "title": "写入不带换行的半个 session/new 后关闭 stdin：该请求不执行（无回复、会话数不变），进程干净退出",
   "status": "PASS",
-  "durationMs": 334,
+  "durationMs": 349,
   "failures": [],
   "steps": [
     {
       "op": "initialize",
-      "ms": 7,
+      "ms": 9,
       "ok": true
     },
     {
       "op": "session/list",
-      "ms": 2,
+      "ms": 3,
       "ok": true
     },
     {
       "op": "initialize",
-      "ms": 6,
+      "ms": 10,
       "ok": true
     },
     {
       "op": "initialize",
-      "ms": 7,
+      "ms": 5,
       "ok": true
     },
     {

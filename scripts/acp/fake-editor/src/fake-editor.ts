@@ -761,6 +761,9 @@ async function main() {
   mkdirSync(out, { recursive: true });
   const summary: any = { profile: profile.name, agent: profile.agent, sdk: "@agentclientprotocol/sdk 1.7.0 (ACP v1)", startedAt: new Date().toISOString(), node: process.version, scenarios: [] };
   let failed = false;
+  // Substitute per scenario from the template: each scenario gets its own
+  // RUN_DIR (before, the first scenario's RUN_DIR stuck for all of them).
+  const agentTemplate = [...profile.agent];
   for (const file of scenarios) {
     let sc: Scenario;
     try {
@@ -773,7 +776,7 @@ async function main() {
     const runDir = join(out, sc.id, "run");
     mkdirSync(runDir, { recursive: true });
     const vars = { ...profile.vars, RUN_DIR: runDir, REPO_ROOT: repoRoot, FAKE_EDITOR_DIR: editorRoot };
-    profile.agent = substitute(profile.agent, vars);
+    profile.agent = substitute(agentTemplate, vars);
     const run = new QTestScenarioRun(sc, profile, dir, vars);
     const t = Date.now();
     const status = await run.run();

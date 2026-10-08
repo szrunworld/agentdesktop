@@ -4,10 +4,10 @@
     "<repo>/.build/debug/agentdesktop-acp-dev",
     "--demo",
     "--state-dir",
-    "<repo>/docs/acp/tests/evidence/l1-dev-demo-r7-2026-10-08/L2-readonly/run/state"
+    "<repo>/docs/acp/tests/evidence/l1-dev-demo-r7-2026-10-08/T16-approval/run/state"
   ],
   "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
-  "startedAt": "2026-10-08T12:51:33.307Z",
+  "startedAt": "2026-10-08T12:52:19.656Z",
   "node": "v22.23.2",
   "scenarios": [
     {
@@ -303,7 +303,7 @@
       "transcript": "T16-approval/transcript.jsonl"
     }
   ],
-  "finishedAt": "2026-10-08T12:51:44.748Z",
+  "finishedAt": "2026-10-08T12:52:32.736Z",
   "counts": {
     "PASS": 17,
     "FAIL": 0,

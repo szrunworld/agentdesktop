@@ -6,17 +6,17 @@
   ],
   "title": "connection_scoped 的一轮执行中编辑器断开：不再产生新动作，重连加载后不自动继续",
   "status": "PASS",
-  "durationMs": 3944,
+  "durationMs": 3946,
   "failures": [],
   "steps": [
     {
       "op": "initialize",
-      "ms": 7,
+      "ms": 6,
       "ok": true
     },
     {
       "op": "session/new",
-      "ms": 5,
+      "ms": 8,
       "ok": true
     },
     {
@@ -29,12 +29,12 @@
     },
     {
       "op": "initialize",
-      "ms": 9,
+      "ms": 7,
       "ok": true
     },
     {
       "op": "session/load",
-      "ms": 8,
+      "ms": 11,
       "ok": true
     },
     {

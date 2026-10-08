@@ -5,12 +5,12 @@
   ],
   "title": "超限帧被拒后连接保持可用：同一连接继续建会话、prompt（协调者决定：不断开）",
   "status": "PASS",
-  "durationMs": 677,
+  "durationMs": 1458,
   "failures": [],
   "steps": [
     {
       "op": "initialize",
-      "ms": 4,
+      "ms": 11,
       "ok": true
     },
     {
@@ -29,7 +29,7 @@
     },
     {
       "op": "session/new",
-      "ms": 6,
+      "ms": 19,
       "ok": true
     },
     {
