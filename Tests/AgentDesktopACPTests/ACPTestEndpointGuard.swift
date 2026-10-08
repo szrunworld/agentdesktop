@@ -18,6 +18,32 @@ enum ACPTestEndpointGuard {
         defer { free(real) }
         let resolved = String(cString: real) + "/"
         guard resolved.hasPrefix("/private/tmp/adt-") || resolved.hasPrefix("/tmp/adt-") else { throw NotATestCopy(path: raw) }
+        // The socket itself: not a symlink, not a hard link, and not the same
+        // file as any socket of the product (Codex review P1 on #141: a hard
+        // link to the product runtime.sock inside /tmp/adt-* passed the
+        // directory check because /tmp and $HOME share a volume).
+        var st = stat()
+        if lstat(raw, &st) == 0 {
+            if (st.st_mode & S_IFMT) == S_IFLNK { throw NotATestCopy(path: raw) }
+            if st.st_nlink > 1 { throw NotATestCopy(path: raw) }
+            for product in productSockets() {
+                var p = stat()
+                if stat(product, &p) == 0, p.st_dev == st.st_dev, p.st_ino == st.st_ino { throw NotATestCopy(path: raw) }
+            }
+        }
         return raw
+    }
+
+    /// Every entry of the product's data directory (real and $HOME-based),
+    /// so a renamed or future product socket is covered too.
+    static func productSockets() -> [String] {
+        var homes = [NSHomeDirectory()]
+        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir { homes.append(String(cString: dir)) }
+        var out: [String] = []
+        for home in Set(homes) {
+            let dir = home + "/Library/Application Support/AgentDesktop"
+            for name in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [] { out.append(dir + "/" + name) }
+        }
+        return out
     }
 }

@@ -33,6 +33,28 @@ struct CurEndpointGuardTests {
         #expect(try CurTestReal.checkedEndpoint("/private" + dir + "/side.runtime.sock") == "/private" + dir + "/side.runtime.sock")
     }
 
+    @Test("[Mock] a hard link inside /tmp/adt-* is refused")
+    func hardLinkIsRefused() throws {
+        let dir = "/tmp/adt-curtest-hl-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let original = dir + "/original.sock"
+        FileManager.default.createFile(atPath: original, contents: Data())
+        let link = dir + "/side.runtime.sock"
+        try FileManager.default.linkItem(atPath: original, toPath: link)
+        #expect(throws: CurTestReal.NotATestCopy.self) { _ = try CurTestReal.checkedEndpoint(link) }
+    }
+
+    @Test("[Mock] a symlinked socket inside /tmp/adt-* is refused")
+    func symlinkedSocketIsRefused() throws {
+        let dir = "/tmp/adt-curtest-sl-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let link = dir + "/side.runtime.sock"
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: NSHomeDirectory() + "/Library/Application Support/AgentDesktop/runtime.sock")
+        #expect(throws: CurTestReal.NotATestCopy.self) { _ = try CurTestReal.checkedEndpoint(link) }
+    }
+
     @Test("[Mock] a test copy directory that does not exist is refused")
     func missingDirectoryIsRefused() {
         #expect(throws: CurTestReal.NotATestCopy.self) { _ = try CurTestReal.checkedEndpoint("/tmp/adt-missing-\(UUID().uuidString)/side.runtime.sock") }
