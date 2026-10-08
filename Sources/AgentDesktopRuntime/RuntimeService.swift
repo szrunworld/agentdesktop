@@ -62,12 +62,12 @@ public final class RuntimeService: @unchecked Sendable {
     /// process that app.launch started on that Desktop, so no local client
     /// can pull one of the user's windows onto an agent screen and read or
     /// drive it there. Tests turn this off; the product never does.
-    public var bindsOnlyLaunchedProcesses = true
+    var bindsOnlyLaunchedProcesses = true
     /// Until a screen-level grant exists: an observation of a Desktop with no
     /// bound window takes no screenshot (the whole screen carries the menu
     /// bar, notifications and any window dragged there). Tests turn this
     /// off; the product never does.
-    public var refusesScreenCaptureWithoutBinding = true
+    var refusesScreenCaptureWithoutBinding = true
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date

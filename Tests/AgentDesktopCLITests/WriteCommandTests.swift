@@ -1,7 +1,7 @@
 import CryptoKit
 import AgentDesktopClient
 import AgentDesktopProtocol
-import AgentDesktopRuntime
+@testable import AgentDesktopRuntime
 import Foundation
 import Testing
 @testable import AgentDesktopCLI

@@ -1,5 +1,5 @@
 import AgentDesktopProtocol
-import AgentDesktopRuntime
+@testable import AgentDesktopRuntime
 import AgentDesktopUI
 import AppKit
 import Foundation
