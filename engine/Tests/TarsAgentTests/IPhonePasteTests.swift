@@ -619,6 +619,24 @@ func fast() -> PasteWatcher {
         #expect(phone.taps.isEmpty)
     }
 
+    /// Codex on #127: checking the raising and removing it must not
+    /// interleave with another process raising a new one. Many raisers
+    /// race a lowerer that only ever lowers the first raising; the last
+    /// raising must survive every time.
+    @Test func loweringARaisingNeverDeletesANewerOne() throws {
+        let (_, lock) = scratch()
+        let flag = HostFlag(url: lock.deletingLastPathComponent().appendingPathComponent("barrier"))
+        for _ in 0..<50 {
+            try flag.raise("old")
+            let old = try #require(flag.generation())
+            DispatchQueue.concurrentPerform(iterations: 2) { index in
+                if index == 0 { try? flag.raise("new") } else { flag.lower(ifStill: old) }
+            }
+            #expect(flag.reason() == "new")
+            flag.lower()
+        }
+    }
+
     @Test func aBarrierRaisedSinceIsNotLowered() throws {
         let (_, lock) = scratch()
         let flag = HostFlag(url: lock.deletingLastPathComponent().appendingPathComponent("barrier"))

@@ -25,11 +25,32 @@ public struct HostFlag: Sendable {
         var generation: String?
     }
 
-    /// Raises the flag with `reason`, until `until` if given.
-    public func raise(_ reason: String, until: Date? = nil) throws {
+    /// Every change of the flag (raising, and lowering a given raising)
+    /// runs under an exclusive lock on a file beside it, so a check of which
+    /// raising is up and its removal cannot interleave with another process
+    /// raising a new one: that one would be deleted unseen.
+    private func serialized<Value>(_ body: () throws -> Value) throws -> Value {
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
+        let lockPath = url.path + ".lock"
+        let fd = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        defer { close(fd) }
+        while flock(fd, LOCK_EX) != 0 {
+            guard errno == EINTR else { throw CocoaError(.fileWriteUnknown) }
+        }
+        defer { flock(fd, LOCK_UN) }
+        return try body()
+    }
+
+    /// Raises the flag with `reason`, until `until` if given.
+    public func raise(_ reason: String, until: Date? = nil) throws {
+        try serialized { try raiseLocked(reason, until: until) }
+    }
+
+    private func raiseLocked(_ reason: String, until: Date?) throws {
+        let directory = url.deletingLastPathComponent()
         let data = try JSONEncoder().encode(Record(reason: reason, until: until, generation: UUID().uuidString))
         // Written aside and renamed in, so a reader never sees half a record.
         let staging = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString)")
@@ -52,14 +73,15 @@ public struct HostFlag: Sendable {
             return "an unreadable record at \(url.path)"
         }
         if let until = record.until, until <= now {
-            lower()
+            // Only this expired raising goes; a new one raised meanwhile stays.
+            if let generation = record.generation { lower(ifStill: generation) }
             return nil
         }
         return record.reason
     }
 
     public func lower() {
-        try? FileManager.default.removeItem(at: url)
+        _ = try? serialized { try? FileManager.default.removeItem(at: url) }
     }
 
     /// The raising now in place, if the flag is up: pass it to
@@ -72,7 +94,11 @@ public struct HostFlag: Sendable {
     /// Lowers the flag only if it is still the raising `generation` named;
     /// one raised since stays up.
     public func lower(ifStill generation: String) {
-        guard self.generation() == generation else { return }
-        lower()
+        _ = try? serialized {
+            guard let data = FileManager.default.contents(atPath: url.path) else { return }
+            let current = (try? JSONDecoder().decode(Record.self, from: data))?.generation ?? "unreadable"
+            guard current == generation else { return }
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 }
