@@ -82,9 +82,17 @@ public final class DesktopRegistry: @unchecked Sendable {
 
     public func names() -> [String] { lock.withLock { desktops.map(\.name) } }
 
+    /// Names of the Desktops one origin created (names are unique per origin,
+    /// so a socket client can neither probe nor take the main window's).
+    func names(createdBy origin: ConnectionOrigin) -> [String] {
+        lock.withLock { desktops.filter { $0.createdBy == origin }.map(\.name) }
+    }
+
     @discardableResult
-    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual) -> DesktopRecord {
+    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual,
+             createdBy: ConnectionOrigin = .host) -> DesktopRecord {
         let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen, kind: kind)
+        r.createdBy = createdBy
         lock.withLock { desktops.append(r) }
         return r
     }

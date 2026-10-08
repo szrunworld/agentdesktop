@@ -235,3 +235,59 @@ struct NoSuchProcessBackend: RuntimeBackend {
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: nil) }
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] { [] }
 }
+
+// b9's second review: AI configuration, global stop, Desktop names.
+@Test func aSocketClientCannotChangeTheAIConfigurationButReadsIt() throws {
+    let platform = FakePlatform()
+    let (s, server, path, dir) = try sealedServer(platform)
+    defer { server.stop(); try? FileManager.default.removeItem(atPath: dir) }
+    final class Count: @unchecked Sendable { let lock = NSLock(); var methods: [String] = [] }
+    let reached = Count()
+    let handler: ExtensionMethod = { call in
+        reached.lock.withLock { reached.methods.append(call.method) }
+        return .success(.obj([("connections", .array([]))]))
+    }
+    let writes = ["ai.connections.update", "ai.connections.create", "ai.modelProfiles.update", "ai.profiles.setDefault",
+                  "ai.credentials.rotate", "ai.tests.start", "ai.operations.cancel"]
+    s.registerExtensions(Dictionary(uniqueKeysWithValues: (writes + ["ai.connections.list"]).map { ($0, handler) }))
+    let c = try RawConnection(path)
+    _ = try exchange(c, handshakeLine)
+    for (i, method) in writes.enumerated() {
+        let r = try exchange(c, requestLine(method, id: "ai_\(i)", params: #"{"connectionId":"c_1","baseUrl":"https://elsewhere.example"}"#))
+        #expect(r["error"]?["code"]?.stringValue == "permission_denied", "\(method)")
+        #expect(r["error"]?["details"]?["reason"]?.stringValue == "ai_config_requires_grant", "\(method)")
+        #expect(try s.ledger.record(caller: ~getuid(), requestId: "ai_\(i)") == nil)
+    }
+    #expect(reached.lock.withLock { reached.methods }.isEmpty, "no AI service write was reached")
+    _ = try exchange(c, requestLine("ai.connections.list", id: "ai_list"))
+    #expect(reached.lock.withLock { reached.methods } == ["ai.connections.list"], "reading stays open")
+}
+
+@Test func aSocketClientMayStopAllInputButNotTurnItBackOn() throws {
+    let platform = FakePlatform()
+    let (_, server, path, dir) = try sealedServer(platform)
+    defer { server.stop(); try? FileManager.default.removeItem(atPath: dir) }
+    let c = try RawConnection(path)
+    _ = try exchange(c, handshakeLine)
+    let stop = try exchange(c, requestLine("runtime.stopAll", id: "sa_1", params: #"{"scope":"all_platform_runs"}"#))
+    #expect(stop["ok"]?.boolValue == true, "\(stop)")
+    let enable = try exchange(c, requestLine("runtime.enableInput", id: "ei_1"))
+    #expect(enable["error"]?["code"]?.stringValue == "permission_denied")
+}
+
+@Test func desktopNamesAreUniquePerOriginSoTheHostsCannotBeProbedOrTaken() throws {
+    let platform = FakePlatform()
+    let (s, server, path, dir) = try sealedServer(platform)
+    defer { server.stop(); try? FileManager.default.removeItem(atPath: dir) }
+    let host = handshaken(s)
+    _ = try created(s, host, name: "客户资料")
+    let c = try RawConnection(path)
+    _ = try exchange(c, handshakeLine)
+    let first = try exchange(c, requestLine("desktop.create", id: "n_1", params: #"{"name":"客户资料"}"#))
+    #expect(first["ok"]?.boolValue == true, "the host's name neither shows nor blocks: \(first)")
+    let second = try exchange(c, requestLine("desktop.create", id: "n_2", params: #"{"name":"客户资料"}"#))
+    #expect(second["error"]?["code"]?.stringValue == "conflict", "unique among socket clients' Desktops")
+    // The host still makes Desktops with its own names.
+    #expect(code(call(s, host, "desktop.create", params: #"{"name":"客户资料"}"#)) == "conflict")
+    #expect(data(call(s, host, "desktop.create", params: #"{"name":"另一个"}"#)) != nil)
+}

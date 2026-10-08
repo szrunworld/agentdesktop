@@ -186,7 +186,7 @@ public final class RuntimeService: @unchecked Sendable {
                     phase: .handler, details: .obj([("reason", .string("subscribed"))])))
             }
             // Before the ledger and the service: a refusal has no side effect.
-            if let refusal = extensionGrantRefusal(request.method, connection) ?? scopeRefusal(request, connection) {
+            if let refusal = extensionGrantRefusal(request.method, mutation: spec.mutation, connection) ?? scopeRefusal(request, connection) {
                 return .failure(request.requestId, refusal)
             }
             guard let handler = extensions.handler(request.method) else {
@@ -320,8 +320,19 @@ public final class RuntimeService: @unchecked Sendable {
     /// The until-grants refusal for methods other services answer here.
     /// Every GUI-run method: a socket client cannot start one, and the runs
     /// that exist are the host's (observed and disclosed on its identity).
-    func extensionGrantRefusal(_ method: String, _ connection: ConnectionState) -> RuntimeError? {
-        guard connection.origin == .socket, socketGuiRunRequiresGrant, method.hasPrefix("gui.runs.") else { return nil }
+    ///
+    /// And every change to the AI configuration (connections, model
+    /// profiles, profiles, credentials, tests, operations): it is global, and
+    /// pointing a connection elsewhere would send the main window's next GUI
+    /// run screenshots there. Reading stays open.
+    func extensionGrantRefusal(_ method: String, mutation: Bool, _ connection: ConnectionState) -> RuntimeError? {
+        guard connection.origin == .socket, socketGuiRunRequiresGrant else { return nil }
+        if method.hasPrefix("ai."), mutation {
+            return RuntimeError("permission_denied", "changing the AI configuration needs a grant, which this client does not have",
+                                phase: .handler, notSent: true,
+                                details: .obj([("reason", .string("ai_config_requires_grant"))]))
+        }
+        guard method.hasPrefix("gui.runs.") else { return nil }
         return RuntimeError("permission_denied", "starting a GUI run needs a GUI-run grant, which this client does not have",
                             phase: .handler, notSent: true,
                             details: .obj([("reason", .string("gui_run_requires_grant"))]))
@@ -385,13 +396,7 @@ public final class RuntimeService: @unchecked Sendable {
                                           includeOffscreen: p["includeOffscreen"]?.boolValue ?? false)
             return .success(.obj([("windows", .array(windows.map(\.json)))]))
 
-        case .desktopCreate:
-            return createDesktop(p).map { created in
-                if connection.origin == .socket, let id = created["desktopId"]?.stringValue {
-                    desktops.find(id)?.createdBy = .socket
-                }
-                return created
-            }
+        case .desktopCreate: return createDesktop(p, origin: connection.origin)
         case .desktopDestroy: return destroyDesktop(p)
         case .appLaunch: return launchApp(p)
         case .windowBind: return bindWindow(p)

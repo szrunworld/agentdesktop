@@ -47,13 +47,14 @@ extension RuntimeService {
         }
     }
 
-    func createDesktop(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
+    func createDesktop(_ p: JSONValue, origin: ConnectionOrigin = .host) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         createLock.lock()
         defer { createLock.unlock() }
         let id = DesktopRegistry.newId(prefix: "d")
         let name = p["name"]?.stringValue ?? id
-        if desktops.names().contains(name) {
+        let taken = socketsSeeOnlyTheirOwn ? desktops.names(createdBy: origin) : desktops.names()
+        if taken.contains(name) {
             return .failure(RuntimeError("conflict", "a desktop named \(name) exists", phase: .handler))
         }
         do {
@@ -82,11 +83,11 @@ extension RuntimeService {
                     return .failure(RuntimeError("conflict", "desktop \(other.desktopId) already attaches display \(screen.displayId)",
                                                  phase: .handler, details: .obj([("desktopId", .string(other.desktopId))])))
                 }
-                let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical)
+                let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical, createdBy: origin)
                 return .success(desktopJSON(d))
             }
             let screen = try platform.createScreen(name: id, width: p["width"]?.intValue, height: p["height"]?.intValue)
-            let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString)
+            let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, createdBy: origin)
             return .success(desktopJSON(d))
         } catch let e as PlatformError {
             return .failure(e.runtimeError)

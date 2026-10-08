@@ -117,10 +117,13 @@ extension RuntimeService {
         }
     }
 
-    /// Global stop (owner only): close input admission and stop every Run,
-    /// Delegated and Durable, returning each one's stop state.
+    /// Global stop: close input admission and stop every Run, Delegated and
+    /// Durable, returning each one's stop state. The owner, and until A4
+    /// (#137) any local socket client too: stopping is the safe direction
+    /// (it was open to them before #153 made them non-owners). Turning input
+    /// back on stays the owner's.
     func stopAll(_ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
-        guard isOwner(c) else { return .failure(RuntimeError("permission_denied", "only the owner stops all input", phase: .handler)) }
+        guard isOwner(c) || c.origin == .socket else { return .failure(RuntimeError("permission_denied", "only the owner stops all input", phase: .handler)) }
         let (admission, stopped) = execution.stopAll()
         let pending = stopped.filter { !$0.isEnded }.map(\.runId)
         return .success(.obj([
