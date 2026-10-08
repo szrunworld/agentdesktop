@@ -133,6 +133,9 @@ public enum IPhoneCapabilities {
                 "a text field on the phone has focus",
                 "Universal Clipboard works between the Mac and the phone",
                 "the host clipboard is free for the length of the paste",
+                "not for sensitive text (passwords, tokens, personal data) or unattended input: the text "
+                    + "passes through the Mac's clipboard, which other apps and Universal Clipboard can read, "
+                    + "and a paste that times out leaves it there",
             ]),
         Declaration(
             capability: .editingKeys, support: .supported, evidence: .deviceTested,

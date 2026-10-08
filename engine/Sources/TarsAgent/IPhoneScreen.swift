@@ -101,7 +101,8 @@ public final class IPhoneAgentScreen: AgentScreen {
         if binding != window { observation = nil }
         binding = window
         windowFrame = window.frame
-        invalidated = nil
+        // Geometry is not a look at the phone: an input barrier stays up
+        // until a screenshot shows what the last input left behind.
         return window.frame
     }
 
@@ -119,6 +120,9 @@ public final class IPhoneAgentScreen: AgentScreen {
         let png = try Images.png(Images.scaled(capture.image, to: size))
         observation = IPhoneObservation(pid: binding?.pid ?? 0, windowID: capture.windowID, frame: capture.frame,
                                         pixelSize: size, capturedAt: system.now)
+        // Whoever took it can now see what an uncertain input left.
+        invalidated = nil
+        system.inputBarrier.lower()
         return png
     }
 
@@ -227,7 +231,13 @@ public final class IPhoneAgentScreen: AgentScreen {
             let submit = text.hasSuffix("\n")
             if submit { text.removeLast() }
             if text.isEmpty { return try send(key("return", []), pid: pid) }
-            return try paste(text, pid: pid).response(submit: submit) {
+            let pasted = try paste(text, pid: pid)
+            if case .unknown = pasted.outcome {
+                // Whatever acts next depends on what the field holds, which
+                // nobody knows: no input until the phone is read again.
+                block("may hold a half-finished paste")
+            }
+            return try pasted.outcome.response(submit: submit, clipboardRestored: pasted.clipboardRestored) {
                 try send(key("return", []), pid: pid)
             }
         default:
@@ -268,7 +278,7 @@ public final class IPhoneAgentScreen: AgentScreen {
         // around the send, the input may have gone elsewhere. Unknown, not
         // success, and nothing more until the window is read again.
         if let changed = changedAfterSend(window, response) {
-            invalidated = changed
+            block(changed)
             var unknown = ControlResponse.failure(IPhoneError(
                 "action_delivery_unknown", reason: "target_changed_during_dispatch",
                 "window \(window.windowID) \(changed) while input was sent; it may have reached something else. "
@@ -282,10 +292,22 @@ public final class IPhoneAgentScreen: AgentScreen {
         return response
     }
 
+    /// No more input to this phone, from this or any process, until a
+    /// screenshot of it is taken.
+    private func block(_ reason: String) {
+        do {
+            try system.inputBarrier.raise(reason)
+        } catch {
+            // Kept here at least, for this process.
+            invalidated = reason
+        }
+    }
+
     /// The bound window as it is now, if input may still go to it.
     private func verifiedTarget(pid: pid_t) throws -> IPhoneWindow {
-        if let invalidated {
-            throw IPhoneError.stale("delivery_unknown", "the window \(invalidated) during an earlier input")
+        if let reason = invalidated ?? system.inputBarrier.reason(now: system.now) {
+            throw IPhoneError.stale("delivery_unknown", "the window \(reason) after an earlier input; "
+                + "take a screenshot before any more input")
         }
         guard let bound = binding else {
             throw IPhoneError("no_observation", "read iPhone Mirroring's window first (frame or screenshot)")
@@ -320,7 +342,7 @@ public final class IPhoneAgentScreen: AgentScreen {
     }
 
     /// Paste `text` into the phone's focused field (see `PasteTransaction`).
-    private func paste(_ text: String, pid: pid_t) throws -> PasteOutcome {
+    private func paste(_ text: String, pid: pid_t) throws -> PasteTransaction.Result {
         PasteTransaction().paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
     }
 

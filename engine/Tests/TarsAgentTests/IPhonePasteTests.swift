@@ -277,6 +277,7 @@ func fast() -> PasteWatcher {
         transaction.leaseURL = lock
         transaction.leaseTimeout = 5
         transaction.watcher = fast()
+        transaction.pending = HostFlag(url: lock.deletingLastPathComponent().appendingPathComponent("clipboard.pending"))
         return transaction
     }
 
@@ -293,7 +294,7 @@ func fast() -> PasteWatcher {
         pasteboard.setData(Data([1, 2, 3]), forType: .png)
         let phone = ScriptedPhone(baseline: keyboard, [keyboard + [line("hello", y: 0.3)]])
         phone.pasteboard = pasteboard
-        #expect(transaction(pasteboard, lock).paste("hello", verify: true, driver: phone) == .confirmed)
+        #expect(transaction(pasteboard, lock).paste("hello", verify: true, driver: phone).outcome == .confirmed)
         #expect(phone.pasted == ["hello"])
         #expect(pasteboard.data(forType: .png) == Data([1, 2, 3]))
         #expect(pasteboard.string(forType: .string) == nil)
@@ -307,7 +308,7 @@ func fast() -> PasteWatcher {
         let changeCount = pasteboard.changeCount
         let phone = ScriptedPhone(baseline: keyboard, [keyboard])
         phone.pasteboard = pasteboard
-        guard case .notDelivered = transaction(pasteboard, lock).paste("hello", verify: true, driver: phone) else {
+        guard case .notDelivered = transaction(pasteboard, lock).paste("hello", verify: true, driver: phone).outcome else {
             Issue.record("expected notDelivered")
             return
         }
@@ -323,7 +324,7 @@ func fast() -> PasteWatcher {
         var busy = transaction(pasteboard, lock)
         busy.leaseTimeout = 0.1
         let phone = ScriptedPhone(baseline: keyboard, [keyboard])
-        guard case .notDelivered = busy.paste("hello", verify: true, driver: phone) else {
+        guard case .notDelivered = busy.paste("hello", verify: true, driver: phone).outcome else {
             Issue.record("expected notDelivered")
             return
         }
@@ -348,7 +349,7 @@ func fast() -> PasteWatcher {
         defer { results.deallocate() }
         DispatchQueue.concurrentPerform(iterations: 2) { index in
             let (text, phone) = phones[index]
-            results[index] = transaction(pasteboard, lock).paste(text, verify: true, driver: phone)
+            results[index] = transaction(pasteboard, lock).paste(text, verify: true, driver: phone).outcome
         }
         for (index, (text, phone)) in phones.enumerated() {
             #expect(results[index] == .confirmed)
@@ -358,4 +359,141 @@ func fast() -> PasteWatcher {
         }
         #expect(pasteboard.string(forType: .string) == "the user's")
     }
+
+    /// A paste that times out while the phone may still fetch the clipboard
+    /// must not let it fetch the user's data: the typed text stays there.
+    @Test func stillPastingWithholdsTheUsersClipboard() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("secret-token", forType: .string)
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard + pasting])
+        phone.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.settleLooks = 5
+        let result = paste.paste("hello", verify: true, driver: phone)
+        #expect(result.outcome == .unknown("timed_out: the phone was still pasting"))
+        #expect(!result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "hello")
+        #expect(phone.taps.isEmpty)
+    }
+
+    /// An Allow Paste left on screen could be pressed later, by anyone: the
+    /// user's contents stay away from it too.
+    @Test func aLingeringPromptWithholdsTheUsersClipboard() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("secret-token", forType: .string)
+        let phone = ScriptedPhone(baseline: keyboard, [alert])
+        phone.pasteboard = pasteboard
+        phone.tapResponse = .failure("tap refused")
+        var paste = transaction(pasteboard, lock)
+        paste.settleLooks = 5
+        let result = paste.paste("hello", verify: true, driver: phone)
+        guard case .unknown = result.outcome else {
+            Issue.record("expected unknown")
+            return
+        }
+        #expect(!result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "hello")
+    }
+
+    /// Once the phone is seen done with the clipboard, the user's contents
+    /// go back even though the paste itself stays unknown.
+    @Test func restoresOnceThePhoneIsSeenDone() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("secret-token", forType: .string)
+        let stillPasting = [[PhoneText]?](repeating: keyboard + pasting, count: 10)
+        let phone = ScriptedPhone(baseline: keyboard, stillPasting + [keyboard])
+        phone.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.settleLooks = 5
+        let result = paste.paste("hello", verify: true, driver: phone)
+        #expect(result.outcome == .unknown("timed_out: the phone was still pasting"))
+        #expect(result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "secret-token")
+    }
+
+    @Test func aWithheldClipboardIsSaidInTheResponse() {
+        let response = PasteOutcome.unknown("timed_out: x").response(submit: true, clipboardRestored: false) {
+            Issue.record("Return pressed")
+            return ControlResponse()
+        }
+        #expect(!response.ok)
+        #expect(response.error?.contains("clipboard_withheld") == true)
+        #expect(response.route == "paste.unknown")
+    }
+
+    /// A ⌘V that failed on its way out shows nothing; quiet screens after it
+    /// prove nothing, so the user's contents stay away from the clipboard.
+    @Test func quietWithoutSeeingThePasteDoesNotRestore() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("secret-token", forType: .string)
+        let phone = ThrowingPastePhone(baseline: keyboard, [keyboard])
+        phone.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.settleLooks = 5
+        let result = paste.paste("hello", verify: true, driver: phone)
+        guard case .unknown = result.outcome else {
+            Issue.record("expected unknown")
+            return
+        }
+        #expect(!result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "hello")
+    }
+
+    /// While a withheld clipboard may still be fetched, no other paste may
+    /// put its text there, from this process or another.
+    @Test func aWithheldClipboardKeepsOtherPastesOut() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        let first = ScriptedPhone(baseline: keyboard, [keyboard + pasting])
+        first.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.settleLooks = 3
+        #expect(!paste.paste("agent A", verify: true, driver: first).clipboardRestored)
+        let second = ScriptedPhone(baseline: keyboard, [keyboard + [line("agent B", y: 0.3)]])
+        second.pasteboard = pasteboard
+        let next = transaction(pasteboard, lock).paste("agent B", verify: true, driver: second)
+        guard case .notDelivered(let why) = next.outcome else {
+            Issue.record("expected notDelivered")
+            return
+        }
+        #expect(why.hasPrefix("clipboard_pending"))
+        #expect(second.pasted.isEmpty)
+        #expect(pasteboard.string(forType: .string) == "agent A")
+    }
+
+    @Test func thePendingMarkExpires() throws {
+        let (_, lock) = scratch()
+        let flag = HostFlag(url: lock.deletingLastPathComponent().appendingPathComponent("clipboard.pending"))
+        try flag.raise("x", until: Date().addingTimeInterval(-1))
+        #expect(flag.reason() == nil)
+        try flag.raise("y", until: Date().addingTimeInterval(60))
+        #expect(flag.reason() == "y")
+        flag.lower()
+        #expect(flag.reason() == nil)
+    }
+}
+
+/// A phone whose ⌘V request fails after it may have gone out.
+final class ThrowingPastePhone: PhonePasteDriver {
+    let inner: ScriptedPhone
+    var pasteboard: NSPasteboard? {
+        get { inner.pasteboard }
+        set { inner.pasteboard = newValue }
+    }
+    init(baseline: [PhoneText]?, _ screens: [[PhoneText]?]) {
+        inner = ScriptedPhone(baseline: baseline, screens)
+    }
+    struct Lost: Error {}
+    func look() throws -> [PhoneText] { try inner.look() }
+    func pressPaste() throws -> ControlResponse { throw Lost() }
+    func tap(_ point: CGPoint) throws -> ControlResponse { try inner.tap(point) }
+    func pause(_ seconds: TimeInterval) { inner.pause(seconds) }
 }
