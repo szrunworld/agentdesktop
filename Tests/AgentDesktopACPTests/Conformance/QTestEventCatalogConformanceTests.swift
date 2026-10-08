@@ -8,10 +8,9 @@ import Testing
 // knows (ACPEventCatalog.swift) and how it shows each catalogued event.
 // Conformance only: the samples below are validated against the contract
 // first, so a failure here is a projector/catalogue mismatch, not a bad
-// fixture. Lane E is adapting the projector in parallel; mismatches that
-// are already known are recorded with `withKnownIssue` (intermittent, so
-// E's fix does not turn this suite red) and listed in
-// docs/acp/tests/README.md §4.8.
+// fixture. Written against #102 before #114 landed; after merging #114
+// (projector aligned to the catalogue) every check holds without a known
+// issue (docs/acp/tests/README.md §4.8).
 
 enum QTestCatalog {
     /// Every `type` value the contract allows in `PlatformRunEvent`.
@@ -112,25 +111,10 @@ struct QTestEventCatalogConformanceTests {
         }
     }
 
-    /// What ACP calls "emitted by the Runtime today" must exist in the catalogue.
-    @Test func everyTypeMarkedEmittedIsInTheCatalogue() {
-        let catalogue = Set(QTestCatalog.types)
-        for t in ACPEventType.allCases where t.emitted {
-            #expect(catalogue.contains(t.rawValue), "\(t.rawValue) is marked emitted but #102 does not catalogue it")
-        }
-    }
-
-    /// And the other way: a catalogued type is emitted. Known lag: #102 added
-    /// action.refused; ACPEventCatalog still marks it provisional (lane E).
-    @Test func everyCatalogueTypeIsMarkedEmitted() {
-        let lagging = QTestCatalog.types.filter { ACPEventType(rawValue: $0)?.emitted != true }
-        let known: Set<String> = ["action.refused"]
-        for t in lagging where !known.contains(t) {
-            Issue.record("\(t) is catalogued but not marked emitted")
-        }
-        withKnownIssue("lane E: ACPEventType.emitted lags #102 (action.refused)", isIntermittent: true) {
-            for t in lagging where known.contains(t) { Issue.record("\(t) is catalogued but not marked emitted") }
-        }
+    /// And the other way: ACP knows no type outside the catalogue (#114
+    /// retired the provisional names), so the enum is exactly the catalogue.
+    @Test func theProjectorKnowsExactlyTheCatalogue() {
+        #expect(Set(ACPEventType.allCases.map(\.rawValue)) == Set(QTestCatalog.types))
     }
 
     /// The samples are contract-valid, and each projects to something
@@ -201,9 +185,7 @@ struct QTestEventCatalogConformanceTests {
             if type == "action.refused" { refused = c.last }
         }
         let c = try #require(refused)
-        withKnownIssue("lane E: the projector does not read action.refused data.reason.code yet", isIntermittent: true) {
-            #expect(c.level == .refused(code: "stale_observation"), "\(String(describing: c.level))")
-        }
+        #expect(c.level == .refused(code: "stale_observation"), "\(String(describing: c.level))")
     }
 
     /// Every run.ended outcome the catalogue allows projects; unknown says so
