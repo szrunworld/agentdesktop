@@ -137,4 +137,30 @@ struct MainWindowHostTests {
         for _ in 0..<200 where replies.count < 4 { try await Task.sleep(nanoseconds: 5_000_000) }
         #expect(replies.last == true && q.approved)
     }
+
+    // A stalled Runtime does not hold the quit dialog back: begin returns
+    // before run.list answers, the count stays unknown (never zero) until
+    // then, and the user can still call the quit off.
+    @Test func quitDialogDoesNotWaitForTheRuntime() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        m.delays = ["run.list": 2_000_000_000]
+        let q = QuitController(store: store)
+        q.clock = FastClock()
+        var replies: [Bool] = []
+        q.reply = { replies.append($0) }
+        let started = Date()
+        await q.begin(show: false)
+        #expect(Date().timeIntervalSince(started) < 1, "begin did not wait for run.list")
+        let flow = try #require(q.flow)
+        #expect(flow.activeCount == nil)
+        #expect(QuitDialogView.activeLine(nil).hasPrefix("正在读取"))
+        q.choose(.cancel)
+        #expect(replies == [false])
+        m.delays = [:]
+        await q.counting?.value
+        #expect(flow.activeCount == 2)
+    }
 }

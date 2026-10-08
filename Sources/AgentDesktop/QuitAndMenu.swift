@@ -17,6 +17,8 @@ final class QuitController: NSObject, NSWindowDelegate {
     var reply: (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
     var clock: PollClock = SystemPollClock()
     private(set) var flow: QuitFlow?
+    /// Reading the active count; tests wait on it.
+    private(set) var counting: Task<Void, Never>?
     private(set) var window: NSWindow?
     private(set) var choices: [QuitChoice] = []
     private var answered = true
@@ -29,19 +31,22 @@ final class QuitController: NSObject, NSWindowDelegate {
 
     var isAsking: Bool { !answered }
 
-    /// Show the dialog; the app waits (terminateLater) for the answer.
+    /// Show the dialog; the app waits (terminateLater) for the answer. The
+    /// dialog appears at once: the in-process port answers in order, so a
+    /// stalled earlier request would otherwise hold it back. The count of
+    /// active Runs fills in when the Runtime answers.
     func begin(show: Bool = true) async {
         answered = false
         let flow = QuitFlow(runtime: store.runtime, clock: clock)
         self.flow = flow
-        let active = await flow.activeNow().count
+        counting = Task { await flow.countActive() }
         guard show else { return }
         let w = window ?? NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
                                    styleMask: [.titled], backing: .buffered, defer: false)
         w.title = "退出 Agent Desktop"
         w.isReleasedWhenClosed = false
         w.delegate = self
-        w.contentView = NSHostingView(rootView: QuitDialogView(flow: flow, activeCount: active) { [weak self] c in
+        w.contentView = NSHostingView(rootView: QuitDialogView(flow: flow) { [weak self] c in
             self?.choose(c)
         })
         window = w

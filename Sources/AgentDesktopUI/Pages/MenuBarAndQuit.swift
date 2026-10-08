@@ -37,6 +37,9 @@ public final class QuitFlow: ObservableObject {
     /// Runs the stop named, for the record.
     @Published public private(set) var stoppedIds: [String] = []
     @Published public private(set) var checks = 0
+    /// Active Runs when the dialog opened; nil until the Runtime answers
+    /// (or when it could not), so the dialog never waits on it.
+    @Published public private(set) var activeCount: Int?
 
     private let runtime: RuntimePort
     private let clock: PollClock
@@ -52,6 +55,13 @@ public final class QuitFlow: ObservableObject {
     /// Active Runs right now (for the dialog's first line).
     public func activeNow() async -> [JSONValue] {
         ((try? await runtime.call("run.list", .obj([("active", .bool(true)), ("limit", .int(200))])))?["runs"]?.arrayValue) ?? []
+    }
+
+    /// Reads the count for the dialog's first line; a failure leaves it
+    /// unknown rather than zero.
+    public func countActive() async {
+        let r = try? await runtime.call("run.list", .obj([("active", .bool(true)), ("limit", .int(200))]))
+        activeCount = r?["runs"]?.arrayValue?.count
     }
 
     public func stopAndWait() {
@@ -102,13 +112,19 @@ public final class QuitFlow: ObservableObject {
 /// P32: the quit dialog.
 public struct QuitDialogView: View {
     @ObservedObject var flow: QuitFlow
-    let activeCount: Int
     let choose: (QuitChoice) -> Void
 
-    public init(flow: QuitFlow, activeCount: Int, choose: @escaping (QuitChoice) -> Void) {
+    public init(flow: QuitFlow, choose: @escaping (QuitChoice) -> Void) {
         self.flow = flow
-        self.activeCount = activeCount
         self.choose = choose
+    }
+
+    public static func activeLine(_ count: Int?) -> String {
+        switch count {
+        case nil: return "正在读取进行中的运行。关闭界面不会结束运行；只有「停止输入并退出」会先停止全部输入，等它们静止后再退出。"
+        case 0?: return "现在没有进行中的运行。"
+        case let n?: return "现在有 \(n) 个运行进行中。关闭界面不会结束它们；只有「停止输入并退出」会先停止全部输入，等它们静止后再退出。"
+        }
     }
 
     public var body: some View {
@@ -116,8 +132,7 @@ public struct QuitDialogView: View {
             Text("退出 Agent Desktop？").font(ADFont.sectionTitle).foregroundStyle(ADColor.ink)
             switch flow.phase {
             case .choosing, .cancelled:
-                Text(activeCount == 0 ? "现在没有进行中的运行。"
-                     : "现在有 \(activeCount) 个运行进行中。关闭界面不会结束它们；只有「停止输入并退出」会先停止全部输入，等它们静止后再退出。")
+                Text(Self.activeLine(flow.activeCount))
                     .font(ADFont.body).foregroundStyle(ADColor.ink).fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: ADSpace.xs) {
                     Text("· 隐藏主窗口：只关窗口，Dock 和菜单栏入口保留").font(ADFont.note)

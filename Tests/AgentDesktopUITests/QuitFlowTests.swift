@@ -76,7 +76,7 @@ struct QuitFlowTests {
                                                                             openSettings: {}, quit: {}))
         #expect((SnapshotRenderer.png(panel, size: CGSize(width: 340, height: 560))?.count ?? 0) > 5_000)
         let flow = QuitFlow(runtime: m, clock: FastClock())
-        #expect((SnapshotRenderer.png(QuitDialogView(flow: flow, activeCount: 2) { _ in }, size: CGSize(width: 600, height: 320))?.count ?? 0) > 5_000)
+        #expect((SnapshotRenderer.png(QuitDialogView(flow: flow) { _ in }, size: CGSize(width: 600, height: 320))?.count ?? 0) > 5_000)
         await store.stopAllInput()
         #expect(MenuBarPanelView.status(store) == StatusText("输入已停止", .attention))
     }
