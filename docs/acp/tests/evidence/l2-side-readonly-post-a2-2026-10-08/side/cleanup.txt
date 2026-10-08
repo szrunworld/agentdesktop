@@ -1,0 +1,1 @@
+side instance pid 28703: SIGTERM, exited; /tmp/adt-acp-q6 removed 2026-10-08T10:21:57Z. No Desktop created, no app launched, no GUI input; test copy used file credentials (side.runtime/test-credentials), no keychain writes.
