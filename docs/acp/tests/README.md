@@ -1,6 +1,6 @@
 # ACP 测试与验收（工作线 Q）
 
-状态：2026-10-08 第六轮（acp-skeleton f70a9f6，A2 之后）。168 个用例：PASSED 40、FAILED 0、BLOCKED 12、NOT_RUN 116。PASSED 只在 L1（假编辑器对 dev 入口、真 ACP 栈配脚本化 Runtime、代码检查）与 L2 只读（测试副本，无 unit.run、不建 Desktop）上；任何需要 A4/A6、真实 GUI 动作或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4～4.7 节。
+状态：2026-10-08 第七轮（分支 acp-q-independent，已合入 main cbe7772，含 #102、#114、#117）。170 个用例：PASSED 55、FAILED 0、BLOCKED 12、NOT_RUN 103（协调者按「未运行不得标通过」拆分两条：ACP-T18-04 → 04a 只读 PASSED、04b 写入 NOT_RUN；ACP-T28-02 → 02a 自动化 PASSED、02b 真机 NOT_RUN）。PASSED 只在 L1（假编辑器对 dev 入口、真 ACP 栈配脚本化 Runtime、代码检查）与 L2 只读（测试副本，无 unit.run、不建 Desktop）上；任何需要 A4/A6、真实 GUI 动作或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4～4.8 节。
 
 ## 一、分层（Kevin 裁决附加约束 6）
 
@@ -21,13 +21,16 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `docs/acp/tests/cases.csv` | 168 个可执行用例 |
+| `docs/acp/tests/cases.csv` | 170 个可执行用例 |
 | `docs/acp/tests/e2e-runbook.md` | 真机端到端手册：测试副本、Zed 配置、计算器中立样本、证据、通过标准 |
 | `docs/acp/tests/evidence/fake-editor-selftest-2026-10-08/` | 假编辑器自检的原始记录 |
 | `scripts/acp/fake-editor/` | 假编辑器（TypeScript，官方 `@agentclientprotocol/sdk` 1.7.0 锁定版本，`package-lock.json` 已提交，`node_modules/`、`dist/` 不提交） |
 | `scripts/acp/selftest.sh` | 假编辑器自检 |
 | `scripts/acp/zed-capture/` | Zed 首帧采集（Z1）：`setup.sh` 用独立 `--user-data-dir` 打开 Zed 并接上逐字节记录的包装 `capture-agent.mjs`；`collect.sh` 脱敏汇总（`--to-evidence` 仅协调者用）；`selftest.sh` 不启动 Zed，验证包装逐字节无损 |
 | `scripts/acp/run-real.sh` | 对 dev 入口或 `agentdesktop acp` 跑场景（只接受 `/tmp/adt-*` 端点） |
+| `scripts/acp/stale-socket.sh` | 在 `/tmp/adt-*` 下造一个无人监听的 socket 文件（ACP-T03-04） |
+| `scripts/acp/scan-transcripts.py` | 扫描 transcript：agent 有没有调用 `fs/*`、`terminal/*`（ACP-T05-03） |
+| `scripts/acp/mcp-readonly-probe.py` | `agentdesktop mcp` 对测试副本的只读探针（ACP-T18-04a） |
 | `Tests/AgentDesktopACPTests/Conformance/` | 冻结接口一致性测试（只用 Model 与 Ports） |
 
 ## 三、用例目录 cases.csv
@@ -82,7 +85,7 @@
 | T25 外部 agent 虚假成功 | 2 | 0 | 2 | 0 | 0 | ACP-T25-01～02 |
 | T26 Zed E2E | 6 | 4 | 1 | 0 | 1 | ACP-T26-01～06 |
 | T27 JetBrains E2E（P2，不阻塞 P1） | 2 | 1 | 1 | 0 | 0 | ACP-T27-01～02 |
-| T28 macOS Runtime 回归 | 3 | 3 | 0 | 0 | 0 | ACP-T28-01～03 |
+| T28 macOS Runtime 回归 | 4 | 4 | 0 | 0 | 0 | ACP-T28-01、02a、02b、03 |
 | L2 只读冒烟（真 Runtime，A6 之前） | 5 | 4 | 1 | 0 | 0 | ACP-L2-01～05 |
 | P1 通过标准（原文 §8） | 8 | 7 | 1 | 0 | 0 | ACP-P1-01～08 |
 | 场景 A（K1 改写） | 2 | 1 | 1 | 0 | 0 | ACP-P2A-01～02 |
@@ -99,16 +102,16 @@
 
 ### 3.3 每个门禁的用例数
 
-一个用例可以属于多个门禁，所以下表合计大于 168。门禁的 PASSED 数只是 L1/L2 子项，门禁本身仍未通过。
+一个用例可以属于多个门禁，所以下表合计大于 170。门禁的 PASSED 数只是 L1/L2 子项，门禁本身仍未通过。
 
 | 门禁 | 用例 | L1 | L2 | L3 | PASSED | FAILED | BLOCKED |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| G0 | 6 | 2 | 4 | 0 | 3 | 0 | 0 |
-| G1 | 56 | 32 | 11 | 13 | 22 | 0 | 0 |
-| G2 | 52 | 36 | 11 | 5 | 9 | 0 | 10 |
-| G3 | 51 | 28 | 12 | 11 | 8 | 0 | 2 |
+| G0 | 7 | 2 | 5 | 0 | 5 | 0 | 0 |
+| G1 | 56 | 32 | 11 | 13 | 33 | 0 | 0 |
+| G2 | 52 | 36 | 11 | 5 | 10 | 0 | 10 |
+| G3 | 52 | 29 | 12 | 11 | 11 | 0 | 2 |
 | G4 | 10 | 0 | 10 | 0 | 0 | 0 | 0 |
-| G5 | 9 | 2 | 0 | 7 | 0 | 0 | 0 |
+| G5 | 9 | 2 | 0 | 7 | 1 | 0 | 0 |
 
 ## 四、假编辑器
 
@@ -132,10 +135,12 @@ node dist/fake-editor.js --profile profiles/<p>.json \
 | `agentdesktop-dev.json` | `.build/debug/agentdesktop-acp-dev`，经 `AGENTDESKTOP_ENDPOINT` 连测试副本 | L2；端点 `/tmp/adt-acp/side.runtime.sock`；features：runtime.real、session.load/list/close |
 | `agentdesktop-dev-demo.json` | dev 入口加 `--demo --state-dir <run>/state`（S 线的脚本化端口，约 1.6 s 一个演示 Run，无 Runtime、无 GUI 输入、无审批） | L1；features：session.load/list/close、task.slow |
 | `agentdesktop-acp.json` | 测试副本包里的 `agentdesktop acp` | 发布形态；要等 CLI `acp` 子命令 |
+| `agentdesktop-dev-unreachable.json` | dev 入口指向 `/tmp/adt-q-unreachable/stale.runtime.sock`（文件在、无人监听，先跑 `stale-socket.sh`） | L1；ACP-T03-04 |
+| `agentdesktop-dev-missing.json` | dev 入口指向不存在的端点路径 | L1；ACP-T03-04（启动即拒绝） |
 
 AgentDesktop profile 的 `features` 随依赖合入逐项打开：A6（任务入口与中立样本任务 → task.slow、提示词）、PR4（approval）、A4（identity.second）。T14 的期望文本取自 08-event-mapping：真实模式 owner_lost 显示「编辑器连接已断开」；demo 端口重启后 Run 丢失，显示「待核实」。
 
-**场景操作**：`setConfig`（session/set_config_option）、`assert` 的 `noFrameContains`（agent 写出的任何帧都不得含某串）与 `unknownTerminal`（结果不明的工具调用从不 completed，最后为 failed + rawOutput terminated/unknown）、`rawBatch`（多帧连续写出、不等回复，只用于流水线场景）、`connect`（可选 `identity`）、`initialize`、`newSession`、`prompt`（`permission` = allow / deny / cancelled / none / hang；`cancelAfterMs`；`disconnectAfterMs`）、`promptParallel`、`listSessions`、`resume`（load 或 resume）、`closeSession`、`cancel`、`disconnect`（关 stdin 或 kill）、`expectExit`（非崩溃信号）、`expectAlive`、`raw`（任意字节，含超限帧）、`probeCapabilities`（宣告的能力必须可用、未宣告的必须被拒）、`mark` / `wait` / `assert`（标记之后没有新工具调用；标记时未完成的工具调用之后不能变成 completed）。
+**场景操作**（第七轮新增：请求的 `expect.maxMs` 计时、`raw` 的 `expect.ok`、`notEchoes`、`errorMessageMatches`，`rawPartial` 写半帧，`listSessions` 的 `saveCountAs` / `countEquals`，`assert` 的 `noResponseFor`、`noAgentRequests`；特性 `protocol.strict` 表示被测方按 ACP 规范拒绝 initialize 前的请求与重复 initialize，回声 agent 与 SDK 示例不具备，记 BLOCKED）：`setConfig`（session/set_config_option）、`assert` 的 `noFrameContains`（agent 写出的任何帧都不得含某串）与 `unknownTerminal`（结果不明的工具调用从不 completed，最后为 failed + rawOutput terminated/unknown）、`rawBatch`（多帧连续写出、不等回复，只用于流水线场景）、`connect`（可选 `identity`）、`initialize`、`newSession`、`prompt`（`permission` = allow / deny / cancelled / none / hang；`cancelAfterMs`；`disconnectAfterMs`）、`promptParallel`、`listSessions`、`resume`（load 或 resume）、`closeSession`、`cancel`、`disconnect`（关 stdin 或 kill）、`expectExit`（非崩溃信号）、`expectAlive`、`raw`（任意字节，含超限帧）、`probeCapabilities`（宣告的能力必须可用、未宣告的必须被拒）、`mark` / `wait` / `assert`（标记之后没有新工具调用；标记时未完成的工具调用之后不能变成 completed）。
 
 `permission=none` 模拟没有审批界面的编辑器：对 `session/request_permission` 回 `-32601`。`hang` 永不回答，用来做「等待审批时断开」。
 
@@ -148,6 +153,13 @@ AgentDesktop profile 的 `features` 随依赖合入逐项打开：A6（任务入
 | t02-malformed-frames | ACP-T02-01、02、03、05 | — |
 | t02b-oversize-frame | ACP-T02-04 | — |
 | t02c-oversize-then-continue | ACP-T02-04（拒绝后连接仍可用） | frame.survivesOversize |
+| t01c-timing | ACP-T01-04 | — |
+| t01d-unknown-fields | ACP-T01-05 | protocol.strict |
+| t02d-half-frame-eof | ACP-T02-06 | protocol.strict、session.list |
+| t02e-error-no-echo | ACP-T02-07 | — |
+| t03d-endpoint-unreachable | ACP-T03-04（端点无人监听） | runtime.unreachable |
+| t03e-endpoint-missing | ACP-T03-04（端点不存在） | runtime.missing |
+| t04b-init-order | ACP-T04-04、05 | protocol.strict、session.list |
 | t03-stdio-close | ACP-T03-01、02 | task.slow |
 | t04-version | ACP-T04-01、02 | — |
 | t05-capabilities | ACP-T05-01、02 | — |
@@ -317,9 +329,92 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 - G0-09 的代码检查部分由 T18-05 提供。
 - 其余门禁没有变化，仍然没有任何端到端结论。
 
+### 4.8 第七轮：main 基线上的剩余 L1、MCP 只读、事件目录与回归（2026-10-08，acp-q-independent，已合入 main cbe7772）
+
+范围按 Kevin 批准：不需要 A4、A6、PR4、Zed 或真实 GUI 动作的用例。全程**没有创建 Desktop 或虚拟屏，没有启动任何应用，没有 GUI 输入，没有真实业务账号，没有写钥匙串，没有连产品端点**。L1（脚本化或无 Runtime）、L2 只读（真实测试副本）、NOT_RUN 三者分开记。
+
+**构建与测试**（退出码直接检查，不经管道；[evidence/tests-r7-2026-10-08/summary.txt](evidence/tests-r7-2026-10-08/summary.txt)）：
+
+| 命令 | 退出码 | 结果 |
+| --- | --- | --- |
+| `swift build` | 0 | |
+| `swift test` | 0 | 729 个测试通过 |
+| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test` | 0 | 729 个测试通过 |
+| `swift test --filter RuntimeAXIsolationTests`（RT-23A/B），普通与严格协作池各一次 | 0、0 | 6 个测试通过 |
+
+**假编辑器新增 7 个场景**（4.2 表）。另修了假编辑器一个缺陷：以前所有场景共用第一个场景的 `RUN_DIR`（profile 的 agent 参数只替换一次），现在每个场景有自己的状态目录。
+
+- L1 dev 入口 `--demo`，全部 27 个场景：退出码 0，PASS 17、BLOCKED 10、FAIL 0。新场景 t01c、t01d、t02d、t02e、t04b 都 PASS；[evidence/l1-dev-demo-r7-2026-10-08](evidence/l1-dev-demo-r7-2026-10-08/)。
+- L1 端点不可达（不连任何 Runtime）：t03d（socket 文件在、无人监听）与 t03e（路径不存在）都 PASS，退出码 0；[evidence/l1-dev-endpoint-unreachable-r7-2026-10-08](evidence/l1-dev-endpoint-unreachable-r7-2026-10-08/)。端点无人监听时 initialize 照常，session/new 在时限内得到 -32000「Runtime 未返回已认证的调用方身份」，进程不崩溃；路径不存在时 dev 入口以退出码 2 启动即拒绝。
+- L2 真 Runtime 只读（测试副本，见下）：`run-real.sh agentdesktop-dev` 退出码 0，PASS 15、BLOCKED 12、FAIL 0；新场景 t01c、t01d、t02d、t02e、t04b 都 PASS，l2-readonly 及第六轮的 PASS 场景回归仍 PASS；[evidence/l2-side-r7-2026-10-08/fake-editor](evidence/l2-side-r7-2026-10-08/fake-editor/)。
+- ACP-T05-03：`scan-transcripts.py` 扫本轮 L1 的 29 份与 L2 的 27 份 transcript，agent 只发过 `session/update`，没有 `fs/*`、`terminal/*`（`t05-03-scan.json`）。
+
+**测试副本**：`scripts/bundle-app.sh` 退出码 0（构建自 eaea64a；之后合入的 main 只改了 ACP 源码，宿主与 CLI 的源码与被测 HEAD 相同；版本号里的 `-dirty` 是构建期间改动的测试与脚本文件）。复制到 `/tmp/adt-acp`，`open -n --env AGENTDESKTOP_SOCKET=/tmp/adt-acp/side.sock` 启动；每条查询 10 秒超时，无一超时。结束时 SIGTERM，进程退出，目录已删除（`side/cleanup.txt`）。
+
+| 观察 | 结果 | 证据（evidence/l2-side-r7-2026-10-08/） |
+| --- | --- | --- |
+| 单一端点（ACP-T18-01 回归） | 会话前后 `lsof -U` 都只有 `side.runtime.sock`；`lsof -i` 为空 | `side/lsof-*.txt` |
+| 旧入口（ACP-T18-03 回归） | `side.sock`、`side.ai.sock`、`control.sock` 均 ENOENT；runtime capabilities 64 个方法，没有 `unit.run` | `side/connect-probe.txt`、`side/caps.json` |
+| 跑完后 | `desktop list`、`run list` 为空；Runtime 状态 desktops/sessions/runs 都是 0；`<side>/acp` 下只有 `sessions/` | `side/*-after.*`、`side/acp-state-files.txt` |
+
+**MCP（#29）只读探针，ACP-T18-04a**：`scripts/acp/mcp-readonly-probe.py`，12 项检查全部 PASS，退出码 0（`mcp/`）。
+
+- 只调只读工具：tools/list（20 个工具）、runtime_status、desktop_list、run_show 与 request_show（都用不存在的 id）。
+- 由同一个 Runtime 回答：MCP 的 runtime_status 与 CLI 直连该端点得到同一 instanceId；MCP 进程只有一个 unix socket、没有网络 socket，其对端地址就是宿主在 `side.runtime.sock` 上接受的那条连接（`mcpLsofUnix` 与 `runtimeLsofUnix`）；连接期间 Runtime 的 connections 从 1 变为 2。
+- request_show 的 not_found 文字带账本保留期（7 天），说明它查的是 Runtime 账本。
+- 把端点换成无人监听的路径后，每个工具都报 `runtime_offline`，没有别的入口。
+- 代码检查（`mcp/code-check.txt`）：AgentDesktopMCP 只依赖 Client 与 Protocol，20 个工具各对应一个 runtime/1 方法，没有自建 socket 或引擎引用。
+- **没有执行**用例原文的「act 写入账本有该 requestId」：act 会产生 GUI 输入，不在本轮范围。协调者据「未运行不得标通过」把原 ACP-T18-04 拆为 ACP-T18-04a（只读部分，PASSED）与 ACP-T18-04b（act 进账本，NOT_RUN）。
+
+**事件目录一致性（#102 / #114）**：新增 `Conformance/QTestEventCatalogConformanceTests.swift`（9 个测试）。
+
+- 目录直接读自内嵌的 runtime/1 契约 `PlatformRunEvent`，共 11 种类型；ACPEventType 与目录完全相等（#114 已去掉暂定类型）。
+- 每种类型各造一个**先通过契约校验**的样本：每个都有具体投影（不落到「未识别」）。
+- `FailureReason.message` 与回执 reason 里的人名、手机号不出现在投影里。
+- action.unknown 显示「待核实」，不是 completed 也不是 failed；failed、refused 不是 completed；送达加完成只算「已执行」，不算已验证。
+- action.refused 显示目录里的原因码（stale_observation）。
+- run.ended 的四种 outcome 都能投影，owner_lost 显示「编辑器连接已断开」。
+- 目录外的类型只显示一行中性文字，不带内容。
+
+在 #114 合入前，本文件对 action.refused 的两处不一致记为已知问题；合入 main 后全部通过，已去掉已知问题标记。
+
+**能力与隐私默认**：新增 `Conformance/QTestCapabilityConformanceTests.swift`（整套 ACP 栈、真实管道、脚本化 Runtime，L1）。
+
+- ACP-T05-05：initialize 回复逐项等于实现，宣告的方法可用，未宣告的回 -32601。
+- ACP-T05-04：编辑器不声明 elicitation 时，问题不发出、不被代答，Run 不前进。
+- ACP-P4-02（G5-05）：新会话的截图、页面文字默认关，mode 为 ask，截图档位只有 off/submit/all，与 01、08、README 的说明一致。
+
+**用例状态变化**（40 → 55 PASSED，116 → 103 NOT_RUN；总数 168 → 170，因拆分 ACP-T18-04 与 ACP-T28-02）：
+
+| 用例 | 结果 | 层 |
+| --- | --- | --- |
+| ACP-T01-04、T01-05、T02-06、T02-07、T04-04、T04-05 | NOT_RUN → **PASSED** | L1 与 L2 只读各一次 |
+| ACP-T03-04 | NOT_RUN → **PASSED** | L1（不连 Runtime） |
+| ACP-T05-03 | NOT_RUN → **PASSED** | transcript 扫描（L1 + L2） |
+| ACP-T05-04、T05-05、ACP-T11-01、ACP-P4-02 | NOT_RUN → **PASSED** | L1 一致性（脚本化 Runtime） |
+| ACP-T09-03 | NOT_RUN → **PASSED** | 代码审查 + L2 状态目录观察 |
+| ACP-T18-04a | 新拆出：**PASSED**（只读部分） | L2 只读 |
+| ACP-T18-04b | 新拆出：NOT_RUN（act 进账本未执行） | — |
+| ACP-T28-02a | 新拆出：**PASSED**（RT-23A/B 自动化套件 RuntimeAXIsolationTests） | L1 自动化 |
+| ACP-T28-02b | 新拆出：NOT_RUN（真机：Safari 大型网页、多个 Desktop 连续 AX 超时；需建 Desktop，独立审核 B-1） | — |
+| ACP-T18-01、T18-03、T28-01 | 仍 PASSED，补第七轮回归证据 | L2 / L1 |
+| ACP-T04-03 | 仍 NOT_RUN：02 只选定 v1 | — |
+| ACP-T18-02 | 仍 NOT_RUN：编译旧引擎 CLI 并发点击属于 GUI 动作 | — |
+| ACP-T28-03 | 仍 NOT_RUN：CLI PR2 真机步骤要建 Desktop、启动计算器 | — |
+
+**门禁（只是 ACP 用例的证据；06 由 D 与协调者判定）**：
+
+- G1-01、G1-02、G1-05：对应用例全部 PASSED（L1/L2）。
+- G1-04：只差 ACP-T04-03（版本 v2，取决于 02 的决策）。
+- G0-09：ACP-T09-03、ACP-T18-05 都 PASSED。
+- G5-05：ACP-P4-02 PASSED。
+- G0-02：ACP-T18-03、ACP-T18-04a 已 PASSED，仍缺 ACP-T18-02 与 ACP-T18-04b。
+- G3-08：仍缺 ACP-T28-02b（真机）与 ACP-T28-03。
+- 其余门禁不变，仍然没有任何端到端结论。
+
 ## 五、冻结接口一致性测试
 
-`Tests/AgentDesktopACPTests/Conformance/QTestFrozenModelConformanceTests.swift`：9 个 suite、22 个测试，只依赖 `Model/ACPModel.swift` 与 `Ports.swift`，在 `acp-skeleton` 上单独可编译。另有 `QTestStackRulingTests.swift`（2 个 suite、3 个测试）：用整套 ACP 代码、只把 Runtime 换成脚本化端口，验证裁决 P1、P2（见 4.6 节）。它依赖各线的实现，不属于冻结接口一致性。
+`Tests/AgentDesktopACPTests/Conformance/QTestFrozenModelConformanceTests.swift`：9 个 suite、22 个测试，只依赖 `Model/ACPModel.swift` 与 `Ports.swift`，在 `acp-skeleton` 上单独可编译。另有 `QTestStackRulingTests.swift`（2 个 suite、3 个测试）、第七轮的 `QTestEventCatalogConformanceTests.swift`（9 个测试，#102 目录对投影器）与 `QTestCapabilityConformanceTests.swift`（3 个测试，整套栈上的能力宣告、elicitation 缺失、隐私默认值，见 4.8 节）：用整套 ACP 代码、只把 Runtime 换成脚本化端口，验证裁决 P1、P2（见 4.6 节）。它依赖各线的实现，不属于冻结接口一致性。
 
 | suite | 钉住的不变量 |
 | --- | --- |
@@ -346,7 +441,7 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 | 06 行 | 用例 |
 | --- | --- |
 | G0-01 单一监听 | ACP-T18-01、ACP-T18-03（A2 后 L2 已 PASSED，见 4.7） |
-| G0-02 MCP / 旧入口不绕过 | ACP-T18-02、ACP-T18-03、ACP-T18-04 |
+| G0-02 MCP / 旧入口不绕过 | ACP-T18-02、ACP-T18-03、ACP-T18-04a、ACP-T18-04b |
 | G0-09 不建第二套执行与存储 | ACP-T09-03、ACP-T18-05 |
 | G0-12 协议版本互通 | ACP-T04-01、ACP-T04-02、ACP-T04-03（加 4.3 节对官方 SDK 的互通记录） |
 | G1-01 | ACP-T01-01～06、ACP-L2-01～05 |

@@ -1,0 +1,47 @@
+{
+  "acpSessionId" : "acps_436727dc-4b7e-44da-82eb-bc139eb433f8",
+  "clientId" : "acp-dev",
+  "createdAt" : "2026-10-08T12:52:23.225Z",
+  "cwd" : "<repo>\/docs\/acp\/tests\/evidence\/l1-dev-demo-r7-2026-10-08\/T02-oversize-then-continue\/run",
+  "format" : 1,
+  "lastCursor" : {
+
+  },
+  "options" : [
+    {
+      "choices" : [
+        "ask",
+        "auto"
+      ],
+      "id" : "mode",
+      "name" : "执行确认",
+      "value" : "ask"
+    },
+    {
+      "choices" : [
+        "off",
+        "submit",
+        "all"
+      ],
+      "id" : "screenshots",
+      "name" : "截图",
+      "value" : "off"
+    },
+    {
+      "choices" : [
+        "off",
+        "on"
+      ],
+      "id" : "pageText",
+      "name" : "页面文字",
+      "value" : "off"
+    }
+  ],
+  "principalId" : "demo-owner",
+  "revision" : 2,
+  "runIds" : [
+
+  ],
+  "title" : "[已隐藏]",
+  "updatedAt" : "2026-10-08T12:52:23.238Z"
+}

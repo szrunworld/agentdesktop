@@ -1,0 +1,25 @@
+{
+  "id": "T02d-half-frame-eof",
+  "cases": ["ACP-T02-06"],
+  "title": "写入不带换行的半个 session/new 后关闭 stdin：该请求不执行（无回复、会话数不变），进程干净退出",
+  "requires": ["protocol.strict", "session.list"],
+  "steps": [
+    { "op": "connect" },
+    { "op": "initialize", "expect": { "protocolVersionIn": "${SUPPORTED_VERSIONS}" } },
+    { "op": "listSessions", "saveCountAs": "before" },
+    { "op": "disconnect" },
+    { "op": "expectExit", "withinMs": 5000 },
+    { "op": "connect" },
+    { "op": "initialize", "expect": { "protocolVersionIn": "${SUPPORTED_VERSIONS}" } },
+    { "op": "rawPartial", "text": "{\"jsonrpc\":\"2.0\",\"id\":\"raw-half\",\"method\":\"session/new\",\"params\":{\"cwd\":\"${RUN_DIR}\",\"mcpServers\":[]}" },
+    { "op": "wait", "ms": 300 },
+    { "op": "disconnect" },
+    { "op": "expectExit", "withinMs": 5000 },
+    { "op": "assert", "noResponseFor": ["raw-half"] },
+    { "op": "connect" },
+    { "op": "initialize", "expect": { "protocolVersionIn": "${SUPPORTED_VERSIONS}" } },
+    { "op": "listSessions", "expect": { "countEquals": "before" } },
+    { "op": "disconnect" },
+    { "op": "expectExit", "withinMs": 5000 }
+  ]
+}

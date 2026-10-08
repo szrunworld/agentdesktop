@@ -1,0 +1,16 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":2,"dir":"step","step":"initialize","at":{"op":"initialize","protocolVersion":99,"expect":{"protocolVersionIn":"[1]","allowError":true}}}
+{"ms":2,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":99,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":7,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
+{"ms":8,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":8,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":8,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":9,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":9,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":11,"dir":"step","step":"initialize","at":{"op":"initialize","protocolVersion":0,"expect":{"protocolVersionIn":"[1]","allowError":true}}}
+{"ms":11,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":0,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":19,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"error":{"code":-32600,"message":"unsupported ACP protocol version 0; this agent speaks 1","data":{"reason":"protocol_version_unsupported","requested":0,"supported":[1]}}}}
+{"ms":20,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":20,"conn":2,"dir":"disconnect","mode":"close-stdin"}
+{"ms":20,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":21,"conn":2,"dir":"exit","code":0,"signal":null}

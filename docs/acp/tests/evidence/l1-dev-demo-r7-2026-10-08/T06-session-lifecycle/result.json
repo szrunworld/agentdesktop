@@ -1,0 +1,76 @@
+{
+  "id": "T06-session-lifecycle",
+  "cases": [
+    "ACP-T06-01",
+    "ACP-T06-02",
+    "ACP-T06-03",
+    "ACP-T06-04"
+  ],
+  "title": "创建、列表、断开后重连加载（回放历史）、关闭；加载不存在的会话被拒",
+  "status": "PASS",
+  "durationMs": 53,
+  "failures": [],
+  "steps": [
+    {
+      "op": "initialize",
+      "ms": 8,
+      "ok": true
+    },
+    {
+      "op": "session/new",
+      "ms": 6,
+      "ok": true
+    },
+    {
+      "op": "prompt",
+      "text": "/help",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "session/list",
+      "ms": 1,
+      "ok": true
+    },
+    {
+      "op": "initialize",
+      "ms": 6,
+      "ok": true
+    },
+    {
+      "op": "session/load",
+      "ms": 10,
+      "ok": true
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 4,
+      "updatesAfterResponse": 0
+    },
+    {
+      "op": "prompt",
+      "text": "/help",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "session/load",
+      "ms": 0,
+      "ok": false,
+      "code": -32002
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 0,
+      "updatesAfterResponse": 0
+    },
+    {
+      "op": "session/close",
+      "ms": 1,
+      "ok": true
+    },
+    {
+      "op": "session/list",
+      "ms": 2,
+      "ok": true
+    }
+  ]
+}

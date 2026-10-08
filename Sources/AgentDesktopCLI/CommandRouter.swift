@@ -124,10 +124,21 @@ enum CommandRouter {
             }
             return .windowList(pid: pid, bundleId: o["--bundle-id"], includeOffscreen: o["--all"] != nil)
         },
-        Spec(words: ["desktop", "create"], summary: "create a Desktop (its own virtual screen)",
-             options: ["--name": true, "--size": true, "--request-id": true], positionals: []) { o, _ in
+        Spec(words: ["desktop", "create"],
+             summary: "create a Desktop: its own virtual screen, or with --physical one of your displays (nothing created; windows stay put)",
+             options: ["--name": true, "--size": true, "--physical": false, "--display": true, "--request-id": true], positionals: []) { o, _ in
             var p: [(String, JSONValue)] = []
             if let n = o["--name"] { p.append(("name", .string(n))) }
+            if o["--physical"] != nil || o["--display"] != nil {
+                guard o["--size"] == nil else { throw RuntimeError.invalidArgument("--physical takes the display's size; leave out --size") }
+                var physical: [(String, JSONValue)] = []
+                if let s = o["--display"] {
+                    guard let id = Int(s), UInt32(exactly: id) != nil else { throw RuntimeError.invalidArgument("--display needs a display ID, got \(s)") }
+                    physical.append(("displayId", .int(id)))
+                }
+                p.append(("physical", .obj(physical)))
+                return try write(.desktopCreate, .obj(p), o)
+            }
             if let size = o["--size"] {
                 let parts = size.lowercased().split(separator: "x")
                 guard parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]) else {

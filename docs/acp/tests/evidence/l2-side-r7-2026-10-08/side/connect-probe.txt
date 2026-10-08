@@ -1,0 +1,4 @@
+<side>/side.sock connect: FileNotFoundError No such file or directory
+<side>/side.ai.sock connect: FileNotFoundError No such file or directory
+<side>/control.sock connect: FileNotFoundError No such file or directory
+<side>/side.runtime.sock connect: ok

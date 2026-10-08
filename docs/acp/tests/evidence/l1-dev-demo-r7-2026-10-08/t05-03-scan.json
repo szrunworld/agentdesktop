@@ -1,0 +1,12 @@
+{
+ "transcripts": 29,
+ "agentFrames": 144,
+ "agentMethods": {
+  "session/update": 62
+ },
+ "initializeDeclared": {
+  "no-fs": 23,
+  "no-terminal": 23
+ },
+ "violations": []
+}

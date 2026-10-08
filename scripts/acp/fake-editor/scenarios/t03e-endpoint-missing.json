@@ -1,0 +1,26 @@
+{
+  "id": "T03e-endpoint-missing",
+  "cases": [
+    "ACP-T03-04"
+  ],
+  "title": "Runtime 端点路径不存在：dev 入口启动即拒绝，stderr 说明原因，非崩溃退出，stdout 不出现非 ACP 内容",
+  "requires": [
+    "runtime.missing"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000,
+      "code": 2
+    },
+    {
+      "op": "assert",
+      "noFrameContains": [
+        "Fatal error"
+      ]
+    }
+  ]
+}

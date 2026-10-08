@@ -97,6 +97,14 @@ public struct ElementRead: Sendable {
     }
 }
 
+extension DesktopPlatform {
+    /// Platforms without the user's displays (test doubles, other backends)
+    /// refuse physical Desktops.
+    public func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle {
+        throw PlatformError(.refused, "this platform cannot attach the user's displays")
+    }
+}
+
 /// A refusal by the platform, already classified for the Runtime API.
 public struct PlatformError: Error, Equatable, Sendable, CustomStringConvertible {
     public enum Kind: String, Sendable {
@@ -138,6 +146,10 @@ public struct PlatformError: Error, Equatable, Sendable, CustomStringConvertible
 public protocol DesktopPlatform: Sendable {
     func createScreen(name: String, width: Int?, height: Int?) throws -> ScreenHandle
     func destroyScreen(name: String) throws
+    /// One of the user's own displays, by ID (nil: the main display), for a
+    /// physical Desktop. Nothing is created: the handle only names the
+    /// display, and destroyScreen must never be called with it.
+    func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle
     /// Launch an app onto the screen; its process and windows there.
     func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws
         -> (pid: Int32, windows: [PlatformWindow])

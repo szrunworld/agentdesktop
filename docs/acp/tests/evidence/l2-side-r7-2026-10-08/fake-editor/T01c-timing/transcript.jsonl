@@ -1,0 +1,14 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]","maxMs":2000}}}
+{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":8,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
+{"ms":9,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1","timeoutMs":15000,"expect":{"maxMs":15000}}}
+{"ms":9,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"<repo>/docs/acp/tests/evidence/l2-side-r7-2026-10-08/fake-editor/T01c-timing/run","mcpServers":[]}}}
+{"ms":24,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"acps_7683ff0e-85bd-4d21-ab64-38121055aba7","configOptions":[{"id":"mode","name":"执行确认","category":"mode","type":"select","currentValue":"ask","options":[{"value":"ask","name":"ask"},{"value":"auto","name":"auto"}]},{"id":"screenshots","name":"截图","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"submit","name":"submit"},{"value":"all","name":"all"}]},{"id":"pageText","name":"页面文字","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"on","name":"on"}]}]}}}
+{"ms":24,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s2","timeoutMs":15000,"expect":{"maxMs":15000}}}
+{"ms":24,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"<repo>/docs/acp/tests/evidence/l2-side-r7-2026-10-08/fake-editor/T01c-timing/run","mcpServers":[]}}}
+{"ms":25,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"sessionId":"acps_88f96c3c-d06c-4f25-948d-d5b77b33ceac","configOptions":[{"id":"mode","name":"执行确认","category":"mode","type":"select","currentValue":"ask","options":[{"value":"ask","name":"ask"},{"value":"auto","name":"auto"}]},{"id":"screenshots","name":"截图","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"submit","name":"submit"},{"value":"all","name":"all"}]},{"id":"pageText","name":"页面文字","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"on","name":"on"}]}]}}}
+{"ms":25,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":25,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":25,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":27,"conn":1,"dir":"exit","code":0,"signal":null}

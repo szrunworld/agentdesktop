@@ -1,0 +1,41 @@
+{
+  "id": "T02-oversize-then-continue",
+  "cases": [
+    "ACP-T02-04"
+  ],
+  "title": "超限帧被拒后连接保持可用：同一连接继续建会话、prompt（协调者决定：不断开）",
+  "status": "PASS",
+  "durationMs": 703,
+  "failures": [],
+  "steps": [
+    {
+      "op": "initialize",
+      "ms": 9,
+      "ok": true
+    },
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": "raw-big",
+          "error": {
+            "code": -32600,
+            "message": "frame exceeds 16777216 bytes (saw at least 16842752); skipped to the next line"
+          }
+        }
+      }
+    },
+    {
+      "op": "session/new",
+      "ms": 23,
+      "ok": true
+    },
+    {
+      "op": "prompt",
+      "text": "/help",
+      "outcome": "end_turn"
+    }
+  ]
+}

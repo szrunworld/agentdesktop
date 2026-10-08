@@ -1,0 +1,31 @@
+branch acp-q-independent @ a36f086 (origin/main cbe7772 merged)
+swift build: exit 0
+swift test: exit 0 — ✔ Test run with 729 tests passed after 8.980 seconds.
+LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test: exit 0 — ✔ Test run with 729 tests passed after 20.880 seconds.
+
+RT-23A/B automated suite (RuntimeAXIsolationTests):
+swift test --skip-build --filter RuntimeAXIsolationTests: exit 0
+◇ Test run started.
+✔ Test aTruncatedWalkIsPartial() passed after 0.035 seconds.
+✔ Test anAppThatDoesNotAnswerAccessibilityStillHasItsScreenshot() passed after 0.036 seconds.
+✔ Test aStuckReadOnOneDesktopDoesNotDelayAnother() passed after 0.141 seconds.
+✔ Test twentyTimeoutsInARowStayBoundedAndOthersKeepWorking() passed after 0.175 seconds.
+✔ Test waitingForABusyDesktopEndsAtTheDeadlineAndSendsNothing() passed after 0.241 seconds.
+✔ Test aStuckReadReturnsTheScreenshotWithoutElementsInTime() passed after 0.345 seconds.
+✔ Test run with 6 tests passed after 0.346 seconds.
+LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 (same filter): exit 0 — ✔ Test run with 6 tests passed after 0.889 seconds.
+
+Q conformance suites:
+✔ Suite "Q · wire spellings match the ACP schema" passed after 2.182 seconds.
+✔ Suite "Q · request ids" passed after 2.182 seconds.
+✔ Suite "Q · identity (T07, README §4 rule 3)" passed after 2.182 seconds.
+✔ Suite "Q · L1 conformance: #102 event catalogue vs the ACP projector" passed after 2.183 seconds.
+✔ Suite "Q · privacy defaults (T19–T21)" passed after 2.183 seconds.
+✔ Suite "Q · approval invariants (T16, scene D)" passed after 2.183 seconds.
+✔ Suite "Q · connection events (T03, T14)" passed after 2.183 seconds.
+✔ Suite "Q · capability honesty (T05)" passed after 2.183 seconds.
+✔ Suite "Q · submission receipts (T10, T11)" passed after 2.189 seconds.
+✔ Suite "Q · action result levels (§5.2, T11, T25)" passed after 2.192 seconds.
+✔ Suite "Q · L1 stack: Kevin's ruling P1 (window titles and identity)" passed after 2.915 seconds.
+✔ Suite "Q · L1 stack: capability claims (T05)" passed after 3.253 seconds.
+✔ Suite "Q · L1 stack: Kevin's ruling P2 (unknown is terminal)" passed after 4.355 seconds.
