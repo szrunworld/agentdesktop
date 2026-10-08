@@ -24,11 +24,27 @@ let package = Package(
         .library(name: "AgentDesktopAI", targets: ["AgentDesktopAI"]),
         .library(name: "AgentDesktopGUI", targets: ["AgentDesktopGUI"]),
         .library(name: "AgentDesktopService", targets: ["AgentDesktopService"]),
+        .library(name: "AgentDesktopACP", targets: ["AgentDesktopACP"]),
     ],
     dependencies: [
         .package(path: "engine"),
     ],
     targets: [
+        // ACP adapter (docs/acp): editors talk to the one Runtime through
+        // RuntimeClient only. No GUI executor, run store or lease here.
+        .target(
+            name: "AgentDesktopACP",
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+        ),
+        .executableTarget(
+            name: "agentdesktop-acp-dev",
+            dependencies: ["AgentDesktopACP"]
+        ),
+        .testTarget(
+            name: "AgentDesktopACPTests",
+            dependencies: ["AgentDesktopACP", "AgentDesktopClient", "AgentDesktopProtocol", "AgentDesktopContracts"]
+        ),
+
         // Menu bar host; scripts/bundle-app.sh wraps it in "Agent Desktop.app".
         .executableTarget(
             name: "AgentDesktop",
