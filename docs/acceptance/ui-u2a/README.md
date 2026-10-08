@@ -36,9 +36,40 @@ Kevin 2026-10-08 裁决：实时预览不能用 `observe`。`observe` 每次都�
 | `DesktopsU2aTests.uc49_zoomNeverRestartsTheCapture` | 四种缩放都不重启捕获，不调用 Runtime（替换原来基于 observe 的 UC49 测试） |
 | `MainWindowHostTests.closingAPreviewWindowKeepsTheDesktop`、`previewOfADesktopDestroyedWhileDisconnectedCloses` | 宿主里关闭预览窗口后流停止；断线期间被销毁的 Desktop 重连后不再被捕获 |
 
-### 真机验收：未运行（待做）
+### 预览范围（Kevin 2026-10-08）
 
-ScreenCaptureKit 的真机验收**没有运行，不算通过**，由主会话另行在测试副本上做：需要确认屏幕录制权限的提示与状态文字、实际帧率与 CPU / 内存占用、窗口遮挡 / 最小化 / 关闭时流确实停止、Desktop 销毁后流停止，以及运行期间 Runtime 的产物目录不再因为预览而增长。下面第一轮的真机截图是改动前（observe 版）的界面，其中的「画面 ID」和「每 N 秒观察一次」已不再适用。
+窗口级 Desktop 的预览如果显示整个显示器，就必须明确标注，并且不能扩大操作授权（0ff42ff）：
+- 有绑定窗口的 Desktop，实时画面上方显示「整个显示器预览：显示这个 Desktop 所在显示器的全部内容，不只是绑定的窗口（应用名）。预览范围不改变操作范围，输入仍只针对绑定窗口。」；
+- 总览卡片上标注「整个显示器」；
+- 所有画面底栏都以「整个显示器 · 尺寸」开头；
+- Runtime 的授权和输入目标没有任何改动；
+- 测试：`DesktopLiveFrameTests.boundDesktopSaysThePictureIsTheWholeDisplay`；
+- 窗口级采集（ScreenCaptureKit 的窗口过滤）留到后续。
+
+**合并前需要 Kevin 确认**：本版本用「明确标注 + 不扩大授权」的做法，是否可以接受。
+
+### 真机验收（2026-10-08 20:50–20:56，测试副本，0ff42ff）
+
+布置：
+- 一个测试副本 `/tmp/adt-p98`，带 `AGENTDESKTOP_MAIN_WINDOW=1` 和 `AGENTDESKTOP_MAIN_WINDOW_DISPLAY=first-desktop`。这是测试专用开关：主窗口等副本的第一个 Desktop 建好后，才显示到那块显示器上。
+- 只建 **1 块**虚拟显示器（Desktop「预览验收」，1280×800，HiDPI）。主窗口和预览窗口都在这块显示器上，没有窗口出现在用户的主屏上。
+- 按钮用辅助功能 AXPress 按下，不移动鼠标；测试副本从未成为前台应用。
+- 采集的启动和停止，按系统日志里本进程的 `-[SCStream startCaptureWithCompletionHandler:]` / `stopCaptureWithCompletionHandler:` 计数。
+- CPU 和 RSS 用 `ps` 只取本进程。期间其他会话在编译，整机负载偏高。
+
+| 项目 | 结果 |
+| --- | --- |
+| 屏幕录制权限 | 已授权，实时画面正常（[总览](real-sck-overview.jpg)、[独立预览](real-sck-preview.jpg)）；底栏显示「整个显示器 · 1600 × 1000 px · 实时画面 · 不保存」，宽度上限 1600 生效 |
+| 稳定运行 60 秒（总览） | CPU 1.9%–5.9%，RSS 99–143 MB，在一个区间内波动，没有单调增长 |
+| 20 次「Runs → Desktops」（离开时没有使用者，回来时重新开始） | 采集 start 20 次、stop 20 次，一一对应；RSS 在 99–119 MB 之间，没有增长 |
+| 20 次打开 / 隐藏独立预览 | 采集 start / stop 次数不变：同一显示器共用一路，没有新开采集会话。每次只有 1 个预览窗口，隐藏后窗口数回到原值；RSS 在 112–137 MB 之间，没有持续增长 |
+| 关闭全部窗口（预览 + 主窗口） | 采集 stop 1 次，之后没有 start |
+| 截图目录（`a.runtime/artifacts`） | 开始 0 个，结束 0 个：预览期间没有写入任何文件 |
+| 收尾 | 先关闭所有窗口，再用 `desktop destroy` 销毁 Desktop，最后发送退出事件；进程退出，没有残留进程，显示器恢复为 1 块，WindowServer 正常 |
+
+这一轮没有单独测：
+- 最小化和被遮挡时的暂停：只有单元测试 `streamLifecycle` 覆盖；
+- 已绑定窗口的 Desktop 在真机上的标注效果：需要一个中立的探针窗口，这轮没建；文字已由单元测试覆盖。
 
 ## 第一轮（observe 版，已被第二轮取代的部分见上）
 
