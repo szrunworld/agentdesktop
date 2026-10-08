@@ -56,6 +56,32 @@ public struct PlatformElement: Equatable, Sendable {
     }
 }
 
+/// One input action, with its target already resolved by the Runtime:
+/// an element by the backend's index from the snapshot that is still the
+/// latest read of the window, or a global point that lies in the window.
+public struct PlatformAction: Equatable, Sendable {
+    public enum Kind: String, Sendable { case click, type, key, scroll }
+    public var kind: Kind
+    public var elementIndex: Int?
+    /// Global points, top-left origin.
+    public var point: (x: Double, y: Double)?
+    public var text: String?
+    public var key: String?
+    public var modifiers: [String] = []
+    public var button: String?
+    public var count: Int?
+    public var direction: String?
+    public var amount: Int?
+
+    public init(kind: Kind) { self.kind = kind }
+
+    public static func == (a: PlatformAction, b: PlatformAction) -> Bool {
+        a.kind == b.kind && a.elementIndex == b.elementIndex && a.point?.x == b.point?.x && a.point?.y == b.point?.y
+            && a.text == b.text && a.key == b.key && a.modifiers == b.modifiers && a.button == b.button
+            && a.count == b.count && a.direction == b.direction && a.amount == b.amount
+    }
+}
+
 /// A refusal by the platform, already classified for the Runtime API.
 public struct PlatformError: Error, Equatable, Sendable, CustomStringConvertible {
     public enum Kind: String, Sendable {
@@ -69,10 +95,14 @@ public struct PlatformError: Error, Equatable, Sendable, CustomStringConvertible
 
     public var kind: Kind
     public var message: String
+    /// For an action: true when the platform refused before any input was
+    /// sent; false when input may have reached the app.
+    public var beforeDispatch: Bool
 
-    public init(_ kind: Kind, _ message: String) {
+    public init(_ kind: Kind, _ message: String, beforeDispatch: Bool = true) {
         self.kind = kind
         self.message = message
+        self.beforeDispatch = beforeDispatch
     }
 
     public var description: String { message }
@@ -106,4 +136,11 @@ public protocol DesktopPlatform: Sendable {
     /// backend's numbering for that window.
     func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?) throws
         -> (window: PlatformWindow, elements: [PlatformElement])
+    /// Ask an app to quit (normal quit, never forced); false if it is gone
+    /// or declined.
+    func quit(pid: Int32) -> Bool
+    /// Deliver one action to the window; the route the input took.
+    /// Throws a PlatformError whose `beforeDispatch` says whether input
+    /// may have been sent.
+    func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String
 }

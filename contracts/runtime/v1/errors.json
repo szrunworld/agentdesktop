@@ -3,28 +3,164 @@
   "status": "DRAFT_PR1",
   "note": "error.code is the stable machine interface; exitCode is the CLI's coarse class (CLI plan v1.2 §06). Codes marked reserved are named now so every client maps them the same way; no PR1 method returns them.",
   "codes": [
-    {"code": "invalid_argument",           "exitCode": 2, "phase": "local",     "description": "Command line or parameters refused before anything was sent."},
-    {"code": "schema_invalid",             "exitCode": 2, "phase": "request",   "description": "Request is not valid JSON of this API, or fails its schema."},
-    {"code": "frame_too_large",            "exitCode": 2, "phase": "request",   "description": "A message exceeded maxFrameBytes (LF included)."},
-    {"code": "not_found",                  "exitCode": 2, "phase": "handler",   "description": "The ID in the request names nothing this Runtime knows."},
-    {"code": "runtime_offline",            "exitCode": 3, "phase": "connect",   "description": "No Runtime accepted the connection; nothing was sent."},
-    {"code": "permission_denied",          "exitCode": 4, "phase": "connect",   "description": "Endpoint or caller is not the current user's, or an OS permission is missing."},
-    {"code": "approval_required",          "exitCode": 4, "phase": "handler",   "reserved": true, "description": "The operation waits for a person."},
-    {"code": "control_busy",               "exitCode": 5, "phase": "handler",   "reserved": true, "description": "Another controller holds the Desktop."},
-    {"code": "stale_observation",          "exitCode": 5, "phase": "handler",   "reserved": true, "description": "The snapshot no longer matches the target."},
-    {"code": "idempotency_conflict",       "exitCode": 5, "phase": "handler",   "reserved": true, "description": "Same requestId, different content."},
-    {"code": "conflict",                   "exitCode": 5, "phase": "handler",   "reserved": true, "description": "State does not allow the operation (e.g. destroy with active writes)."},
-    {"code": "handshake_required",         "exitCode": 6, "phase": "handshake", "description": "A connection sent a method before runtime.handshake."},
-    {"code": "version_mismatch",           "exitCode": 6, "phase": "handshake", "description": "No API version in common, or the request names another apiVersion."},
-    {"code": "instance_mismatch",          "exitCode": 6, "phase": "handshake", "description": "The endpoint answered, but not as the AgentDesktop Runtime."},
-    {"code": "capability_missing",         "exitCode": 6, "phase": "request",   "description": "Method or option is not implemented by this Runtime/backend."},
-    {"code": "model_unavailable",          "exitCode": 6, "phase": "handler",   "reserved": true, "description": "The operation needs a model that is not configured."},
-    {"code": "execution_failed",           "exitCode": 7, "phase": "handler",   "reserved": true, "description": "A known failure of a unit or task; side effects may exist."},
-    {"code": "internal_error",             "exitCode": 7, "phase": "handler",   "description": "The Runtime failed while handling a read-only request."},
-    {"code": "wait_timeout",               "exitCode": 8, "phase": "local",     "description": "A local wait ended before the wanted state; the server state is unchanged."},
-    {"code": "connection_lost",            "exitCode": 9, "phase": "transport", "description": "Connected and sent, but no complete response arrived."},
-    {"code": "request_acceptance_unknown", "exitCode": 9, "phase": "transport", "reserved": true, "description": "A write may or may not have been accepted."},
-    {"code": "action_delivery_unknown",    "exitCode": 9, "phase": "handler",   "reserved": true, "description": "Input may or may not have been delivered."},
-    {"code": "cancel_acceptance_unknown",  "exitCode": 9, "phase": "transport", "reserved": true, "description": "A cancel may or may not have been accepted."}
+    {
+      "code": "invalid_argument",
+      "exitCode": 2,
+      "phase": "local",
+      "description": "Command line or parameters refused before anything was sent."
+    },
+    {
+      "code": "schema_invalid",
+      "exitCode": 2,
+      "phase": "request",
+      "description": "Request is not valid JSON of this API, or fails its schema."
+    },
+    {
+      "code": "frame_too_large",
+      "exitCode": 2,
+      "phase": "request",
+      "description": "A message exceeded maxFrameBytes (LF included)."
+    },
+    {
+      "code": "not_found",
+      "exitCode": 2,
+      "phase": "handler",
+      "description": "The ID in the request names nothing this Runtime knows."
+    },
+    {
+      "code": "invalid_target",
+      "exitCode": 2,
+      "phase": "handler",
+      "description": "The action's target does not resolve inside the bound window of its snapshot; nothing was sent."
+    },
+    {
+      "code": "runtime_offline",
+      "exitCode": 3,
+      "phase": "connect",
+      "description": "No Runtime accepted the connection; nothing was sent."
+    },
+    {
+      "code": "permission_denied",
+      "exitCode": 4,
+      "phase": "connect",
+      "description": "Endpoint or caller is not the current user's, or an OS permission is missing."
+    },
+    {
+      "code": "approval_required",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The operation waits for a person."
+    },
+    {
+      "code": "control_busy",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "Another controller holds the Desktop."
+    },
+    {
+      "code": "stale_observation",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "The snapshot no longer matches the target."
+    },
+    {
+      "code": "idempotency_conflict",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "Same requestId, different content."
+    },
+    {
+      "code": "conflict",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "State does not allow the operation (e.g. destroy with active writes)."
+    },
+    {
+      "code": "run_not_active",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "The Run was cancelled or ended; it takes no new input."
+    },
+    {
+      "code": "handshake_required",
+      "exitCode": 6,
+      "phase": "handshake",
+      "description": "A connection sent a method before runtime.handshake."
+    },
+    {
+      "code": "version_mismatch",
+      "exitCode": 6,
+      "phase": "handshake",
+      "description": "No API version in common, or the request names another apiVersion."
+    },
+    {
+      "code": "instance_mismatch",
+      "exitCode": 6,
+      "phase": "handshake",
+      "description": "The endpoint answered, but not as the AgentDesktop Runtime."
+    },
+    {
+      "code": "capability_missing",
+      "exitCode": 6,
+      "phase": "request",
+      "description": "Method or option is not implemented by this Runtime/backend."
+    },
+    {
+      "code": "model_unavailable",
+      "exitCode": 6,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The operation needs a model that is not configured."
+    },
+    {
+      "code": "execution_failed",
+      "exitCode": 7,
+      "phase": "handler",
+      "description": "A known failure of a unit or task; side effects may exist."
+    },
+    {
+      "code": "internal_error",
+      "exitCode": 7,
+      "phase": "handler",
+      "description": "The Runtime failed while handling a read-only request."
+    },
+    {
+      "code": "wait_timeout",
+      "exitCode": 8,
+      "phase": "local",
+      "description": "A local wait ended before the wanted state; the server state is unchanged."
+    },
+    {
+      "code": "deadline_exceeded",
+      "exitCode": 8,
+      "phase": "handler",
+      "description": "The request's deadline passed before dispatch; nothing was sent."
+    },
+    {
+      "code": "connection_lost",
+      "exitCode": 9,
+      "phase": "transport",
+      "description": "Connected and sent, but no complete response arrived."
+    },
+    {
+      "code": "request_acceptance_unknown",
+      "exitCode": 9,
+      "phase": "transport",
+      "description": "A write may or may not have been accepted."
+    },
+    {
+      "code": "action_delivery_unknown",
+      "exitCode": 9,
+      "phase": "handler",
+      "description": "Input may or may not have been delivered."
+    },
+    {
+      "code": "cancel_acceptance_unknown",
+      "exitCode": 9,
+      "phase": "transport",
+      "reserved": true,
+      "description": "A cancel may or may not have been accepted."
+    }
   ]
 }

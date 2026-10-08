@@ -8,10 +8,24 @@ extension CLI {
     /// its requestId before it is sent; its outcome comes back from the
     /// Runtime's ledger, so repeating the same command line with the same
     /// --request-id never runs it twice.
-    func perform(_ call: RuntimeCall, _ out: ResultWriter, endpoint: Endpoint) -> Int32 {
-        withClient(out, endpoint: endpoint) { client in
+    func perform(_ call: RuntimeCall, _ out: ResultWriter, endpoint: Endpoint, attach: ExecContext? = nil) -> Int32 {
+        var params = call.params
+        if let file = call.textFile {
+            // Read here so the text never sits in argv or the logs.
+            guard let data = try? readFile(file), let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+                let e = RuntimeError.invalidArgument("cannot read UTF-8 text from \(file)")
+                out.failure(requestId: nil, e)
+                return ExitStatus.of(e)
+            }
+            if let action = params["action"] { params = params.setting("action", action.setting("text", .string(text))) }
+        }
+        return withClient(out, endpoint: endpoint) { client in
             _ = try client.handshake()
-            var request = RuntimeRequest(call.method, requestId: call.requestId ?? RuntimeRequest.newId(), params: call.params)
+            if let attach, call.context.runId != nil {
+                _ = try client.call(RuntimeRequest(.runAttach, params: .obj([("runId", .string(attach.runId)),
+                                                                             ("token", .string(attach.token))])))
+            }
+            var request = RuntimeRequest(call.method, requestId: call.requestId ?? RuntimeRequest.newId(), params: params)
             request.context = call.context
             if call.mutation {
                 recordRequest(request.requestId, request.method, endpoint.path)
@@ -49,6 +63,15 @@ extension CLI {
             out.success(requestId: request.requestId, data: shown) { Self.callText(call.method, shown) }
             return ExitStatus.ok
         }
+    }
+
+    static func runText(_ d: JSONValue) -> String {
+        func s(_ v: JSONValue?) -> String { v?.stringValue ?? "-" }
+        var line = "\(s(d["runId"]))  \(s(d["kind"]))  \(s(d["state"]))\(d["quiescent"]?.boolValue == true ? " (quiescent)" : "")"
+            + "  desktop \(s(d["desktopId"]))  session \(s(d["sessionId"]))"
+        if let r = d["endReason"]?.stringValue { line += "  reason \(r)" }
+        line += "\nreceipts \((d["receipts"]?.arrayValue ?? []).compactMap(\.stringValue).joined(separator: ", "))"
+        return line
     }
 
     static func appendRequestLog(_ requestId: String, _ method: String, _ endpoint: String) {
@@ -107,6 +130,18 @@ extension CLI {
             }
             if !rows.isEmpty { lines.append(TextTable.render(["ELEMENT", "ROLE", "LABEL", "VALUE", "FRAME"], rows)) }
             return lines.joined(separator: "\n")
+        case .act:
+            var line = "\(s(d["delivery"]))/\(s(d["execution"]))  route \(s(d["route"]))  receipt \(s(d["receiptId"]))  run \(s(d["runId"]))"
+            if let p = d["target"]?["point"], !p.isNull {
+                line += "  at \(p["x"]?.doubleValue.map { String(Int($0)) } ?? "?"),\(p["y"]?.doubleValue.map { String(Int($0)) } ?? "?")"
+            }
+            return line
+        case .wait:
+            return "satisfied  snapshot \(s(d["snapshotId"]))" + ((d["matches"]?.arrayValue ?? []).isEmpty ? "" : "\n" +
+                TextTable.render(["ELEMENT", "ROLE", "LABEL", "FRAME"], (d["matches"]?.arrayValue ?? []).map {
+                    [s($0["id"]), s($0["role"]), $0["label"]?.stringValue ?? "", frame($0["frame"])] }))
+        case .runShow:
+            return runText(d)
         case .requestShow:
             var line = "\(s(d["requestId"]))  \(s(d["method"]))  \(s(d["state"]))  accepted \(s(d["acceptedAt"]))"
             if let f = d["finishedAt"]?.stringValue { line += "  finished \(f)" }

@@ -174,6 +174,7 @@ public final class RuntimeServer: @unchecked Sendable {
         lock.withLock { open += 1 }
         defer { lock.withLock { open -= 1 } }
         let connection = ConnectionState(peerUID: uid)
+        defer { service.connectionClosed(connection) }
         while true {
             switch channel.readLine() {
             case let .line(body):

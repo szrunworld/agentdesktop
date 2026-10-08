@@ -37,6 +37,15 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case sessionClose = "session.close"
     case observe
     case requestShow = "request.show"
+    case act
+    case wait
+    case runStart = "run.start"
+    case runAttach = "run.attach"
+    case runFinish = "run.finish"
+    case runShow = "run.show"
+    case runEvents = "run.events"
+    case runWait = "run.wait"
+    case runCancel = "run.cancel"
 }
 
 /// The machine-readable contract: schema, method catalog and error table.

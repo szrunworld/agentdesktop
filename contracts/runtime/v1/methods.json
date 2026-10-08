@@ -17,6 +17,11 @@
     "artifacts": {
       "location": "<endpoint dir>/runtime/artifacts",
       "retentionHours": 24
+    },
+    "control": {
+      "lease": "one per Desktop, held by one running Run",
+      "act": "a one-action Run unless context.runId names an exec Run this connection owns or attached to",
+      "ownerLoss": "closing the connection that started a Run stops its input"
     }
   },
   "schema": "runtime.schema.json",
@@ -139,6 +144,70 @@
       "mutation": false,
       "params": "request_show_params",
       "result": "RequestRecord"
+    },
+    {
+      "method": "act",
+      "stage": "P0",
+      "mutation": true,
+      "params": "act_params",
+      "result": "ActionReceipt"
+    },
+    {
+      "method": "wait",
+      "stage": "P0",
+      "mutation": false,
+      "params": "wait_params",
+      "result": "WaitResult"
+    },
+    {
+      "method": "run.start",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "RunStart",
+      "note": "not ledgered: the attach token it returns is a credential and must not be stored; a retry starts another Run, which ends with its connection"
+    },
+    {
+      "method": "run.attach",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_attach_params",
+      "result": "Run"
+    },
+    {
+      "method": "run.finish",
+      "stage": "P0",
+      "mutation": true,
+      "params": "run_finish_params",
+      "result": "Run"
+    },
+    {
+      "method": "run.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_ref_params",
+      "result": "Run"
+    },
+    {
+      "method": "run.events",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_events_params",
+      "result": "RunEvents"
+    },
+    {
+      "method": "run.wait",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_wait_params",
+      "result": "Run"
+    },
+    {
+      "method": "run.cancel",
+      "stage": "P0",
+      "mutation": true,
+      "params": "run_ref_params",
+      "result": "CancelReceipt"
     }
   ]
 }

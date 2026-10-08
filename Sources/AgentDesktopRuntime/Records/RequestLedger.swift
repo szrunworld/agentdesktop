@@ -52,7 +52,20 @@ public final class RequestLedger: @unchecked Sendable {
               digest TEXT NOT NULL, state TEXT NOT NULL, accepted_at TEXT NOT NULL,
               finished_at TEXT, outcome TEXT, PRIMARY KEY (caller, request_id))
             """)
-        // Whatever was in flight when the previous host stopped: unknown.
+        // Added with act; older ledgers gain the column.
+        if (try? db.query("SELECT dispatch_started_at FROM requests LIMIT 0")) == nil {
+            try db.execute("ALTER TABLE requests ADD COLUMN dispatch_started_at TEXT")
+        }
+        // In flight when the previous host stopped. An act that never
+        // reached its delivery boundary certainly sent no input; anything
+        // else may have taken effect and is unknown.
+        let notDispatched = JSONValue.obj([("error", RuntimeError(
+            "execution_failed", "the Runtime stopped before this action was dispatched; no input was sent",
+            phase: .handler, notSent: true, details: .obj([("delivery", .string("not_dispatched"))])).json)])
+        try db.execute("""
+            UPDATE requests SET state = 'failed', outcome = ?, finished_at = ?
+            WHERE state = 'accepted' AND method = 'act' AND dispatch_started_at IS NULL
+            """, [.text(notDispatched.encoded()), .text(Timestamp.string(now()))])
         try db.execute("UPDATE requests SET state = 'unknown' WHERE state = 'accepted'")
         let cutoff = Timestamp.string(now().addingTimeInterval(-Double(Self.retentionDays) * 86400))
         try db.execute("DELETE FROM requests WHERE accepted_at < ? AND state != 'accepted'", [.text(cutoff)])
@@ -86,6 +99,13 @@ public final class RequestLedger: @unchecked Sendable {
                   .text(Timestamp.string(now()))])
         running.insert(key)
         return .fresh
+    }
+
+    /// The delivery boundary of an act: from here on, input may reach the
+    /// app, so an interruption leaves the outcome unknown.
+    public func markDispatching(caller: uid_t, requestId: String) {
+        try? db.execute("UPDATE requests SET dispatch_started_at = ? WHERE caller = ? AND request_id = ?",
+                        [.text(Timestamp.string(now())), .int(Int64(caller)), .text(requestId)])
     }
 
     /// Store the outcome of a fresh request.

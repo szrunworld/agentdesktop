@@ -1,4 +1,5 @@
 import AgentDesktopProtocol
+import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -125,5 +126,46 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
                             actions: $0.actions ?? [], frame: $0.frame.map(Self.rect))
         }
         return (Self.window(w), elements)
+    }
+
+    /// Engine refusals that happen before any event is posted: target
+    /// lookups and argument checks in InputEngine.perform.
+    static let preDispatchFailures = [
+        "has no window", "has no on-screen window", "is not on screen", "is outside the window",
+        "no element", "give --index", "needs --value", "needs the field named", "permission",
+        "has no frame to click", "does not take its text", "unknown key", "no screen named",
+    ]
+
+    public func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
+        var input = InputAction(InputAction.Kind(rawValue: action.kind.rawValue)!)
+        input.index = action.elementIndex
+        input.x = action.point?.x
+        input.y = action.point?.y
+        input.value = action.text
+        input.key = action.key
+        input.modifiers = action.modifiers.isEmpty ? nil : action.modifiers
+        input.button = action.button
+        input.count = action.count
+        input.direction = action.direction
+        input.amount = action.amount
+        var r = ControlRequest(command: .input)
+        r.screen = screen.name
+        r.pid = pid
+        r.windowID = windowId
+        r.input = input
+        let response = handle(r)
+        guard response.ok else {
+            let message = response.error ?? "the engine refused the action"
+            let before = Self.preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
+            var e = Self.classify(message)
+            e.beforeDispatch = before
+            throw e
+        }
+        return response.route ?? "unknown"
+    }
+
+    public func quit(pid: Int32) -> Bool {
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+        return app.terminate()
     }
 }
