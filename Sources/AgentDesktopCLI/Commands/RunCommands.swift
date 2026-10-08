@@ -38,7 +38,7 @@ extension CLI {
 
     /// Observe a Run until it ends; never cancels it. Timeout → 8 with the
     /// last state seen, and the Run goes on.
-    func runWait(runId: String, timeout: Double, untilQuiescent: Bool, _ out: ResultWriter, endpoint: Endpoint) -> Int32 {
+    func runWait(runId: String, timeout: Double, _ out: ResultWriter, endpoint: Endpoint) -> Int32 {
         withClient(out, endpoint: endpoint) { client in
             _ = try client.handshake()
             let deadline = now().addingTimeInterval(timeout)
@@ -47,8 +47,7 @@ extension CLI {
                 let slice = min(left, 5)
                 do {
                     let r = try client.call(RuntimeRequest(.runWait, params: .obj([
-                        ("runId", .string(runId)), ("timeoutMs", .int(Int(slice * 1000))),
-                        ("until", .string(untilQuiescent ? "quiescent" : "terminal"))])))
+                        ("runId", .string(runId)), ("timeoutMs", .int(Int(slice * 1000)))])))
                     out.success(requestId: nil, data: r) { Self.runText(r) }
                     return ExitStatus.ok
                 } catch let e as RuntimeError where e.code == "wait_timeout" {
@@ -90,8 +89,9 @@ extension CLI {
                     let left = max(0, deadline.timeIntervalSince(now()))
                     do {
                         let r = try client.call(RuntimeRequest(.runWait, params: .obj([
-                            ("runId", .string(runId)), ("timeoutMs", .int(Int(min(left, 5) * 1000))), ("until", .string("quiescent"))])))
-                        receipt = receipt.setting("execution", .obj([("state", r["state"] ?? .null), ("quiescent", r["quiescent"] ?? .null)]))
+                            ("runId", .string(runId)), ("timeoutMs", .int(Int(min(left, 5) * 1000)))])))
+                        receipt = receipt.setting("execution", .obj([("phase", r["phase"] ?? .null), ("quiescence", r["quiescence"] ?? .null),
+                                                                     ("outcome", r["outcome"] ?? .null), ("revision", r["revision"] ?? .null)]))
                         break
                     } catch let e as RuntimeError where e.code == "wait_timeout" {
                         if now() >= deadline || interrupted() {
@@ -106,8 +106,9 @@ extension CLI {
             let shown = receipt
             out.success(requestId: request.requestId, data: shown) {
                 let ex = shown["execution"]
-                return "cancel accepted for \(runId)\(shown["alreadyTerminal"]?.boolValue == true ? " (already ended)" : "")"
-                    + "  state \(ex?["state"]?.stringValue ?? "?")  quiescent \(ex?["quiescent"]?.boolValue == true ? "yes" : "no")"
+                return "stop accepted for \(runId)\(shown["alreadyTerminal"]?.boolValue == true ? " (already ended)" : "")"
+                    + "  phase \(ex?["phase"]?.stringValue ?? "?")  quiescence \(ex?["quiescence"]?.stringValue ?? "?")"
+                    + (ex?["outcome"]?.stringValue.map { "  outcome \($0)" } ?? "")
             }
             return ExitStatus.ok
         }

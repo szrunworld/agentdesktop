@@ -67,9 +67,12 @@ extension CLI {
 
     static func runText(_ d: JSONValue) -> String {
         func s(_ v: JSONValue?) -> String { v?.stringValue ?? "-" }
-        var line = "\(s(d["runId"]))  \(s(d["kind"]))  \(s(d["state"]))\(d["quiescent"]?.boolValue == true ? " (quiescent)" : "")"
+        var line = "\(s(d["runId"]))  \(s(d["kind"]))  \(s(d["phase"]))"
+            + (d["outcome"]?.stringValue.map { "/\($0)" } ?? "") + "  quiescence \(s(d["quiescence"]))"
+            + "  \(s(d["ownership"]))/\(s(d["lifetime"]))  origin \(s(d["origin"]))"
             + "  desktop \(s(d["desktopId"]))  session \(s(d["sessionId"]))"
-        if let r = d["endReason"]?.stringValue { line += "  reason \(r)" }
+        if let r = d["closingReason"]?.stringValue { line += "  reason \(r)" }
+        if let u = d["unknownActions"]?.intValue, u > 0 { line += "  unknown actions \(u)" }
         line += "\nreceipts \((d["receipts"]?.arrayValue ?? []).compactMap(\.stringValue).joined(separator: ", "))"
         return line
     }
@@ -142,6 +145,19 @@ extension CLI {
                     [s($0["id"]), s($0["role"]), $0["label"]?.stringValue ?? "", frame($0["frame"])] }))
         case .runShow:
             return runText(d)
+        case .runList:
+            let rows = (d["runs"]?.arrayValue ?? []).map { r -> [String] in
+                [s(r["runId"]), s(r["origin"]), s(r["lifetime"]), s(r["phase"]) + (r["outcome"]?.stringValue.map { "/\($0)" } ?? ""),
+                 s(r["quiescence"]), s(r["desktopId"]), s(r["createdAt"])]
+            }
+            let table = rows.isEmpty ? "no runs" : TextTable.render(["RUN", "ORIGIN", "LIFETIME", "PHASE", "QUIESCENCE", "DESKTOP", "CREATED"], rows)
+            return table + (d["next"]?.stringValue.map { "\nmore: --cursor '\($0)'" } ?? "")
+        case .stopAll:
+            let pending = (d["pending"]?.arrayValue ?? []).compactMap(\.stringValue)
+            return "input \(s(d["admission"]))  stopped \(d["runs"]?.arrayValue?.count ?? 0) run(s)"
+                + (pending.isEmpty ? "" : "  still stopping: \(pending.joined(separator: ", "))")
+        case .enableInput:
+            return "input \(s(d["admission"])); stopped Runs are not resumed"
         case .requestShow:
             var line = "\(s(d["requestId"]))  \(s(d["method"]))  \(s(d["state"]))  accepted \(s(d["acceptedAt"]))"
             if let f = d["finishedAt"]?.stringValue { line += "  finished \(f)" }

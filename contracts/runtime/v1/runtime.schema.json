@@ -384,6 +384,13 @@
         "runs": {
           "type": "integer",
           "minimum": 0
+        },
+        "inputAdmission": {
+          "enum": [
+            "enabled",
+            "stopping",
+            "stopped"
+          ]
         }
       }
     },
@@ -1558,12 +1565,6 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 600000
-        },
-        "until": {
-          "enum": [
-            "terminal",
-            "quiescent"
-          ]
         }
       }
     },
@@ -1741,12 +1742,21 @@
       "required": [
         "runId",
         "kind",
+        "origin",
+        "ownership",
+        "lifetime",
+        "clientId",
+        "connectionId",
         "sessionId",
         "desktopId",
-        "state",
-        "quiescent",
+        "phase",
+        "outcome",
+        "quiescence",
+        "closingReason",
+        "revision",
         "createdAt",
-        "receipts"
+        "receipts",
+        "unknownActions"
       ],
       "properties": {
         "runId": {
@@ -1755,7 +1765,40 @@
         "kind": {
           "enum": [
             "act",
-            "exec"
+            "exec",
+            "unit"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "agent_hub",
+            "gui_explorer",
+            "workflow_replay",
+            "user"
+          ]
+        },
+        "ownership": {
+          "enum": [
+            "external_client",
+            "platform"
+          ]
+        },
+        "lifetime": {
+          "enum": [
+            "connection_scoped",
+            "platform_durable"
+          ]
+        },
+        "clientId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "connectionId": {
+          "type": [
+            "string",
+            "null"
           ]
         },
         "sessionId": {
@@ -1764,18 +1807,41 @@
         "desktopId": {
           "$ref": "#/$defs/Id"
         },
-        "state": {
+        "phase": {
           "enum": [
+            "queued",
             "running",
-            "cancelling",
-            "completed",
-            "cancelled",
-            "failed",
-            "interrupted"
+            "waiting_approval",
+            "waiting_input",
+            "stopping",
+            "ended"
           ]
         },
-        "quiescent": {
-          "type": "boolean"
+        "outcome": {
+          "enum": [
+            "success",
+            "failed",
+            "cancelled",
+            "unknown",
+            null
+          ]
+        },
+        "quiescence": {
+          "enum": [
+            "not_confirmed",
+            "pending",
+            "confirmed"
+          ]
+        },
+        "closingReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
         },
         "createdAt": {
           "$ref": "#/$defs/Timestamp"
@@ -1783,16 +1849,67 @@
         "endedAt": {
           "$ref": "#/$defs/Timestamp"
         },
-        "endReason": {
-          "type": "string"
-        },
         "receipts": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Id"
           }
+        },
+        "unknownActions": {
+          "type": "integer",
+          "minimum": 0
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "ended"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "quiescence": {
+                "const": "confirmed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ownership": {
+                "const": "external_client"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "lifetime": {
+                "const": "connection_scoped"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ownership": {
+                "const": "platform"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "lifetime": {
+                "const": "platform_durable"
+              }
+            }
+          }
+        }
+      ]
     },
     "RunStart": {
       "type": "object",
@@ -1906,20 +2023,206 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "state",
-            "quiescent"
+            "phase",
+            "quiescence",
+            "outcome",
+            "revision"
           ],
           "properties": {
-            "state": {
+            "phase": {
               "type": "string"
             },
-            "quiescent": {
-              "type": "boolean"
+            "quiescence": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "type": "integer"
             }
           }
         },
         "alreadyTerminal": {
           "type": "boolean"
+        }
+      }
+    },
+    "run_start_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lifetime": {
+          "enum": [
+            "connection_scoped",
+            "platform_durable"
+          ],
+          "description": "accepted only to refuse escalation explicitly"
+        },
+        "ownership": {
+          "enum": [
+            "external_client",
+            "platform"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "agent_hub",
+            "gui_explorer",
+            "workflow_replay",
+            "user"
+          ]
+        }
+      }
+    },
+    "run_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "enum": [
+            "agent_hub",
+            "gui_explorer",
+            "workflow_replay",
+            "user"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "queued",
+            "running",
+            "waiting_approval",
+            "waiting_input",
+            "stopping",
+            "ended"
+          ]
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      }
+    },
+    "RunList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runs",
+        "next"
+      ],
+      "properties": {
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Run"
+          }
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "stop_all_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope"
+      ],
+      "properties": {
+        "scope": {
+          "const": "all_platform_runs"
+        }
+      }
+    },
+    "StopAllResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admission",
+        "runs",
+        "pending"
+      ],
+      "properties": {
+        "admission": {
+          "enum": [
+            "enabled",
+            "stopping",
+            "stopped"
+          ]
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "runId",
+              "accepted",
+              "phase",
+              "quiescence",
+              "outcome"
+            ],
+            "properties": {
+              "runId": {
+                "$ref": "#/$defs/Id"
+              },
+              "accepted": {
+                "const": true
+              },
+              "phase": {
+                "type": "string"
+              },
+              "quiescence": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        }
+      }
+    },
+    "EnableInputResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admission"
+      ],
+      "properties": {
+        "admission": {
+          "const": "enabled"
         }
       }
     }

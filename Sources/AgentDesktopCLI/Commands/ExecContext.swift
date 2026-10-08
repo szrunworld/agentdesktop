@@ -22,7 +22,7 @@ struct ExecContext: Equatable {
 
     /// Write the file owner-only; its path.
     func write(directory: String) throws -> String {
-        let path = directory + "/agentdesktop-context-\(runId).json"
+        let path = directory + "/agentdesktop-context-\(runId)-\(UUID().uuidString.prefix(8)).json"
         let fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw RuntimeError("internal_error", "cannot create \(path): \(String(cString: strerror(errno)))", phase: .local) }
         defer { close(fd) }
