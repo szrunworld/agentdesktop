@@ -40,7 +40,7 @@ import Testing
         try? await Task.sleep(for: .milliseconds(100))
         #expect(count(h2, sid) == 1)
         // The conversation itself is still replayed.
-        #expect(h2.connection.updatesFor(sid).contains(.userMessage("go")))
+        #expect(h2.connection.updatesFor(sid).contains(.userMessage(ACPAgentServer.userInputPlaceholder)))
     }
 
     /// A history written before this fix may hold the notice; a load

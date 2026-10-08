@@ -31,7 +31,11 @@ extension ACPAgentServer {
         if ignored > 0 { await say(sid, "已忽略 \(ignored) 个附件：目前只接受文字。") }
 
         if live[sid]?.binding.title == Self.defaultTitle, !text.isEmpty {
-            let title = String(redact(sid, text).prefix(80))
+            // The persisted title never carries user text: a command keeps its
+            // name, free text becomes a fixed label (#141 review, F-1).
+            let first = text.split(whereSeparator: { $0 == " " || $0 == "\n" }).first.map(String.init) ?? ""
+            let title = first.hasPrefix("/") && first.count <= 40 && first.dropFirst().allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
+                ? first : "对话"
             try? persist(sid) { $0.title = title }
         }
 
@@ -177,7 +181,10 @@ extension ACPAgentServer {
         case let .refused(code, message):
             live[sid]?.lastSubmission = nil
             try? persist(sid) { b in if b.pendingSubmissionKey == key { b.pendingSubmissionKey = nil } }
-            await say(sid, "Runtime 拒绝了这个任务（\(redact(sid, code))）：\(redact(sid, message))")
+            // Only the allowlisted code is shown or stored; the refusal message
+            // is free text and may echo secrets (#141 review, F-1).
+            _ = message
+            await say(sid, "Runtime 拒绝了这个任务（错误码：\(ACPRedactor.errorCode(code))）。")
             return .refusal
         case .unconfirmed:
             // Never resent from here. Repeating the same prompt carries the

@@ -9,9 +9,10 @@ import Testing
 @Suite(.enabled(if: RTestSmoke.endpoint != nil)) struct RuntimeBridgeSmokeTests {
     @Test func callerTasksSnapshotReadOnly() async throws {
         let path = try #require(RTestSmoke.endpoint)
-        #expect(!path.contains("/Library/Application Support/AgentDesktop/"))
+        // Kernel-pinned to RTEST_SMOKE_RUNTIME_PID; no pid → every connection refused.
         let port = ACPBridgeRuntimePort(
-            makeClient: ACPBridgeConfiguration.socketFactory(endpoint: Endpoint(path: path, source: .environment)),
+            makeClient: try ACPTestPinnedTransport.verifiedFactory(path: path, pidEnv: "RTEST_SMOKE_RUNTIME_PID",
+                                                                   name: "agentdesktop-acp-smoke"),
             log: try ACPSubmissionLog(path: RTest.tempLogPath()))
         let caller = try await port.caller()
         let tasks = try await port.tasks()

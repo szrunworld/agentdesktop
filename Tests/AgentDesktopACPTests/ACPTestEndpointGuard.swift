@@ -26,7 +26,9 @@ enum ACPTestEndpointGuard {
         // directory check because /tmp and $HOME share a volume).
         var st = stat()
         if lstat(raw, &st) == 0 {
-            if (st.st_mode & S_IFMT) == S_IFLNK { throw NotATestCopy(path: raw) }
+            // A real socket owned by this user, nothing else (b9 on #141).
+            if (st.st_mode & S_IFMT) != S_IFSOCK { throw NotATestCopy(path: raw) }
+            if st.st_uid != getuid() { throw NotATestCopy(path: raw) }
             if st.st_nlink > 1 { throw NotATestCopy(path: raw) }
             for product in productSockets() {
                 var p = stat()

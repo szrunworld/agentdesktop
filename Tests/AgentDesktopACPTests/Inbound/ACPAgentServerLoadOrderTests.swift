@@ -54,12 +54,14 @@ import Testing
 
         let lines = h2.connection.updatesFor(sid).compactMap(text)
         func at(_ needle: String) -> Int? { lines.firstIndex { $0.contains(needle) } }
-        let user = try #require(at("› 你：please go"))
+        // User input is never stored, so the replay shows the placeholder.
+        let user = try #require(at("› 你：" + ACPAgentServer.userInputPlaceholder))
         let accepted = try #require(at("任务已受理：run-1"))
         let ev1 = try #require(at("[run-1#1] step one"))
         let ev2 = try #require(at("[run-1#2] step two"))
         let ended = try #require(at("任务 run-1 已结束"))
-        let second = try #require(at("› 你：/nope"))
+        let second = try #require(lines.lastIndex { $0.contains("› 你：" + ACPAgentServer.userInputPlaceholder) })
+        #expect(!lines.contains { $0.contains("please go") || $0.contains("› 你：/nope") })
         let guidance = try #require(at("没有 /nope 这个命令"))
         #expect(user < accepted && accepted < ev1 && ev1 < ev2 && ev2 < ended && ended < second && second < guidance,
                 "\(lines)")
@@ -99,8 +101,8 @@ import Testing
         defer { h.cleanup() }
         let file = h.dir.appendingPathComponent("\(sid).history.json")
         let raw = try String(contentsOf: file, encoding: .utf8)
-        #expect(!raw.contains("bob@example.com") && !raw.contains("13800138000"))
-        #expect(raw.contains(ACPRedactMask.email))
+        #expect(!raw.contains("bob@example.com") && !raw.contains("13800138000") && !raw.contains("mail "))
+        #expect(raw.contains(ACPAgentServer.userInputPlaceholder))
         let mode = (try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber)?.intValue
         #expect(mode == 0o600)
         // The replay shows the redacted line, never the raw one.
@@ -109,7 +111,7 @@ import Testing
         h2.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
         _ = await h2.connection.waitReply(1)
         let all = h2.connection.updatesFor(sid).compactMap(text).joined(separator: "\n")
-        #expect(all.contains("› 你：mail \(ACPRedactMask.email)"))
+        #expect(all.contains("› 你：" + ACPAgentServer.userInputPlaceholder))
         #expect(!all.contains("bob@example.com"))
         // Closing forgets the conversation too.
         h2.connection.request(2, .closeSession(sessionId: sid))

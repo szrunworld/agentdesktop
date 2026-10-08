@@ -1,3 +1,5 @@
+import AgentDesktopProtocol
+import Darwin
 import Foundation
 import Testing
 @testable import AgentDesktopACP
@@ -39,10 +41,40 @@ struct CurEndpointGuardTests {
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let original = dir + "/original.sock"
-        FileManager.default.createFile(atPath: original, contents: Data())
+        let fd = try Self.bindSocket(original) // a real socket, so only the link count refuses it
+        defer { close(fd) }
         let link = dir + "/side.runtime.sock"
         try FileManager.default.linkItem(atPath: original, toPath: link)
         #expect(throws: CurTestReal.NotATestCopy.self) { _ = try CurTestReal.checkedEndpoint(link) }
+    }
+
+    @Test("[Mock] a regular file in place of the socket is refused")
+    func nonSocketIsRefused() throws {
+        let dir = "/tmp/adt-curtest-rf-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        FileManager.default.createFile(atPath: dir + "/side.runtime.sock", contents: Data())
+        #expect(throws: CurTestReal.NotATestCopy.self) { _ = try CurTestReal.checkedEndpoint(dir + "/side.runtime.sock") }
+    }
+
+    @Test("[Mock] a bound socket of this user is accepted")
+    func ownSocketIsAccepted() throws {
+        let dir = "/tmp/adt-curtest-so-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let fd = try Self.bindSocket(dir + "/side.runtime.sock")
+        defer { close(fd) }
+        #expect(try CurTestReal.checkedEndpoint(dir + "/side.runtime.sock") == dir + "/side.runtime.sock")
+    }
+
+    static func bindSocket(_ path: String) throws -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        var addr = try #require(SocketOptions.address(path))
+        let rc = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        try #require(rc == 0)
+        return fd
     }
 
     @Test("[Mock] a symlinked socket inside /tmp/adt-* is refused")

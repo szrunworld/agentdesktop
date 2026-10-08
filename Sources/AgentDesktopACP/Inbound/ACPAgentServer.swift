@@ -472,11 +472,17 @@ public actor ACPAgentServer {
         await send(sid, .agentMessage(text))
     }
 
+    /// What is persisted for a user's words: never the text. Pattern-based
+    /// redaction cannot recognise every secret (e.g. "passphrase hunter2xyz"),
+    /// so user input stays in memory only (#141 independent review, F-1).
+    static let userInputPlaceholder = "（此处为用户输入，内容不保存）"
+
     func record(_ sid: String, _ kind: ACPSessionManagerHistoryEntry.Kind, _ text: String, runId: String? = nil) {
         guard let history, !text.isEmpty else { return }
+        let stored = kind == .user ? Self.userInputPlaceholder : redact(sid, text)
         // Best effort: a lost history line must not fail a turn.
         try? history.appendHistory(sessionId: sid, [ACPSessionManagerHistoryEntry(
-            kind: kind, text: redact(sid, text), runId: runId, at: timestamp())])
+            kind: kind, text: stored, runId: runId, at: timestamp())])
     }
 
     /// How a stored line is shown again: the user's words as
