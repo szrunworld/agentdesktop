@@ -1,0 +1,171 @@
+{
+  "name": "catalogue-retired-types",
+  "description": "#102 冻结目录后：run./action. 前缀下目录外的类型（等待批准、action.verified 等）和尚未冻结的 unit.*、approval.*、verification.* 一律只出一条中性提示；run.ended 的 verification / unknownActions / kind 不在目录里，不再读取（不会显示『已验证』）",
+  "policy": {
+    "screenshots": "all",
+    "pageText": true
+  },
+  "mustNotContain": [
+    "张三",
+    "example@email.com",
+    "13800138000",
+    "已验证",
+    "3 个动作"
+  ],
+  "mustContain": [
+    "收到未识别的运行事件（action.verified），未作处理",
+    "任务结束：已执行（业务结果：未评估）；原因：调用方已结束任务"
+  ],
+  "events": [
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 1,
+      "type": "run.started",
+      "payload": {
+        "kind": "unit",
+        "origin": "agent_hub",
+        "ownership": "external_client",
+        "lifetime": "connection_scoped",
+        "desktopId": "desk_000000aaaaaa",
+        "sessionId": "sess_000000bbbbbb"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 2,
+      "type": "run.waiting_approval",
+      "payload": {
+        "kind": "submit",
+        "summary": "Send offer to 张三 example@email.com"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 3,
+      "type": "approval.required",
+      "payload": {
+        "params": {
+          "text": "13800138000"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 4,
+      "type": "unit.step.proposed",
+      "payload": {
+        "stepIndex": 1,
+        "proposalId": "prop_1",
+        "actionKind": "type",
+        "text": "Hi 张三"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 5,
+      "type": "action.verified",
+      "payload": {
+        "requestId": "req_0001aaaabbbb",
+        "verification": "matched"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 6,
+      "type": "verification.succeeded",
+      "payload": {
+        "requestId": "req_0001aaaabbbb"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 7,
+      "type": "run.ended",
+      "payload": {
+        "phase": "ended",
+        "outcome": "success",
+        "reason": "finished",
+        "verification": "matched",
+        "unknownActions": 3,
+        "kind": "act"
+      }
+    }
+  ],
+  "expected": [
+    [
+      {
+        "agentMessage": "任务已开始（Run run_0a1b2c3d4e5f）；编辑器断开后将停止输入"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentThought": "收到未识别的运行事件（run.waiting_approval），未作处理"
+      }
+    ],
+    [
+      {
+        "agentThought": "收到未识别的运行事件（approval.required），未作处理"
+      }
+    ],
+    [
+      {
+        "agentThought": "收到未识别的运行事件（unit.step.proposed），未作处理"
+      }
+    ],
+    [
+      {
+        "agentThought": "收到未识别的运行事件（action.verified），未作处理"
+      }
+    ],
+    [
+      {
+        "agentThought": "收到未识别的运行事件（verification.succeeded），未作处理"
+      }
+    ],
+    [
+      {
+        "agentMessage": "任务结束：已执行（业务结果：未评估）；原因：调用方已结束任务"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "completed"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "completed"
+          },
+          {
+            "content": "结果：已结束（业务结果未评估）",
+            "status": "completed"
+          }
+        ]
+      }
+    ]
+  ]
+}
