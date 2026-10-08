@@ -102,13 +102,79 @@ public final class ArtifactStore: @unchecked Sendable {
     /// Tests: runs on the sweeper before each background sweep.
     var beforeSweep: (@Sendable () -> Void)?
 
+    /// Hard limits (Kevin, #144 review): a Run that never ends, or many
+    /// Runs together, cannot grow the store without bound. Measured on
+    /// 2026-10-09 (window screenshots, Retina): Calculator 43 KB, Dictionary
+    /// near full screen 130 KB, Chess 3.0 MB, a whole 2560×1600 screen with
+    /// a photo 8 MB. A GUI explorer Run takes at most about 60; a resident
+    /// agent observing every 5 s for 2¾ hours takes 2,000.
+    public struct Limits: Equatable, Sendable {
+        /// Screenshots of one Run.
+        public var perRunArtifacts = 2_000
+        public var perRunBytes: Int64 = 2 << 30
+        /// Everything in the store.
+        public var totalBytes: Int64 = 10 << 30
+        /// Free space the store always leaves on its volume.
+        public var minFreeBytes: Int64 = 2 << 30
+        public init() {}
+    }
+    var limits = Limits()
+    /// Free bytes on the store's volume; nil when unknown (tests replace it).
+    var freeBytes: @Sendable () -> Int64? = { nil }
+    private var usageByRun: [String: (count: Int, bytes: Int64)] = [:]
+    private var usageTotal: Int64 = 0
+
     public init(directory: String, now: @escaping () -> Date = Date.init) throws {
         self.directory = directory
         self.clock = now
         self.lastSweep = now()
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
+        let dir = directory
+        freeBytes = {
+            let values = try? URL(fileURLWithPath: dir).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            return values?.volumeAvailableCapacityForImportantUsage
+        }
         sweep(at: lastSweep)
+        recount()
+    }
+
+    /// Whether a new artifact of `runId` may be made. Called before the
+    /// screenshot is taken, so a refused one is never written. A refusal is
+    /// `limit_exceeded`; observing without a screenshot still works, and a
+    /// Run's history (events, receipts) is never affected.
+    public func admit(runId: String?) throws {
+        let (run, total, limits) = lock.withLock { (runId.flatMap { usageByRun[$0] }, usageTotal, self.limits) }
+        func refuse(_ reason: String, _ message: String) -> RuntimeError {
+            RuntimeError("limit_exceeded", message + "; observe without a screenshot still works", phase: .handler,
+                         notSent: true, details: .obj([("reason", .string(reason))]))
+        }
+        if let runId, let run, run.count >= limits.perRunArtifacts || run.bytes >= limits.perRunBytes {
+            throw refuse("run_artifact_quota",
+                         "run \(runId) already holds \(run.count) screenshots (\(run.bytes) bytes); a Run may keep at most \(limits.perRunArtifacts) or \(limits.perRunBytes) bytes")
+        }
+        if total >= limits.totalBytes {
+            throw refuse("artifact_store_full", "the artifact store holds \(total) bytes, its limit is \(limits.totalBytes)")
+        }
+        if let free = freeBytes(), free < limits.minFreeBytes {
+            throw refuse("disk_low", "only \(free) bytes are free on the artifact volume; the store leaves at least \(limits.minFreeBytes)")
+        }
+    }
+
+    /// Usage from the records on disk (at start, and after a sweep).
+    private func recount() {
+        var byRun: [String: (count: Int, bytes: Int64)] = [:]
+        var total: Int64 = 0
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [] where name.hasSuffix(".meta.json") {
+            guard let m = FileManager.default.contents(atPath: directory + "/" + name).flatMap({ try? StrictJSON.parse($0) }),
+                  let size = m["byteSize"]?.intValue else { continue }
+            total += Int64(size)
+            if let run = m["runId"]?.stringValue {
+                let u = byRun[run] ?? (0, 0)
+                byRun[run] = (u.count + 1, u.bytes + Int64(size))
+            }
+        }
+        lock.withLock { usageByRun = byRun; usageTotal = total }
     }
 
     /// Removes artifacts older than the retention period (methods.json
@@ -124,6 +190,7 @@ public final class ArtifactStore: @unchecked Sendable {
             if let id = Self.artifactId(ofFile: name) { files[id, default: []].append(name) }
         }
         let keep = retained
+        var removed = false
         for (id, names) in files {
             var newest: Date?
             var regular = true
@@ -139,7 +206,9 @@ public final class ArtifactStore: @unchecked Sendable {
                 .flatMap { try? StrictJSON.parse($0) }?["runId"]?.stringValue
             if keep(id, runId) { continue }
             for name in names { unlink(directory + "/" + name) }
+            removed = true
         }
+        if removed { recount() }
     }
 
     /// The artifact a file in the store belongs to, if the store named it.
@@ -231,6 +300,13 @@ public final class ArtifactStore: @unchecked Sendable {
         guard FileManager.default.createFile(atPath: sidecar, contents: Data(meta.encoded().utf8),
                                              attributes: [.posixPermissions: 0o600])
         else { throw RuntimeError("internal_error", "cannot record artifact \(artifactId)", phase: .handler) }
+        lock.withLock {
+            usageTotal += Int64(data.count)
+            if let runId {
+                let u = usageByRun[runId] ?? (0, 0)
+                usageByRun[runId] = (u.count + 1, u.bytes + Int64(data.count))
+            }
+        }
         return info
     }
 

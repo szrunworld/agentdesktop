@@ -115,6 +115,7 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         let factor = longSide > Self.maxModelSide ? Self.maxModelSide / longSide : 1
         let resized = Size(width: (crop.size.width * factor).rounded(), height: (crop.size.height * factor).rounded())
         let modelPNG = try Self.render(source: source, crop: crop, to: resized)
+        try service.artifacts.admit(runId: runId)
         let artifactId = "art_gui_" + snapshotId.dropFirst(4)
         try modelPNG.write(to: URL(fileURLWithPath: service.artifacts.path(for: artifactId, ext: "png")))
         // Readable by id from the owner (Runs page), not by other clients.

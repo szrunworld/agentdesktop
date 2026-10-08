@@ -89,6 +89,21 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
 
 返回 `Run`（kind `unit`）。结果（是否通过验证、用到哪个流程、学到什么）写在 Run 的事件与 `run.show` 的 `unit` 字段里；外部业务结果由外部 App 自己验证（集成设计 §5.1）。
 
+### 5.1 产物的硬上限（#144，Kevin 2026-10-09）
+
+不能因为一个 Run 一直不结束，或者很多 Run 叠在一起，就让截图无限增长。每次截图**之前**先检查，超限就不截、不写：
+
+| 上限 | 取值 | 依据（2026-10-09 实测，Retina 窗口截图） |
+| --- | --- | --- |
+| 单个 Run | 2,000 张或 2 GiB，先到为准 | 计算器 43 KB、词典（接近全屏）130 KB、Chess 3.0 MB、整屏带照片 8 MB。GUI 探索一次最多约 60 张；常驻 Agent 每 5 秒观察一次，可以连续跑约 2¾ 小时 |
+| 全部产物 | 10 GiB | |
+| 磁盘剩余 | 至少保留 2 GiB | |
+
+- 超限时返回 `limit_exceeded`（本 PR 起转为正式码），`notSent: true`，`details.reason` 为 `run_artifact_quota`、`artifact_store_full` 或 `disk_low`。不带截图的 observe（只读元素）照常可用。Run 的事件和回执不受影响，不会丢失审计信息。
+- **不为了腾空间删除仍在使用的产物。** 清理只删已过保留期、且所属 Run 已结束（或不属于任何 Run）的产物；仍持有的 observation 的截图、未结束 Run 的产物一律保留。
+- 用量在启动时从磁盘记录重新统计，清理后重新统计，Runtime 重启不会让上限失效。
+- 判断在截图之前做，所以最多会超出一张截图的大小。
+
 ## 6. 方法目录
 
 `status`：✅ implemented　🧊 frozen　🔖 reserved（名字定，参数随所属 PR）

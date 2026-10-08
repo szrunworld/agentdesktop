@@ -56,6 +56,8 @@ extension RuntimeService {
             stored.binding = d.binding
             /// The screen, or with a binding only the bound window's frame.
             func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
+                // Within the store's limits, before anything is captured.
+                try artifacts.admit(runId: request.context.runId)
                 let artifactId = "art_" + snapshotId.dropFirst(4)
                 let path = artifacts.path(for: artifactId, ext: "png")
                 // The bound window alone, never the screen cut down afterwards:

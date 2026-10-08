@@ -143,6 +143,7 @@ private func aged(_ store: ArtifactStore, _ id: String, hours: Int, now: Date) t
     let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
                            backend: FixedBackend(), platform: platform, artifacts: store)
+    s.bindsOnlyLaunchedProcesses = false
     let c = handshaken(s)
     let d = try created(s, c)
     _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
@@ -221,6 +222,7 @@ private func aged(_ store: ArtifactStore, _ id: String, hours: Int, now: Date) t
     var s: RuntimeService? = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                                       endpoint: "/tmp/t.sock", buildSource: "unknown"),
                                             backend: FixedBackend(), platform: FakePlatform(), artifacts: store)
+    s!.bindsOnlyLaunchedProcesses = false
     let c = handshaken(s!)
     let d = try created(s!, c)
     _ = call(s!, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
@@ -257,4 +259,78 @@ private func aged(_ store: ArtifactStore, _ id: String, hours: Int, now: Date) t
     try store.register("art_t", mediaType: "image/png", clientId: "owner", runId: nil, createdAt: Timestamp.string(clock.now))
     store.waitForSweeps()
     #expect(!FileManager.default.fileExists(atPath: leftover))
+}
+
+// Hard limits (Kevin, #144 review): checked before a screenshot is taken,
+// refused with limit_exceeded, never by deleting what a live Run uses.
+
+private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (RuntimeService, ConnectionState, String, ArtifactStore, String) {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    let store = try ArtifactStore(directory: dir)
+    configure(store)
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                           backend: FixedBackend(), platform: FakePlatform(), artifacts: store)
+    s.bindsOnlyLaunchedProcesses = false
+    let c = handshaken(s)
+    let d = try created(s, c)
+    _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
+    let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
+    return (s, c, sid, store, dir)
+}
+
+@Test func aRunThatKeepsObservingStopsGettingScreenshotsAtItsLimit() throws {
+    let (s, c, sid, store, dir) = try quotaScene { $0.limits.perRunArtifacts = 2 }
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let runId = try #require(data(call(s, c, "run.start", context: #"{"sessionId":"\#(sid)"}"#))?["run"]?["runId"]?.stringValue)
+    let inRun = #"{"sessionId":"\#(sid)","runId":"\#(runId)"}"#
+    #expect(data(call(s, c, "observe", context: inRun)) != nil)
+    #expect(data(call(s, c, "observe", context: inRun)) != nil)
+    let third = call(s, c, "observe", context: inRun)
+    #expect(code(third) == "limit_exceeded")
+    #expect(failure(third)?.details?["reason"]?.stringValue == "run_artifact_quota")
+    // What the Run still needs is kept; it can go on without screenshots.
+    #expect(data(call(s, c, "observe", params: #"{"screenshot":false}"#, context: inRun)) != nil)
+    #expect((try FileManager.default.contentsOfDirectory(atPath: dir)).filter { $0.hasSuffix(".png") }.count == 2)
+    // Another caller outside that Run is not held to its limit.
+    #expect(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) != nil)
+    _ = store
+}
+
+@Test func theStoreAsAWholeAndTheDiskHaveLimitsToo() throws {
+    let (s, c, sid, store, dir) = try quotaScene { $0.limits.totalBytes = 1 }
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    #expect(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) != nil, "the first fits under an empty store")
+    let full = call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)
+    #expect(code(full) == "limit_exceeded" && failure(full)?.details?["reason"]?.stringValue == "artifact_store_full")
+    store.limits = ArtifactStore.Limits()
+    store.freeBytes = { 100 }
+    let low = call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)
+    #expect(code(low) == "limit_exceeded" && failure(low)?.details?["reason"]?.stringValue == "disk_low")
+    store.freeBytes = { nil }
+    #expect(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) != nil)
+}
+
+@Test func usageSurvivesARestartAndExpiryFreesIt() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Clock: @unchecked Sendable { var now = Date() }
+    let clock = Clock()
+    let first = try ArtifactStore(directory: dir, now: { clock.now })
+    for id in ["art_a", "art_b"] {
+        try Data(repeating: 1, count: 100).write(to: URL(fileURLWithPath: first.path(for: id, ext: "png")))
+        try first.register(id, mediaType: "image/png", clientId: "owner", runId: "run_x", createdAt: Timestamp.string(clock.now))
+    }
+    // A new Runtime over the same store counts what is there.
+    let again = try ArtifactStore(directory: dir, now: { clock.now })
+    again.limits.perRunArtifacts = 2
+    #expect(throws: RuntimeError.self) { try again.admit(runId: "run_x") }
+    // Once they expire (run_x is not live) the sweep frees the quota.
+    for id in ["art_a", "art_b"] {
+        for p in [again.path(for: id, ext: "png"), again.metaPath(id)] {
+            try FileManager.default.setAttributes([.modificationDate: clock.now.addingTimeInterval(-30 * 3600)], ofItemAtPath: p)
+        }
+    }
+    again.sweep(at: clock.now)
+    try again.admit(runId: "run_x")
 }
