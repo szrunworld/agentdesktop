@@ -337,6 +337,7 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
         case .contradicted: return "contradicted"
         case .unknown: return "unknown"
         case let .refused(code): return "refused:\(code)"
+        case let .failed(code): return "failed:\(code)"
         }
     }
 
