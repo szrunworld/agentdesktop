@@ -6,9 +6,9 @@
   ],
   "title": "connection_scoped 的一轮执行中编辑器断开：不再产生新动作，重连加载后不自动继续",
   "status": "FAIL",
-  "durationMs": 5887,
+  "durationMs": 4724,
   "failures": [
-    "4 new tool calls after mark afterExit: step-74213-1,step-74213-1,step-74213-2,step-74213-2"
+    "4 new tool calls after mark afterExit: step-76585-1,step-76585-1,step-76585-2,step-76585-2"
   ],
   "steps": [
     {
@@ -18,6 +18,11 @@
       "error": {
         "message": "ACP connection closed"
       }
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 8,
+      "updatesAfterResponse": 0
     }
   ]
 }

@@ -2,12 +2,27 @@
   "profile": "qtest-echo",
   "agent": [
     "node",
-    "/Users/kevinshi/orca/agentdesktop-acp-q/scripts/acp/fake-editor/dist/echo-agent.js"
+    "/Users/kevinshi/orca/agentdesktop-acp-q2/scripts/acp/fake-editor/dist/echo-agent.js"
   ],
   "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
-  "startedAt": "2026-10-08T06:25:12.750Z",
+  "startedAt": "2026-10-08T07:40:32.345Z",
   "node": "v22.23.2",
   "scenarios": [
+    {
+      "id": "L2-readonly",
+      "cases": [
+        "ACP-L2-01",
+        "ACP-L2-02",
+        "ACP-L2-03",
+        "ACP-L2-04",
+        "ACP-L2-05"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile qtest-echo lacks runtime.real"
+      ],
+      "transcript": "L2-readonly/transcript.jsonl"
+    },
     {
       "id": "SceneB-scoped-disconnect",
       "cases": [
@@ -38,6 +53,15 @@
       "status": "PASS",
       "failures": [],
       "transcript": "T01-valid-requests/transcript.jsonl"
+    },
+    {
+      "id": "T01-pipelining",
+      "cases": [
+        "ACP-T01-06"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T01-pipelining/transcript.jsonl"
     },
     {
       "id": "T02-malformed-frames",
@@ -103,6 +127,15 @@
       "transcript": "T06-session-lifecycle/transcript.jsonl"
     },
     {
+      "id": "T06-load-ordering",
+      "cases": [
+        "ACP-T06-09"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T06-load-ordering/transcript.jsonl"
+    },
+    {
       "id": "T07-foreign-session",
       "cases": [
         "ACP-T07-01",
@@ -156,10 +189,10 @@
       "transcript": "T16-approval/transcript.jsonl"
     }
   ],
-  "finishedAt": "2026-10-08T06:25:28.062Z",
+  "finishedAt": "2026-10-08T07:40:47.451Z",
   "counts": {
-    "PASS": 14,
+    "PASS": 16,
     "FAIL": 0,
-    "BLOCKED": 0
+    "BLOCKED": 1
   }
 }

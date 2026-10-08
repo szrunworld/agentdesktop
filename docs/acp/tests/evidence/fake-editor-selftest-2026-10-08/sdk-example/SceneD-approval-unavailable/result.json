@@ -6,7 +6,7 @@
   ],
   "title": "场景 D：编辑器不能回答审批（方法不存在）时动作保持未执行，并给出可解释的拒绝",
   "status": "PASS",
-  "durationMs": 4667,
+  "durationMs": 4392,
   "failures": [],
   "steps": [
     {

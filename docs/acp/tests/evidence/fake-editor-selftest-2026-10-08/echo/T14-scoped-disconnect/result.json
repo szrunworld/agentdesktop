@@ -6,7 +6,7 @@
   ],
   "title": "connection_scoped 的一轮执行中编辑器断开：不再产生新动作，重连加载后不自动继续",
   "status": "PASS",
-  "durationMs": 4612,
+  "durationMs": 4448,
   "failures": [],
   "steps": [
     {
@@ -16,6 +16,11 @@
       "error": {
         "message": "ACP connection closed"
       }
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 8,
+      "updatesAfterResponse": 0
     }
   ]
 }

@@ -1,38 +1,38 @@
-{"ms":1,"dir":"step","step":"connect","at":{"op":"connect"}}
-{"ms":2,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
-{"ms":3,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":152,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
-{"ms":152,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
-{"ms":153,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-acp-selftest-q/echo/T16-approval/run","mcpServers":[]}}}
-{"ms":156,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-70344-1"}}}
-{"ms":157,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"act neutral-sample","permission":"deny","timeoutMs":30000,"expect":{"stopReasonIn":["end_turn","refusal"],"permissionRequested":true,"permissionOptionKinds":["allow_once","reject_once"],"deniedToolsNotCompleted":true}}}
-{"ms":157,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-70344-1","prompt":[{"type":"text","text":"act neutral-sample"}]}}}
-{"ms":159,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
-{"ms":161,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-70344-2","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
-{"ms":161,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"qs-70344-1","toolCall":{"toolCallId":"act-70344-2","title":"Action","kind":"execute","status":"pending"},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"reject","name":"Deny once","kind":"reject_once"}]}}}
-{"ms":165,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"result":{"outcome":{"outcome":"selected","optionId":"reject"}}}}
-{"ms":166,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"act-70344-2","status":"failed"}}}}
-{"ms":167,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"not_executed:rejected_by_editor"}}}}}
-{"ms":167,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
-{"ms":167,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"act neutral-sample","permission":"cancelled","timeoutMs":30000,"expect":{"stopReasonIn":["end_turn","refusal","cancelled"],"permissionRequested":true,"deniedToolsNotCompleted":true}}}
-{"ms":167,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"qs-70344-1","prompt":[{"type":"text","text":"act neutral-sample"}]}}}
-{"ms":168,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
-{"ms":169,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-70344-3","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
-{"ms":172,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"method":"session/request_permission","params":{"sessionId":"qs-70344-1","toolCall":{"toolCallId":"act-70344-3","title":"Action","kind":"execute","status":"pending"},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"reject","name":"Deny once","kind":"reject_once"}]}}}
-{"ms":172,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"result":{"outcome":{"outcome":"cancelled"}}}}
-{"ms":173,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"act-70344-3","status":"failed"}}}}
-{"ms":176,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"not_executed:approval_cancelled"}}}}}
-{"ms":180,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}}
-{"ms":180,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"act neutral-sample","permission":"allow","timeoutMs":30000,"expect":{"stopReason":"end_turn","permissionRequested":true,"permissionOptionKinds":["allow_once","reject_once"],"allowedToolsCompleted":true}}}
-{"ms":180,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"qs-70344-1","prompt":[{"type":"text","text":"act neutral-sample"}]}}}
-{"ms":184,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
-{"ms":185,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-70344-4","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
-{"ms":185,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"method":"session/request_permission","params":{"sessionId":"qs-70344-1","toolCall":{"toolCallId":"act-70344-4","title":"Action","kind":"execute","status":"pending"},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"reject","name":"Deny once","kind":"reject_once"}]}}}
-{"ms":186,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"result":{"outcome":{"outcome":"selected","optionId":"allow"}}}}
-{"ms":188,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"act-70344-4","status":"completed"}}}}
-{"ms":188,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-70344-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"executed"}}}}}
-{"ms":188,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":4,"result":{"stopReason":"end_turn"}}}
-{"ms":189,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
-{"ms":189,"conn":1,"dir":"disconnect","mode":"close-stdin"}
-{"ms":189,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
-{"ms":195,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":88,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":88,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":89,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q2-selftest/echo/T16-approval/run","mcpServers":[]}}}
+{"ms":90,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-73098-1"}}}
+{"ms":90,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"act neutral-sample","permission":"deny","timeoutMs":30000,"expect":{"stopReasonIn":["end_turn","refusal"],"permissionRequested":true,"permissionOptionKinds":["allow_once","reject_once"],"deniedToolsNotCompleted":true}}}
+{"ms":90,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-73098-1","prompt":[{"type":"text","text":"act neutral-sample"}]}}}
+{"ms":92,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
+{"ms":93,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-73098-2","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
+{"ms":93,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"qs-73098-1","toolCall":{"toolCallId":"act-73098-2","title":"Action","kind":"execute","status":"pending"},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"reject","name":"Deny once","kind":"reject_once"}]}}}
+{"ms":94,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"result":{"outcome":{"outcome":"selected","optionId":"reject"}}}}
+{"ms":95,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"act-73098-2","status":"failed"}}}}
+{"ms":95,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"not_executed:rejected_by_editor"}}}}}
+{"ms":95,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":95,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"act neutral-sample","permission":"cancelled","timeoutMs":30000,"expect":{"stopReasonIn":["end_turn","refusal","cancelled"],"permissionRequested":true,"deniedToolsNotCompleted":true}}}
+{"ms":95,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"qs-73098-1","prompt":[{"type":"text","text":"act neutral-sample"}]}}}
+{"ms":96,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
+{"ms":96,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-73098-3","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
+{"ms":97,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"method":"session/request_permission","params":{"sessionId":"qs-73098-1","toolCall":{"toolCallId":"act-73098-3","title":"Action","kind":"execute","status":"pending"},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"reject","name":"Deny once","kind":"reject_once"}]}}}
+{"ms":97,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"result":{"outcome":{"outcome":"cancelled"}}}}
+{"ms":98,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"act-73098-3","status":"failed"}}}}
+{"ms":99,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"not_executed:approval_cancelled"}}}}}
+{"ms":99,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}}
+{"ms":99,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"act neutral-sample","permission":"allow","timeoutMs":30000,"expect":{"stopReason":"end_turn","permissionRequested":true,"permissionOptionKinds":["allow_once","reject_once"],"allowedToolsCompleted":true}}}
+{"ms":99,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"qs-73098-1","prompt":[{"type":"text","text":"act neutral-sample"}]}}}
+{"ms":100,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"act neutral-sample"}}}}}
+{"ms":100,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"tool_call","toolCallId":"act-73098-4","title":"Action (14 chars)","kind":"execute","status":"pending"}}}}
+{"ms":101,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"method":"session/request_permission","params":{"sessionId":"qs-73098-1","toolCall":{"toolCallId":"act-73098-4","title":"Action","kind":"execute","status":"pending"},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"reject","name":"Deny once","kind":"reject_once"}]}}}
+{"ms":101,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"result":{"outcome":{"outcome":"selected","optionId":"allow"}}}}
+{"ms":102,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"act-73098-4","status":"completed"}}}}
+{"ms":102,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-73098-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"executed"}}}}}
+{"ms":103,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":4,"result":{"stopReason":"end_turn"}}}
+{"ms":103,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":103,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":103,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":107,"conn":1,"dir":"exit","code":0,"signal":null}

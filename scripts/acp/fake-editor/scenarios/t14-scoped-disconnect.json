@@ -64,7 +64,8 @@
         "ok": true,
         "replayIncludes": [
           "${SCOPED_ENDED_TEXT}"
-        ]
+        ],
+        "replayWithinMs": 3000
       }
     },
     {

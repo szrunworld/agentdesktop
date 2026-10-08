@@ -1,0 +1,68 @@
+{
+  "id": "T06-load-ordering",
+  "cases": [
+    "ACP-T06-09"
+  ],
+  "title": "session/load 先回放历史，再回复（ACP v1 Loading Sessions）",
+  "requires": [
+    "session.load"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ECHO}",
+      "expect": {
+        "stopReasonIn": [
+          "end_turn",
+          "refusal"
+        ]
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    },
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "resume",
+      "session": "s1",
+      "method": "load",
+      "expect": {
+        "ok": true,
+        "replayBeforeResponse": true
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

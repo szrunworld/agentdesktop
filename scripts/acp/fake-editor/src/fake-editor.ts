@@ -474,11 +474,24 @@ class QTestScenarioRun {
             ? c.sdk.loadSession({ sessionId, cwd: s.cwd ?? this.vars.RUN_DIR, mcpServers: [] })
             : c.sdk.resumeSession({ sessionId, cwd: s.cwd ?? this.vars.RUN_DIR, mcpServers: [] });
         const r = await this.call(p, ms, `session/${method}`);
+        // History streamed before the response vs. after it (session/load
+        // is expected to replay first, then answer).
+        const beforeResponse = this.updates.slice(fromU).filter((u) => u.sessionId === sessionId).length;
         this.expectResponse(s.expect, r, `session/${method}`);
-        if (s.expect?.replayIncludes) {
-          const text = this.turnText(sessionId, fromU);
-          for (const t of s.expect.replayIncludes) this.check(text.includes(t), `replay lacks "${t}"`);
+        if (s.expect?.replayBeforeResponse) {
+          this.check(beforeResponse > 0, `session/${method}: no history update arrived before the response`);
         }
+        if (s.expect?.replayIncludes) {
+          const want: string[] = s.expect.replayIncludes;
+          const deadline = Date.now() + (num(s.expect.replayWithinMs) ?? 0);
+          let text = this.turnText(sessionId, fromU);
+          while (!want.every((t) => text.includes(t)) && Date.now() < deadline) {
+            await sleep(50);
+            text = this.turnText(sessionId, fromU);
+          }
+          for (const t of want) this.check(text.includes(t), `replay lacks "${t}" (got "${text.slice(0, 300)}")`);
+        }
+        this.stepLog.push({ op: `session/${method}`, updatesBeforeResponse: beforeResponse, updatesAfterResponse: this.updates.slice(fromU).filter((u) => u.sessionId === sessionId).length - beforeResponse });
         if (s.expect?.noReplay) {
           const n = this.updates.slice(fromU).filter((u) => u.conn === c.index).length;
           this.check(n === 0, `rejected resume still streamed ${n} updates`);
@@ -503,6 +516,22 @@ class QTestScenarioRun {
       case "expectAlive": {
         await sleep(s.ms ?? 300);
         this.check(!this.conn().exited, `agent exited: ${JSON.stringify(this.conn().exited)}`);
+        return;
+      }
+      case "rawBatch": {
+        // Several frames written back to back without waiting for any reply
+        // (pipelining). Each item: {id, line, expect: {ok | errorCode}}.
+        const c = this.conn();
+        const items = s.items as Step[];
+        const waits = items.map((it) => c.raw(it.line, it.id));
+        const got = await Promise.all(waits.map((w, i) => Promise.race([w, sleep(num(s.waitMs) ?? 5000).then(() => ({ timeout: true, id: items[i].id }))])));
+        this.stepLog.push({ op: "rawBatch", got });
+        items.forEach((it, i) => {
+          const m: any = got[i];
+          this.check(!m.timeout, `rawBatch ${it.id}: no response`);
+          if (it.expect?.ok === true) this.check(!!m.result, `rawBatch ${it.id}: expected a result, got ${JSON.stringify(m)}`);
+          if (it.expect?.errorCode !== undefined) this.check(m.error?.code === it.expect.errorCode, `rawBatch ${it.id}: expected error ${it.expect.errorCode}, got ${JSON.stringify(m)}`);
+        });
         return;
       }
       case "raw": {

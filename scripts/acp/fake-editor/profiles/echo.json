@@ -1,10 +1,28 @@
 {
   "name": "qtest-echo",
   "comment": "Self-test target: src/echo-agent.ts. Not AgentDesktop; proves the fake editor's assertions work.",
-  "agent": ["node", "${FAKE_EDITOR_DIR}/dist/echo-agent.js"],
-  "env": { "QTEST_ECHO_STATE": "${RUN_DIR}/state", "QTEST_ECHO_PRINCIPAL": "principal-a" },
-  "identities": { "second": { "QTEST_ECHO_PRINCIPAL": "principal-b" } },
-  "features": ["session.load", "session.list", "session.close", "identity.second", "echo.marker", "task.slow", "approval"],
+  "agent": [
+    "node",
+    "${FAKE_EDITOR_DIR}/dist/echo-agent.js"
+  ],
+  "env": {
+    "QTEST_ECHO_STATE": "${RUN_DIR}/state",
+    "QTEST_ECHO_PRINCIPAL": "principal-a"
+  },
+  "identities": {
+    "second": {
+      "QTEST_ECHO_PRINCIPAL": "principal-b"
+    }
+  },
+  "features": [
+    "session.load",
+    "session.list",
+    "session.close",
+    "identity.second",
+    "echo.marker",
+    "task.slow",
+    "approval"
+  ],
   "vars": {
     "SUPPORTED_VERSIONS": "[1]",
     "PROMPT_ECHO": "echo hello-from-fake-editor",
@@ -18,6 +36,8 @@
     "OVERSIZE_BYTES": "2097152",
     "OVERSIZE_ALLOW_CLOSE": "true",
     "SCOPED_ENDED_TEXT": "ended:connection_lost",
-    "REFUSAL_EXPLAINED_RE": "not_executed:approval_(unavailable|cancelled)"
+    "REFUSAL_EXPLAINED_RE": "not_executed:approval_(unavailable|cancelled)",
+    "PROMPT_TASK": "forbidden",
+    "NO_TASK_RE": ".*"
   }
 }

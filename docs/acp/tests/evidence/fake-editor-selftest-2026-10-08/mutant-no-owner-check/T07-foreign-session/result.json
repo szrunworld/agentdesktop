@@ -7,7 +7,7 @@
   ],
   "title": "身份 B 看不到、加载不了、也不能向身份 A 的会话发 prompt",
   "status": "FAIL",
-  "durationMs": 457,
+  "durationMs": 134,
   "failures": [
     "session/list shows sA"
   ],

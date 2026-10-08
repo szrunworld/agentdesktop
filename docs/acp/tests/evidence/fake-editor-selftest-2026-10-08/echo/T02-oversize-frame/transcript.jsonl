@@ -1,7 +1,7 @@
 {"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
-{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":2,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
 {"ms":2,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":139,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
-{"ms":139,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-big","oversizeBytes":"2097152","expect":{"errorCodeIn":[-32600,-32602,-32603,-32700],"allowClose":"true","waitMs":8000}}}
-{"ms":145,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-big\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"x\",\"prompt\":[{\"type\":\"text\",\"text\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…(2097274 bytes)"}
-{"ms":156,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":136,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":136,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-big","oversizeBytes":"2097152","expect":{"errorCodeIn":[-32600,-32602,-32603,-32700],"allowClose":"true","waitMs":8000}}}
+{"ms":143,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-big\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"x\",\"prompt\":[{\"type\":\"text\",\"text\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…(2097274 bytes)"}
+{"ms":160,"conn":1,"dir":"exit","code":0,"signal":null}

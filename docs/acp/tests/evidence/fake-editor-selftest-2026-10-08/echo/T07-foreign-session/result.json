@@ -7,7 +7,7 @@
   ],
   "title": "身份 B 看不到、加载不了、也不能向身份 A 的会话发 prompt",
   "status": "PASS",
-  "durationMs": 204,
+  "durationMs": 203,
   "failures": [],
   "steps": [
     {
@@ -16,12 +16,17 @@
       "outcome": "end_turn"
     },
     {
+      "op": "session/load",
+      "updatesBeforeResponse": 0,
+      "updatesAfterResponse": 0
+    },
+    {
       "op": "prompt",
       "text": "echo hello-from-fake-editor",
       "outcome": "error",
       "error": {
         "code": -32002,
-        "message": "Resource not found: qs-69638-1"
+        "message": "Resource not found: qs-72619-1"
       }
     }
   ]
