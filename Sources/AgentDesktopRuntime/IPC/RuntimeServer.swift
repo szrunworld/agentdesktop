@@ -58,7 +58,8 @@ public final class RuntimeServer: @unchecked Sendable {
         let lfd = Darwin.open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0o600)
         guard lfd >= 0 else { throw StartError.io("open \(lockPath): \(String(cString: strerror(errno)))") }
         var lst = stat()
-        guard fstat(lfd, &lst) == 0, (lst.st_mode & S_IFMT) == S_IFREG, lst.st_uid == getuid() else {
+        // One link only: a hard link to another file would have it rewritten.
+        guard fstat(lfd, &lst) == 0, (lst.st_mode & S_IFMT) == S_IFREG, lst.st_uid == getuid(), lst.st_nlink == 1 else {
             Darwin.close(lfd)
             throw StartError.notOwned(lockPath)
         }

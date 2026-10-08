@@ -152,6 +152,22 @@ private func staleSocket(_ path: String) {
     #expect(lstat(path, &st) != 0, "no socket was made")
 }
 
+// b9: a lock file with a second (hard) link is refused; the other name's
+// file is not rewritten.
+@Test func aHardLinkedLockFileIsRefused() throws {
+    let dir = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runtime.sock"
+    let other = dir + "/precious"
+    FileManager.default.createFile(atPath: other, contents: Data("keep".utf8), attributes: [.posixPermissions: 0o644])
+    #expect(link(other, path + ".lock") == 0)
+    let server = RuntimeServer(path: path, service: makeService(endpoint: path))
+    #expect(throws: (any Error).self) { try server.start() }
+    #expect(try String(contentsOfFile: other, encoding: .utf8) == "keep")
+    var st = stat()
+    #expect(stat(other, &st) == 0 && st.st_mode & 0o777 == 0o644)
+}
+
 @Test func anExistingLockFileBecomesOwnerOnly() throws {
     let dir = try socketDirectory()
     defer { try? FileManager.default.removeItem(atPath: dir) }

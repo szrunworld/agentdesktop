@@ -208,3 +208,40 @@ private func snapshot(_ dir: String) -> [String: String] {
     #expect(EndpointInspector.signer(auditToken: Data(count: 32)) == .unknown)
     #expect(EndpointInspector.signer(auditToken: Data(count: 3)) == .unknown)
 }
+
+/// A real connection whose audit token reads differently after the first
+/// read: another process (or the same pid after an exec) answering later.
+private final class SwappingTokenClient: RuntimeClient {
+    let inner: SocketRuntimeClient
+    var reads = 0
+    init(_ inner: SocketRuntimeClient) { self.inner = inner }
+    var endpoint: Endpoint { inner.endpoint }
+    func handshake() throws -> RuntimeIdentity { try inner.handshake() }
+    func call(_ request: RuntimeRequest) throws -> JSONValue { try inner.call(request) }
+    func subscribe(runId: String?, after: Int?) throws -> JSONValue { try inner.subscribe(runId: runId, after: after) }
+    func nextEvent() throws -> PushedEvent { try inner.nextEvent() }
+    func close() { inner.close() }
+    var peer: PeerCredentials? { inner.peer }
+    func peerAuditToken() -> Data? {
+        reads += 1
+        guard var t = inner.peerAuditToken() else { return nil }
+        if reads > 1 { t[t.count - 1] ^= 0xFF }
+        return t
+    }
+}
+
+// b9's review of 37c0080: the token is read again after the later calls;
+// a different one is a mismatch and what was answered is dropped.
+@Test func anotherProcessAnsweringAfterTheHandshakeIsAMismatch() throws {
+    let rt = try LiveRuntime()
+    let endpoint = Endpoint(path: rt.path, source: .option)
+    let swapping = SwappingTokenClient(SocketRuntimeClient(endpoint: endpoint, info: CLI.clientInfo))
+    let report = EndpointInspector.inspect(endpoint, home: "/nonexistent", makeClient: { _ in swapping }, signer: { _ in .same })
+    #expect(report.identity == .mismatch)
+    #expect(report.capabilities == nil && report.runsAvailable == nil)
+    #expect(report.failures.contains(.identity))
+    // The same connection, read twice without a swap, stays verified.
+    let plain = EndpointInspector.inspect(endpoint, home: "/nonexistent",
+                                          makeClient: { SocketRuntimeClient(endpoint: $0, info: CLI.clientInfo) }, signer: { _ in .same })
+    #expect(plain.identity == .verified, "\(plain.identityNotes)")
+}

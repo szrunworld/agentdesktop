@@ -175,7 +175,8 @@ public enum EndpointInspector {
         // audit token read after the reply: a pid alone could since belong
         // to a binary exec'd in its place, the token's exec generation not.
         // Without a token the signer stays unknown.
-        if let token = client.peerAuditToken() {
+        let firstToken = client.peerAuditToken()
+        if let token = firstToken {
             report.answeringPID = auditTokenPID(token)
             report.signer = signer(token)
         }
@@ -204,6 +205,18 @@ public enum EndpointInspector {
         } catch {
             report.runsAvailable = false
             report.failures.append(.service)
+        }
+        // The process answering now must be the one judged: another (or the
+        // same pid after an exec) answering the later calls contradicts it,
+        // and what it reported is not shown as fact.
+        if let first = firstToken, client.peerAuditToken() != first {
+            report.identity = .mismatch
+            report.identityNotes.append("another process answered after the handshake")
+            report.capabilities = nil
+            report.runsAvailable = nil
+            report.runsError = nil
+            report.failures.removeAll { $0 == .authorization || $0 == .service }
+            if !report.failures.contains(.identity) { report.failures.append(.identity) }
         }
         return report
     }
