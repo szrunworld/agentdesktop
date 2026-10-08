@@ -44,22 +44,23 @@ import Testing
         #expect(nb.level == .executed)
         #expect(nb.detail.contains("业务结果：未评估"))
 
+        // Until the catalogue freezes verification values (E-1), even a
+        // value outside the catalogue such as "matched" stays executed:
+        // 「已验证」 must be unreachable from the projector itself.
         let verified = try #require(call(p.project(ETest.event("action.completed", [("receipt", ETest.receipt(verification: "matched"))]),
                                                    policy: strict)))
-        #expect(verified.level == .verified)
+        #expect(verified.level == .executed)
 
         // All three ids line up, all three titles differ.
         #expect(Set([accepted.toolCallId, dispatched.toolCallId, executed.toolCallId]).count == 1)
-        #expect(Set([accepted.title, dispatched.title, executed.title, verified.title]).count == 4)
+        #expect(Set([accepted.title, dispatched.title, executed.title]).count == 3)
+        #expect(verified.title == executed.title)
     }
 
     @Test(arguments: ["not_requested", "pending", "inconclusive", "not_evaluated", "", "MATCHED"])
     func onlyAMatchedVerificationIsVerified(_ v: String) throws {
         let c = try #require(call(p.project(ETest.event("action.completed", [("receipt", ETest.receipt(verification: v))]), policy: strict)))
         #expect(c.level == .executed)
-        let ver = try #require(call(p.project(ETest.event("action.verified", [("requestId", .string("r1")), ("verification", .string(v))]),
-                                              policy: strict)))
-        #expect(ver.level == .executed)
     }
 
     @Test func verifiedNeedsDeliveryAndExecution() throws {
@@ -106,7 +107,7 @@ import Testing
 
     @Test func stopAndQuiescentWording() {
         #expect(messages(p.project(ETest.event("stop.accepted", [("reason", .string("stopped")), ("inFlight", .bool(false))]),
-                                   policy: strict)) == ["正在停止"])
+                                   policy: strict)) == ["正在停止；原因：已请求停止"])
         #expect(messages(p.project(ETest.event("run.quiescent", [("revision", .int(3))]), policy: strict)) == ["已停止输入"])
     }
 
@@ -167,9 +168,109 @@ import Testing
             #expect(!out.isEmpty)
             for u in out { if case .agentThought = u { Issue.record("\(t.rawValue) fell through to the unknown path") } }
         }
-        let emitted = Set(ACPEventType.allCases.filter(\.emitted).map(\.rawValue))
-        #expect(emitted == ["run.started", "action.accepted", "action.dispatched", "action.completed", "action.failed",
-                            "action.unknown", "run.finishing", "stop.accepted", "run.quiescent", "run.ended"])
+        // Exactly the frozen catalogue (#102), read from the contract itself.
+        #expect(Set(ACPEventType.allCases.map(\.rawValue)) == ETest.catalogueTypes())
+        #expect(ETest.catalogueTypes().count == 11)
+    }
+
+    /// Types the catalogue replaced or never had are not mapped: one neutral
+    /// line, nothing of their payload.
+    @Test(arguments: ["run.accepted", "run.queued", "run.waiting_approval", "run.waiting_input", "run.resumed", "action.verified",
+                      "verification.succeeded", "verification.failed", "approval.required", "question.asked", "unit.started",
+                      "unit.ended", "unit.step.proposed"])
+    func provisionalTypesAreGone(_ type: String) {
+        #expect(ACPEventType(rawValue: type) == nil)
+        let out = p.project(ETest.event(type, [("requestId", .string("r")), ("summary", .string("WeChat – 李四"))]), policy: Self.wide)
+        #expect(out == [.agentThought("收到未识别的运行事件（\(type)），未作处理")])
+    }
+
+    // MARK: Receipts and refusals with reasons (F1-03, #102)
+
+    /// The contract's own fixture: an action refused before any input.
+    @Test func actionRefusedFromTheContractFixture() throws {
+        let doc = try ETest.contractFixture("event-action-refused.valid.json")
+        let inst = try #require(doc["instance"])
+        let e = ACPRuntimeEvent(runId: inst["runId"]?.stringValue ?? "", cursor: inst["sequence"]?.intValue ?? 0,
+                                type: inst["type"]?.stringValue ?? "", payload: inst)
+        for policy in [strict, Self.wide] {
+            let c = try #require(call(p.project(e, policy: policy)))
+            #expect(c.level == .refused(code: "stale_observation"))
+            #expect(c.status == .failed)
+            #expect(c.title.hasSuffix("未发出"))
+            #expect(c.detail.contains("错误码：stale_observation"))
+            #expect(c.detail.contains("投递：未发出"))
+            // The reason's message names another window: never shown (P1).
+            let all = ETest.strings(p.project(e, policy: policy)).joined(separator: "\n")
+            #expect(!all.contains("covers") && !all.contains("77"), "\(all)")
+        }
+    }
+
+    @Test func receiptReasonCodeOnFailedAndUnknown() throws {
+        let doc = try ETest.contractFixture("receipt-not-dispatched-with-reason.valid.json")
+        let r = try #require(doc["instance"])
+        let f = try #require(call(p.project(ETest.event("action.failed", [("receipt", r)]), policy: Self.wide)))
+        #expect(f.level == .refused(code: "execution_failed"), "not delivered: never executed")
+        #expect(f.detail.contains("错误码：execution_failed"))
+        #expect(f.title.hasSuffix("未发出"))
+        #expect(f.detail.contains { $0.hasPrefix("回执：") })
+        #expect(!ETest.strings([.toolCallUpdate(f)]).joined().contains("the app refused"))
+
+        let unknown = ETest.receipt(delivery: "unknown", execution: "unknown",
+                                    extra: [("reason", .obj([("code", .string("action_delivery_unknown")),
+                                                             ("message", .string("it may have reached WeChat – 李四"))]))])
+        let u = try #require(call(p.project(ETest.event("action.unknown", [("receipt", unknown)]), policy: Self.wide)))
+        #expect(u.level == .unknown && u.status == .inProgress)
+        #expect(u.detail.contains("错误码：action_delivery_unknown"))
+        for s in Self.otherApp { #expect(!ETest.strings([.toolCallUpdate(u)]).joined().contains(s)) }
+
+        // A code outside errors.json is never shown verbatim.
+        let odd = ETest.event("action.refused", [("requestId", .string("r")),
+                                                 ("reason", .obj([("code", .string("wechat_li_si")), ("message", .string("x"))]))])
+        #expect(call(p.project(odd, policy: strict))?.level == .refused(code: "unlisted_error"))
+    }
+
+    /// One refusal is one terminal event: refused closes the action, so
+    /// run.ended does not settle it a second time.
+    @Test func refusalIsTheOnlyTerminalUpdate() {
+        let out = session([
+            ETest.event("run.started", [("kind", .string("act"))]),
+            ETest.event("action.accepted", [("requestId", .string("req_0001aaaabbbb")), ("kind", .string("click"))], cursor: 2),
+            ETest.event("action.refused", [("requestId", .string("req_0001aaaabbbb")),
+                                           ("reason", .obj([("code", .string("deadline_exceeded")), ("message", .string("late"))]))], cursor: 3),
+            ETest.event("run.ended", [("phase", .string("ended")), ("outcome", .string("failed")), ("reason", .string("completed"))], cursor: 4),
+        ])
+        #expect(call(out[3]) == nil, "\(out[3])")
+        #expect(messages(out[3]).first?.contains("原因：动作已处理完") == true)
+    }
+
+    @Test(arguments: [("completed", "动作已处理完"), ("finished", "调用方已结束任务"), ("exit 3", "命令已退出（退出码 3）"), ("stopped", "已请求停止"),
+                      ("owner_lost", "编辑器连接已断开"), ("global_stop", "已全部停止"), ("runtime_restarted", "Runtime 已重启")])
+    func closingReasonsTheRuntimeWrites(_ reason: String, _ shown: String) {
+        let m = messages(p.project(ETest.event("run.ended", [("phase", .string("ended")), ("outcome", .string("cancelled")),
+                                                             ("reason", .string(reason))]), policy: strict))
+        #expect(m[0].contains("原因：\(shown)"), "\(m[0])")
+        let s = messages(p.project(ETest.event("stop.accepted", [("reason", .string(reason)), ("inFlight", .bool(false)),
+                                                                 ("revision", .int(2))]), policy: strict))
+        #expect(s[0].contains("原因：\(shown)"), "\(s[0])")
+    }
+
+    @Test func freeTextClosingReasonIsNotShown() {
+        let m = messages(p.project(ETest.event("run.ended", [("outcome", .string("cancelled")),
+                                                             ("reason", .string("closed WeChat – 李四"))]), policy: strict))
+        #expect(m == ["任务结束：已取消"])
+    }
+
+    /// run.ended has no unknownActions count: it comes from this session's events.
+    @Test func unknownCountComesFromTheSession() {
+        let out = session([
+            ETest.event("run.started", [("kind", .string("act"))]),
+            ETest.event("action.unknown", [("receipt", ETest.receipt(delivery: "unknown", execution: "unknown"))], cursor: 2),
+            ETest.event("run.ended", [("outcome", .string("unknown")), ("unknownActions", .int(9)), ("kind", .string("unit")),
+                                      ("verification", .string("matched"))], cursor: 3),
+        ])
+        let m = messages(out[2])
+        #expect(m[0].contains("；1 个动作待核实"), "\(m[0])")
+        #expect(!m[0].contains("9") && !m[0].contains("已验证"))
     }
 
     // MARK: Privacy through the projector (T19–T21)
@@ -232,8 +333,9 @@ import Testing
         #expect(ACPEventType.runStarted.tier == .normal)
         #expect(ACPEventType.runEnded.tier == .normal)
         #expect(ACPEventType.actionCompleted.tier == .sensitive)
-        #expect(ACPEventType.approvalRequired.tier == .protected)
-        #expect(ACPEventType.questionAsked.tier == .protected)
+        #expect(ACPEventType.actionRefused.tier == .sensitive)
+        #expect(ACPEventType.tier(of: "approval.required") == .protected)
+        #expect(ACPEventType.tier(of: "unit.step.proposed") == .protected)
         #expect(ACPEventType.tier(of: "made.up") == .protected)
         for t in ACPEventType.allCases { _ = t.tier } // exhaustive by construction
         #expect(ACPDataClass.typedValue.tier == .protected)
@@ -276,16 +378,15 @@ import Testing
     /// covering window's title, a mismatched target or a Runtime error
     /// message naming another window never appear.
     @Test func crossAppWindowTitles() {
-        let covering = ETest.event("action.failed", [
-            ("receipt", ETest.receipt(delivery: "not_dispatched", execution: "failed")),
-            ("error", .obj([("code", .string("stale_observation")),
-                            ("message", .string("window 901 (WeChat – 李四) covers the bound window 813")),
-                            ("details", .obj([("reason", .string("occluded")), ("coveringTitle", .string("WeChat – 李四"))]))])),
+        let covering = ETest.event("action.refused", [
+            ("requestId", .string("req_0001aaaabbbb")),
+            ("reason", .obj([("code", .string("stale_observation")),
+                             ("message", .string("window 901 (WeChat – 李四) covers the bound window 813"))])),
             ("covering", .obj([("windowId", .int(901)), ("title", .string("WeChat – 李四"))])),
         ])
         let t = text(covering)
-        for s in Self.otherApp + ["901"] { #expect(!t.contains(s), "\(s) in \(t)") }
-        #expect(t.contains("原因：目标窗口被其他窗口遮挡"))
+        for s in Self.otherApp + ["901", "covers"] { #expect(!t.contains(s), "\(s) in \(t)") }
+        #expect(t.contains("错误码：stale_observation"))
 
         let mismatch = ETest.event("action.completed", [("receipt", ETest.receipt()),
                                                         ("target", .obj([("windowId", .int(901)), ("title", .string("WeChat – 李四"))]))])
@@ -304,18 +405,19 @@ import Testing
         }
     }
 
-    /// Cross-app 4/4: approval and question events are protected — status
-    /// only, nothing of their parameters, summaries or choices.
+    /// Cross-app 4/4: approval and question events are not in the Run event
+    /// catalogue (the server raises the real request); if one arrives it is a
+    /// neutral line, nothing of its parameters, summaries or choices.
     @Test func crossAppApprovalParameters() {
         let approval = ETest.event("approval.required", [
             ("kind", .string("submit")), ("summary", .string("Send WeChat – 李四 chat to example@email.com")),
             ("params", .obj([("text", .string("13800138000")), ("windowTitle", .string("WeChat – 李四"))])),
             ("arguments", .array([.string("WeChat")])),
         ])
-        #expect(p.project(approval, policy: Self.wide).first == .agentMessage("等待批准（未批准前不会执行）"))
+        #expect(p.project(approval, policy: Self.wide) == [.agentThought("收到未识别的运行事件（approval.required），未作处理")])
         for s in Self.otherApp { #expect(!text(approval).contains(s)) }
         let q = ETest.event("question.asked", [("message", .string("Forward 李四's message?")), ("choices", .array([.string("WeChat")]))])
-        #expect(p.project(q, policy: Self.wide).first == .agentMessage("等待回答一个问题"))
+        #expect(p.project(q, policy: Self.wide) == [.agentThought("收到未识别的运行事件（question.asked），未作处理")])
         for s in Self.otherApp { #expect(!text(q).contains(s)) }
     }
 
@@ -416,15 +518,15 @@ import Testing
         #expect(final.level == .unknown && final.status == .failed)
     }
 
-    @Test func p2VerifiedOrKnownActionsAreNotReopened() {
+    @Test func p2KnownActionsAreNotReopened() {
         let out = session([
             ETest.event("run.started", [("kind", .string("unit"))]),
-            ETest.event("action.unknown", [("receipt", ETest.receipt(delivery: "unknown", execution: "unknown"))], cursor: 2),
-            ETest.event("action.verified", [("requestId", .string("req_0001aaaabbbb")), ("verification", .string("matched"))], cursor: 3),
-            ETest.event("action.completed", [("receipt", ETest.receipt(requestId: "req_0002ccccdddd"))], cursor: 4),
-            ETest.event("run.ended", [("outcome", .string("success"))], cursor: 5),
+            ETest.event("action.refused", [("requestId", .string("req_0001aaaabbbb")),
+                                           ("reason", .obj([("code", .string("stop_pending")), ("message", .string("x"))]))], cursor: 2),
+            ETest.event("action.completed", [("receipt", ETest.receipt(requestId: "req_0002ccccdddd"))], cursor: 3),
+            ETest.event("run.ended", [("outcome", .string("success"))], cursor: 4),
         ])
-        #expect(call(out[4]) == nil, "no terminal update for verified or executed actions: \(out[4])")
+        #expect(call(out[3]) == nil, "no terminal update for refused or executed actions: \(out[3])")
     }
 
     @Test func p2OtherRunsUnaffected() {

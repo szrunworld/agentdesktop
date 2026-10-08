@@ -120,7 +120,7 @@
         }
       },
       {
-        "agentMessage": "任务结束：结果未知 · 需要核实（不会重试；请在 AgentDesktop 主窗口核实结果后再决定下一步）；原因：Runtime 已重启"
+        "agentMessage": "任务结束：结果未知 · 需要核实（不会重试；请在 AgentDesktop 主窗口核实结果后再决定下一步）；1 个动作待核实；原因：Runtime 已重启"
       },
       {
         "plan": [
