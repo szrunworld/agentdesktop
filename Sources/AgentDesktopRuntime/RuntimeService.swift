@@ -17,6 +17,9 @@ public final class ConnectionState: @unchecked Sendable {
     var ownedRuns: Set<String> = []
     /// Exec Runs this connection joined with the Run's token.
     var attachedRuns: Set<String> = []
+    /// Set by events.subscribe: the server pushes frames on this connection.
+    var subscription: EventSubscription?
+    public var isSubscribed: Bool { subscription != nil }
 
     public init(peerUID: uid_t) {
         self.peerUID = peerUID
@@ -56,6 +59,7 @@ public final class RuntimeService: @unchecked Sendable {
         .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind,
         .sessionOpen, .sessionShow, .sessionClose, .observe,
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
+        .eventsSubscribe, .eventsUnsubscribe,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
@@ -110,6 +114,11 @@ public final class RuntimeService: @unchecked Sendable {
         if connection.apiVersion == nil, request.method != RuntimeMethod.handshake.rawValue {
             return .failure(request.requestId, RuntimeError(
                 "handshake_required", "send runtime.handshake first on each connection", phase: .handshake))
+        }
+        if connection.subscription != nil, method != .eventsUnsubscribe {
+            return .failure(request.requestId, RuntimeError(
+                "conflict", "this connection carries an event subscription; use another connection or send events.unsubscribe",
+                phase: .handler, details: .obj([("reason", .string("subscribed"))])))
         }
         let paramViolations = contract.validate(request.params, spec.params)
         guard paramViolations.isEmpty else {
@@ -238,6 +247,8 @@ public final class RuntimeService: @unchecked Sendable {
         case .enableInput: return enableInput(connection)
         case .artifactShow: return showArtifact(p, connection)
         case .artifactRead: return readArtifact(p, connection)
+        case .eventsSubscribe: return subscribe(p, connection)
+        case .eventsUnsubscribe: return unsubscribe(connection)
         }
     }
 }

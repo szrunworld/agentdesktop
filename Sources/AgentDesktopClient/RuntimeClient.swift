@@ -11,7 +11,30 @@ public protocol RuntimeClient: AnyObject {
     func handshake() throws -> RuntimeIdentity
     /// Send one request; its `data`, or the Runtime's error.
     func call(_ request: RuntimeRequest) throws -> JSONValue
+    /// Turn this connection into an event stream (events.subscribe); use a
+    /// connection that controls no Run.
+    func subscribe(runId: String?, after: Int?) throws -> JSONValue
+    /// The next pushed event frame.
+    func nextEvent() throws -> PushedEvent
     func close()
+}
+
+/// What an event subscription delivered.
+public enum PushedEvent: Equatable {
+    /// An EventFrame: `event` and the `cursor` to resume after.
+    case frame(JSONValue)
+    /// Nothing within the receive timeout; the subscription is still open.
+    case idle
+    /// The Runtime ended the stream: a Run's stream after the Run ended.
+    case closed
+}
+
+extension RuntimeClient {
+    public func subscribe(runId: String?, after: Int?) throws -> JSONValue {
+        throw RuntimeError("capability_missing", "this client does not carry event subscriptions", phase: .local)
+    }
+
+    public func nextEvent() throws -> PushedEvent { .closed }
 }
 
 /// Who is calling, sent in the handshake.
@@ -85,6 +108,29 @@ public final class SocketRuntimeClient: RuntimeClient {
         }
     }
 
+    public func subscribe(runId: String?, after: Int?) throws -> JSONValue {
+        var p: [(String, JSONValue)] = []
+        if let runId { p.append(("runId", .string(runId))) }
+        if let after { p.append(("after", .int(after))) }
+        return try call(RuntimeRequest(.eventsSubscribe, params: .obj(p)))
+    }
+
+    public func nextEvent() throws -> PushedEvent {
+        guard let transport else { return .closed }
+        let line: Data?
+        do {
+            line = try transport.receive()
+        } catch let e as RuntimeError where e.code == "connection_lost" {
+            close()
+            return .closed
+        }
+        guard let line else { return .idle }
+        guard let frame = try? StrictJSON.parse(line), contract.validate(frame, "EventFrame").isEmpty else {
+            throw RuntimeError("instance_mismatch", "a pushed line is not an EventFrame", phase: .transport)
+        }
+        return .frame(frame)
+    }
+
     public func close() {
         transport?.close()
         transport = nil
@@ -92,12 +138,21 @@ public final class SocketRuntimeClient: RuntimeClient {
     }
 
     private func exchange(_ request: RuntimeRequest, on transport: RuntimeTransport) throws -> JSONValue {
-        let reply = try transport.exchange(request.json.encodedData())
-        let value: JSONValue
-        do {
-            value = try StrictJSON.parse(reply)
-        } catch {
-            throw RuntimeError("instance_mismatch", "reply is not JSON: \(error)", phase: .transport)
+        var reply = try transport.exchange(request.json.encodedData())
+        var value: JSONValue
+        while true {
+            do {
+                value = try StrictJSON.parse(reply)
+            } catch {
+                throw RuntimeError("instance_mismatch", "reply is not JSON: \(error)", phase: .transport)
+            }
+            // On a subscribed connection, frames pushed before the reply
+            // (events.unsubscribe) are passed over.
+            guard value["event"] != nil, value["ok"] == nil else { break }
+            guard let next = try transport.receive() else {
+                throw RuntimeError.connectionLost("no reply from the Runtime within the timeout")
+            }
+            reply = next
         }
         let violations = contract.validate(value, "Response")
         guard violations.isEmpty, let response = RuntimeResponse(validated: value) else {

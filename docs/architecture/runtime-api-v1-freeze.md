@@ -41,8 +41,11 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 
 - 每个 Run 的事件有从 1 开始单调递增的 `sequence`；Run 本身有 `revision`（每次状态变化 +1）。
 - 轮询：`run.events {runId, after, limit}` → `{events, next, ended}`（已实现）。`next` 就是恢复游标；客户端断线重连后从 `next` 继续，不丢不重。
-- 订阅（新增，`frozen`）：`events.subscribe {runId? , after?}`。成功应答后，服务端在**同一连接**上推送 `{"apiVersion":"agentdesktop.runtime/1","event":RunEvent}` 行，直到客户端关闭或发送 `events.unsubscribe`。订阅连接不是控制连接：关闭订阅不影响任何 Run（ADR-02、ADR-06）。不带 runId 时推送该主体可见的全部 Run 的 `run.*` 状态事件（主窗口 Runs 列表用）。
-- 事件超出保留期后，`after` 落在已裁剪区间返回 `events_cursor_expired`，客户端改用 `run.show` 取当前状态。
+- 订阅（PR2e 已实现）：`events.subscribe {runId?, after?}`。成功应答后，服务端在**同一连接**上推送 `{"apiVersion":"agentdesktop.runtime/1","event":RunEvent,"cursor":n}` 行；该连接上除 `events.unsubscribe` 外的请求一律返回 `conflict`（reason `subscribed`）。
+  - 带 runId：推送该 Run 序号大于 `after`（默认 0，即从头）的事件；Run 结束且事件推送完毕后，服务端关闭连接。
+  - 不带 runId：推送该主体可见的全部 Run 的事件（owner 看全部），`cursor` 是全局游标，`after` 默认为“现在”。主窗口 Runs 列表用这一种。
+  - 订阅连接不是控制连接：关闭订阅不影响任何 Run（ADR-02、ADR-06）。在持有未结束 Delegated Run 的控制连接上订阅返回 `conflict`（reason `control_connection`）。
+- 全局游标落在已保留区间之外（已裁剪，或来自已清空的旧库）时返回 `events_cursor_expired`，客户端改用 `run.list` / `run.show` 取当前状态后从新游标订阅。
 
 ## 5. 产物：不透明 ID，不暴露路径
 
@@ -80,7 +83,7 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | 输入 | observe / act / wait；request.show | ✅（observe 的 `path` 在 PR2 去掉） | — |
 | Run | run.start / attach / finish / show / events / wait / cancel / list | ✅ | PR1 |
 | Run | unit.run | 🧊 | PR2 |
-| 事件 | events.subscribe / unsubscribe | 🧊 | PR2 |
+| 事件 | events.subscribe / unsubscribe | ✅ | PR2e |
 | 产物 | artifact.show / read | ✅ | PR2c |
 | AI 配置 | ai.connections.list / get / create / update / disable / delete；ai.credentials.rotate | 🧊（实现已有，迁信封） | PR2 |
 | AI 模型 | ai.models.list / refresh；ai.modelProfiles.list / get / create / update / disable / delete | 🧊（同上） | PR2 |

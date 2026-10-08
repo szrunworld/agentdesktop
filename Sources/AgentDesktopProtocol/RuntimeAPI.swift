@@ -51,6 +51,8 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case enableInput = "runtime.enableInput"
     case artifactShow = "artifact.show"
     case artifactRead = "artifact.read"
+    case eventsSubscribe = "events.subscribe"
+    case eventsUnsubscribe = "events.unsubscribe"
 }
 
 /// The machine-readable contract: schema, method catalog and error table.

@@ -36,6 +36,37 @@ extension CLI {
         }
     }
 
+    /// events.subscribe on a connection of its own: one line per pushed
+    /// event (jsonl: the EventFrame with its cursor). A Run's stream ends
+    /// when the Runtime closes it after the Run ended; Ctrl-C ends only the
+    /// watch. Text and jsonl only: the stream has no single result.
+    func eventsWatch(runId: String?, after: Int?, format: OutputFormat, _ out: ResultWriter, endpoint: Endpoint) -> Int32 {
+        guard format != .json else {
+            let e = RuntimeError.invalidArgument("events watch streams; use --format jsonl or text")
+            out.failure(requestId: nil, e)
+            return ExitStatus.of(e)
+        }
+        return withClient(out, endpoint: endpoint) { client in
+            _ = try client.handshake()
+            let reply = try client.subscribe(runId: runId, after: after)
+            if format == .text { stderr("watching from cursor \(reply["next"]?.intValue ?? 0)") }
+            while true {
+                if interrupted() { return 130 }
+                switch try client.nextEvent() {
+                case .closed: return ExitStatus.ok
+                case .idle: continue
+                case let .frame(f):
+                    switch format {
+                    case .text:
+                        let e = f["event"]
+                        stdout("\(f["cursor"]?.intValue ?? 0)  \(e?["runId"]?.stringValue ?? "")  \(e?["sequence"]?.intValue ?? 0)  \(e?["at"]?.stringValue ?? "")  \(e?["type"]?.stringValue ?? "")  \(e?["data"]?.encoded() ?? "")")
+                    default: stdout(f.encoded())
+                    }
+                }
+            }
+        }
+    }
+
     /// Observe a Run until it ends; never cancels it. Timeout → 8 with the
     /// last state seen, and the Run goes on.
     func runWait(runId: String, timeout: Double, _ out: ResultWriter, endpoint: Endpoint) -> Int32 {
