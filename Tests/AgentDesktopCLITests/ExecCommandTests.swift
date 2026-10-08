@@ -50,6 +50,8 @@ import Testing
         ["wait", "--session", "s", "--label", "x"],
         ["run", "cancel", "r", "--wait-timeout", "5s"],
         ["run", "events", "r", "--after", "-1"],
+        ["events", "watch", "--after", "x"],
+        ["events", "watch", "--format", "json"],
         ["session", "exec", "--desktop", "d", "ls"],
         ["session", "exec", "--desktop", "d", "--session", "s", "--", "ls"],
         ["session", "exec", "--", "ls"],
@@ -242,4 +244,11 @@ import Testing
     #expect(platform.performed.first?.elementIndex == 2)
     #expect((try? StrictJSON.parse({ var o: [String] = []; _ = cli(base) { o.append($0) }.run(["runtime", "status", "--format", "json"]); return o.joined() }()))?["data"]?["status"]?["runs"]?.intValue == 0, "the Run ended with the exec")
     #expect(service.sessions.openCount == 0, "the exec's own session was closed")
+}
+
+@Test func eventsWatchRoutes() throws {
+    #expect(try CommandRouter.parse(["events", "watch"]).command == .eventsWatch(runId: nil, after: nil))
+    #expect(try CommandRouter.parse(["events", "watch", "--run", "run_1", "--after", "3"]).command
+            == .eventsWatch(runId: "run_1", after: 3))
+    #expect(try CommandRouter.parse(["events", "watch", "--format", "jsonl"]).format == .jsonl)
 }

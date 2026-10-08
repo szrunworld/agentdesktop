@@ -103,6 +103,8 @@ struct CLI {
                 return perform(call, out, endpoint: endpoint, attach: ctx)
             }
             return perform(call, out, endpoint: endpoint)
+        case let .eventsWatch(runId, after):
+            return eventsWatch(runId: runId, after: after, format: invocation.format, out, endpoint: endpoint)
         case let .runEvents(runId, after, follow):
             return runEvents(runId: runId, after: after, follow: follow, format: invocation.format, out, endpoint: endpoint)
         case let .runWait(runId, timeout):

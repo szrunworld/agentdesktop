@@ -275,6 +275,23 @@
       "params": "artifact_read_params",
       "result": "ArtifactChunk",
       "status": "implemented"
+    },
+    {
+      "method": "events.subscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "events_subscribe_params",
+      "result": "EventSubscription",
+      "status": "implemented",
+      "note": "after the reply the server pushes EventFrame lines on this connection; other methods are refused there until events.unsubscribe. With runId: that Run from sequence `after` (default 0), and the server closes the connection once the Run has ended and every event was sent. Without: every visible Run, global cursor `after` (default: now). Closing never affects a Run."
+    },
+    {
+      "method": "events.unsubscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "EventSubscription",
+      "status": "implemented"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -287,23 +304,6 @@
       "params": "unit_run_params",
       "result": "Run",
       "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process, never over the wire"
-    },
-    {
-      "method": "events.subscribe",
-      "status": "frozen",
-      "pr": "PR2e",
-      "mutation": false,
-      "params": "events_subscribe_params",
-      "result": "EventSubscription",
-      "note": "after the reply the server pushes EventFrame lines on the same connection; closing it never affects a Run"
-    },
-    {
-      "method": "events.unsubscribe",
-      "status": "frozen",
-      "pr": "PR2e",
-      "mutation": false,
-      "params": "empty_params",
-      "result": "EventSubscription"
     },
     {
       "method": "ai.connections.list",

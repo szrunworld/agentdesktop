@@ -236,6 +236,27 @@ public final class RunStore: @unchecked Sendable {
         }
     }
 
+    /// Events of every Run in the order they were written, after a global
+    /// cursor (the event's rowid), optionally only Runs of one principal.
+    public func eventsSince(_ cursor: Int, clientId: String?, limit: Int) -> [(cursor: Int, event: JSONValue)] {
+        let rows = (try? db.query("""
+            SELECT e.rowid, e.run_id, e.seq, e.at, e.type, e.data FROM events e JOIN runs r ON r.run_id = e.run_id
+            WHERE e.rowid > ? AND (? IS NULL OR r.client_id = ?) ORDER BY e.rowid LIMIT ?
+            """, [.int(Int64(cursor)), clientId.map { .text($0) } ?? .null, clientId.map { .text($0) } ?? .null,
+                  .int(Int64(limit))])) ?? []
+        return rows.map { r in
+            (Int(r[0] as! Int64), .obj([("runId", .string(r[1] as! String)), ("sequence", .int(Int(r[2] as! Int64))),
+                                        ("at", .string(r[3] as! String)), ("type", .string(r[4] as! String)),
+                                        ("data", (try? StrictJSON.parse(r[5] as! String)) ?? .obj([]))]))
+        }
+    }
+
+    /// The global cursor range still stored: (oldest - 1, newest).
+    public func eventCursorRange() -> (floor: Int, latest: Int) {
+        let r = (try? db.query("SELECT COALESCE(MIN(rowid), 1) - 1, COALESCE(MAX(rowid), 0) FROM events").first) ?? nil
+        return (Int(r?[0] as? Int64 ?? 0), Int(r?[1] as? Int64 ?? 0))
+    }
+
     /// Wait until `predicate` holds for the Run or `deadline` passes.
     func wait(_ runId: String, until deadline: Date, _ predicate: (RunRecord) -> Bool) -> RunRecord? {
         changed.lock()

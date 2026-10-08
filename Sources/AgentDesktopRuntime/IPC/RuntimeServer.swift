@@ -158,6 +158,28 @@ public final class RuntimeServer: @unchecked Sendable {
         }
     }
 
+    /// How long a subscribed connection waits for the client between
+    /// checks for new events.
+    static let pushInterval: Int32 = 200
+
+    /// A subscribed connection: frames as events arrive, until the client
+    /// unsubscribes (true: back to requests) or goes away (false). A Run's
+    /// own stream also ends once that Run has ended and was fully sent.
+    private func push(_ channel: LineChannel, _ connection: ConnectionState) -> Bool {
+        while connection.isSubscribed {
+            let frames = service.pendingEventFrames(connection)
+            for f in frames {
+                guard channel.writeLine(f.encodedData()) else { return false }
+            }
+            if !frames.isEmpty { continue }
+            if service.subscriptionDrained(connection) { return false }
+            guard channel.readable(within: Self.pushInterval) else { continue }
+            guard case let .line(body) = channel.readLine() else { return false }
+            guard channel.writeLine(service.respond(to: body, on: connection).json.encodedData()) else { return false }
+        }
+        return true
+    }
+
     private func serve(_ fd: Int32) {
         defer { Darwin.close(fd) }
         // A connection whose writes could raise SIGPIPE is not served.
@@ -180,6 +202,7 @@ public final class RuntimeServer: @unchecked Sendable {
             case let .line(body):
                 let response = service.respond(to: body, on: connection)
                 guard channel.writeLine(response.json.encodedData()) else { return }
+                if connection.isSubscribed, !push(channel, connection) { return }
             case .tooLarge:
                 channel.writeLine(RuntimeResponse.failure(nil, RuntimeError(
                     "frame_too_large", "a message exceeds \(RuntimeAPI.maxFrameBytes) bytes", phase: .request)).json.encodedData())

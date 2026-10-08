@@ -2399,6 +2399,11 @@
         },
         "event": {
           "$ref": "#/$defs/RunEvent"
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "resume with events.subscribe after=cursor: the sequence for a Run stream, the global cursor otherwise"
         }
       }
     },
