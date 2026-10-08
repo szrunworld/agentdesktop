@@ -180,11 +180,14 @@ public enum PastePrompt: Equatable {
 
     /// A "Pasting from …" / "正在从…" line that was not on screen before
     /// ⌘V. Chat text such as "正在从公司出发" begins the same way; already
-    /// there, it is page content, not this paste's progress.
+    /// there, it is page content, not this paste's progress. Matched by
+    /// place as well as text (Codex on #127): the same words elsewhere on
+    /// the page, such as a picture of an earlier sheet, do not hide a real
+    /// sheet.
     static func isProgress(_ line: PhoneText, before baseline: [PhoneText]?) -> Bool {
         let text = clean(line.text)
         guard pastingLabels.contains(where: { text.hasPrefix($0) }) else { return false }
-        return !(baseline ?? []).contains { clean($0.text) == text }
+        return !wasThere(line, in: baseline)
     }
 
     static func clean(_ text: String) -> String {
@@ -523,6 +526,8 @@ public struct PasteTransaction {
                 final class Seen { var baseline: [PhoneText]? }
                 let seen = Seen()
                 watcher.onBaseline = { seen.baseline = $0 }
+                final class Blocked { var done = false }
+                let blocked = Blocked()
                 let loan = try PasteboardLoan.with(text, on: pasteboard, restoreAfter: { (outcome: PasteOutcome) -> Bool in
                     // A paste that settled is done with the clipboard. One that
                     // did not may still be fetched (a prompt left up, a slow
@@ -531,6 +536,7 @@ public struct PasteTransaction {
                     // Before the wait below, not after it: meanwhile another
                     // process must not type into a field in an unknown state.
                     driver.blockInput("may hold a half-finished paste")
+                    blocked.done = true
                     return watcher.settles(looks: settleLooks, driver: driver, baseline: seen.baseline)
                 }) { () -> PasteOutcome in
                     let ours = pasteboard.changeCount
@@ -551,6 +557,13 @@ public struct PasteTransaction {
                     outcome = .unknown("user_copied_during_paste: something else was copied to the Mac's clipboard "
                         + "while the phone was fetching it, so the phone may have pasted that, possibly the "
                         + "user's data, instead of the text")
+                }
+                if case .unknown = outcome, !blocked.done {
+                    // Unknown only now (the user copied): block while the
+                    // lease is still held, so no other process types into
+                    // the field before the screen raises its own barrier
+                    // (Codex on #127).
+                    driver.blockInput("may hold what the user copied during a paste")
                 }
                 return Result(outcome: outcome, clipboardRestored: restored)
             }

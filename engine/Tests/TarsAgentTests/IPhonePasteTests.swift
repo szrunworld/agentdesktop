@@ -603,6 +603,40 @@ func fast() -> PasteWatcher {
         #expect(pasteboard.string(forType: .string) == "USER-SECRET")
     }
 
+    /// Codex on #127: a copy noticed only after the phone went quiet turns
+    /// a delivered paste unknown late; input is blocked then too, inside
+    /// the lease, not left to the screen after the lease is gone.
+    @Test func aLateUnknownFromACopyBlocksInput() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("before", forType: .string)
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard + pasting, keyboard])
+        phone.pasteboard = pasteboard
+        phone.onPause = {
+            if phone.looks == 2 {
+                pasteboard.clearContents()
+                pasteboard.setString("USER-SECRET", forType: .string)
+            }
+        }
+        let result = transaction(pasteboard, lock).paste("hello", verify: true, driver: phone)
+        guard case .unknown(let why) = result.outcome else {
+            Issue.record("expected unknown, got \(result.outcome)")
+            return
+        }
+        #expect(why.hasPrefix("user_copied_during_paste"))
+        #expect(phone.blocked == ["may hold what the user copied during a paste"])
+        #expect(pasteboard.string(forType: .string) == "USER-SECRET")
+    }
+
+    /// Codex on #127: the same progress words elsewhere on the page (a
+    /// picture of an earlier sheet) do not hide the real sheet.
+    @Test func progressWordsElsewhereDoNotHideTheRealSheet() {
+        let old = line("Pasting from Mac", x: 0.05, y: 0.3, width: 0.5)
+        #expect(PastePrompt.read([old, line("Pasting from Mac", y: 0.05)], baseline: [old]) == .pasting)
+        #expect(PastePrompt.read([old], baseline: [old]) == .none)
+    }
+
     /// The device fix: with the phone still fetching, its Cancel is pressed.
     @Test func aCopyDuringThePasteCancelsThePhonesFetch() {
         let (pasteboard, lock) = scratch()
