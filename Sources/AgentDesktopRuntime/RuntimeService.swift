@@ -5,6 +5,11 @@ import Foundation
 /// What the Runtime knows about one connection.
 public final class ConnectionState: @unchecked Sendable {
     public let peerUID: uid_t
+    /// Issued by the Runtime for this channel; changes on every reconnect.
+    public let connectionId: String
+    /// The principal behind the connection. Until AgentHub pairing issues
+    /// clientIds, every local connection of the user is "local:<uid>".
+    public internal(set) var clientId: String
     /// Set by a successful runtime.handshake; every other method needs it.
     public internal(set) var apiVersion: String?
     public internal(set) var clientName: String?
@@ -15,6 +20,8 @@ public final class ConnectionState: @unchecked Sendable {
 
     public init(peerUID: uid_t) {
         self.peerUID = peerUID
+        connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
+        clientId = "local:\(peerUID)"
     }
 }
 
@@ -48,7 +55,7 @@ public final class RuntimeService: @unchecked Sendable {
     static let platformMethods: Set<RuntimeMethod> = [
         .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind,
         .sessionOpen, .sessionShow, .sessionClose, .observe,
-        .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel,
+        .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
@@ -172,7 +179,7 @@ public final class RuntimeService: @unchecked Sendable {
                 instanceId: identity.instanceId, state: "running", startedAt: identity.startedAt,
                 uptimeSeconds: max(0, now().timeIntervalSince(startedAt)),
                 connections: connectionCount(), desktops: desktops.count, sessions: sessions.openCount,
-                runs: execution.activeCount).json)
+                runs: execution.activeCount).json.setting("inputAdmission", .string(execution.inputAdmission.rawValue)))
 
         case .capabilities:
             let methods = contract.methods
@@ -226,6 +233,9 @@ public final class RuntimeService: @unchecked Sendable {
         case .runEvents: return runEvents(p, connection)
         case .runWait: return waitRun(p, connection)
         case .runCancel: return cancelRun(p, connection)
+        case .runList: return listRuns(p, connection)
+        case .stopAll: return stopAll(connection)
+        case .enableInput: return enableInput(connection)
         }
     }
 }

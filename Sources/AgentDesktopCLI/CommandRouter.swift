@@ -25,8 +25,8 @@ struct RuntimeInvocation: Equatable {
         case call(RuntimeCall)
         /// run events, optionally following new events until the Run ends.
         case runEvents(runId: String, after: Int, follow: Bool)
-        /// run wait: observe until the Run ends or is quiescent.
-        case runWait(runId: String, timeout: Double, untilQuiescent: Bool)
+        /// run wait: observe until the Run ends (ended implies quiescent).
+        case runWait(runId: String, timeout: Double)
         /// run cancel, optionally waiting for quiescence.
         case runCancel(runId: String, requestId: String?, wait: Bool, timeout: Double)
         /// session exec: own a Run while a child program acts in it.
@@ -263,12 +263,29 @@ enum CommandRouter {
             } ?? 0
             return .runEvents(runId: p[0], after: after, follow: o["--follow"] != nil)
         },
-        Spec(words: ["run", "wait"], summary: "observe a Run until it ends (or --until quiescent); Ctrl-C stops only the wait",
-             options: ["--wait-timeout": true, "--until": true], positionals: ["runId"]) { o, p in
-            let until = o["--until"] ?? "terminal"
-            guard ["terminal", "quiescent"].contains(until) else { throw RuntimeError.invalidArgument("--until is terminal or quiescent") }
-            return .runWait(runId: p[0], timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 30,
-                            untilQuiescent: until == "quiescent")
+        Spec(words: ["run", "wait"], summary: "observe a Run until it ends and is quiescent; Ctrl-C stops only the wait",
+             options: ["--wait-timeout": true], positionals: ["runId"]) { o, p in
+            .runWait(runId: p[0], timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 30)
+        },
+        Spec(words: ["run", "list"], summary: "Delegated and Durable Runs, newest first",
+             options: ["--origin": true, "--phase": true, "--desktop": true, "--active": false, "--cursor": true, "--limit": true],
+             positionals: []) { o, _ in
+            var p: [(String, JSONValue)] = []
+            if let v = o["--origin"] { p.append(("origin", .string(v))) }
+            if let v = o["--phase"] { p.append(("phase", .string(v))) }
+            if let v = o["--desktop"] { p.append(("desktopId", .string(v))) }
+            if o["--active"] != nil { p.append(("active", .bool(true))) }
+            if let v = o["--cursor"] { p.append(("cursor", .string(v))) }
+            if let n = try positive(o, "--limit", required: false) { p.append(("limit", .int(min(n, 200)))) }
+            return .call(RuntimeCall(method: .runList, params: .obj(p)))
+        },
+        Spec(words: ["runtime", "stop-all"], summary: "stop input for every Run, Delegated and Durable (owner)",
+             options: ["--request-id": true], positionals: []) { o, _ in
+            try write(.stopAll, .obj([("scope", .string("all_platform_runs"))]), o)
+        },
+        Spec(words: ["runtime", "enable-input"], summary: "allow new Runs again after stop-all; old Runs are not resumed",
+             options: ["--request-id": true], positionals: []) { o, _ in
+            try write(.enableInput, .obj([]), o)
         },
         Spec(words: ["run", "cancel"], summary: "cancel a Run (--wait: until no further input is possible)",
              options: ["--request-id": true, "--wait": false, "--wait-timeout": true], positionals: ["runId"]) { o, p in

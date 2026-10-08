@@ -388,6 +388,13 @@ enum RuntimeContractData {
         "runs": {
           "type": "integer",
           "minimum": 0
+        },
+        "inputAdmission": {
+          "enum": [
+            "enabled",
+            "stopping",
+            "stopped"
+          ]
         }
       }
     },
@@ -1562,12 +1569,6 @@ enum RuntimeContractData {
           "type": "integer",
           "minimum": 0,
           "maximum": 600000
-        },
-        "until": {
-          "enum": [
-            "terminal",
-            "quiescent"
-          ]
         }
       }
     },
@@ -1745,12 +1746,21 @@ enum RuntimeContractData {
       "required": [
         "runId",
         "kind",
+        "origin",
+        "ownership",
+        "lifetime",
+        "clientId",
+        "connectionId",
         "sessionId",
         "desktopId",
-        "state",
-        "quiescent",
+        "phase",
+        "outcome",
+        "quiescence",
+        "closingReason",
+        "revision",
         "createdAt",
-        "receipts"
+        "receipts",
+        "unknownActions"
       ],
       "properties": {
         "runId": {
@@ -1759,7 +1769,40 @@ enum RuntimeContractData {
         "kind": {
           "enum": [
             "act",
-            "exec"
+            "exec",
+            "unit"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "agent_hub",
+            "gui_explorer",
+            "workflow_replay",
+            "user"
+          ]
+        },
+        "ownership": {
+          "enum": [
+            "external_client",
+            "platform"
+          ]
+        },
+        "lifetime": {
+          "enum": [
+            "connection_scoped",
+            "platform_durable"
+          ]
+        },
+        "clientId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "connectionId": {
+          "type": [
+            "string",
+            "null"
           ]
         },
         "sessionId": {
@@ -1768,18 +1811,41 @@ enum RuntimeContractData {
         "desktopId": {
           "$ref": "#/$defs/Id"
         },
-        "state": {
+        "phase": {
           "enum": [
+            "queued",
             "running",
-            "cancelling",
-            "completed",
-            "cancelled",
-            "failed",
-            "interrupted"
+            "waiting_approval",
+            "waiting_input",
+            "stopping",
+            "ended"
           ]
         },
-        "quiescent": {
-          "type": "boolean"
+        "outcome": {
+          "enum": [
+            "success",
+            "failed",
+            "cancelled",
+            "unknown",
+            null
+          ]
+        },
+        "quiescence": {
+          "enum": [
+            "not_confirmed",
+            "pending",
+            "confirmed"
+          ]
+        },
+        "closingReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
         },
         "createdAt": {
           "$ref": "#/$defs/Timestamp"
@@ -1787,16 +1853,67 @@ enum RuntimeContractData {
         "endedAt": {
           "$ref": "#/$defs/Timestamp"
         },
-        "endReason": {
-          "type": "string"
-        },
         "receipts": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Id"
           }
+        },
+        "unknownActions": {
+          "type": "integer",
+          "minimum": 0
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "ended"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "quiescence": {
+                "const": "confirmed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ownership": {
+                "const": "external_client"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "lifetime": {
+                "const": "connection_scoped"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ownership": {
+                "const": "platform"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "lifetime": {
+                "const": "platform_durable"
+              }
+            }
+          }
+        }
+      ]
     },
     "RunStart": {
       "type": "object",
@@ -1910,20 +2027,206 @@ enum RuntimeContractData {
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "state",
-            "quiescent"
+            "phase",
+            "quiescence",
+            "outcome",
+            "revision"
           ],
           "properties": {
-            "state": {
+            "phase": {
               "type": "string"
             },
-            "quiescent": {
-              "type": "boolean"
+            "quiescence": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "type": "integer"
             }
           }
         },
         "alreadyTerminal": {
           "type": "boolean"
+        }
+      }
+    },
+    "run_start_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lifetime": {
+          "enum": [
+            "connection_scoped",
+            "platform_durable"
+          ],
+          "description": "accepted only to refuse escalation explicitly"
+        },
+        "ownership": {
+          "enum": [
+            "external_client",
+            "platform"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "agent_hub",
+            "gui_explorer",
+            "workflow_replay",
+            "user"
+          ]
+        }
+      }
+    },
+    "run_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "enum": [
+            "agent_hub",
+            "gui_explorer",
+            "workflow_replay",
+            "user"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "queued",
+            "running",
+            "waiting_approval",
+            "waiting_input",
+            "stopping",
+            "ended"
+          ]
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      }
+    },
+    "RunList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runs",
+        "next"
+      ],
+      "properties": {
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Run"
+          }
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "stop_all_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope"
+      ],
+      "properties": {
+        "scope": {
+          "const": "all_platform_runs"
+        }
+      }
+    },
+    "StopAllResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admission",
+        "runs",
+        "pending"
+      ],
+      "properties": {
+        "admission": {
+          "enum": [
+            "enabled",
+            "stopping",
+            "stopped"
+          ]
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "runId",
+              "accepted",
+              "phase",
+              "quiescence",
+              "outcome"
+            ],
+            "properties": {
+              "runId": {
+                "$ref": "#/$defs/Id"
+              },
+              "accepted": {
+                "const": true
+              },
+              "phase": {
+                "type": "string"
+              },
+              "quiescence": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        }
+      }
+    },
+    "EnableInputResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admission"
+      ],
+      "properties": {
+        "admission": {
+          "const": "enabled"
         }
       }
     }
@@ -1934,7 +2237,7 @@ enum RuntimeContractData {
     static let methods = ##"""
 {
   "apiVersion": "agentdesktop.runtime/1",
-  "status": "DRAFT_PR2",
+  "status": "DRAFT_ADR_V2_2",
   "transport": {
     "macOS": "owner-only Unix domain socket ~/Library/Application Support/AgentDesktop/runtime.sock",
     "windows": "current-user named pipe (W1)",
@@ -1953,9 +2256,9 @@ enum RuntimeContractData {
       "retentionHours": 24
     },
     "control": {
-      "lease": "one per Desktop, held by one running Run",
-      "act": "a one-action Run unless context.runId names an exec Run this connection owns or attached to",
-      "ownerLoss": "closing the connection that started a Run stops its input"
+      "runs": "ADR v2.2: Delegated = external_client/connection_scoped (client connections; control-connection loss stops it); Durable = platform/platform_durable (created inside the Runtime only; no connection ends it)",
+      "lease": "one per Desktop, held by one live Run",
+      "admission": "runtime.stopAll closes input for all Runs; runtime.enableInput reopens for new Runs only"
     }
   },
   "schema": "runtime.schema.json",
@@ -2097,7 +2400,7 @@ enum RuntimeContractData {
       "method": "run.start",
       "stage": "P0",
       "mutation": false,
-      "params": "empty_params",
+      "params": "run_start_params",
       "result": "RunStart",
       "note": "not ledgered: the attach token it returns is a credential and must not be stored; a retry starts another Run, which ends with its connection"
     },
@@ -2142,6 +2445,27 @@ enum RuntimeContractData {
       "mutation": true,
       "params": "run_ref_params",
       "result": "CancelReceipt"
+    },
+    {
+      "method": "run.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_list_params",
+      "result": "RunList"
+    },
+    {
+      "method": "runtime.stopAll",
+      "stage": "P0",
+      "mutation": true,
+      "params": "stop_all_params",
+      "result": "StopAllResult"
+    },
+    {
+      "method": "runtime.enableInput",
+      "stage": "P0",
+      "mutation": true,
+      "params": "empty_params",
+      "result": "EnableInputResult"
     }
   ]
 }
@@ -2196,6 +2520,12 @@ enum RuntimeContractData {
       "description": "Endpoint or caller is not the current user's, or an OS permission is missing."
     },
     {
+      "code": "ownership_escalation_denied",
+      "exitCode": 4,
+      "phase": "request",
+      "description": "A client asked for platform ownership or a durable lifetime; refused (ADR v2.2)."
+    },
+    {
       "code": "approval_required",
       "exitCode": 4,
       "phase": "handler",
@@ -2231,6 +2561,18 @@ enum RuntimeContractData {
       "exitCode": 5,
       "phase": "handler",
       "description": "The Run was cancelled or ended; it takes no new input."
+    },
+    {
+      "code": "input_disabled",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "Input is stopped for all Runs (runtime.stopAll); an owner must enable it again."
+    },
+    {
+      "code": "stop_pending",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "Runs are still stopping; the operation waits for quiescence."
     },
     {
       "code": "handshake_required",

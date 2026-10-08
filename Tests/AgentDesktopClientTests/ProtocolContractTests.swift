@@ -45,7 +45,8 @@ let contract = RuntimeContract.shared
         let holds = !(contract.validate(.obj([]), m.params).contains { $0.contains("$ref") })
         #expect(holds, "\(m.params) missing")
         let writes: Set<String> = ["desktop.create", "desktop.destroy", "app.launch", "window.bind", "window.unbind",
-                                   "session.open", "session.close", "act", "run.finish", "run.cancel"]
+                                   "session.open", "session.close", "act", "run.finish", "run.cancel",
+                                   "runtime.stopAll", "runtime.enableInput"]
         #expect(m.mutation == writes.contains(m.method), "\(m.method)")
     }
 }

@@ -56,7 +56,9 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
     let runId = try #require(receipt["runId"]?.stringValue)
     let run = try #require(data(call(sc.s, sc.c, "run.show", params: #"{"runId":"\#(runId)"}"#)))
     #expect(contract.validate(run, "Run").isEmpty)
-    #expect(run["state"]?.stringValue == "completed" && run["quiescent"] == .bool(true))
+    #expect(run["phase"]?.stringValue == "ended" && run["outcome"]?.stringValue == "success")
+    #expect(run["quiescence"]?.stringValue == "confirmed")
+    #expect(run["ownership"]?.stringValue == "external_client" && run["lifetime"]?.stringValue == "connection_scoped")
     #expect(run["receipts"] == .array([receipt["receiptId"]!]))
     let events = try #require(data(call(sc.s, sc.c, "run.events", params: #"{"runId":"\#(runId)"}"#)))
     #expect(contract.validate(events, "RunEvents").isEmpty)
@@ -122,8 +124,9 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
     // The owner goes away: no more input in this Run.
     sc.s.connectionClosed(owner)
     let run = try #require(data(call(sc.s, sc.c, "run.show", params: #"{"runId":"\#(runId)"}"#)))
-    #expect(run["state"]?.stringValue == "cancelled" && run["quiescent"] == .bool(true))
-    #expect(run["endReason"]?.stringValue == "owner_lost")
+    #expect(run["phase"]?.stringValue == "ended" && run["outcome"]?.stringValue == "cancelled")
+    #expect(run["quiescence"]?.stringValue == "confirmed")
+    #expect(run["closingReason"]?.stringValue == "owner_lost")
     let fresh = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["snapshotId"]?.stringValue)
     #expect(code(act(sc, clickContinue, snapshot: fresh, runId: runId, on: child)) == "run_not_active")
     #expect(sc.platform.performed.count == 1)
@@ -148,20 +151,21 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
     platform.entered.wait()  // the click is in flight
     let cancel = try #require(data(call(sc.s, sc.c, "run.cancel", id: "cancel-1", params: #"{"runId":"\#(runId)"}"#)))
     #expect(contract.validate(cancel, "CancelReceipt").isEmpty)
-    #expect(cancel["execution"]?["state"]?.stringValue == "cancelling")
-    #expect(cancel["execution"]?["quiescent"] == .bool(false))
-    #expect(code(call(sc.s, sc.c, "run.wait", params: #"{"runId":"\#(runId)","timeoutMs":100,"until":"quiescent"}"#)) == "wait_timeout")
+    #expect(cancel["execution"]?["phase"]?.stringValue == "stopping")
+    #expect(cancel["execution"]?["quiescence"]?.stringValue == "pending")
+    #expect(code(call(sc.s, sc.c, "run.wait", params: #"{"runId":"\#(runId)","timeoutMs":100}"#)) == "wait_timeout")
     platform.gate?.signal()
     done.wait()
     #expect(data(box.r!)?["delivery"]?.stringValue == "dispatched", "the action in flight finishes")
-    let after = try #require(data(call(sc.s, sc.c, "run.wait", params: #"{"runId":"\#(runId)","timeoutMs":2000,"until":"quiescent"}"#)))
-    #expect(after["state"]?.stringValue == "cancelled" && after["quiescent"] == .bool(true))
+    let after = try #require(data(call(sc.s, sc.c, "run.wait", params: #"{"runId":"\#(runId)","timeoutMs":2000}"#)))
+    #expect(after["phase"]?.stringValue == "ended" && after["outcome"]?.stringValue == "cancelled")
+    #expect(after["quiescence"]?.stringValue == "confirmed")
     platform.gate = nil
     // The same cancel requestId replays; a cancel of an ended Run says so.
     #expect(data(call(sc.s, sc.c, "run.cancel", id: "cancel-1", params: #"{"runId":"\#(runId)"}"#)) == cancel)
     let late = try #require(data(call(sc.s, sc.c, "run.cancel", params: #"{"runId":"\#(runId)"}"#)))
     #expect(late["alreadyTerminal"] == .bool(true))
-    #expect(late["execution"]?["state"]?.stringValue == "cancelled")
+    #expect(late["execution"]?["outcome"]?.stringValue == "cancelled")
 }
 
 @Test func failuresSayWhetherInputMayHaveBeenSent() throws {
@@ -200,16 +204,22 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
         _ = try ledger.begin(caller: getuid(), RuntimeRequest(requestId: "queued", method: "act", params: .obj([])))
         _ = try ledger.begin(caller: getuid(), RuntimeRequest(requestId: "sent", method: "act", params: .obj([])))
         ledger.markDispatching(caller: getuid(), requestId: "sent")
-        runs.create(RunRecord(runId: "run_x", caller: getuid(), kind: "exec", sessionId: "s", desktopId: "d", state: .running,
-                              quiescent: false, createdAt: Timestamp.string(Date()), endedAt: nil, endReason: nil, receipts: []))
+        runs.create(testRun("run_x", lifetime: .connectionScoped))
+        // A durable Run whose action crossed its delivery boundary unanswered.
+        runs.create(testRun("run_y", lifetime: .platformDurable))
+        runs.appendEvent("run_y", "action.dispatched", .obj([("requestId", .string("sent-y"))]))
     }
     let ledger = try RequestLedger(path: dir + "/requests.sqlite")
     #expect(try ledger.record(caller: getuid(), requestId: "queued")?.state == .failed)
     #expect(try ledger.record(caller: getuid(), requestId: "queued")?.outcome?["error"]?["details"]?["delivery"]?.stringValue == "not_dispatched")
     #expect(try ledger.record(caller: getuid(), requestId: "sent")?.state == .unknown)
     let runs = try RunStore(path: dir + "/runs.sqlite")
-    #expect(runs.find("run_x")?.state == .interrupted)
-    #expect(runs.find("run_x")?.quiescent == true)
+    let x = try #require(runs.find("run_x"))
+    #expect(x.phase == .ended && x.quiescence == .confirmed && x.outcome == .cancelled)
+    #expect(x.closingReason == "runtime_restarted")
+    let y = try #require(runs.find("run_y"))
+    #expect(y.phase == .ended && y.quiescence == .confirmed && y.outcome == .unknown, "never redone, never called success")
+    #expect(y.unknownActions == 1)
 }
 
 @Test func waitPollsForAnElementCondition() throws {
@@ -233,7 +243,17 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
     let runId = try #require(data(call(sc.s, owner, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
     #expect(code(call(sc.s, sc.c, "run.finish", params: #"{"runId":"\#(runId)"}"#)) == "permission_denied")
     let r = try #require(data(call(sc.s, owner, "run.finish", params: #"{"runId":"\#(runId)","exitCode":0}"#)))
-    #expect(r["state"]?.stringValue == "completed")
-    #expect(r["endReason"]?.stringValue == "exit 0")
+    #expect(r["phase"]?.stringValue == "ended" && r["outcome"]?.stringValue == "success")
+    #expect(r["closingReason"]?.stringValue == "exit 0")
     #expect(data(call(sc.s, sc.c, "runtime.status"))?["runs"]?.intValue == 0)
+}
+
+
+func testRun(_ id: String, lifetime: RunRecord.Lifetime) -> RunRecord {
+    let durable = lifetime == .platformDurable
+    return RunRecord(runId: id, kind: durable ? "unit" : "exec", origin: durable ? .guiExplorer : .agentHub,
+                     ownership: durable ? .platform : .externalClient, lifetime: lifetime,
+                     clientId: durable ? nil : "local:\(getuid())", connectionId: durable ? nil : "conn_test",
+                     sessionId: "s", desktopId: "d", phase: .running, outcome: nil, quiescence: .notConfirmed,
+                     closingReason: nil, revision: 1, createdAt: Timestamp.string(Date()), endedAt: nil, receipts: [], unknownActions: 0)
 }

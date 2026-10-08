@@ -203,10 +203,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Records beside the endpoint: <dir>/runtime (product) or
             // <dir>/<name>.runtime (side instance), owner-only.
             let records = role.runtimeRecordsDirectory.path
-            let service = RuntimeService(
-                identity: identity, backend: MacBackend(), platform: EnginePlatform(engine: runtime),
-                ledger: try RequestLedger(path: records + "/requests.sqlite"),
-                artifacts: try ArtifactStore(directory: records + "/artifacts"))
+            let service = try RuntimeService.persistent(
+                identity: identity, backend: MacBackend(), platform: EnginePlatform(engine: runtime), records: records)
             let server = RuntimeServer(path: path, service: service)
             try server.start()
             runtimeServer = server

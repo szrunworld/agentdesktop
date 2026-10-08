@@ -1,6 +1,6 @@
 {
   "apiVersion": "agentdesktop.runtime/1",
-  "status": "DRAFT_PR2",
+  "status": "DRAFT_ADR_V2_2",
   "transport": {
     "macOS": "owner-only Unix domain socket ~/Library/Application Support/AgentDesktop/runtime.sock",
     "windows": "current-user named pipe (W1)",
@@ -19,9 +19,9 @@
       "retentionHours": 24
     },
     "control": {
-      "lease": "one per Desktop, held by one running Run",
-      "act": "a one-action Run unless context.runId names an exec Run this connection owns or attached to",
-      "ownerLoss": "closing the connection that started a Run stops its input"
+      "runs": "ADR v2.2: Delegated = external_client/connection_scoped (client connections; control-connection loss stops it); Durable = platform/platform_durable (created inside the Runtime only; no connection ends it)",
+      "lease": "one per Desktop, held by one live Run",
+      "admission": "runtime.stopAll closes input for all Runs; runtime.enableInput reopens for new Runs only"
     }
   },
   "schema": "runtime.schema.json",
@@ -163,7 +163,7 @@
       "method": "run.start",
       "stage": "P0",
       "mutation": false,
-      "params": "empty_params",
+      "params": "run_start_params",
       "result": "RunStart",
       "note": "not ledgered: the attach token it returns is a credential and must not be stored; a retry starts another Run, which ends with its connection"
     },
@@ -208,6 +208,27 @@
       "mutation": true,
       "params": "run_ref_params",
       "result": "CancelReceipt"
+    },
+    {
+      "method": "run.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_list_params",
+      "result": "RunList"
+    },
+    {
+      "method": "runtime.stopAll",
+      "stage": "P0",
+      "mutation": true,
+      "params": "stop_all_params",
+      "result": "StopAllResult"
+    },
+    {
+      "method": "runtime.enableInput",
+      "stage": "P0",
+      "mutation": true,
+      "params": "empty_params",
+      "result": "EnableInputResult"
     }
   ]
 }

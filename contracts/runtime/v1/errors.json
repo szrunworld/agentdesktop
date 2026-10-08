@@ -46,6 +46,12 @@
       "description": "Endpoint or caller is not the current user's, or an OS permission is missing."
     },
     {
+      "code": "ownership_escalation_denied",
+      "exitCode": 4,
+      "phase": "request",
+      "description": "A client asked for platform ownership or a durable lifetime; refused (ADR v2.2)."
+    },
+    {
       "code": "approval_required",
       "exitCode": 4,
       "phase": "handler",
@@ -81,6 +87,18 @@
       "exitCode": 5,
       "phase": "handler",
       "description": "The Run was cancelled or ended; it takes no new input."
+    },
+    {
+      "code": "input_disabled",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "Input is stopped for all Runs (runtime.stopAll); an owner must enable it again."
+    },
+    {
+      "code": "stop_pending",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "Runs are still stopping; the operation waits for quiescence."
     },
     {
       "code": "handshake_required",

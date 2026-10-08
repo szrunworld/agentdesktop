@@ -22,6 +22,10 @@ import Testing
         (["wait", "--session", "s", "--element-present", "--label", "完成", "--wait-timeout", "2s"], "wait",
          .obj([("condition", .obj([("kind", .string("elementPresent")), ("label", .string("完成"))])), ("timeoutMs", .int(2000))])),
         (["run", "show", "run_1"], "run.show", .obj([("runId", .string("run_1"))])),
+        (["run", "list", "--origin", "gui_explorer", "--active", "--limit", "500"], "run.list",
+         .obj([("origin", .string("gui_explorer")), ("active", .bool(true)), ("limit", .int(200))])),
+        (["runtime", "stop-all", "--request-id", "stop-1"], "runtime.stopAll", .obj([("scope", .string("all_platform_runs"))])),
+        (["runtime", "enable-input"], "runtime.enableInput", .obj([])),
     ]
     for (args, method, params) in cases {
         let h = Harness()
@@ -77,18 +81,19 @@ import Testing
         switch r.method {
         case "run.cancel":
             return .obj([("cancelRequest", .obj([("accepted", .bool(true)), ("scope", .obj([("kind", .string("run")), ("id", .string("run_1"))]))])),
-                         ("execution", .obj([("state", .string("cancelling")), ("quiescent", .bool(false))]))])
+                         ("execution", .obj([("phase", .string("stopping")), ("quiescence", .string("pending")), ("outcome", .null), ("revision", .int(2))]))])
         case "run.wait":
             waits += 1
             if waits < 3 { throw RuntimeError("wait_timeout", "still cancelling", phase: .handler) }
-            return .obj([("runId", .string("run_1")), ("state", .string("cancelled")), ("quiescent", .bool(true))])
+            return .obj([("runId", .string("run_1")), ("phase", .string("ended")), ("outcome", .string("cancelled")),
+                         ("quiescence", .string("confirmed")), ("revision", .int(4))])
         default: return .obj([])
         }
     }
     #expect(h.run("run", "cancel", "run_1", "--wait", "--request-id", "c-1", "--format", "json") == 0)
     let v = try h.json()
-    #expect(v["data"]?["execution"]?["state"]?.stringValue == "cancelled")
-    #expect(v["data"]?["execution"]?["quiescent"] == .bool(true))
+    #expect(v["data"]?["execution"]?["outcome"]?.stringValue == "cancelled")
+    #expect(v["data"]?["execution"]?["quiescence"]?.stringValue == "confirmed")
     #expect(h.requests.filter { $0 == "run.cancel" }.count == 1, "never cancels twice")
 }
 

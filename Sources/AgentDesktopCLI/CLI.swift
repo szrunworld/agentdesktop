@@ -103,8 +103,8 @@ struct CLI {
             return perform(call, out, endpoint: endpoint)
         case let .runEvents(runId, after, follow):
             return runEvents(runId: runId, after: after, follow: follow, format: invocation.format, out, endpoint: endpoint)
-        case let .runWait(runId, timeout, untilQuiescent):
-            return runWait(runId: runId, timeout: timeout, untilQuiescent: untilQuiescent, out, endpoint: endpoint)
+        case let .runWait(runId, timeout):
+            return runWait(runId: runId, timeout: timeout, out, endpoint: endpoint)
         case let .runCancel(runId, requestId, wait, timeout):
             return runCancel(runId: runId, requestId: requestId, wait: wait, timeout: timeout, out, endpoint: endpoint)
         case let .sessionExec(desktopId, sessionId, argv):

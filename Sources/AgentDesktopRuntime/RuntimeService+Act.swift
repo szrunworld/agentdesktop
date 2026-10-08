@@ -40,9 +40,12 @@ extension RuntimeService {
             case let .success((r, _)): runId = r.runId; oneShot = true
             }
         }
+        // A one-action Run ends with this request: success if its input was
+        // delivered, failed if refused; an unknown delivery makes it unknown.
+        var oneShotOutcome: RunRecord.Outcome = .failed
         defer {
             if oneShot {
-                execution.stop(runId: runId, reason: "completed", endAs: .completed)
+                execution.stop(runId: runId, reason: "completed", endAs: oneShotOutcome)
                 c.ownedRuns.remove(runId)
             }
         }
@@ -56,7 +59,7 @@ extension RuntimeService {
         }
         let action = request.params["action"] ?? .obj([])
 
-        return withDesktop(.string(desk.desktopId)) { d in
+        let result = withDesktop(.string(desk.desktopId)) { d -> JSONValue in
             guard let b = d.binding else {
                 throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler, notSent: true)
             }
@@ -122,7 +125,7 @@ extension RuntimeService {
                                      ("dispatchedAt", delivery == "not_dispatched" ? .null : .string(dispatchedAt)),
                                      ("completedAt", .string(nowString))])),
                 ])
-                self.execution.endAction(runId: runId, receiptId: receiptId)
+                self.execution.endAction(runId: runId, receiptId: receiptId, deliveryUnknown: delivery == "unknown")
                 runs.appendEvent(runId, "action.\(execution)", .obj([("receipt", receipt)]))
                 if var failure {
                     failure.details = .obj([("receipt", receipt)])
@@ -131,6 +134,8 @@ extension RuntimeService {
                 return receipt
             }
         }
+        if case .success = result { oneShotOutcome = .success }
+        return result
     }
 
     static func sameFrame(_ a: AgentDesktopProtocol.Rect, _ b: AgentDesktopProtocol.Rect) -> Bool {
