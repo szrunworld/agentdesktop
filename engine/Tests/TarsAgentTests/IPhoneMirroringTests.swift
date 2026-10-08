@@ -28,6 +28,8 @@ class FakeMirroring: IPhoneMirroringSystem {
     var sleeps = 0
     var onSleep: (() -> Void)?
     var createFails = false
+    let inputBarrier = HostFlag(url: FileManager.default.temporaryDirectory
+        .appendingPathComponent("agentdesktop-barrier-\(UUID().uuidString)/iphone-input-barrier"))
     var createdScreens = 0
 
     func mirroringPIDs() -> [pid_t] { pids }
@@ -198,8 +200,16 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let second = try phone.perform(tap(3100, 300))
         #expect(second.error?.hasPrefix("stale_observation") == true)
         #expect(fake.inputs.count == 1)
-        // Reading the window again binds it afresh.
+        // Reading the window's geometry is not a look at the phone.
         _ = try phone.frame()
+        #expect(try phone.perform(tap(3100, 300)).error?.hasPrefix("stale_observation") == true)
+        // Another process, a new CLI command, is blocked too.
+        let next = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try next.frame()
+        #expect(try next.perform(tap(3100, 300)).error?.hasPrefix("stale_observation") == true)
+        #expect(fake.inputs.count == 1)
+        // A screenshot lowers the barrier for everyone.
+        _ = try next.screenshot(size: CGSize(width: 400, height: 720))
         #expect(try phone.perform(tap(3100, 300)).ok)
     }
 

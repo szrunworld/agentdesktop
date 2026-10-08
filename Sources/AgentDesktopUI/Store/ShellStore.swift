@@ -55,6 +55,13 @@ public final class ShellStore: ObservableObject {
     @Published public private(set) var runUpdates: UpdateMode = .none
     /// Last global event cursor seen; resubscription continues after it.
     @Published public private(set) var eventCursor: Int?
+    /// Bumped after every update round (poll tick or applied event). Detail
+    /// pages re-read their own object when it changes, so they never know
+    /// whether the round came from polling or a push.
+    @Published public private(set) var tick = 0
+    /// Answer of the last global stop or input re-enable, for the window.
+    @Published public private(set) var lastStop: JSONValue?
+    @Published public private(set) var stopProblem: RuntimeProblem?
 
     public private(set) var runtime: RuntimePort
     public private(set) var generation = 0
@@ -66,14 +73,23 @@ public final class ShellStore: ObservableObject {
     private let clock: PollClock
     private let pollMs: Int
     private let now: () -> Date
+    /// When false, Runs are polled even if the Runtime offers
+    /// `events.subscribe` (U1b-1: the in-process port has no push yet).
+    public let allowSubscription: Bool
 
     public init(runtime: RuntimePort, clock: PollClock = SystemPollClock(), pollMs: Int = 2000,
-                now: @escaping () -> Date = Date.init) {
+                allowSubscription: Bool = true, now: @escaping () -> Date = Date.init) {
         self.runtime = runtime
         self.clock = clock
         self.pollMs = pollMs
+        self.allowSubscription = allowSubscription
         self.now = now
     }
+
+    public var isRunning: Bool { !tasks.isEmpty }
+    /// Update loops running now (tests: one poll loop, plus one
+    /// subscription loop when Runs are pushed).
+    var loopCount: Int { tasks.count }
 
     /// Runs whose phase is not `ended`.
     public var activeRuns: [JSONValue] { runs.filter { $0["phase"]?.stringValue != "ended" } }
@@ -83,10 +99,24 @@ public final class ShellStore: ObservableObject {
     // MARK: Lifecycle
 
     /// Handshake, read capabilities and first snapshots, then keep each kind
-    /// current with its one update source.
+    /// current with its one update source. Calling it again while running
+    /// restarts the loops; there is never a second poll loop. If the Runtime
+    /// cannot be reached the same loop keeps trying, and the window comes
+    /// back by itself once it answers.
     public func start() async {
+        stop()
         let gen = generation
-        connection = .connecting
+        await connect(gen)
+        guard gen == generation, tasks.isEmpty else { return }
+        tasks.append(Task { [weak self] in await self?.pollLoop(gen) })
+        if runUpdates == .subscription {
+            tasks.append(Task { [weak self] in await self?.subscriptionLoop(gen) })
+        }
+    }
+
+    /// One connection attempt: handshake, capabilities, status, snapshots.
+    private func connect(_ gen: Int) async {
+        if case .connected = connection {} else { connection = .connecting }
         do {
             let identity = try await runtime.call("runtime.handshake", .obj([
                 ("apiVersions", .array([.string(RuntimeAPI.version)])),
@@ -101,21 +131,21 @@ public final class ShellStore: ObservableObject {
             status = st
         } catch {
             guard gen == generation else { return }
-            let p = RuntimeProblem(error)
-            connection = .disconnected(p)
-            desktopsState = .disconnected(p)
-            runsState = .disconnected(p)
+            markDisconnected(RuntimeProblem(error))
             return
         }
         await refreshDesktops()
         await refreshRuns()
         guard gen == generation else { return }
         desktopUpdates = .polling
-        runUpdates = offers("events.subscribe") ? .subscription : .polling
-        tasks.append(Task { [weak self] in await self?.pollLoop(gen) })
-        if runUpdates == .subscription {
-            tasks.append(Task { [weak self] in await self?.subscriptionLoop(gen) })
-        }
+        runUpdates = allowSubscription && offers("events.subscribe") ? .subscription : .polling
+        tick += 1
+    }
+
+    private func markDisconnected(_ p: RuntimeProblem) {
+        connection = .disconnected(p)
+        desktopsState = .disconnected(p)
+        runsState = .disconnected(p)
     }
 
     /// Stop updating (window closed). Ends the event stream; never a Run.
@@ -186,8 +216,50 @@ public final class ShellStore: ObservableObject {
 
     public func refreshStatus() async {
         let gen = generation
-        guard let st = try? await runtime.call("runtime.status"), gen == generation else { return }
-        status = st
+        do {
+            let st = try await runtime.call("runtime.status")
+            guard gen == generation else { return }
+            status = st
+        } catch {
+            guard gen == generation else { return }
+            let p = RuntimeProblem(error)
+            if p.isDisconnection { markDisconnected(p) }
+        }
+    }
+
+    /// `runtime.stopAll`: every platform Run stops taking input. The window
+    /// shows what the Runtime answered (stopping, pending); it does not
+    /// mark anything stopped itself.
+    public func stopAllInput() async {
+        let gen = generation
+        do {
+            let r = try await runtime.call("runtime.stopAll", .obj([("scope", .string("all_platform_runs"))]))
+            guard gen == generation else { return }
+            lastStop = r
+            stopProblem = nil
+        } catch {
+            guard gen == generation else { return }
+            stopProblem = RuntimeProblem(error)
+        }
+        await refreshStatus()
+        await refreshRuns()
+        tick += 1
+    }
+
+    /// `runtime.enableInput`: new input is accepted again; stopped Runs stay
+    /// stopped.
+    public func enableInput() async {
+        let gen = generation
+        do {
+            _ = try await runtime.call("runtime.enableInput")
+            guard gen == generation else { return }
+            stopProblem = nil
+        } catch {
+            guard gen == generation else { return }
+            stopProblem = RuntimeProblem(error)
+        }
+        await refreshStatus()
+        tick += 1
     }
 
     /// One frame from `events.subscribe`: move the cursor and re-read the
@@ -199,6 +271,7 @@ public final class ShellStore: ObservableObject {
         guard let runId = frame["event"]?["runId"]?.stringValue else { return }
         guard let run = try? await runtime.call("run.show", .obj([("runId", .string(runId))])), gen == generation else { return }
         upsert(run)
+        tick += 1
     }
 
     /// Keep the newer revision of a Run.
@@ -219,9 +292,20 @@ public final class ShellStore: ObservableObject {
         while !Task.isCancelled, gen == generation {
             do { try await clock.pause(milliseconds: pollMs) } catch { return }
             guard !Task.isCancelled, gen == generation else { return }
-            await refreshStatus()
-            await refreshDesktops()
-            if runUpdates == .polling { await refreshRuns() }
+            if case .connected = connection {
+                await refreshStatus()
+                guard case .connected = connection else { continue }
+                await refreshDesktops()
+                if runUpdates == .polling { await refreshRuns() }
+                tick += 1
+            } else {
+                // Reconnect: the same loop, one attempt per interval.
+                let hadSubscription = runUpdates == .subscription
+                await connect(gen)
+                if case .connected = connection, runUpdates == .subscription, !hadSubscription {
+                    tasks.append(Task { [weak self] in await self?.subscriptionLoop(gen) })
+                }
+            }
         }
     }
 

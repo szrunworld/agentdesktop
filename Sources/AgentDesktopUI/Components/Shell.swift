@@ -71,12 +71,14 @@ public struct SideNav: View {
     @Binding var selection: MainSection
     let desktopNames: [(id: String, name: String, active: Bool)]
     let counts: [MainSection: Int]
+    let openDesktop: ((String) -> Void)?
 
     public init(selection: Binding<MainSection>, desktopNames: [(id: String, name: String, active: Bool)] = [],
-                counts: [MainSection: Int] = [:]) {
+                counts: [MainSection: Int] = [:], openDesktop: ((String) -> Void)? = nil) {
         _selection = selection
         self.desktopNames = desktopNames
         self.counts = counts
+        self.openDesktop = openDesktop
     }
 
     public var body: some View {
@@ -87,12 +89,17 @@ public struct SideNav: View {
                 entry(section)
                 if section == .desktops, selection == .desktops {
                     ForEach(desktopNames.prefix(6), id: \.id) { d in
-                        HStack(spacing: ADSpace.s) {
-                            Circle().fill(d.active ? StatusTone.running.foreground : StatusTone.idle.foreground.opacity(0.5))
-                                .frame(width: 5, height: 5)
-                            Text(d.name).font(ADFont.note).foregroundStyle(ADColor.ink).lineLimit(1)
+                        Button { openDesktop?(d.id) } label: {
+                            HStack(spacing: ADSpace.s) {
+                                Circle().fill(d.active ? StatusTone.running.foreground : StatusTone.idle.foreground.opacity(0.5))
+                                    .frame(width: 5, height: 5)
+                                Text(d.name).font(ADFont.note).foregroundStyle(ADColor.ink).lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.leading, 34).frame(height: 30).contentShape(Rectangle())
                         }
-                        .padding(.leading, 34).frame(height: 30)
+                        .buttonStyle(.plain).disabled(openDesktop == nil)
+                        .accessibilityLabel("\(d.name)，\(d.active ? "操作中" : "空闲")")
                     }
                 }
             }
@@ -141,11 +148,16 @@ public struct TitleBar: View {
     let runtime: StatusText
     let platform: String
     let stopAll: (() -> Void)?
+    let inputStopped: Bool
+    let enableInput: (() -> Void)?
 
-    public init(runtime: StatusText, platform: String = "macOS", stopAll: (() -> Void)?) {
+    public init(runtime: StatusText, platform: String = "macOS", stopAll: (() -> Void)?,
+                inputStopped: Bool = false, enableInput: (() -> Void)? = nil) {
         self.runtime = runtime
         self.platform = platform
         self.stopAll = stopAll
+        self.inputStopped = inputStopped
+        self.enableInput = enableInput
     }
 
     public var body: some View {
@@ -155,6 +167,11 @@ public struct TitleBar: View {
             Spacer()
             StateBadge(runtime)
             Text(platform).font(ADFont.note).foregroundStyle(ADColor.muted)
+            if inputStopped {
+                Button { enableInput?() } label: { Label("恢复输入", systemImage: "play.fill") }
+                    .buttonStyle(ADButtonStyle(.secondary)).disabled(enableInput == nil)
+                    .help("重新接受新输入；已停止的运行不会恢复")
+            }
             Button {
                 stopAll?()
             } label: {
@@ -333,11 +350,18 @@ public struct MainFrame<Page: View>: View {
     let statusLeft: String
     let statusRight: String
     let isSample: Bool
+    let inputStopped: Bool
+    let enableInput: (() -> Void)?
+    let openDesktop: ((String) -> Void)?
     let page: Page
 
     public init(selection: Binding<MainSection>, runtime: StatusText, stopAll: (() -> Void)?,
                 desktopNames: [(id: String, name: String, active: Bool)] = [], counts: [MainSection: Int] = [:],
-                statusLeft: String, statusRight: String, isSample: Bool, @ViewBuilder page: () -> Page) {
+                statusLeft: String, statusRight: String, isSample: Bool, inputStopped: Bool = false,
+                enableInput: (() -> Void)? = nil, openDesktop: ((String) -> Void)? = nil, @ViewBuilder page: () -> Page) {
+        self.inputStopped = inputStopped
+        self.enableInput = enableInput
+        self.openDesktop = openDesktop
         _selection = selection
         self.runtime = runtime
         self.stopAll = stopAll
@@ -351,9 +375,9 @@ public struct MainFrame<Page: View>: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            TitleBar(runtime: runtime, stopAll: stopAll)
+            TitleBar(runtime: runtime, stopAll: stopAll, inputStopped: inputStopped, enableInput: enableInput)
             HStack(spacing: 0) {
-                SideNav(selection: $selection, desktopNames: desktopNames, counts: counts)
+                SideNav(selection: $selection, desktopNames: desktopNames, counts: counts, openDesktop: openDesktop)
                 page.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             StatusBar(left: statusLeft, right: statusRight, isSample: isSample)
