@@ -89,6 +89,9 @@ public final class GuiRunDriver: Sendable {
     /// Throws when no new model call, input or timer may start.
     private func checkProceed() async throws {
         guard await lifecycle.mayProceed(generation: generation) else { throw CancellationError() }
+        guard await !recorder.writeFailed else {
+            throw ContractError(.auditUnavailable, "the run's record could not be written")
+        }
         guard clock.nowNanoseconds() < deadlineNs else {
             throw ContractError(.deadlineExceeded, "the run's \(limits.maxWallTimeMs) ms ran out")
         }
