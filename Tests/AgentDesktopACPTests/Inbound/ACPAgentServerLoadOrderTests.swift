@@ -247,8 +247,8 @@ import Testing
             + #"{"kind":"agent","text":"没有 /hunter2 这个命令。\n可用命令：","at":"t"},"#
             + #"{"kind":"agent","text":"任务 run-1 需要你的回答：hunter2 是什么？\n请在下一条 prompt 里直接回答。","at":"t"},"#
             + #"{"kind":"agent","text":"/work 的输入不符合要求，未创建任务：\n$：不接受字段 hunter2","at":"t"},"#
-            + #"{"kind":"agent","text":"run-1：阶段 ended，结果 succeeded\nhunter2-arg：状态待核实（不会自动重试）","at":"t"},"#
-            + #"{"kind":"agent","text":"任务 run-1 已结束：阶段 ended，结果 succeeded","runId":"run-1","at":"t"}]}"#
+            + #"{"kind":"agent","text":"run-1：阶段 ended，结果 success\nhunter2-arg：状态待核实（不会自动重试）","at":"t"},"#
+            + #"{"kind":"agent","text":"任务 run-1 已结束：阶段 ended，结果 success","runId":"run-1","at":"t"}]}"#
         try legacy.write(to: dir.appendingPathComponent("s1.history.json"), atomically: true, encoding: .utf8)
 
         let fresh = ACPFileSessionStore(directory: dir)
@@ -259,8 +259,8 @@ import Testing
             "没有这个命令。",
             "任务 run-1 需要你的回答（问题内容不保存）。",
             "/work 的输入不符合要求，未创建任务。",
-            ACPRedactor.redact("run-1：阶段 ended，结果 succeeded\n（不属于本会话的任务，已清除）"),
-            "任务 run-1 已结束：阶段 ended，结果 succeeded",
+            ACPRedactor.redact("run-1：阶段 ended，结果 success\n（不属于本会话的任务，已清除）"),
+            "任务 run-1 已结束：阶段 ended，结果 success",
         ])
         #expect(h[1].runId == "run-1")
         #expect(try fresh.load(sessionId: "s1")?.title == "对话")

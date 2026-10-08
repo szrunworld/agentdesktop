@@ -11,81 +11,148 @@ import Foundation
 /// - "Runtime 拒绝了这个任务…"             → older builds: the Runtime's message
 /// - "/runs <arg>" status lines            → any argument, as "<arg>：…"
 /// Every other agent line is kept, redacted again.
+///
+/// All matching is on Unicode scalars, never on Characters: a user-typed
+/// prepend mark (e.g. U+0600) merges with the server's "：" into one
+/// grapheme, which Character-level `contains`/`firstIndex` then miss (b9,
+/// fifth review). Status values are the schema's enums only.
 enum ACPHistoryScrub {
     enum Outcome: Equatable { case kept, changed }
 
     static func legacyAgent(_ text: String, runIds: Set<String>) -> (String, Outcome) {
-        if text.hasPrefix("没有 /"), text.contains("这个命令") {
+        if startsWith(text, "没有 /"), has(text, "这个命令") {
             return ("没有这个命令。", .changed)
         }
-        if let r = text.range(of: "的输入不符合要求，未创建任务") {
-            let command = text[..<r.lowerBound].trimmingCharacters(in: .whitespaces)
-            let safe = command.hasPrefix("/") && command.dropFirst().allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+        if let i = scalarIndex(of: scalars("的输入不符合要求，未创建任务"), in: scalars(text)) {
+            let command = String(String.UnicodeScalarView(scalars(text)[..<i])).trimmingCharacters(in: .whitespaces)
+            let safe = startsWith(command, "/") && command.unicodeScalars.dropFirst().allSatisfy(isPlainNameScalar)
             return ((safe ? command : "命令") + " 的输入不符合要求，未创建任务。", .changed)
         }
-        if text.hasPrefix("任务 "), let r = text.range(of: " 需要你的回答") {
-            let run = String(text[text.index(text.startIndex, offsetBy: 3)..<r.lowerBound])
+        if startsWith(text, "任务 "), let i = scalarIndex(of: scalars(" 需要你的回答"), in: scalars(text)) {
+            let run = String(String.UnicodeScalarView(scalars(text)[3..<max(3, i)]))
             let shown = runIds.contains(run) ? "任务 \(run)" : "任务"
             return ("\(shown) 需要你的回答（问题内容不保存）。", .changed)
         }
-        if text.hasPrefix("Runtime 拒绝了这个任务") {
+        if startsWith(text, "Runtime 拒绝了这个任务") {
             return ("Runtime 拒绝了这个任务。", .changed)
         }
-        // Status output. Every line is matched whole (b9, fourth review):
-        // a /runs argument could be any text after a known run id, with
-        // "：" or any newline character in it. Kept are exactly
-        // "<run>：状态待核实（不会自动重试）", "<run>：<describe>",
-        // "任务 <run> 已结束：<describe>" and "正在停止任务 <run>：<describe>"
-        // for Runs of this session, where <describe> is the server's own
-        // status format with plain tokens. Every other line of a text that
-        // carries a status marker is cleared.
-        let split = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
-        var changed = split.count > 1 && text.contains(where: { $0.isNewline && $0 != "\n" })
-        let isStatus = text.contains("：状态待核实") || text.contains("：阶段 ")
-        let lines = !isStatus ? split : split.map { line -> String in
-            if Self.isKnownStatusLine(line, runIds: runIds) { return line }
+        // Status output. Every line is matched whole (b9, fourth and fifth
+        // reviews): a /runs argument could be any text, with "：" or any
+        // newline in it. When the text carries a status marker anywhere,
+        // only lines that are exactly one of the server's status forms about
+        // a Run of this session stay; every other line is cleared.
+        let lines = scalarLines(text)
+        let isStatus = has(text, "：状态待核实") || has(text, "：阶段 ")
+        var changed = lines.count > 1 && text.unicodeScalars.contains { isNewlineScalar($0) && $0 != "\n" }
+        let kept = !isStatus ? lines : lines.map { line -> String in
+            if isKnownStatusLine(line, runIds: runIds) { return line }
             changed = true
             return "（不属于本会话的任务，已清除）"
         }
-        let out = ACPRedactor.redact(lines.joined(separator: "\n"))
-        return (out, changed || out != text ? .changed : .kept)
+        let out = ACPRedactor.redact(kept.joined(separator: "\n"))
+        return (out, changed || !scalarsEqual(out, text) ? .changed : .kept)
     }
 
+    // MARK: Status forms
+
+    static let phases: Set<String> = ["queued", "running", "waiting_approval", "waiting_input", "stopping", "ended"]
+    static let outcomes: Set<String> = ["success", "failed", "cancelled"]
+    static let quiescence: Set<String> = ["not_confirmed", "pending", "confirmed"]
     static let unverified = "状态待核实（不会自动重试）"
+    static let unknownOutcome = "结果未知 · 需要核实（不会自动重试）"
 
-    /// One whole line in one of the server's status forms, about a Run of
-    /// this session.
+    /// One whole line, compared scalar by scalar, in one of the server's
+    /// status forms about a Run of this session:
+    /// "<run>：状态待核实（不会自动重试）", "<run>：<describe>",
+    /// "任务 <run> 已结束：<describe>", "正在停止任务 <run>：<describe>".
     static func isKnownStatusLine(_ line: String, runIds: Set<String>) -> Bool {
-        guard let sep = line.firstIndex(of: "：") else { return false }
-        let head = String(line[..<sep])
-        let tail = String(line[line.index(after: sep)...])
-        let run: String
-        if head.hasPrefix("任务 "), head.hasSuffix(" 已结束") {
-            run = String(head.dropFirst(3).dropLast(4))
-        } else if head.hasPrefix("正在停止任务 ") {
-            run = String(head.dropFirst(7))
-        } else {
-            run = head
-            if tail == unverified { return runIds.contains(run) }
+        let v = scalars(line)
+        guard let sep = v.firstIndex(of: "："), v[(sep + 1)...].firstIndex(of: "：") == nil else { return false }
+        let head = String(String.UnicodeScalarView(v[..<sep]))
+        let tail = String(String.UnicodeScalarView(v[(sep + 1)...]))
+        if let run = strip(head, prefix: "任务 ", suffix: " 已结束") ?? strip(head, prefix: "正在停止任务 ", suffix: "") {
+            return runIds.contains(run) && isDescribe(tail)
         }
-        return runIds.contains(run) && isDescribe(tail)
+        guard runIds.contains(head) else { return false }
+        return scalarsEqual(tail, unverified) || isDescribe(tail)
     }
 
-    /// `ACPAgentServer.describe` exactly: "阶段 <t>", then optionally
-    /// "，结果未知 · 需要核实（不会自动重试）" or "，结果 <t>", then optionally
-    /// "，输入静止 <t>"; <t> is a plain token (a–z, 0–9, "_").
+    /// `ACPAgentServer.describe` exactly, with schema enum values only:
+    /// "阶段 <phase>", then optionally "，结果未知 · 需要核实（不会自动重试）"
+    /// or "，结果 <outcome>", then optionally "，输入静止 <quiescence>".
     static func isDescribe(_ s: String) -> Bool {
-        func token(_ t: Substring) -> Bool {
-            !t.isEmpty && t.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "_" }
+        var parts = splitScalars(s, on: "，")[...]
+        guard let first = parts.popFirst(), let phase = strip(first, prefix: "阶段 ", suffix: ""),
+              phases.contains(phase) else { return false }
+        if let p = parts.first {
+            if scalarsEqual(p, unknownOutcome) {
+                parts = parts.dropFirst()
+            } else if let o = strip(p, prefix: "结果 ", suffix: ""), outcomes.contains(o) {
+                parts = parts.dropFirst()
+            }
         }
-        var parts = s.components(separatedBy: "，")[...]
-        guard let first = parts.popFirst(), first.hasPrefix("阶段 "), token(first.dropFirst(3)) else { return false }
-        if let p = parts.first, p == "结果未知 · 需要核实（不会自动重试）" || (p.hasPrefix("结果 ") && token(p.dropFirst(3))) {
-            parts = parts.dropFirst()
-        }
-        if let p = parts.first, p.hasPrefix("输入静止 "), token(p.dropFirst(5)) {
+        if let p = parts.first, let q = strip(p, prefix: "输入静止 ", suffix: ""), quiescence.contains(q) {
             parts = parts.dropFirst()
         }
         return parts.isEmpty
+    }
+
+    // MARK: Scalar helpers
+
+    static func scalars(_ s: String) -> [Unicode.Scalar] { Array(s.unicodeScalars) }
+
+    static func scalarsEqual(_ a: String, _ b: String) -> Bool { scalars(a) == scalars(b) }
+
+    static func startsWith(_ s: String, _ prefix: String) -> Bool {
+        let v = scalars(s), p = scalars(prefix)
+        return v.count >= p.count && Array(v.prefix(p.count)) == p
+    }
+
+    static func has(_ s: String, _ needle: String) -> Bool {
+        scalarIndex(of: scalars(needle), in: scalars(s)) != nil
+    }
+
+    static func scalarIndex(of needle: [Unicode.Scalar], in hay: [Unicode.Scalar]) -> Int? {
+        guard !needle.isEmpty, hay.count >= needle.count else { return nil }
+        for i in 0...(hay.count - needle.count) where Array(hay[i..<(i + needle.count)]) == needle { return i }
+        return nil
+    }
+
+    /// `s` without `prefix` and `suffix`, compared scalar by scalar.
+    static func strip(_ s: String, prefix: String, suffix: String) -> String? {
+        let v = scalars(s), p = scalars(prefix), x = scalars(suffix)
+        guard v.count >= p.count + x.count, Array(v.prefix(p.count)) == p, Array(v.suffix(x.count)) == x else { return nil }
+        return String(String.UnicodeScalarView(v[p.count..<(v.count - x.count)]))
+    }
+
+    static func splitScalars(_ s: String, on sep: Unicode.Scalar) -> [String] {
+        scalars(s).split(separator: sep, omittingEmptySubsequences: false).map { String(String.UnicodeScalarView($0)) }
+    }
+
+    static func isNewlineScalar(_ c: Unicode.Scalar) -> Bool {
+        ["\n", "\r", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}"].contains(c)
+    }
+
+    /// Lines split on every newline scalar ("\r\n" counts once).
+    static func scalarLines(_ text: String) -> [String] {
+        var lines: [String] = []
+        var current = String.UnicodeScalarView()
+        var previousCR = false
+        for c in text.unicodeScalars {
+            if c == "\n", previousCR { previousCR = false; continue }
+            previousCR = c == "\r"
+            if isNewlineScalar(c) {
+                lines.append(String(current))
+                current = String.UnicodeScalarView()
+            } else {
+                current.append(c)
+            }
+        }
+        lines.append(String(current))
+        return lines
+    }
+
+    static func isPlainNameScalar(_ c: Unicode.Scalar) -> Bool {
+        ("a"..."z").contains(c) || ("A"..."Z").contains(c) || ("0"..."9").contains(c) || c == "-" || c == "_"
     }
 }

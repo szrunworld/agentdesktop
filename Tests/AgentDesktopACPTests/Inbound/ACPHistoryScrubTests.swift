@@ -28,6 +28,16 @@ struct ACPHistoryScrubTests {
         "run-1：阶段 ended\u{2029}hunter2：阶段 x",
         "run-1：阶段 ended\u{85}hunter2：阶段 x",
         "任务 run-1 已结束：阶段 ended\r\nhunter2",
+        // b9, fifth review: values outside the schema enums.
+        "run-1：阶段 hunter2\nrun-1：状态待核实（不会自动重试）",
+        "任务 run-1 已结束：阶段 my_password_123，结果 sk_live_hunter2",
+        "run-1：阶段 ended，结果 hunter2",
+        "run-1：阶段 ended，输入静止 hunter2",
+        // b9, fifth review: a prepend mark (U+0600) merging with "：".
+        "hunter2 secret\u{0600}：状态待核实（不会自动重试）",
+        "hunter2\u{0600}：阶段 ended",
+        "a\nhunter2\u{0600}：状态待核实（不会自动重试）",
+        "run-1\u{0600}：阶段 ended hunter2",
     ])
     func echoedRunsArgumentsNeverSurvive(_ text: String) {
         let out = scrub(text)
@@ -36,12 +46,12 @@ struct ACPHistoryScrubTests {
     }
 
     @Test func knownStatusLinesAreKept() {
-        #expect(scrub("任务 run-1 已结束：阶段 ended，结果 succeeded") == "任务 run-1 已结束：阶段 ended，结果 succeeded")
+        #expect(scrub("任务 run-1 已结束：阶段 ended，结果 success") == "任务 run-1 已结束：阶段 ended，结果 success")
         #expect(scrub("正在停止任务 run-2：阶段 stopping") == "正在停止任务 run-2：阶段 stopping")
         #expect(ACPHistoryScrub.legacyAgent("任务 run-1 已结束：阶段 ended", runIds: runs).1 == .kept)
         #expect(scrub("run-1：阶段 stopping，结果未知 · 需要核实（不会自动重试），输入静止 confirmed")
             == "run-1：阶段 stopping，结果未知 · 需要核实（不会自动重试），输入静止 confirmed")
-        let runsOutput = "run-1：阶段 ended，结果 succeeded\nrun-2：状态待核实（不会自动重试）"
+        let runsOutput = "run-1：阶段 ended，结果 success\nrun-2：状态待核实（不会自动重试）"
         #expect(scrub(runsOutput) == ACPRedactor.redact(runsOutput))
     }
 

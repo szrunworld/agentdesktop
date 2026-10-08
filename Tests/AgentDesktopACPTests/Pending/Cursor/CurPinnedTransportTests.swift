@@ -231,6 +231,25 @@ struct CurPinnedTransportTests {
         #expect(!exists)
     }
 
+    @Test("[Mock] a launched child inherits no descriptor but stdio")
+    func childInheritsNoDescriptors() async throws {
+        // A pipe open in this process while the child starts: once this
+        // side closes its write end, the reader must see EOF even though
+        // the child is still running.
+        let eof = try await offPool { () -> Bool in
+            var fds: [Int32] = [0, 0]
+            precondition(pipe(&fds) == 0)
+            let child = try ACPTestRuntimeChild.launch(executable: "/bin/sleep", arguments: ["30"], waitForEndpoint: false)
+            defer { child.stop(); close(fds[0]) }
+            close(fds[1])
+            var p = pollfd(fd: fds[0], events: Int16(POLLIN), revents: 0)
+            guard poll(&p, 1, 2000) > 0 else { return false }
+            var byte: UInt8 = 0
+            return read(fds[0], &byte, 1) == 0
+        }
+        #expect(eof)
+    }
+
     @Test("[Mock] lsof fields: a socket bound in the product directory names its holder")
     func lsofFieldsAreParsed() {
         let dir = "/Users/x/Library/Application Support/AgentDesktop"

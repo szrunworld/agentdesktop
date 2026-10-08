@@ -69,9 +69,16 @@ final class ACPTestRuntimeChild: @unchecked Sendable {
         sigfillset(&defaults)
         posix_spawnattr_setsigmask(&attr, &empty)
         posix_spawnattr_setsigdefault(&attr, &defaults)
-        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
+        // Inherit nothing but stdio: without CLOEXEC_DEFAULT the child kept
+        // other tests' pipe and socket ends open (a pipe test then never saw
+        // EOF, and a socket table showed extra holders).
+        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        for fd: Int32 in [0, 1, 2] { posix_spawn_file_actions_addinherit_np(&actions, fd) }
         var pid: pid_t = 0
-        let rc = posix_spawn(&pid, executable, nil, &attr, &cArgs, &cEnv)
+        let rc = posix_spawn(&pid, executable, &actions, &attr, &cArgs, &cEnv)
         guard rc == 0 else {
             rmdir(dir)
             throw LaunchFailed(reason: "posix_spawn \(String(cString: strerror(rc)))")
