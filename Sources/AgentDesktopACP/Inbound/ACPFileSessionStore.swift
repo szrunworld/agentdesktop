@@ -1,12 +1,5 @@
 import Foundation
 
-/// A store that can forget a session (`session/close`). Kept in lane S
-/// so the frozen `ACPSessionStore` does not change; a store without it
-/// keeps closed sessions listed.
-public protocol ACPSessionManagerRemovableStore: ACPSessionStore {
-    func remove(sessionId: String) throws
-}
-
 public enum ACPFileSessionStoreError: Error, Equatable, Sendable {
     /// `binding.revision` was not the stored revision + 1.
     case conflict(sessionId: String, stored: Int, attempted: Int)
@@ -18,7 +11,7 @@ public enum ACPFileSessionStoreError: Error, Equatable, Sendable {
 /// §3, lane S). Directory 0700, files 0600, atomic replace, a revision
 /// check on every save. It stores what the server hands it: ids, cursors,
 /// options and a title the projector already redacted. Never Run state.
-public final class ACPFileSessionStore: ACPSessionManagerRemovableStore, @unchecked Sendable {
+public final class ACPFileSessionStore: ACPSessionStore, @unchecked Sendable {
     public let directory: URL
     private let lock = NSLock()
 
