@@ -181,29 +181,35 @@ struct MainWindowHostTests {
     }
 
     // A stalled Runtime does not hold the quit dialog back: begin returns
-    // before run.list answers, the count stays unknown (never zero) until
-    // then, and the user can still call the quit off.
+    // before run.list answers, the count reads "reading", then "cannot
+    // tell" once the read times out (never zero), and fills in when the
+    // Runtime answers; the user can call the quit off throughout.
     @Test func quitDialogDoesNotWaitForTheRuntime() async throws {
         let m = MockRuntime.sample()
         let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
         await store.start()
         store.stop()
-        m.delays = ["run.list": 2_000_000_000]
+        m.delays = ["run.list": 300_000_000]
         let q = QuitController(store: store)
         q.clock = FastClock()
         var replies: [Bool] = []
         q.reply = { replies.append($0) }
+        let listsBefore = m.callLog.filter { $0 == "run.list" }.count
         let started = Date()
         await q.begin(show: false)
-        #expect(Date().timeIntervalSince(started) < 1, "begin did not wait for run.list")
+        #expect(Date().timeIntervalSince(started) < 0.25, "begin did not wait for run.list")
         let flow = try #require(q.flow)
-        #expect(flow.activeCount == nil)
-        #expect(QuitDialogView.activeLine(nil).hasPrefix("正在读取"))
+        #expect(flow.activeCount == .reading)
+        #expect(QuitDialogView.activeLine(.reading).hasPrefix("正在读取"))
+        for _ in 0..<200 where flow.activeCount == .reading { try await Task.sleep(nanoseconds: 2_000_000) }
+        guard case .unavailable(let why) = flow.activeCount else { Issue.record("\(flow.activeCount)"); return }
+        #expect(QuitDialogView.activeLine(flow.activeCount).contains("暂时读不到"))
+        #expect(!QuitDialogView.activeLine(flow.activeCount).contains("没有进行中的运行"), "\(why)")
+        await q.counting?.value
+        #expect(flow.activeCount == .known(2), "the late answer fills the count in")
+        #expect(m.callLog.filter { $0 == "run.list" }.count - listsBefore == 1, "a read in flight is not sent again")
         q.choose(.cancel)
         #expect(replies == [false])
-        m.delays = [:]
-        await q.counting?.value
-        #expect(flow.activeCount == 2)
     }
 
     // UC51 on the machine (2026-10-08): a second quit request while the

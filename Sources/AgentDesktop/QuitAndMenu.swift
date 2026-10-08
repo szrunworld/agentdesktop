@@ -15,6 +15,9 @@ final class QuitController: NSObject, NSWindowDelegate {
     var keepInBackground: () -> Void = {}
     /// NSApp.reply(toApplicationShouldTerminate:), injectable for tests.
     var reply: (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
+    /// Whether showing the dialog may activate the app; a test copy only
+    /// orders it front, leaving focus where the user has it.
+    var activates = true
     /// NSApp.terminate, injectable for tests.
     var terminate: () -> Void = { NSApp.terminate(nil) }
     var clock: PollClock = SystemPollClock()
@@ -42,10 +45,14 @@ final class QuitController: NSObject, NSWindowDelegate {
     func requestQuit() {
         guard isAsking else { terminate(); return }
         guard let window else { return }
-        if testDisplay != nil {
-            window.orderFrontRegardless()
+        bringForward(window)
+    }
+
+    private func bringForward(_ w: NSWindow) {
+        if testDisplay != nil || !activates {
+            w.orderFrontRegardless()
         } else {
-            window.makeKeyAndOrderFront(nil)
+            w.makeKeyAndOrderFront(nil)
             NSApp.activate()
         }
     }
@@ -74,12 +81,10 @@ final class QuitController: NSObject, NSWindowDelegate {
         }) {
             let f = screen.visibleFrame
             w.setFrameOrigin(NSPoint(x: f.midX - 300, y: f.midY - 120))
-            w.orderFrontRegardless()
         } else {
             w.center()
-            w.makeKeyAndOrderFront(nil)
-            NSApp.activate()
         }
+        bringForward(w)
     }
 
     func choose(_ choice: QuitChoice) {
