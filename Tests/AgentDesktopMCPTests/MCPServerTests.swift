@@ -15,6 +15,7 @@ final class MCPPlatform: DesktopPlatform, @unchecked Sendable {
         PlatformHit(role: "AXButton", texts: [], windowId: 3)
     }
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
+    func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: nil) }
     func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
 
     let lock = NSLock()

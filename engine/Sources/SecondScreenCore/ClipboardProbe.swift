@@ -106,12 +106,50 @@ public enum ClipboardProbe {
         var hit = Hit(role: role, texts: texts(of: element, r), shortcut: shortcut(of: element, r),
                       windowID: windowElement.flatMap(WindowMover.windowID(of:)), inMenu: inMenu, ancestorTexts: ancestors)
         hit.focused = (r.read(element, kAXFocusedAttribute) as Bool?) ?? false
-        let editableAncestor: AXUIElement? = r.read(element, "AXEditableAncestor")
-        var settable: DarwinBoolean = false
-        hit.editable = editableAncestor != nil
-            || (AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success && settable.boolValue
-                && [kAXTextFieldRole as String, kAXTextAreaRole as String, kAXComboBoxRole as String].contains(role))
+        hit.editable = editable(element, role: role, r)
         // An answer cut short by the deadline is no answer.
+        return r.expired ? nil : hit
+    }
+
+    /// Controls a click or a key presses; never editable text, even inside
+    /// an editable region (a "Copy" button in a rich-text editor).
+    static let pressableRoles: Set<String> = [
+        "AXButton", "AXMenuButton", "AXPopUpButton", "AXMenuItem", "AXMenuBarItem", "AXLink", "AXCheckBox",
+        "AXRadioButton", "AXCell", "AXRow", "AXTab", "AXDisclosureTriangle", "AXImage",
+    ]
+
+    static func editable(_ element: AXUIElement, role: String, _ r: Reader) -> Bool {
+        guard !pressableRoles.contains(role) else { return false }
+        if (r.read(element, "AXEditableAncestor") as AXUIElement?) != nil { return true }
+        var settable: DarwinBoolean = false
+        return [kAXTextFieldRole as String, kAXTextAreaRole as String, kAXComboBoxRole as String].contains(role)
+            && AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success && settable.boolValue
+    }
+
+    /// The element that has keyboard focus in the app: what Return or Space
+    /// would press. Nil when accessibility does not answer.
+    public static func focused(pid: pid_t) -> Hit? {
+        let r = Reader()
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, messagingTimeout)
+        guard let element: AXUIElement = r.read(app, kAXFocusedUIElementAttribute) else {
+            // No focused element is an answer (nothing to press), unless the read failed.
+            return r.expired ? nil : Hit(role: "AXNone", texts: [], shortcut: nil, windowID: nil, inMenu: false)
+        }
+        guard let role: String = r.read(element, kAXRoleAttribute) else { return nil }
+        var ancestors: [String] = []
+        var node: AXUIElement? = element
+        for _ in 0..<3 {
+            guard let current = node, let parent: AXUIElement = r.read(current, kAXParentAttribute) else { break }
+            ancestors += texts(of: parent, r)
+            node = parent
+        }
+        var window: AXUIElement? = r.read(element, kAXWindowAttribute)
+        if window == nil { window = r.read(element, kAXTopLevelUIElementAttribute) }
+        var hit = Hit(role: role, texts: texts(of: element, r), shortcut: shortcut(of: element, r),
+                      windowID: window.flatMap(WindowMover.windowID(of:)), inMenu: false, ancestorTexts: ancestors)
+        hit.focused = true
+        hit.editable = editable(element, role: role, r)
         return r.expired ? nil : hit
     }
 
@@ -192,6 +230,8 @@ public enum ClipboardProbe {
         guard let char: String = r.read(element, kAXMenuItemCmdCharAttribute),
               !char.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if let named = namedKey(forMenuCharacter: char) { return shortcut(char: named, modifiers: mods) }
+        // A control or private-use character with no name is no key to compare.
+        if let v = char.unicodeScalars.first?.value, v < 0x20 || (0xE000...0xF8FF).contains(v) { return nil }
         return shortcut(char: char, modifiers: mods)
     }
 
@@ -229,9 +269,6 @@ public enum ClipboardProbe {
         return out
     }
 
-    static func attribute<T>(_ element: AXUIElement, _ name: String) -> T? {
-        WindowMover.copyAttribute(element, name)
-    }
 
     /// Call once on the main thread at start: the keyboard layout is read
     /// there (Text Input Sources wants the main thread) and kept fresh when

@@ -102,6 +102,7 @@ extension DesktopPlatform {
     public func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? { nil }
     public func menuItems(pid: Int32) -> [PlatformMenuItem]? { nil }
     public func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { .unknown }
+    public func focusedControl(pid: Int32) -> PlatformHit? { nil }
 
     /// Platforms without the user's displays (test doubles, other backends)
     /// refuse physical Desktops.
@@ -203,6 +204,9 @@ public protocol DesktopPlatform: Sendable {
     /// What `perform` would type for this key and modifiers under the
     /// current keyboard layout.
     func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter
+    /// The element with keyboard focus in the app, read now: what Return or
+    /// Space would press. Role "AXNone" when nothing has focus.
+    func focusedControl(pid: Int32) -> PlatformHit?
 }
 
 /// The element at a point, as G2 judges it.

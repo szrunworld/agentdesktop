@@ -106,6 +106,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         return PlatformHit(role: e?.role ?? "AXWindow", texts: [e?.label, e?.value].compactMap { $0 }, windowId: wins.first?.windowId)
     }
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { menu }
+    /// What has focus; by default nothing.
+    var focusedHit: PlatformHit? = PlatformHit(role: "AXNone", texts: [], windowId: nil)
+    func focusedControl(pid: Int32) -> PlatformHit? { focusedHit }
     func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter {
         guard layoutKnown else { return .unknown }
         return key.count == 1 ? .character(layout[key] ?? key) : .named

@@ -325,18 +325,35 @@ func aControlWhoseNameSaysPasteCopyOrCutIsRefusedInAnyLanguage(_ role: String, _
 
 // MARK: Round four (b9's third review)
 
-@Test func typingIntoFocusedOrEditableRichTextIsAllowed() throws {
+@Test func typingIsAllowedOnlyIntoTextAndNeverIntoAClipboardControl() throws {
     let platform = FakePlatform()
     let sc = try scene(platform)
-    // A web page's contenteditable chat box, not focused: editable.
+    // A page's contenteditable chat box: editable text.
     platform.hitAt = { _, _ in PlatformHit(role: "AXGroup", texts: [], windowId: 11, editable: true) }
     sent(act(sc, #"{"kind":"type","text":"你好","target":{"elementRef":"el_0"}}"#))
-    // Already focused: the engine types without clicking.
+    // b9's bypass: focus moved to a "Copy code" button with Tab, then typing
+    // aimed at its container, which the engine would click: refused.
     platform.hitAt = { _, _ in PlatformHit(role: "AXGroup", texts: [], windowId: 11, focused: true) }
-    sent(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#))
-    // Neither: a click would press it.
-    platform.hitAt = { _, _ in PlatformHit(role: "AXGroup", texts: ["Copy"], windowId: 11) }
     expectRefusal(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#), path: "type_target_not_text")
+    // An editable field inside something named Copy is still refused.
+    platform.hitAt = { _, _ in PlatformHit(role: "AXTextField", texts: [], windowId: 11, ancestorTexts: ["Copy link"], editable: true) }
+    expectRefusal(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#), path: "control")
+    #expect(platform.performed.count == 1)
+}
+
+@Test func returnOrSpaceOnAFocusedCopyButtonIsRefused() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.focusedHit = PlatformHit(role: "AXButton", texts: ["Copy code"], windowId: 11, focused: true)
+    expectRefusal(act(sc, key("return", [])), path: "focused_control")
+    expectRefusal(act(sc, key("space", [])), path: "focused_control")
+    platform.focusedHit = nil
+    expectRefusal(act(sc, key("return", [])), path: "focused_unverified")
+    // A focused text field takes Return as a newline.
+    platform.focusedHit = PlatformHit(role: "AXTextArea", texts: ["Copy"], windowId: 11, focused: true, editable: true)
+    sent(act(sc, key("return", [])))
+    platform.focusedHit = PlatformHit(role: "AXButton", texts: ["Send"], windowId: 11, focused: true)
+    sent(act(sc, key("space", [])))
 }
 
 @Test func keyAliasesNameTheSameKey() throws {

@@ -29,6 +29,9 @@ import Foundation
 /// - Typing never uses the clipboard (accessibility value writes or unicode
 ///   key events; a test keeps it so). Scrolling neither.
 ///
+/// Return and Space press the focused control: read now, a control named
+/// paste, copy or cut is refused, and an unreadable focus refuses.
+///
 /// Not covered, by its nature: an app that reads the clipboard by itself
 /// after an ordinary input (a terminal running `pbpaste`, a web page reading
 /// the clipboard in a click handler), and app-specific keys outside its menu
@@ -84,15 +87,30 @@ enum ClipboardPolicy {
         guard let hit = platform.clipboardHit(at: center, pid: pid) else { return "hit_unavailable" }
         guard hit.windowId == windowId, !hit.inMenu else { return "outside_bound_window" }
         let role = String(hit.role.split(separator: "/").first ?? "")
-        // Focused: the engine types without clicking. Otherwise only a text
-        // field or editable rich text is clicked into.
-        guard hit.focused || hit.editable || textRoles.contains(role) else { return "type_target_not_text" }
+        // The engine may click the element first (a web field without focus,
+        // judged on its side): only a text field or editable text, never a
+        // control, and nothing named paste, copy or cut.
+        guard hit.editable || textRoles.contains(role) else { return "type_target_not_text" }
+        if (hit.texts + hit.ancestorTexts).contains(where: names) { return "control" }
         return nil
     }
+
+    /// Keys that press the focused control.
+    static let pressingKeys: Set<String> = ["return", "enter", "space"]
 
     static func keyRefusal(_ action: PlatformAction, pid: Int32, menu: [PlatformMenuItem]?, platform: DesktopPlatform) -> String? {
         let key = (action.key ?? "").lowercased()
         if functionKeys.contains(key) { return "function_key" }
+        // Return or Space presses whatever has focus: a "Copy" button reached
+        // with Tab is a click on it.
+        if pressingKeys.contains(key) {
+            guard let focused = platform.focusedControl(pid: pid) else { return "focused_unverified" }
+            let role = String(focused.role.split(separator: "/").first ?? "")
+            if !focused.editable && !textRoles.contains(role) {
+                if let s = focused.shortcut, isClipboardShortcut(s) { return "focused_control" }
+                if (focused.texts + focused.ancestorTexts).contains(where: names) { return "focused_control" }
+            }
+        }
         let mods = action.modifiers.map { $0.lowercased() }
         // Shift+Delete is cut in Windows guests (virtual machines, remote desktops).
         if key == "forwarddelete" && mods.contains("shift") { return "shortcut" }

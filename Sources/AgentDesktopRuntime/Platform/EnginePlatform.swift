@@ -42,6 +42,13 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         return items
     }
 
+    public func focusedControl(pid: Int32) -> PlatformHit? {
+        ClipboardProbe.focused(pid: pid).map {
+            PlatformHit(role: $0.role, texts: $0.texts, shortcut: $0.shortcut, windowId: $0.windowID, inMenu: $0.inMenu,
+                        ancestorTexts: $0.ancestorTexts, focused: true, editable: $0.editable)
+        }
+    }
+
     public func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter {
         switch ClipboardProbe.character(forKey: key, modifiers: modifiers) {
         case .named: return .named
