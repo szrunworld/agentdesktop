@@ -46,8 +46,10 @@ extension RuntimeService {
         // or another caller's runId neither gets a fresh quota nor spends
         // someone else's); otherwise the session, else the Desktop.
         let bucket: String
-        if let gui = takeQuotaBucket(requestId: request.requestId, connection: c) {
-            // The GUI ports' own observation for a GUI Run: its own bucket.
+        // The GUI ports' own observation for a GUI Run: its own bucket, its
+        // place already reserved by the ports.
+        let reserved = takeQuotaBucket(requestId: request.requestId, connection: c)
+        if let gui = reserved {
             bucket = gui
         } else if let runId = request.context.runId {
             if case let .failure(e) = execution.authorized(runId: runId, connection: c) { return .failure(e) }
@@ -73,7 +75,7 @@ extension RuntimeService {
             /// The screen, or with a binding only the bound window's frame.
             func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
                 // Within the store's limits, before anything is captured.
-                try artifacts.admit(bucket: bucket)
+                if reserved == nil { try artifacts.admit(bucket: bucket) }
                 let artifactId = "art_" + snapshotId.dropFirst(4)
                 let path = artifacts.path(for: artifactId, ext: "png")
                 // The bound window alone, never the screen cut down afterwards:
@@ -86,7 +88,8 @@ extension RuntimeService {
                         size = try platform.screenshot(d.screen, to: path)
                     }
                 } catch {
-                    artifacts.release(bucket: bucket)
+                    // A place the ports reserved is theirs to give back.
+                    if reserved == nil { artifacts.release(bucket: bucket) }
                     throw error
                 }
                 let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
@@ -96,7 +99,8 @@ extension RuntimeService {
                     info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
                                                   runId: request.context.runId, createdAt: nowString, bucket: bucket)
                 } catch {
-                    artifacts.release(bucket: bucket)
+                    // A place the ports reserved is theirs to give back.
+                    if reserved == nil { artifacts.release(bucket: bucket) }
                     throw error
                 }
                 stored.transform = (origin.0, origin.1, scale)

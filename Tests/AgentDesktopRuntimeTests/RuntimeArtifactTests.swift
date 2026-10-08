@@ -410,3 +410,55 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
     #expect(throws: RuntimeError.self) { try store.admit(bucket: "session:s") }
     gate.signal(); gate.signal()
 }
+
+// b9 (#144, fourth review): a GUI step's places are admitted together with
+// every limit, so no window capture is written when the store, the disk or
+// an unknown answer would refuse the model's copy; unused places come back.
+@Test(arguments: ["store", "disk", "unknown"])
+func aGuiStepIsRefusedWholeByAnyLimit(_ which: String) async throws {
+    let (_, s, ports, d) = try guiScene()
+    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    switch which {
+    case "store": s.artifacts.limits.totalBytes = 0
+    case "disk": s.artifacts.freeBytes = { 100 }; s.artifacts.refreshFreeSpace()
+    default: s.artifacts.freeBytes = { nil }; s.artifacts.refreshFreeSpace()
+    }
+    await #expect(throws: ContractError.self) { _ = try await ports.observe(runId: "r1", expectedGeneration: 1) }
+    let pngs = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".png") }
+    #expect(pngs.isEmpty, "\(pngs)")
+}
+
+@Test func aFailedGuiStepGivesItsPlacesBack() async throws {
+    let (platform, s, ports, d) = try guiScene()
+    s.artifacts.limits.perRunArtifacts = 2
+    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    platform.failScreenshot = true
+    await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: "r1", expectedGeneration: 1) }
+    platform.failScreenshot = false
+    // Both places came back: the next step fits whole.
+    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)
+    #expect(s.quotaBuckets.isEmpty, "no per-request bucket left behind")
+}
+
+@Test func aLateAnswerFromAHungQueryIsNotTakenForANewOne() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Clock: @unchecked Sendable { var now = Date() }
+    let clock = Clock()
+    let store = try ArtifactStore(directory: dir, now: { clock.now })
+    // A query asked now answers only after a newer one did.
+    store.freeBytes = { 100 << 30 }
+    clock.now = clock.now.addingTimeInterval(5)
+    store.refreshFreeSpace()
+    let late = DispatchQueue(label: "late")
+    let asked = DispatchSemaphore(value: 0), answer = DispatchSemaphore(value: 0)
+    clock.now = clock.now.addingTimeInterval(-3)
+    store.freeBytes = { asked.signal(); answer.wait(); return 1 }
+    late.async { store.refreshFreeSpace() }
+    asked.wait()
+    clock.now = clock.now.addingTimeInterval(3)
+    answer.signal()
+    late.sync {}
+    // The newer answer (plenty) stands; the late, older one (1 byte) did not replace it.
+    try store.admit(bucket: "session:s")
+}

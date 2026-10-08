@@ -89,16 +89,26 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         // caller's session; both of this step's (the window capture and the
         // model's copy) must fit before the first is taken.
         let bucket = "gui:" + runId
+        // Both places at once (every limit checked together), before the
+        // first screenshot; whatever is not used is given back.
         do {
-            try service.artifacts.available(bucket: bucket, count: 2)
+            try service.artifacts.admit(bucket: bucket, count: 2)
         } catch let e as RuntimeError { throw Self.contractError(e) }
+        var unused = 2
+        defer { if unused > 0 { service.artifacts.release(bucket: bucket, count: unused) } }
         let observeId = RuntimeRequest.newId(prefix: "gui")
         service.setQuotaBucket(bucket, requestId: observeId, connection: connection)
+        let observed = await call(.observe, id: observeId, context: RequestContext(sessionId: rb.sessionId), params: .obj([]))
+        // Taken by observe when it got that far; never left behind.
+        _ = service.takeQuotaBucket(requestId: observeId, connection: connection)
         let data: JSONValue
-        switch await call(.observe, id: observeId, context: RequestContext(sessionId: rb.sessionId), params: .obj([])) {
+        switch observed {
         case let .failure(e): throw Self.contractError(e)
         case let .success(v): data = v
         }
+        // The window capture used its place; on any failure above both are
+        // still ours and the defer gives them back.
+        unused = 1
         guard let snapshotId = data["snapshotId"]?.stringValue, let stored = service.observations.find(snapshotId),
               let b = stored.binding, let frame = stored.windowFrame,
               let t = stored.transform, let size = stored.imageSize,
@@ -124,20 +134,12 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         let factor = longSide > Self.maxModelSide ? Self.maxModelSide / longSide : 1
         let resized = Size(width: (crop.size.width * factor).rounded(), height: (crop.size.height * factor).rounded())
         let modelPNG = try Self.render(source: source, crop: crop, to: resized)
-        let sha: String
-        do {
-            try service.artifacts.admit(bucket: bucket)
-        } catch let e as RuntimeError { throw Self.contractError(e) }
         let artifactId = "art_gui_" + snapshotId.dropFirst(4)
-        do {
-            try modelPNG.write(to: URL(fileURLWithPath: service.artifacts.path(for: artifactId, ext: "png")))
-            // Readable by id from the owner (Runs page), not by other clients.
-            sha = try service.artifacts.register(artifactId, mediaType: "image/png", clientId: "platform", runId: runId,
+        try modelPNG.write(to: URL(fileURLWithPath: service.artifacts.path(for: artifactId, ext: "png")))
+        // Readable by id from the owner (Runs page), not by other clients.
+        let sha = try service.artifacts.register(artifactId, mediaType: "image/png", clientId: "platform", runId: runId,
                                                  createdAt: Timestamp.string(Date()), bucket: bucket).sha256
-        } catch {
-            service.artifacts.release(bucket: bucket)
-            throw error
-        }
+        unused = 0
         let shot = try ScreenshotDescriptor(
             screenshotId: "shot_" + snapshotId.dropFirst(4), artifactRef: artifactId, sha256: sha, mimeType: "image/png",
             transformVersion: "runtime-window-crop-v1",

@@ -127,7 +127,8 @@ public final class ArtifactStore: @unchecked Sendable {
     static let freeSpaceInterval: TimeInterval = 10
     private var free: (bytes: Int64?, at: Date)?
     private var refreshingFree = false
-    private let freeSpaceQueue = DispatchQueue(label: "agentdesktop.artifacts.freespace", qos: .utility)
+    /// Concurrent: a retry is not queued behind a query that hangs.
+    private let freeSpaceQueue = DispatchQueue(label: "agentdesktop.artifacts.freespace", qos: .utility, attributes: .concurrent)
     private var refreshStarted: Date?
     /// Usage by quota bucket ("run:<id>", "session:<id>", "desktop:<id>"):
     /// each artifact counts from the moment it is admitted (a reservation),
@@ -157,7 +158,12 @@ public final class ArtifactStore: @unchecked Sendable {
     /// `register(…, bucket:)` or `release(bucket:)`. A refusal is
     /// `limit_exceeded`; observing without a screenshot still works, and a
     /// Run's history (events, receipts) is never affected.
-    public func admit(bucket: String) throws {
+    public func admit(bucket: String) throws { try admit(bucket: bucket, count: 1) }
+
+    /// Admit `count` artifacts at once, all checks together, reserving all
+    /// of them or none: for a step that makes several in a row and must not
+    /// make the first if a later one would be refused.
+    public func admit(bucket: String, count: Int) throws {
         let stale = lock.withLock { () -> Bool in
             // A refresh stuck for long (a hung volume query) may be tried again.
             if refreshingFree, let started = refreshStarted, clock().timeIntervalSince(started) > 30 { refreshingFree = false }
@@ -171,7 +177,7 @@ public final class ArtifactStore: @unchecked Sendable {
                              details: .obj([("reason", .string(reason))]))
             }
             let u = usage[bucket] ?? (0, 0)
-            if u.count >= limits.perRunArtifacts || u.bytes >= limits.perRunBytes {
+            if u.count + count > limits.perRunArtifacts || u.bytes >= limits.perRunBytes {
                 throw refuse("run_artifact_quota",
                              "this run (or session) already holds \(u.count) screenshots (\(u.bytes) bytes); at most \(limits.perRunArtifacts) or \(limits.perRunBytes) bytes")
             }
@@ -185,35 +191,28 @@ public final class ArtifactStore: @unchecked Sendable {
             if freeBytes < limits.minFreeBytes {
                 throw refuse("disk_low", "only \(freeBytes) bytes are free on the artifact volume; the store leaves at least \(limits.minFreeBytes)")
             }
-            usage[bucket] = (u.count + 1, u.bytes)
-        }
-    }
-
-    /// Whether `count` more artifacts of `bucket` would fit now, without
-    /// reserving: for a caller that makes several in a row and must not make
-    /// the first if the last would be refused.
-    public func available(bucket: String, count: Int) throws {
-        try lock.withLock {
-            let u = usage[bucket] ?? (0, 0)
-            if u.count + count > limits.perRunArtifacts || u.bytes >= limits.perRunBytes {
-                throw RuntimeError("limit_exceeded", "the screenshot limit of this run is reached; observe without a screenshot still works",
-                                   phase: .handler, details: .obj([("reason", .string("run_artifact_quota"))]))
-            }
+            usage[bucket] = (u.count + count, u.bytes)
         }
     }
 
     /// Give back a reservation whose screenshot was not made.
-    public func release(bucket: String) {
+    public func release(bucket: String, count: Int = 1) {
         lock.withLock {
-            guard let u = usage[bucket], u.count > 0 else { return }
-            usage[bucket] = (u.count - 1, u.bytes)
+            guard let u = usage[bucket] else { return }
+            usage[bucket] = (max(0, u.count - count), u.bytes)
         }
     }
 
     /// Ask the volume now (tests, and at start).
     func refreshFreeSpace() {
+        // Stamped with when the question was asked: a query that hung and
+        // returns late does not pass off an old answer as a new one.
+        let askedAt = clock()
         let bytes = freeBytes()
-        lock.withLock { free = (bytes, clock()); refreshingFree = false }
+        lock.withLock {
+            if free.map({ askedAt >= $0.at }) ?? true { free = (bytes, askedAt) }
+            refreshingFree = false
+        }
     }
 
     private func scheduleFreeSpace() {
