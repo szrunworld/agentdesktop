@@ -1,6 +1,6 @@
 {
   "name": "emitted-act-not-dispatched",
-  "description": "派发前失败（如权限）：action.failed，delivery=not_dispatched → 未发出 + 错误码",
+  "description": "派发前失败（如权限，#102 回执带 reason）：action.failed，delivery=not_dispatched → 未发出 + 回执里的错误码；message 不显示",
   "policy": {
     "screenshots": "off",
     "pageText": false
@@ -68,6 +68,10 @@
             "acceptedAt": "2026-10-08T12:00:00.000Z",
             "dispatchedAt": null,
             "completedAt": "2026-10-08T12:00:00.350Z"
+          },
+          "reason": {
+            "code": "permission_denied",
+            "message": "Accessibility is not granted for WeChat – 李四"
           }
         }
       }
@@ -103,7 +107,8 @@
   ],
   "mustContain": [
     "未发出",
-    "错误码：not_dispatched"
+    "错误码：permission_denied",
+    "回执："
   ],
   "expected": [
     [
@@ -162,7 +167,7 @@
           "title": "按键 — 未发出",
           "kind": "execute",
           "status": "failed",
-          "level": "refused:not_dispatched",
+          "level": "refused:permission_denied",
           "detail": [
             "状态：未发出",
             "投递：未发出",
@@ -171,14 +176,15 @@
             "业务结果：未评估",
             "耗时：350 毫秒",
             "目标：ref-uqfnsihz",
-            "错误码：not_dispatched"
+            "错误码：permission_denied",
+            "回执：rcpt_00aa11bb22cc"
           ]
         }
       }
     ],
     [
       {
-        "agentMessage": "正在收尾"
+        "agentMessage": "正在收尾；原因：动作已处理完"
       },
       {
         "plan": [
@@ -228,7 +234,7 @@
     ],
     [
       {
-        "agentMessage": "任务结束：失败"
+        "agentMessage": "任务结束：失败；原因：动作已处理完"
       },
       {
         "plan": [
@@ -252,5 +258,9 @@
       }
     ]
   ],
-  "mustNotContain": []
+  "mustNotContain": [
+    "Accessibility",
+    "WeChat",
+    "李四"
+  ]
 }

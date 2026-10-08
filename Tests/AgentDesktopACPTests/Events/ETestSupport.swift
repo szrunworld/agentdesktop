@@ -9,6 +9,30 @@ enum ETest {
             .appendingPathComponent("Fixtures/events")
     }
 
+    static var contractsDir: URL {
+        var u = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { u.deleteLastPathComponent() }
+        return u.appendingPathComponent("contracts")
+    }
+
+    /// The event types of the frozen Run event catalogue (#102):
+    /// runtime.schema.json#/$defs/PlatformRunEvent, every `type` const or enum.
+    static func catalogueTypes() -> Set<String> {
+        let url = contractsDir.appendingPathComponent("runtime/v1/runtime.schema.json")
+        guard let doc = try? StrictJSON.parse(Data(contentsOf: url)) else { return [] }
+        var out: Set<String> = []
+        for branch in doc["$defs"]?["PlatformRunEvent"]?["oneOf"]?.arrayValue ?? [] {
+            let t = branch["properties"]?["type"]
+            if let c = t?["const"]?.stringValue { out.insert(c) }
+            for v in t?["enum"]?.arrayValue ?? [] { if let c = v.stringValue { out.insert(c) } }
+        }
+        return out
+    }
+
+    static func contractFixture(_ name: String) throws -> JSONValue {
+        try StrictJSON.parse(Data(contentsOf: contractsDir.appendingPathComponent("fixtures/runtime/v1/\(name)")))
+    }
+
     static func event(_ type: String, _ data: [(String, JSONValue)] = [], run: String = "run_0a1b2c3d4e5f", cursor: Int = 1) -> ACPRuntimeEvent {
         ACPRuntimeEvent(runId: run, cursor: cursor, type: type, payload: .obj(data))
     }

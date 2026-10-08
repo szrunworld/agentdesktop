@@ -53,9 +53,11 @@ enum ACPEventText {
         case let .refused(code):
             switch code {
             case "not_dispatched", "input_disabled", "target_moved", "invalid_target", "stale_observation",
-                 "deadline_exceeded", "stop_pending", "run_not_active", "audit_unavailable", "control_busy":
+                 "deadline_exceeded", "stop_pending", "run_not_active", "audit_unavailable", "control_busy",
+                 // A receipt with delivery not_dispatched and code execution_failed
+                 // (the platform failed before sending): nothing ran, so not "执行失败".
+                 "execution_failed", "permission_denied":
                 return "未发出"
-            case "execution_failed": return "执行失败"
             default: return "已拒绝"
             }
         }
