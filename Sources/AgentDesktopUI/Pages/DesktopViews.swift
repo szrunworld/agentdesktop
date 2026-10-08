@@ -7,18 +7,21 @@ public enum WaitingFor {
     public static let a5 = "等待 A5"
 }
 
-/// The observed picture with its facts: size in pixels, scale, snapshotId
-/// (shown as 画面 ID, D20) and capture time. Zoom changes only the display.
+/// The live picture of a Desktop's display with its facts: size in pixels
+/// and scale. Frames come from the window's DesktopFrameHub (screen
+/// capture, memory only); they carry no snapshotId, so none is shown. Zoom
+/// changes only the display. Without a frame the view says why, never
+/// showing a sample image.
 public struct DesktopFrameView: View {
-    @ObservedObject var loader: DesktopFrameLoader
+    @ObservedObject var lease: DesktopFrameLease
     @Binding var zoom: PreviewZoom
     /// Fixed picture height inside scrolling pages; nil fills the space
     /// (the preview window).
     let height: CGFloat?
     let showControls: Bool
 
-    public init(loader: DesktopFrameLoader, zoom: Binding<PreviewZoom>, height: CGFloat? = 360, showControls: Bool = true) {
-        self.loader = loader
+    public init(lease: DesktopFrameLease, zoom: Binding<PreviewZoom>, height: CGFloat? = 360, showControls: Bool = true) {
+        self.lease = lease
         _zoom = zoom
         self.height = height
         self.showControls = showControls
@@ -37,70 +40,84 @@ public struct DesktopFrameView: View {
     }
 
     @ViewBuilder var picture: some View {
-        if let image = loader.image {
+        if let frame = lease.frame {
+            let image = Image(decorative: frame.image, scale: 1)
             ZStack(alignment: .top) {
-                if let f = zoom.factor(imageScale: loader.scale), let px = loader.pixelSize {
+                if let f = zoom.factor(imageScale: frame.scale) {
                     ScrollView([.horizontal, .vertical]) {
-                        Image(nsImage: image).resizable().interpolation(.high)
-                            .frame(width: CGFloat(px.width) * f, height: CGFloat(px.height) * f)
+                        image.resizable().interpolation(.high)
+                            .frame(width: CGFloat(frame.pixelWidth) * f, height: CGFloat(frame.pixelHeight) * f)
                     }
                 } else {
-                    // Fit, but never larger than the picture's own size in points.
-                    let pts = loader.pixelSize.map { CGSize(width: CGFloat($0.width) / CGFloat(loader.scale ?? 1),
-                                                            height: CGFloat($0.height) / CGFloat(loader.scale ?? 1)) }
-                    Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: pts?.width ?? .infinity, maxHeight: pts?.height ?? .infinity)
+                    // Fit, but never larger than the Desktop's own size in points.
+                    let s = CGFloat(frame.scale > 0 ? frame.scale : 1)
+                    image.resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: CGFloat(frame.pixelWidth) / s, maxHeight: CGFloat(frame.pixelHeight) / s)
                         .padding(ADSpace.s).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 problemOverlay
             }
-        } else {
-            switch loader.state {
-            case .loading:
-                VStack(spacing: ADSpace.s) {
-                    ProgressView()
-                    Text("正在观察这个 Desktop…").font(ADFont.note).foregroundStyle(ADColor.muted)
-                }
-            default:
-                problemOverlay
+        } else if lease.status == .starting {
+            VStack(spacing: ADSpace.s) {
+                ProgressView()
+                Text("正在连接实时画面…").font(ADFont.note).foregroundStyle(ADColor.muted)
             }
+        } else if lease.status == .paused {
+            Text("画面已暂停：窗口不可见").font(ADFont.note).foregroundStyle(ADColor.muted)
+        } else {
+            problemOverlay
+        }
+    }
+
+    /// Honest text for a picture that cannot be shown.
+    public static func problemText(_ status: DesktopFrameStatus) -> (title: String, advice: String)? {
+        switch status {
+        case .permissionDenied:
+            return ("需要屏幕录制权限", "在「系统设置 › 隐私与安全性 › 屏幕录制」中允许 Agent Desktop，然后重试。")
+        case .unavailable(let why):
+            return ("画面暂不可用", why)
+        case .starting, .live, .paused:
+            return nil
         }
     }
 
     @ViewBuilder var problemOverlay: some View {
-        switch loader.state {
-        case .failed(let p), .disconnected(let p):
-            ProblemView(title: "画面没有更新：\(p.title)", advice: p.advice, code: p.code,
-                        extra: loader.image == nil ? [] : ["下方是上一次观察的画面"],
-                        retry: { Task { await loader.load() } })
+        if let t = Self.problemText(lease.status) {
+            ProblemView(title: t.title, advice: t.advice, code: "",
+                        extra: lease.frame == nil ? [] : ["下方是出错前的最后一帧"],
+                        retry: lease.isAttached ? { lease.retry() } : nil)
                 .padding(ADSpace.m)
-        default:
-            EmptyView()
         }
     }
 
     var footer: some View {
         HStack(spacing: ADSpace.m) {
             Image(systemName: "display").foregroundStyle(ADColor.muted)
-            Text(sizeText).font(ADFont.identifier).foregroundStyle(ADColor.muted)
+            Text(Self.sizeText(lease.frame)).font(ADFont.identifier).foregroundStyle(ADColor.muted)
             Spacer()
-            Text("画面 ID").font(ADFont.note).foregroundStyle(ADColor.muted)
-            Text(loader.snapshotId ?? "—").font(ADFont.code).foregroundStyle(ADColor.ink).textSelection(.enabled)
-            Text(TimeText.clock(loader.capturedAt)).font(ADFont.identifier).foregroundStyle(ADColor.muted)
+            Text(Self.statusText(lease.status)).font(ADFont.note).foregroundStyle(ADColor.muted)
             Spacer()
             Picker("缩放", selection: $zoom) { ForEach(PreviewZoom.allCases) { Text($0.rawValue).tag($0) } }
                 .labelsHidden().pickerStyle(.menu).frame(width: 110)
-            Button { Task { await loader.load() } } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(ADButtonStyle(.quiet)).accessibilityLabel("重新观察")
         }
         .padding(.horizontal, ADSpace.l).frame(height: 44)
         .overlay(alignment: .top) { Rectangle().fill(ADColor.line).frame(height: 1) }
     }
 
-    var sizeText: String {
-        guard let px = loader.pixelSize else { return "—" }
-        let s = loader.scale.map { $0 == $0.rounded() ? "\(Int($0))x" : String(format: "%.2fx", $0) } ?? "—"
-        return "\(px.width) × \(px.height) px · scale \(s)"
+    public static func statusText(_ status: DesktopFrameStatus) -> String {
+        switch status {
+        case .starting: return "正在连接实时画面"
+        case .live: return "实时画面 · 不保存"
+        case .paused: return "已暂停"
+        case .permissionDenied: return "需要屏幕录制权限"
+        case .unavailable: return "画面暂不可用"
+        }
+    }
+
+    public static func sizeText(_ frame: DesktopFrame?) -> String {
+        guard let frame else { return "—" }
+        let s = frame.scale == frame.scale.rounded() ? "\(Int(frame.scale))x" : String(format: "%.2fx", frame.scale)
+        return "\(frame.pixelWidth) × \(frame.pixelHeight) px · scale \(s)"
     }
 }
 
@@ -259,7 +276,7 @@ public struct CreateDesktopSheet: View {
     }
 }
 
-/// P07: Desktops side by side, each with its own observed picture.
+/// P07: Desktops side by side, each with its own live picture.
 public struct SideBySideView: View {
     @ObservedObject var store: ShellStore
     @ObservedObject var navigation: ShellNavigation
@@ -296,7 +313,7 @@ struct SideBySidePanel: View {
     @ObservedObject var navigation: ShellNavigation
     let desktop: JSONValue
     let openPreview: ((String) -> Void)?
-    @StateObject private var loader: DesktopFrameLoader
+    @StateObject private var lease = DesktopFrameLease()
     @State private var zoom: PreviewZoom = .fit
 
     init(store: ShellStore, navigation: ShellNavigation, desktop: JSONValue, openPreview: ((String) -> Void)?) {
@@ -304,7 +321,6 @@ struct SideBySidePanel: View {
         self.navigation = navigation
         self.desktop = desktop
         self.openPreview = openPreview
-        _loader = StateObject(wrappedValue: DesktopFrameLoader(runtime: store.runtime, desktopId: desktop["desktopId"]?.stringValue ?? ""))
     }
 
     var body: some View {
@@ -316,7 +332,7 @@ struct SideBySidePanel: View {
                 Spacer()
                 StateBadge(DesktopControlPresentation.make(desktop: desktop, activeRuns: store.activeRuns).status)
             }
-            DesktopFrameView(loader: loader, zoom: $zoom, height: 300)
+            DesktopFrameView(lease: lease, zoom: $zoom, height: 300)
             HStack(spacing: ADSpace.s) {
                 Button { navigation.showDesktop(id) } label: { Label("详情", systemImage: "info.circle") }
                     .buttonStyle(ADButtonStyle(.secondary))
@@ -328,7 +344,7 @@ struct SideBySidePanel: View {
                 Text(WaitingFor.a5).font(ADFont.identifier).foregroundStyle(ADColor.muted)
             }
         }
-        .task(id: store.tick) { await loader.refreshIfStale(interval: 5) }
+        .liveFrame(lease, displayId: DesktopFrameHub.displayId(of: desktop))
     }
 }
 
@@ -336,7 +352,7 @@ struct SideBySidePanel: View {
 /// window; the Desktop, its input and its Runs go on (UC14).
 public struct DesktopPreviewView: View {
     @ObservedObject var store: ShellStore
-    @StateObject private var loader: DesktopFrameLoader
+    @StateObject private var lease = DesktopFrameLease()
     @State private var zoom: PreviewZoom = .fit
     let desktopId: String
     let hide: () -> Void
@@ -347,15 +363,6 @@ public struct DesktopPreviewView: View {
         self.desktopId = desktopId
         self.hide = hide
         self.openDetail = openDetail
-        _loader = StateObject(wrappedValue: DesktopFrameLoader(runtime: store.runtime, desktopId: desktopId))
-    }
-
-    init(store: ShellStore, loader: DesktopFrameLoader, hide: @escaping () -> Void, openDetail: @escaping () -> Void) {
-        self.store = store
-        self.desktopId = loader.desktopId
-        self.hide = hide
-        self.openDetail = openDetail
-        _loader = StateObject(wrappedValue: loader)
     }
 
     var desktop: JSONValue? { store.desktops.first { $0["desktopId"]?.stringValue == desktopId } }
@@ -380,11 +387,13 @@ public struct DesktopPreviewView: View {
                 EmptyState(title: "这个 Desktop 已不存在", detail: "\(desktopId) 已关闭；可以关闭这个预览窗口。", action: nil)
                     .frame(maxHeight: .infinity)
             } else {
-                DesktopFrameView(loader: loader, zoom: $zoom, height: nil).padding(ADSpace.m)
+                DesktopFrameView(lease: lease, zoom: $zoom, height: nil).padding(ADSpace.m)
             }
         }
         .background(ADColor.canvas)
         .environment(\.colorScheme, .light)
-        .task(id: store.tick) { await loader.refreshIfStale(interval: 3) }
+        // The window's own scope: closing or hiding the window lets go of
+        // the picture even if SwiftUI never reports a disappearance.
+        .liveFrame(lease, displayId: DesktopFrameHub.displayId(of: desktop), scope: PreviewWindowRegistry.scope(desktopId))
     }
 }

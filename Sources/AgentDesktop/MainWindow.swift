@@ -12,7 +12,10 @@ import SwiftUI
 final class MainWindowController: NSObject, NSWindowDelegate {
     let store: ShellStore
     let navigation = ShellNavigation()
-    let previews = PreviewWindowRegistry()
+    let previews: PreviewWindowRegistry
+    /// Live pictures for this window and the preview windows: one capture
+    /// stream per Desktop display, only while a visible view shows it.
+    let frames: DesktopFrameHub
     private(set) var previewWindows: PreviewWindows!
     private var pruning: AnyCancellable?
     private var aiSettings: AISettingsModel?
@@ -20,16 +23,21 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     /// Times the window was closed; tests read it.
     private(set) var closeCount = 0
 
-    init(store: ShellStore) {
+    /// `frames` is explicit: the app passes ScreenCaptureKit, tests a fake.
+    init(store: ShellStore, frames: DesktopFrameHub) {
         self.store = store
+        self.frames = frames
+        self.previews = PreviewWindowRegistry(frames: frames)
         super.init()
+        // Nothing streams for the main window until it is shown.
+        frames.setScopeVisible(DesktopFrameHub.mainScope, false)
         previewWindows = PreviewWindows(store: store, registry: previews)
         // A preview of a Desktop that is gone closes by itself. The list and
         // its state are watched together: after a disconnection the Store
         // publishes the new list before the state turns loaded again.
         pruning = store.$desktops.combineLatest(store.$desktopsState).sink { [weak self] list, state in
             guard let self, state == .loaded || state == .empty else { return }
-            self.previews.prune(existing: Set(list.compactMap { $0["desktopId"]?.stringValue }))
+            self.previews.sync(desktops: list)
         }
         previewWindows.openDetail = { [weak self] id in
             guard let self else { return }
@@ -52,6 +60,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let w = ensureWindow()
         w.makeKeyAndOrderFront(nil)
         NSApp.activate()
+        frames.setScopeVisible(DesktopFrameHub.mainScope, true)
     }
 
     /// Show without activating the app or taking key focus: a test copy's
@@ -68,6 +77,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                               width: min(w.frame.width, f.width), height: min(w.frame.height, f.height)), display: false)
         }
         w.orderFrontRegardless()
+        frames.setScopeVisible(DesktopFrameHub.mainScope, true)
     }
 
     func close() {
@@ -95,11 +105,19 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let nav = navigation
         return NSHostingView(rootView: MainWindowView(store: store, navigation: nav, previews: previews, settings: { page in
             ai?.view(for: page, navigation: nav)
-        }))
+        }).environment(\.desktopFrames, frames))
     }
 
     /// Hide, never quit, never stop anything.
     func windowWillClose(_ notification: Notification) {
         closeCount += 1
+        frames.setScopeVisible(DesktopFrameHub.mainScope, false)
+    }
+
+    /// Hidden behind other windows, minimised or on another Space: the
+    /// main window's pictures pause and resume when it can be seen again.
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard let w = notification.object as? NSWindow else { return }
+        frames.setScopeVisible(DesktopFrameHub.mainScope, w.isVisible && w.occlusionState.contains(.visible))
     }
 }

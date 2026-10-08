@@ -151,14 +151,13 @@ public struct DesktopsOverviewView: View {
     }
 }
 
-/// Desktops › 详情 (P06), read-only part: picture placeholder, controller,
-/// connection panel and recent actions. Preview, takeover and stop come
-/// with U2 / U3.
+/// Desktops › 详情 (P06): live picture, controller, connection panel and
+/// recent actions. Takeover and stop wait for A5.
 public struct DesktopInspectorView: View {
     @ObservedObject var store: ShellStore
     @ObservedObject var navigation: ShellNavigation
     @StateObject private var activity: DesktopActivityLoader
-    @StateObject private var frame: DesktopFrameLoader
+    @StateObject private var frame: DesktopFrameLease
     @State private var zoom: PreviewZoom = .fit
     let desktopId: String
     let openPreview: ((String) -> Void)?
@@ -169,18 +168,18 @@ public struct DesktopInspectorView: View {
         self.desktopId = desktopId
         self.openPreview = openPreview
         _activity = StateObject(wrappedValue: DesktopActivityLoader(runtime: store.runtime, desktopId: desktopId))
-        _frame = StateObject(wrappedValue: DesktopFrameLoader(runtime: store.runtime, desktopId: desktopId))
+        _frame = StateObject(wrappedValue: DesktopFrameLease())
     }
 
     /// With activity and picture already read (renders, tests).
-    init(store: ShellStore, navigation: ShellNavigation, activity: DesktopActivityLoader, frame: DesktopFrameLoader? = nil,
+    init(store: ShellStore, navigation: ShellNavigation, activity: DesktopActivityLoader, frame: DesktopFrameLease? = nil,
          openPreview: ((String) -> Void)? = nil) {
         self.store = store
         self.navigation = navigation
         self.desktopId = activity.desktopId
         self.openPreview = openPreview
         _activity = StateObject(wrappedValue: activity)
-        _frame = StateObject(wrappedValue: frame ?? DesktopFrameLoader(runtime: store.runtime, desktopId: activity.desktopId))
+        _frame = StateObject(wrappedValue: frame ?? DesktopFrameLease())
     }
 
     var desktop: JSONValue? { store.desktops.first { $0["desktopId"]?.stringValue == desktopId } }
@@ -223,7 +222,8 @@ public struct DesktopInspectorView: View {
                 HStack(alignment: .top, spacing: ADSpace.xl) {
                     VStack(alignment: .leading, spacing: ADSpace.l) {
                         ControllerBanner(control: control)
-                        DesktopFrameView(loader: frame, zoom: $zoom, height: 460)
+                        DesktopFrameView(lease: frame, zoom: $zoom, height: 460)
+                            .liveFrame(frame, displayId: DesktopFrameHub.displayId(of: desktop))
                         Text("停止、接管、关闭：\(WaitingFor.a5)（desktop.stop / takeover / closePlan 尚未上线）")
                             .font(ADFont.note).foregroundStyle(ADColor.muted)
                         recent
@@ -233,10 +233,7 @@ public struct DesktopInspectorView: View {
                 }
             }
         }
-        .task(id: store.tick) {
-            await activity.load(runs: store.runs)
-            if desktop != nil { await frame.refreshIfStale(interval: 5) }
-        }
+        .task(id: store.tick) { await activity.load(runs: store.runs) }
     }
 
     var recent: some View {
@@ -295,31 +292,39 @@ public struct DesktopsPage: View {
     }
 }
 
-/// A card's picture: one observation when the card appears, renewed every
-/// 15 seconds while the overview is open; the placeholder until then.
+/// A card's picture: the Desktop's live picture, shared with any other
+/// view of the same Desktop; the placeholder until the first frame.
 struct CardPicture: View {
     @ObservedObject var store: ShellStore
-    @StateObject private var loader: DesktopFrameLoader
+    @StateObject private var lease = DesktopFrameLease()
     let desktopId: String
 
     init(store: ShellStore, desktopId: String) {
         self.store = store
         self.desktopId = desktopId
-        _loader = StateObject(wrappedValue: DesktopFrameLoader(runtime: store.runtime, desktopId: desktopId))
     }
+
+    var desktop: JSONValue? { store.desktops.first { $0["desktopId"]?.stringValue == desktopId } }
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            if let image = loader.image {
+            if let frame = lease.frame {
                 Rectangle().fill(ADColor.canvas)
-                Image(nsImage: image).resizable().aspectRatio(contentMode: .fit).padding(ADSpace.xs)
-                Text(loader.snapshotId ?? "").font(ADFont.identifier).foregroundStyle(ADColor.muted)
-                    .padding(4).background(RoundedRectangle(cornerRadius: 4).fill(ADColor.panel.opacity(0.9))).padding(ADSpace.s)
-            } else if let d = store.desktops.first(where: { $0["desktopId"]?.stringValue == desktopId }) {
+                Image(decorative: frame.image, scale: 1).resizable().aspectRatio(contentMode: .fit).padding(ADSpace.xs)
+            } else if let d = desktop {
                 DesktopViewport(sizeText: DesktopControlPresentation.sizeText(d), appName: d["binding"]?["appName"]?.stringValue,
-                                note: loader.state == .loading ? "正在观察…" : "画面暂不可用")
+                                note: Self.note(lease.status))
             }
         }
-        .task(id: store.tick) { await loader.refreshIfStale(interval: 15) }
+        .liveFrame(lease, displayId: DesktopFrameHub.displayId(of: desktop))
+    }
+
+    static func note(_ status: DesktopFrameStatus) -> String {
+        switch status {
+        case .starting: return "正在连接实时画面…"
+        case .permissionDenied: return "需要屏幕录制权限"
+        case .paused: return "画面已暂停"
+        case .live, .unavailable: return "画面暂不可用"
+        }
     }
 }
