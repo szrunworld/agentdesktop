@@ -41,7 +41,8 @@ public enum PasteOutcome: Equatable {
 
     /// The response to a `type` action that pasted, and pressed Return for a
     /// trailing newline when `submit` and the outcome allows it.
-    public func response(submit: Bool, pressReturn: () throws -> ControlResponse) rethrows -> ControlResponse {
+    public func response(submit: Bool, clipboardRestored: Bool = true,
+                         pressReturn: () throws -> ControlResponse) rethrows -> ControlResponse {
         var response: ControlResponse
         switch self {
         case .notDelivered(let why):
@@ -61,6 +62,11 @@ public enum PasteOutcome: Equatable {
             }
         case .confirmed:
             response = submit ? try pressReturn() : ControlResponse()
+        }
+        if !clipboardRestored {
+            let note = "clipboard_withheld: the phone may still fetch the Mac's clipboard, so it was left holding "
+                + "the typed text and the user's earlier contents were not put back"
+            response.error = response.error.map { "\($0). \(note)" } ?? note
         }
         response.route = route
         return response
@@ -230,6 +236,31 @@ public struct PasteWatcher {
         return Self.check(text, before: baseline, after: settled)
     }
 
+    /// After a paste that did not settle: watch up to `looks` more times for
+    /// the phone to show neither a paste prompt nor a paste in progress, on
+    /// a screen that could be read. Nothing is pressed. True only when the
+    /// phone is seen to be done with the clipboard, so the user's contents
+    /// can go back without the phone fetching them.
+    public func settles(looks: Int, driver: PhonePasteDriver) -> Bool {
+        var quiet = 0
+        for _ in 0..<looks {
+            driver.pause(interval)
+            guard let seen = try? driver.look(), !seen.isEmpty else {
+                quiet = 0
+                continue
+            }
+            let prompting = seen.contains { line in
+                let text = PastePrompt.clean(line.text)
+                return PastePrompt.allowPasteLabels.contains(text) || PastePrompt.denyPasteLabels.contains(text)
+                    || PastePrompt.pastingLabels.contains { text.hasPrefix($0) }
+                    || PastePrompt.promptPhrases.contains { text.range(of: $0, options: .caseInsensitive) != nil }
+            }
+            quiet = prompting ? 0 : quiet + 1
+            if quiet >= quietLooks { return true }
+        }
+        return false
+    }
+
     /// Whether `text` shows on screen more often after the paste than
     /// before. Only letters and digits are compared: OCR drops emoji and
     /// spacing, and splits lines.
@@ -271,19 +302,39 @@ public struct PasteTransaction {
     /// How long to wait for another agent's paste to finish.
     public var leaseTimeout: TimeInterval = 45
     public var watcher = PasteWatcher()
+    /// Extra looks, after a paste that did not settle, for the phone to be
+    /// seen done with the clipboard before the user's contents go back.
+    public var settleLooks = 30
 
     public init() {}
 
-    public func paste(_ text: String, verify: Bool, driver: PhonePasteDriver) -> PasteOutcome {
+    /// What became of the paste, and of the user's clipboard.
+    public struct Result: Equatable {
+        public var outcome: PasteOutcome
+        /// The user's contents are back (or they copied something new).
+        /// False when they were withheld: the clipboard still holds the
+        /// pasted text, because the phone might yet fetch it and must not
+        /// get the user's data instead.
+        public var clipboardRestored: Bool
+    }
+
+    public func paste(_ text: String, verify: Bool, driver: PhonePasteDriver) -> Result {
         do {
             return try ClipboardLease.with(at: leaseURL, timeout: leaseTimeout) {
-                try PasteboardLoan.with(text, on: pasteboard) {
+                let loan = try PasteboardLoan.with(text, on: pasteboard, restoreAfter: { outcome in
+                    // A paste that settled is done with the clipboard. One that
+                    // did not may still be fetched (a prompt left up, a slow
+                    // transfer): restore only once the phone is seen done.
+                    guard case .unknown = outcome else { return true }
+                    return watcher.settles(looks: settleLooks, driver: driver)
+                }) {
                     watcher.paste(text, verify: verify, driver: driver)
-                }.value
+                }
+                return Result(outcome: loan.value, clipboardRestored: loan.restored || pasteboard.string(forType: .string) != text)
             }
         } catch {
             // The lease or the snapshot failed: the clipboard was not touched.
-            return .notDelivered(error.localizedDescription)
+            return Result(outcome: .notDelivered(error.localizedDescription), clipboardRestored: true)
         }
     }
 }

@@ -124,18 +124,24 @@ public enum PasteboardLoan {
     }
 
     /// Fails before touching the pasteboard when its contents cannot be
-    /// saved without loss.
+    /// saved without loss. `restoreAfter` decides from the result whether
+    /// the user's contents may go back: while something may still read the
+    /// clipboard (a phone that has not finished fetching it), putting them
+    /// back would hand it the user's data instead of `text`, so `text` is
+    /// left there instead.
     public static func with<Value>(_ text: String, on pasteboard: NSPasteboard,
+                                   restoreAfter: (Value) -> Bool = { _ in true },
                                    _ body: () throws -> Value) throws -> Result<Value> {
         let snapshot = try PasteboardSnapshot.capture(pasteboard)
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         let ours = pasteboard.changeCount
         var finished = false
-        // Also when `body` throws.
+        // Also when `body` throws: then nothing was sent to read it.
         defer { if !finished { snapshot.restore(to: pasteboard, ifChangeCountIs: ours) } }
         let value = try body()
         finished = true
+        guard restoreAfter(value) else { return Result(value: value, restored: false) }
         let restored = snapshot.restore(to: pasteboard, ifChangeCountIs: ours)
         return Result(value: value, restored: restored)
     }

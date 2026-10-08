@@ -227,7 +227,13 @@ public final class IPhoneAgentScreen: AgentScreen {
             let submit = text.hasSuffix("\n")
             if submit { text.removeLast() }
             if text.isEmpty { return try send(key("return", []), pid: pid) }
-            return try paste(text, pid: pid).response(submit: submit) {
+            let pasted = try paste(text, pid: pid)
+            if case .unknown = pasted.outcome {
+                // Whatever acts next depends on what the field holds, which
+                // nobody knows: no input until the phone is read again.
+                invalidated = "may hold a half-finished paste"
+            }
+            return try pasted.outcome.response(submit: submit, clipboardRestored: pasted.clipboardRestored) {
                 try send(key("return", []), pid: pid)
             }
         default:
@@ -285,7 +291,7 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// The bound window as it is now, if input may still go to it.
     private func verifiedTarget(pid: pid_t) throws -> IPhoneWindow {
         if let invalidated {
-            throw IPhoneError.stale("delivery_unknown", "the window \(invalidated) during an earlier input")
+            throw IPhoneError.stale("delivery_unknown", "the window \(invalidated) after an earlier input")
         }
         guard let bound = binding else {
             throw IPhoneError("no_observation", "read iPhone Mirroring's window first (frame or screenshot)")
@@ -320,7 +326,7 @@ public final class IPhoneAgentScreen: AgentScreen {
     }
 
     /// Paste `text` into the phone's focused field (see `PasteTransaction`).
-    private func paste(_ text: String, pid: pid_t) throws -> PasteOutcome {
+    private func paste(_ text: String, pid: pid_t) throws -> PasteTransaction.Result {
         PasteTransaction().paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
     }
 
