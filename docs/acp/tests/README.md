@@ -1,6 +1,6 @@
 # ACP 测试与验收（工作线 Q）
 
-状态：2026-10-08 第七轮（分支 acp-q-independent，已合入 main cbe7772，含 #102、#114、#117）。169 个用例：PASSED 55、FAILED 0、BLOCKED 12、NOT_RUN 102（ACP-T18-04 由协调者拆为 04a 只读 PASSED 与 04b 写入 NOT_RUN）。PASSED 只在 L1（假编辑器对 dev 入口、真 ACP 栈配脚本化 Runtime、代码检查）与 L2 只读（测试副本，无 unit.run、不建 Desktop）上；任何需要 A4/A6、真实 GUI 动作或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4～4.8 节。
+状态：2026-10-08 第七轮（分支 acp-q-independent，已合入 main cbe7772，含 #102、#114、#117）。170 个用例：PASSED 55、FAILED 0、BLOCKED 12、NOT_RUN 103（协调者按「未运行不得标通过」拆分两条：ACP-T18-04 → 04a 只读 PASSED、04b 写入 NOT_RUN；ACP-T28-02 → 02a 自动化 PASSED、02b 真机 NOT_RUN）。PASSED 只在 L1（假编辑器对 dev 入口、真 ACP 栈配脚本化 Runtime、代码检查）与 L2 只读（测试副本，无 unit.run、不建 Desktop）上；任何需要 A4/A6、真实 GUI 动作或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4～4.8 节。
 
 ## 一、分层（Kevin 裁决附加约束 6）
 
@@ -21,7 +21,7 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `docs/acp/tests/cases.csv` | 169 个可执行用例 |
+| `docs/acp/tests/cases.csv` | 170 个可执行用例 |
 | `docs/acp/tests/e2e-runbook.md` | 真机端到端手册：测试副本、Zed 配置、计算器中立样本、证据、通过标准 |
 | `docs/acp/tests/evidence/fake-editor-selftest-2026-10-08/` | 假编辑器自检的原始记录 |
 | `scripts/acp/fake-editor/` | 假编辑器（TypeScript，官方 `@agentclientprotocol/sdk` 1.7.0 锁定版本，`package-lock.json` 已提交，`node_modules/`、`dist/` 不提交） |
@@ -85,7 +85,7 @@
 | T25 外部 agent 虚假成功 | 2 | 0 | 2 | 0 | 0 | ACP-T25-01～02 |
 | T26 Zed E2E | 6 | 4 | 1 | 0 | 1 | ACP-T26-01～06 |
 | T27 JetBrains E2E（P2，不阻塞 P1） | 2 | 1 | 1 | 0 | 0 | ACP-T27-01～02 |
-| T28 macOS Runtime 回归 | 3 | 3 | 0 | 0 | 0 | ACP-T28-01～03 |
+| T28 macOS Runtime 回归 | 4 | 4 | 0 | 0 | 0 | ACP-T28-01、02a、02b、03 |
 | L2 只读冒烟（真 Runtime，A6 之前） | 5 | 4 | 1 | 0 | 0 | ACP-L2-01～05 |
 | P1 通过标准（原文 §8） | 8 | 7 | 1 | 0 | 0 | ACP-P1-01～08 |
 | 场景 A（K1 改写） | 2 | 1 | 1 | 0 | 0 | ACP-P2A-01～02 |
@@ -102,14 +102,14 @@
 
 ### 3.3 每个门禁的用例数
 
-一个用例可以属于多个门禁，所以下表合计大于 169。门禁的 PASSED 数只是 L1/L2 子项，门禁本身仍未通过。
+一个用例可以属于多个门禁，所以下表合计大于 170。门禁的 PASSED 数只是 L1/L2 子项，门禁本身仍未通过。
 
 | 门禁 | 用例 | L1 | L2 | L3 | PASSED | FAILED | BLOCKED |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| G0 | 6 | 2 | 4 | 0 | 5 | 0 | 0 |
+| G0 | 7 | 2 | 5 | 0 | 5 | 0 | 0 |
 | G1 | 56 | 32 | 11 | 13 | 33 | 0 | 0 |
 | G2 | 52 | 36 | 11 | 5 | 10 | 0 | 10 |
-| G3 | 51 | 28 | 12 | 11 | 11 | 0 | 2 |
+| G3 | 52 | 29 | 12 | 11 | 11 | 0 | 2 |
 | G4 | 10 | 0 | 10 | 0 | 0 | 0 | 0 |
 | G5 | 9 | 2 | 0 | 7 | 1 | 0 | 0 |
 
@@ -384,7 +384,7 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 - ACP-T05-04：编辑器不声明 elicitation 时，问题不发出、不被代答，Run 不前进。
 - ACP-P4-02（G5-05）：新会话的截图、页面文字默认关，mode 为 ask，截图档位只有 off/submit/all，与 01、08、README 的说明一致。
 
-**用例状态变化**（40 → 55 PASSED，116 → 102 NOT_RUN；总数 168 → 169，因拆分 ACP-T18-04）：
+**用例状态变化**（40 → 55 PASSED，116 → 103 NOT_RUN；总数 168 → 170，因拆分 ACP-T18-04 与 ACP-T28-02）：
 
 | 用例 | 结果 | 层 |
 | --- | --- | --- |
@@ -395,7 +395,8 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 | ACP-T09-03 | NOT_RUN → **PASSED** | 代码审查 + L2 状态目录观察 |
 | ACP-T18-04a | 新拆出：**PASSED**（只读部分） | L2 只读 |
 | ACP-T18-04b | 新拆出：NOT_RUN（act 进账本未执行） | — |
-| ACP-T28-02 | NOT_RUN → **PASSED**（RT-23A/B 自动化套件；真机探针未重跑） | L1 自动化 |
+| ACP-T28-02a | 新拆出：**PASSED**（RT-23A/B 自动化套件 RuntimeAXIsolationTests） | L1 自动化 |
+| ACP-T28-02b | 新拆出：NOT_RUN（真机：Safari 大型网页、多个 Desktop 连续 AX 超时；需建 Desktop，独立审核 B-1） | — |
 | ACP-T18-01、T18-03、T28-01 | 仍 PASSED，补第七轮回归证据 | L2 / L1 |
 | ACP-T04-03 | 仍 NOT_RUN：02 只选定 v1 | — |
 | ACP-T18-02 | 仍 NOT_RUN：编译旧引擎 CLI 并发点击属于 GUI 动作 | — |
@@ -408,7 +409,7 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 - G0-09：ACP-T09-03、ACP-T18-05 都 PASSED。
 - G5-05：ACP-P4-02 PASSED。
 - G0-02：ACP-T18-03、ACP-T18-04a 已 PASSED，仍缺 ACP-T18-02 与 ACP-T18-04b。
-- G3-08：仍缺 ACP-T28-03。
+- G3-08：仍缺 ACP-T28-02b（真机）与 ACP-T28-03。
 - 其余门禁不变，仍然没有任何端到端结论。
 
 ## 五、冻结接口一致性测试
