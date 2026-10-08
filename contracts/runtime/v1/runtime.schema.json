@@ -1099,18 +1099,16 @@
       "additionalProperties": false,
       "required": [
         "artifactId",
-        "path",
         "mediaType",
         "width",
         "height",
+        "byteSize",
+        "sha256",
         "transform"
       ],
       "properties": {
         "artifactId": {
           "$ref": "#/$defs/Id"
-        },
-        "path": {
-          "type": "string"
         },
         "mediaType": {
           "const": "image/png"
@@ -1122,6 +1120,14 @@
         "height": {
           "type": "integer",
           "minimum": 1
+        },
+        "byteSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "transform": {
           "$ref": "#/$defs/ImageTransform"

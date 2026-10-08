@@ -236,6 +236,8 @@ public final class RuntimeService: @unchecked Sendable {
         case .runList: return listRuns(p, connection)
         case .stopAll: return stopAll(connection)
         case .enableInput: return enableInput(connection)
+        case .artifactShow: return showArtifact(p, connection)
+        case .artifactRead: return readArtifact(p, connection)
         }
     }
 }

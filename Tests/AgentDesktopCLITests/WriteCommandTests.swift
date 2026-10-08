@@ -1,3 +1,4 @@
+import CryptoKit
 import AgentDesktopClient
 import AgentDesktopContracts
 import AgentDesktopProtocol
@@ -78,16 +79,48 @@ import Testing
     #expect(e?["message"]?.stringValue?.contains("request show kill-1") == true)
 }
 
-@Test func observeExportsTheScreenshot() throws {
+@Test func observeSavesTheScreenshotByIdNotByPath() throws {
     let h = Harness()
-    h.answer = { _ in .obj([("snapshotId", .string("obs_1")), ("image", .obj([("path", .string("/runtime/art_1.png"))])),
-                            ("elements", .array([]))]) }
-    var copied: (String, String)?
+    let png = Data((0..<700_000).map { UInt8($0 % 251) })
+    let sha = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
+    h.answer = { r in
+        switch r.method {
+        case "observe":
+            return .obj([("snapshotId", .string("obs_1")), ("image", .obj([("artifactId", .string("art_1"))])),
+                         ("elements", .array([]))])
+        case "artifact.show":
+            return .obj([("artifactId", .string("art_1")), ("byteSize", .int(png.count)), ("sha256", .string(sha))])
+        default:
+            // Two chunks, the way the Runtime caps one read.
+            let offset = r.params["offset"]?.intValue ?? 0
+            let part = png.subdata(in: offset..<min(png.count, offset + 524_288))
+            return .obj([("artifactId", .string("art_1")), ("offset", .int(offset)), ("length", .int(part.count)),
+                         ("eof", .bool(offset + part.count >= png.count)), ("dataBase64", .string(part.base64EncodedString()))])
+        }
+    }
+    var written: (Data, String)?
     var cli = h.cli
-    cli.copyFile = { copied = ($0, $1) }
+    cli.writeFile = { written = ($0, $1) }
     #expect(cli.run(["observe", "--desktop", "d_1", "--image-output", "/tmp/out.png", "--format", "json"]) == 0)
-    #expect(copied?.0 == "/runtime/art_1.png" && copied?.1 == "/tmp/out.png")
-    #expect(try h.json()["data"]?["imageOutput"]?.stringValue == "/tmp/out.png")
+    #expect(written?.0 == png)
+    #expect(written?.1 == "/tmp/out.png")
+    #expect(h.clients[0].calls.map(\.method) == ["observe", "artifact.show", "artifact.read", "artifact.read"])
+    #expect(try h.json()["data"]?["savedTo"]?.stringValue == "/tmp/out.png")
+}
+
+@Test func aChangedArtifactIsNotSaved() throws {
+    let h = Harness()
+    h.answer = { r in
+        r.method == "artifact.show"
+            ? .obj([("artifactId", .string("art_1")), ("sha256", .string(String(repeating: "0", count: 64)))])
+            : .obj([("artifactId", .string("art_1")), ("offset", .int(0)), ("length", .int(3)), ("eof", .bool(true)),
+                    ("dataBase64", .string("AAAA"))])
+    }
+    var cli = h.cli
+    var wrote = false
+    cli.writeFile = { _, _ in wrote = true }
+    #expect(cli.run(["artifact", "get", "art_1", "--out", "/tmp/x.png", "--format", "json"]) == 7)
+    #expect(wrote == false)
 }
 
 /// A minimal platform for the end-to-end flow over a real socket.
@@ -162,9 +195,9 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
     let (c3, observed) = run(["observe", "--session", sid, "--image-output", png])
     #expect(c3 == 0)
     let observation = try #require(observed?["data"])
-    // imageOutput is the CLI's own addition; the rest is the Runtime's Observation.
+    // savedTo is the CLI's own addition; the rest is the Runtime's Observation.
     var members = observation.objectMembers ?? []
-    members.removeAll { $0.key == "imageOutput" }
+    members.removeAll { $0.key == "savedTo" }
     #expect(RuntimeContract.shared.validate(.object(members), "Observation").isEmpty)
     #expect(observed?["data"]?["elements"]?.arrayValue?.first?["label"]?.stringValue == "完成")
     #expect(FileManager.default.fileExists(atPath: png))

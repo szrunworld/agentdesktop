@@ -81,7 +81,7 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | Run | run.start / attach / finish / show / events / wait / cancel / list | ✅ | PR1 |
 | Run | unit.run | 🧊 | PR2 |
 | 事件 | events.subscribe / unsubscribe | 🧊 | PR2 |
-| 产物 | artifact.show / read | 🧊 | PR2 |
+| 产物 | artifact.show / read | ✅ | PR2c |
 | AI 配置 | ai.connections.list / get / create / update / disable / delete；ai.credentials.rotate | 🧊（实现已有，迁信封） | PR2 |
 | AI 模型 | ai.models.list / refresh；ai.modelProfiles.list / get / create / update / disable / delete | 🧊（同上） | PR2 |
 | GUI 参数 | ai.profiles.list / get / create / update / disable / delete / default.get / setDefault | 🧊（同上） | PR2 |

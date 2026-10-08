@@ -48,8 +48,9 @@ struct RuntimeCall: Equatable {
     var mutation = false
     /// --request-id; generated when absent.
     var requestId: String?
-    /// observe --image-output: copy the screenshot here.
-    var imageOutput: String?
+    /// observe --image-output / artifact get --out: save the artifact here,
+    /// read by id through artifact.read.
+    var artifactOutput: String?
     /// --text-file: read into action.text just before sending.
     var textFile: String?
     /// Target may come from AGENTDESKTOP_CONTEXT (session exec).
@@ -189,7 +190,18 @@ enum CommandRouter {
             }
             if o["--no-elements"] != nil { p.append(("elements", .bool(false))) }
             call.params = .obj(p)
-            call.imageOutput = o["--image-output"]
+            call.artifactOutput = o["--image-output"]
+            return .call(call)
+        },
+        Spec(words: ["artifact", "show"], summary: "size, type and digest of an artifact, by id",
+             options: [:], positionals: ["artifactId"]) { _, p in
+            .call(RuntimeCall(method: .artifactShow, params: .obj([("artifactId", .string(p[0]))])))
+        },
+        Spec(words: ["artifact", "get"], summary: "save an artifact (a screenshot) to a file, by id",
+             options: ["--out": true], positionals: ["artifactId"]) { o, p in
+            guard let out = o["--out"] else { throw RuntimeError.invalidArgument("artifact get needs --out <file>") }
+            var call = RuntimeCall(method: .artifactShow, params: .obj([("artifactId", .string(p[0]))]))
+            call.artifactOutput = out
             return .call(call)
         },
         Spec(words: ["request", "show"], summary: "the recorded outcome of an earlier write, by requestId",

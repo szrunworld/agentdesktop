@@ -1103,18 +1103,16 @@ enum RuntimeContractData {
       "additionalProperties": false,
       "required": [
         "artifactId",
-        "path",
         "mediaType",
         "width",
         "height",
+        "byteSize",
+        "sha256",
         "transform"
       ],
       "properties": {
         "artifactId": {
           "$ref": "#/$defs/Id"
-        },
-        "path": {
-          "type": "string"
         },
         "mediaType": {
           "const": "image/png"
@@ -1126,6 +1124,14 @@ enum RuntimeContractData {
         "height": {
           "type": "integer",
           "minimum": 1
+        },
+        "byteSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "transform": {
           "$ref": "#/$defs/ImageTransform"
@@ -2519,7 +2525,8 @@ enum RuntimeContractData {
       "onRestart": "accepted → unknown"
     },
     "artifacts": {
-      "location": "<endpoint dir>/runtime/artifacts",
+      "location": "<endpoint dir>/runtime/artifacts, never sent to clients",
+      "access": "artifact.show / artifact.read by id; visible to the producing principal and the owner",
       "retentionHours": 24
     },
     "control": {
@@ -2762,6 +2769,22 @@ enum RuntimeContractData {
       "params": "empty_params",
       "result": "EnableInputResult",
       "status": "implemented"
+    },
+    {
+      "method": "artifact.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "artifact_ref_params",
+      "result": "Artifact",
+      "status": "implemented"
+    },
+    {
+      "method": "artifact.read",
+      "stage": "P0",
+      "mutation": false,
+      "params": "artifact_read_params",
+      "result": "ArtifactChunk",
+      "status": "implemented"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -2791,22 +2814,6 @@ enum RuntimeContractData {
       "mutation": false,
       "params": "empty_params",
       "result": "EventSubscription"
-    },
-    {
-      "method": "artifact.show",
-      "status": "frozen",
-      "pr": "PR2c",
-      "mutation": false,
-      "params": "artifact_ref_params",
-      "result": "Artifact"
-    },
-    {
-      "method": "artifact.read",
-      "status": "frozen",
-      "pr": "PR2c",
-      "mutation": false,
-      "params": "artifact_read_params",
-      "result": "ArtifactChunk"
     },
     {
       "method": "ai.connections.list",
