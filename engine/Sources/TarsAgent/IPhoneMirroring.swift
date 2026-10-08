@@ -244,10 +244,11 @@ public enum IPhoneConnection {
     /// Out" or "Unlock iPhone" is not a status page. An OCR line counts only
     /// with evidence that the window is Mirroring's status page: one of its
     /// status controls (`statusControls`) among the accessibility texts.
-    /// Even then the line must read as a title: the phrase itself, or the
-    /// phrase followed by a short name ("Connecting to Kevin's iPhone"), not
-    /// a sentence that mentions it. Without that evidence OCR alone never
-    /// makes the window anything but ready.
+    /// With that evidence the window is known to be a status page, so a
+    /// status phrase counts anywhere in a line, as the rules hold sentence
+    /// fragments ("has ended due to iPhone use") that OCR reads inside the
+    /// page's full message. Without that evidence OCR alone never makes the
+    /// window anything but ready.
     public static func classify(_ texts: [String], ocr: [String] = []) -> (state: IPhoneConnectionState, label: String?) {
         let own = texts.map(normalize)
         let controls = Set(statusControls.map(normalize))
@@ -255,19 +256,11 @@ public enum IPhoneConnection {
         let seen = corroborated ? ocr.map(normalize) : []
         for (label, state) in rules {
             let key = normalize(label)
-            if own.contains(where: { $0.contains(key) }) || seen.contains(where: { isTitle($0, key) }) {
+            if own.contains(where: { $0.contains(key) }) || seen.contains(where: { $0.contains(key) }) {
                 return (state, label)
             }
         }
         return (.ready, nil)
-    }
-
-    /// Whether an OCR line reads as the status title `key`: the title
-    /// alone, or the title with a short name after it, as a status page's
-    /// heading is laid out ("Connecting to Kevin's iPhone", "因iPhone被使用，
-    /// iPhone镜像已结束。").
-    static func isTitle(_ line: String, _ key: String) -> Bool {
-        line.hasPrefix(key) && line.count <= key.count + 24
     }
 
     static func normalize(_ text: String) -> String {
