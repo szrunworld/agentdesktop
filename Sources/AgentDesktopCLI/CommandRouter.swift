@@ -133,7 +133,7 @@ enum CommandRouter {
                 guard o["--size"] == nil else { throw RuntimeError.invalidArgument("--physical takes the display's size; leave out --size") }
                 var physical: [(String, JSONValue)] = []
                 if let s = o["--display"] {
-                    guard let id = Int(s), id >= 0 else { throw RuntimeError.invalidArgument("--display needs a display ID, got \(s)") }
+                    guard let id = Int(s), UInt32(exactly: id) != nil else { throw RuntimeError.invalidArgument("--display needs a display ID, got \(s)") }
                     physical.append(("displayId", .int(id)))
                 }
                 p.append(("physical", .obj(physical)))

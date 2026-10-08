@@ -748,7 +748,8 @@ enum RuntimeContractData {
             "displayId": {
               "type": "integer",
               "minimum": 0,
-              "description": "a physical display's ID; default the main display"
+              "description": "a physical display's ID; default the main display",
+              "maximum": 4294967295
             }
           }
         }

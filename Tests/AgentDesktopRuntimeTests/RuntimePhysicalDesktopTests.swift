@@ -126,3 +126,19 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     // The display can be attached again.
     #expect(data(call(sc.s, sc.c, "desktop.create", params: #"{"physical":{"displayId":1}}"#)) != nil)
 }
+
+@Test func oversizedPhysicalDisplayIDsAreRefusedBeforeThePlatform() throws {
+    let platform = FakePlatform()
+    let s = platformService(platform)
+    let c = handshaken(s)
+    #expect(code(call(s, c, "desktop.create", params: #"{"physical":{"displayId":4294967296}}"#)) == "schema_invalid")
+    #expect(platform.calls.isEmpty)
+    // The handler also refuses out-of-range values when called internally.
+    let result = s.createDesktop(.obj([("physical", .obj([("displayId", .int(Int.max))]))]))
+    if case let .failure(error) = result {
+        #expect(error.code == "invalid_argument")
+    } else {
+        Issue.record("oversized physical display ID was accepted")
+    }
+    #expect(platform.calls.isEmpty)
+}

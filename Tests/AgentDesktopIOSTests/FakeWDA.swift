@@ -23,6 +23,8 @@ final class FakeWDA: @unchecked Sendable {
         case hang
         /// Answers after a pause.
         indirect case delayed(TimeInterval, Reply)
+        /// Answers only when the test releases the gate.
+        indirect case held(WDAReplyGate, Reply)
     }
 
     let host = "wda-\(UUID().uuidString.lowercased()).test"
@@ -200,6 +202,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
     private func deliver(_ reply: FakeWDA.Reply) {
         switch reply {
+        case let .held(gate, inner):
+            gate.hold { self.deliver(inner) }
         case let .delayed(seconds, inner):
             DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { self.deliver(inner) }
         case let .json(status, object):
@@ -238,5 +242,31 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             data.append(buffer, count: count)
         }
         return data
+    }
+}
+
+/// A deterministic response barrier; tests can prove a deadline expires
+/// before session creation completes without depending on scheduler speed.
+final class WDAReplyGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var released = false
+    private var pending: [() -> Void] = []
+
+    func hold(_ response: @escaping () -> Void) {
+        let ready = lock.withLock {
+            if released { return true }
+            pending.append(response)
+            return false
+        }
+        if ready { response() }
+    }
+
+    func release() {
+        let responses = lock.withLock {
+            released = true
+            defer { pending.removeAll() }
+            return pending
+        }
+        responses.forEach { $0() }
     }
 }

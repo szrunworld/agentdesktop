@@ -62,7 +62,15 @@ extension RuntimeService {
                 guard p["width"] == nil, p["height"] == nil else {
                     return .failure(.invalidArgument("a physical Desktop takes the display's size; leave out width and height"))
                 }
-                let wanted = physical["displayId"]?.intValue.map(UInt32.init)
+                let wanted: UInt32?
+                if let value = physical["displayId"] {
+                    guard let raw = value.intValue, let id = UInt32(exactly: raw) else {
+                        return .failure(.invalidArgument("physical.displayId must fit an unsigned 32-bit display ID"))
+                    }
+                    wanted = id
+                } else {
+                    wanted = nil
+                }
                 let screen = try platform.attachDisplay(wanted)
                 if let other = desktops.physical(displayId: screen.displayId) {
                     return .failure(RuntimeError("conflict", "desktop \(other.desktopId) already attaches display \(screen.displayId)",

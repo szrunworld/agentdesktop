@@ -562,19 +562,25 @@ private func shape(_ items: [[String: Any]]) -> [String] {
 
     @Test func shortDeadlineDoesNotLeakToAnotherWaiter() async throws {
         let fake = FakeWDA()
-        fake.override("POST", "/session", .delayed(0.6, .json(200, ["value": ["sessionId": "S1"], "sessionId": "S1"])))
+        let gate = WDAReplyGate()
+        defer { gate.release() }
+        fake.override("POST", "/session", .held(gate, .json(200, ["value": ["sessionId": "S1"], "sessionId": "S1"])))
         fake.addSession("S1")
-        let client = fake.client(timeout: .seconds(5))
-        let started = ContinuousClock.now
-        async let short: WDAError? = expectWDAError {
+        let client = fake.client(timeout: .seconds(30))
+        let patient = Task { try await client.screenshot() }
+        defer { patient.cancel() }
+        for _ in 0..<200 where fake.requests("POST", suffix: "/session").isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+        let shortError = await expectWDAError {
             try await client.screenshot(deadline: .now + .milliseconds(100))
         }
-        async let patient = client.screenshot()
-        let shortError = await short
-        let shortDone = ContinuousClock.now - started
-        let shot = try await patient
         #expect(shortError?.kind == .timeout)
-        #expect(shortDone < .milliseconds(500))
+        #expect(await client.currentSessionId == nil, "the shared creation is still waiting at the barrier")
+        // Timing out one waiter must not cancel or restart shared creation.
+        gate.release()
+        let shot = try await patient.value
         #expect(shot.sessionId == "S1")
         #expect(fake.requests("POST", suffix: "/session").count == 1)
     }
