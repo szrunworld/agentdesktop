@@ -38,7 +38,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "agentdesktop-acp-dev",
-            dependencies: ["AgentDesktopACP"]
+            dependencies: ["AgentDesktopACP", "AgentDesktopClient"]
         ),
         .testTarget(
             name: "AgentDesktopACPTests",

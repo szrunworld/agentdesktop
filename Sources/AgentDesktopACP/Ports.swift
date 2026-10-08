@@ -230,4 +230,6 @@ public protocol ACPSessionStore: AnyObject, Sendable {
     func list(principalId: String) throws -> [ACPSessionBinding]
     /// Fails with a conflict when `binding.revision` is not current + 1.
     func save(_ binding: ACPSessionBinding) throws
+    /// Forget a session (`session/close`). Removing a missing session is not an error.
+    func remove(sessionId: String) throws
 }
