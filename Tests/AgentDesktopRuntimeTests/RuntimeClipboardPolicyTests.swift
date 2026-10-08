@@ -276,3 +276,49 @@ func aControlWhoseNameSaysPasteCopyOrCutIsRefusedInAnyLanguage(_ role: String, _
         #expect(!text.contains("import TarsAgent"), "\(f.path)")
     }
 }
+
+// MARK: Round three (b9's second review)
+
+@Test func typingIntoSomethingThatIsNotATextFieldIsRefused() throws {
+    // The engine clicks a web field without focus before typing: typing at
+    // a button would press it.
+    let sc = try scene()
+    expectRefusal(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#), path: "type_target_not_text")
+    #expect(sc.platform.performed.isEmpty)
+    sent(act(sc, #"{"kind":"type","text":"Ada","target":{"elementRef":"el_1"}}"#))
+    sent(act(sc, #"{"kind":"type","text":"no target: the focused field"}"#))
+}
+
+@Test func pasteMovedToANamedOrUnmodifiedKeyIsRefused() throws {
+    let platform = FakePlatform()
+    platform.menu = [PlatformMenuItem(texts: ["Paste"], shortcut: "F6"),
+                     PlatformMenuItem(texts: ["Copy"], shortcut: "option+P"),
+                     PlatformMenuItem(texts: ["Einsetzen"], shortcut: "cmd+F5")]
+    let sc = try scene(platform)
+    expectRefusal(act(sc, key("f6", [])), path: "menu_shortcut")
+    expectRefusal(act(sc, key("p", ["option"])), path: "menu_shortcut")
+    expectRefusal(act(sc, key("f5", ["cmd"])), path: "menu_shortcut")
+    sent(act(sc, key("f7", [])))
+    #expect(platform.performed.count == 1)
+}
+
+@Test func shiftDeleteIsCutInAWindowsGuest() throws {
+    let sc = try scene()
+    expectRefusal(act(sc, key("forwarddelete", ["shift"])), path: "shortcut")
+    sent(act(sc, key("forwarddelete", [])))
+}
+
+@Test func anIconInsideACopyButtonIsJudgedByTheButton() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.hitAt = { _, _ in PlatformHit(role: "AXImage", texts: [], windowId: 11, ancestorTexts: ["", "Copy"]) }
+    expectRefusal(act(sc, clickAt(100, 100)), path: "control")
+}
+
+@Test func aNamedKeyNeedsAReadableMenuBar() throws {
+    let platform = FakePlatform()
+    platform.menu = nil
+    let sc = try scene(platform)
+    expectRefusal(act(sc, key("f6", [])), path: "menu_unverified")
+    sent(act(sc, key("a", [])))
+}

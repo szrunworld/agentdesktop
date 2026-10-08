@@ -21,6 +21,9 @@ public enum ClipboardProbe {
         public var windowID: CGWindowID?
         /// The element is part of a menu (an item, or inside a menu).
         public var inMenu: Bool
+        /// Names of the controls around it (up to three levels up): an icon
+        /// inside a "Copy" button names nothing itself.
+        public var ancestorTexts: [String] = []
     }
 
     /// One menu item of an app's menu bar with a keyboard equivalent.
@@ -39,53 +42,77 @@ public enum ClipboardProbe {
         case unknown
     }
 
-    /// How long one accessibility question may take. A hung app answers
-    /// nothing; the caller then refuses.
-    public static let messagingTimeout: Float = 0.2
+    /// How long one accessibility question may take, set on every element
+    /// read (the timeout is per reference, never inherited). A hung app
+    /// answers nothing; the caller then refuses. The first question to an
+    /// app takes about 0.1 s (measured on Calculator, 2026-10-09).
+    public static let messagingTimeout: Float = 0.3
+    /// How long one whole probe may take; past it the probe answers nothing.
+    public static let budget: TimeInterval = 1.0
+
+    /// Reads with a timeout on each element and one deadline for the probe.
+    struct Reader {
+        let deadline = Date().addingTimeInterval(ClipboardProbe.budget)
+        var expired: Bool { Date() >= deadline }
+        func read<T>(_ element: AXUIElement, _ name: String) -> T? {
+            guard !expired else { return nil }
+            AXUIElementSetMessagingTimeout(element, ClipboardProbe.messagingTimeout)
+            return WindowMover.copyAttribute(element, name)
+        }
+    }
 
     /// The element at `point` (global top-left points) as the app reports it.
     /// Nil when accessibility does not answer.
     public static func hit(at point: CGPoint, pid: pid_t) -> Hit? {
+        let r = Reader()
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, messagingTimeout)
         var found: AXUIElement?
         guard AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y), &found) == .success,
-              let element = found else { return nil }
-        AXUIElementSetMessagingTimeout(element, messagingTimeout)
-        let role: String = attribute(element, kAXRoleAttribute) ?? "AXUnknown"
-        var windowElement: AXUIElement? = attribute(element, kAXWindowAttribute)
-        if windowElement == nil { windowElement = attribute(element, kAXTopLevelUIElementAttribute) }
+              let element = found, !r.expired else { return nil }
+        guard let role: String = r.read(element, kAXRoleAttribute) else { return nil }
+        var windowElement: AXUIElement? = r.read(element, kAXWindowAttribute)
+        if windowElement == nil { windowElement = r.read(element, kAXTopLevelUIElementAttribute) }
+        if let w = windowElement { AXUIElementSetMessagingTimeout(w, messagingTimeout) }
         var inMenu = role == kAXMenuItemRole as String || role == kAXMenuRole as String || role == kAXMenuBarItemRole as String
+        var ancestors: [String] = []
         var node: AXUIElement? = element
-        for _ in 0..<16 where !inMenu {
-            guard let current = node, let parent: AXUIElement = attribute(current, kAXParentAttribute) else { break }
-            let parentRole: String? = attribute(parent, kAXRoleAttribute)
+        for depth in 0..<16 {
+            guard let current = node, let parent: AXUIElement = r.read(current, kAXParentAttribute) else { break }
+            let parentRole: String? = r.read(parent, kAXRoleAttribute)
             if parentRole == kAXMenuRole as String || parentRole == kAXMenuBarRole as String { inMenu = true }
+            if depth < 3 { ancestors += texts(of: parent, r) }
+            if inMenu && depth >= 2 { break }
             node = parent
         }
-        return Hit(role: role, texts: texts(of: element), shortcut: shortcut(of: element),
-                   windowID: windowElement.flatMap(WindowMover.windowID(of:)), inMenu: inMenu)
+        let hit = Hit(role: role, texts: texts(of: element, r), shortcut: shortcut(of: element, r),
+                      windowID: windowElement.flatMap(WindowMover.windowID(of:)), inMenu: inMenu, ancestorTexts: ancestors)
+        // An answer cut short by the deadline is no answer.
+        return r.expired ? nil : hit
     }
 
     /// The items of the app's menu bar menus (first level) that have a
     /// keyboard equivalent. Nil when the menu bar cannot be read. Reading
     /// a menu's items does not open it.
     public static func menuItems(pid: pid_t, limit: Int = 600) -> [MenuItem]? {
+        let r = Reader()
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, messagingTimeout)
-        guard let bar: AXUIElement = attribute(app, kAXMenuBarAttribute) else { return nil }
+        guard let bar: AXUIElement = r.read(app, kAXMenuBarAttribute) else { return nil }
         var items: [MenuItem] = []
         var seen = 0
-        for top in (attribute(bar, kAXChildrenAttribute) as [AXUIElement]?) ?? [] {
-            for menu in (attribute(top, kAXChildrenAttribute) as [AXUIElement]?) ?? [] {
-                for item in (attribute(menu, kAXChildrenAttribute) as [AXUIElement]?) ?? [] {
+        for top in (r.read(bar, kAXChildrenAttribute) as [AXUIElement]?) ?? [] {
+            for menu in (r.read(top, kAXChildrenAttribute) as [AXUIElement]?) ?? [] {
+                for item in (r.read(menu, kAXChildrenAttribute) as [AXUIElement]?) ?? [] {
                     seen += 1
-                    if seen > limit { return items }
-                    if let s = shortcut(of: item) { items.append(MenuItem(texts: texts(of: item), shortcut: s)) }
+                    // A menu bar too large to read whole, or one read past
+                    // the deadline, is not known: no answer, not a partial one.
+                    if seen > limit || r.expired { return nil }
+                    if let s = shortcut(of: item, r) { items.append(MenuItem(texts: texts(of: item, r), shortcut: s)) }
                 }
             }
         }
-        return items
+        return r.expired ? nil : items
     }
 
     /// What the engine's key code for `name` (BackgroundInput's ANSI table)
@@ -130,18 +157,31 @@ public enum ClipboardProbe {
         return (parts + [key.uppercased()]).joined(separator: "+")
     }
 
-    static func shortcut(of element: AXUIElement) -> String? {
-        guard let char: String = attribute(element, kAXMenuItemCmdCharAttribute) else { return nil }
-        let mods: Int = attribute(element, kAXMenuItemCmdModifiersAttribute) ?? 0
-        return shortcut(char: char, modifiers: mods)
+    static func shortcut(of element: AXUIElement, _ r: Reader) -> String? {
+        let mods: Int = r.read(element, kAXMenuItemCmdModifiersAttribute) ?? 0
+        if let char: String = r.read(element, kAXMenuItemCmdCharAttribute),
+           !char.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return shortcut(char: char, modifiers: mods)
+        }
+        // Named keys (F5, Delete…) are given as a virtual key code instead.
+        guard let code: Int = r.read(element, kAXMenuItemCmdVirtualKeyAttribute) else { return nil }
+        return shortcut(virtualKey: code, modifiers: mods)
     }
 
-    static func texts(of element: AXUIElement) -> [String] {
+    /// "cmd+F5" from a virtual key code, by the engine's own key names.
+    public static func shortcut(virtualKey code: Int, modifiers: Int) -> String? {
+        let names = ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12", "return", "tab", "space",
+                     "delete", "forwarddelete", "escape", "home", "end", "pageup", "pagedown", "left", "right", "up", "down"]
+        guard let name = names.first(where: { BackgroundInput.keyCode($0).map(Int.init) == code }) else { return nil }
+        return shortcut(char: name, modifiers: modifiers)
+    }
+
+    static func texts(of element: AXUIElement, _ r: Reader) -> [String] {
         var out: [String] = []
         for name in [kAXTitleAttribute, kAXDescriptionAttribute, kAXHelpAttribute, "AXPlaceholderValue"] {
-            if let t: String = attribute(element, name), !t.isEmpty { out.append(t) }
+            if let t: String = r.read(element, name), !t.isEmpty { out.append(t) }
         }
-        if let v: String = attribute(element, kAXValueAttribute), !v.isEmpty, v.count <= 64 { out.append(v) }
+        if let v: String = r.read(element, kAXValueAttribute), !v.isEmpty, v.count <= 64 { out.append(v) }
         return out
     }
 

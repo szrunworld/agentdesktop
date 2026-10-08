@@ -41,42 +41,72 @@ enum ClipboardPolicy {
     static let functionKeys: Set<String> = ["f2", "f3", "f4"]
 
     /// Why sending this action would or might use the clipboard, or nil.
+    /// `menu` is the target app's menu bar, read before the Desktop's lock
+    /// was taken (`needsMenu`), for that `pid`; nil when unreadable.
     static func refusal(_ action: PlatformAction, snapshotElement: PlatformElement?, pid: Int32, windowId: UInt32,
-                        platform: DesktopPlatform) -> String? {
+                        menu: (pid: Int32, items: [PlatformMenuItem]?)?, platform: DesktopPlatform) -> String? {
         switch action.kind {
-        case .type, .scroll:
+        case .scroll:
             return nil
+        case .type:
+            // Typing into a field the engine must first click (a web field
+            // without focus) is a click: the element must be a text field.
+            guard let target = snapshotElement else { return nil }
+            return typeRefusal(target, pid: pid, windowId: windowId, platform: platform)
         case .key:
-            return keyRefusal(action, pid: pid, platform: platform)
+            return keyRefusal(action, pid: pid, menu: menu?.pid == pid ? menu?.items : nil, platform: platform)
         case .click:
             return clickRefusal(action, snapshotElement: snapshotElement, pid: pid, windowId: windowId, platform: platform)
         }
     }
 
-    static func keyRefusal(_ action: PlatformAction, pid: Int32, platform: DesktopPlatform) -> String? {
+    /// Whether the menu bar must be read for this action (before the lock).
+    static func needsMenu(_ action: PlatformAction) -> Bool {
+        guard action.kind == .key else { return false }
+        return !action.modifiers.isEmpty || (action.key ?? "").count > 1
+    }
+
+    static let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXSecureTextField"]
+
+    static func typeRefusal(_ target: PlatformElement, pid: Int32, windowId: UInt32, platform: DesktopPlatform) -> String? {
+        guard let frame = target.frame else { return "hit_unavailable" }
+        let center = (frame.x + frame.width / 2, frame.y + frame.height / 2)
+        guard let hit = platform.clipboardHit(at: center, pid: pid) else { return "hit_unavailable" }
+        guard hit.windowId == windowId, !hit.inMenu else { return "outside_bound_window" }
+        let role = String(hit.role.split(separator: "/").first ?? "")
+        guard textRoles.contains(role) else { return "type_target_not_text" }
+        return nil
+    }
+
+    static func keyRefusal(_ action: PlatformAction, pid: Int32, menu: [PlatformMenuItem]?, platform: DesktopPlatform) -> String? {
         let key = (action.key ?? "").lowercased()
         if functionKeys.contains(key) { return "function_key" }
         let mods = action.modifiers.map { $0.lowercased() }
+        // Shift+Delete is cut in Windows guests (virtual machines, remote desktops).
+        if key == "forwarddelete" && mods.contains("shift") { return "shortcut" }
         let command = mods.contains { commandModifiers.contains($0) }
         let control = mods.contains { controlModifiers.contains($0) }
-        guard command || control else { return nil }
-        // The character the engine's key code gives, with and without the
-        // modifiers: layouts that type Dvorak but use QWERTY for cmd differ.
         var characters: [String] = []
-        for state in [action.modifiers, []] {
-            switch platform.keyCharacter(key, modifiers: state) {
-            case .unknown: return "layout_unknown"
-            case .named: break
-            case let .character(c): characters.append(c.lowercased())
+        if command || control {
+            // The character the engine's key code gives, with and without the
+            // modifiers: layouts that type Dvorak but use QWERTY for cmd differ.
+            for state in [action.modifiers, []] {
+                switch platform.keyCharacter(key, modifiers: state) {
+                case .unknown: return "layout_unknown"
+                case .named: break
+                case let .character(c): characters.append(c.lowercased())
+                }
+            }
+            if characters.contains(where: clipboardKeys.contains) || (key.count == 1 && clipboardKeys.contains(key)) {
+                return "shortcut"
             }
         }
-        if characters.contains(where: clipboardKeys.contains) || (key.count == 1 && clipboardKeys.contains(key)) {
-            return "shortcut"
-        }
-        // Shortcuts the app (or the user, in System Settings) gave to paste,
-        // copy or cut.
-        guard let menu = platform.menuItems(pid: pid) else { return "menu_unverified" }
-        let pressed = Set(characters.map { combo(mods, $0) } + (key.count == 1 ? [combo(mods, key)] : []))
+        // Any other modified or named key may be what the app (or the user,
+        // in System Settings) gave to paste, copy or cut: F6, option+P, cmd+F5.
+        guard needsMenu(action) else { return nil }
+        guard let menu else { return "menu_unverified" }
+        var pressed = Set(characters.map { combo(mods, $0) })
+        pressed.insert(combo(mods, key))
         if menu.contains(where: { isClipboardItem(texts: $0.texts, shortcut: $0.shortcut) && pressed.contains(normalised(shortcut: $0.shortcut)) }) {
             return "menu_shortcut"
         }
@@ -91,7 +121,7 @@ enum ClipboardPolicy {
         // a control's name may have changed.
         guard let hit = platform.clipboardHit(at: point, pid: pid) else { return "hit_unavailable" }
         let role = String(hit.role.split(separator: "/").first ?? "")
-        let texts = hit.texts + (snapshotElement.map { [$0.label, $0.value].compactMap { $0 } } ?? [])
+        let texts = hit.texts + hit.ancestorTexts + (snapshotElement.map { [$0.label, $0.value].compactMap { $0 } } ?? [])
         if hit.inMenu || role == "AXMenuItem" || role == "AXMenuBarItem" {
             if let s = hit.shortcut, isClipboardShortcut(s) { return "menu_item" }
             if texts.contains(where: names) { return "menu_item" }

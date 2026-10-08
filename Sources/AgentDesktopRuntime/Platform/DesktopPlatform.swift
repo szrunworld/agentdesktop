@@ -197,7 +197,8 @@ public protocol DesktopPlatform: Sendable {
     /// The accessibility element at a global point, read now.
     func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit?
     /// The app's menu bar items that have a keyboard equivalent; nil when
-    /// the menu bar cannot be read.
+    /// the menu bar cannot be read whole within its time limit. The Runtime
+    /// asks before taking a Desktop's lock.
     func menuItems(pid: Int32) -> [PlatformMenuItem]?
     /// What `perform` would type for this key and modifiers under the
     /// current keyboard layout.
@@ -213,13 +214,17 @@ public struct PlatformHit: Equatable, Sendable {
     public var shortcut: String?
     public var windowId: UInt32?
     public var inMenu: Bool
+    /// Names of the controls around it (up to three levels up).
+    public var ancestorTexts: [String]
 
-    public init(role: String, texts: [String], shortcut: String? = nil, windowId: UInt32?, inMenu: Bool = false) {
+    public init(role: String, texts: [String], shortcut: String? = nil, windowId: UInt32?, inMenu: Bool = false,
+                ancestorTexts: [String] = []) {
         self.role = role
         self.texts = texts
         self.shortcut = shortcut
         self.windowId = windowId
         self.inMenu = inMenu
+        self.ancestorTexts = ancestorTexts
     }
 }
 

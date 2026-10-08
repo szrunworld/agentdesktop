@@ -18,3 +18,13 @@ struct MenuShortcutTests {
         #expect(ClipboardProbe.shortcut(char: "  ", modifiers: 0) == nil)
     }
 }
+
+/// Named keys are given by virtual key code (AXMenuItemCmdVirtualKey).
+struct MenuVirtualKeyTests {
+    @Test func namedKeysReadByTheEnginesOwnNames() {
+        #expect(ClipboardProbe.shortcut(virtualKey: 96, modifiers: 0) == "cmd+F5")
+        #expect(ClipboardProbe.shortcut(virtualKey: 97, modifiers: 8) == "F6")
+        #expect(ClipboardProbe.shortcut(virtualKey: 117, modifiers: 1) == "cmd+shift+FORWARDDELETE")
+        #expect(ClipboardProbe.shortcut(virtualKey: 999, modifiers: 0) == nil)
+    }
+}

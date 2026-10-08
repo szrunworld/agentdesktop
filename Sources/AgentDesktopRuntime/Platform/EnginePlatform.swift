@@ -22,7 +22,8 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
 
     public func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
         ClipboardProbe.hit(at: CGPoint(x: point.x, y: point.y), pid: pid).map {
-            PlatformHit(role: $0.role, texts: $0.texts, shortcut: $0.shortcut, windowId: $0.windowID, inMenu: $0.inMenu)
+            PlatformHit(role: $0.role, texts: $0.texts, shortcut: $0.shortcut, windowId: $0.windowID, inMenu: $0.inMenu,
+                        ancestorTexts: $0.ancestorTexts)
         }
     }
 
