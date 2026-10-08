@@ -232,6 +232,22 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(try phone.perform(tap(3100, 300)).ok)
     }
 
+    /// Second independent review: a status page that exposes only its
+    /// buttons through accessibility is not the phone; a tap is refused.
+    @Test(arguments: [["Try Again"], ["继续", "取消"], ["Resume"], ["OK"]])
+    func aStatusPagesButtonsAloneAreNotReady(controls: [String]) throws {
+        #expect(IPhoneConnection.classify(controls).state == .uncertain)
+        let fake = FakeMirroring()
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.frame()
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        fake.ax = controls
+        fake.ocr = ["Connection Interrupted"]
+        let response = try phone.perform(tap(3100, 300))
+        #expect(response.error?.hasPrefix("not_connected") == true)
+        #expect(fake.inputs.isEmpty)
+    }
+
     @Test func noInputBeforeTheWindowIsRead() throws {
         let fake = FakeMirroring()
         let phone = IPhoneAgentScreen(screen: "phone", system: fake)
@@ -324,8 +340,11 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(IPhoneConnection.classify(texts).state == state)
         // Read off the picture, a title counts when the page's own controls
         // show through accessibility that it is a status page...
-        #expect(IPhoneConnection.classify(["Try Again"], ocr: texts).state == state)
-        #expect(IPhoneConnection.classify(["重试"], ocr: texts).state == state)
+        // (A status control with no phrase read at all is still a status
+        // page, so where the picture shows the phone it is uncertain.)
+        let withControl: IPhoneConnectionState = state == .ready ? .uncertain : state
+        #expect(IPhoneConnection.classify(["Try Again"], ocr: texts).state == withControl)
+        #expect(IPhoneConnection.classify(["重试"], ocr: texts).state == withControl)
         // ...and on OCR alone it is not known: it could be the phone's own
         // screen or a page whose texts were not exposed. Never ready.
         let alone = IPhoneConnection.classify([], ocr: texts).state

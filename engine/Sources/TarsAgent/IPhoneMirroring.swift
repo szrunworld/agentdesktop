@@ -290,6 +290,13 @@ public enum IPhoneConnection {
             let key = normalize(label)
             if seen.contains(where: { $0.contains(key) }) { return (corroborated ? state : .uncertain, label) }
         }
+        // A status page's own control with no phrase read (its title drawn,
+        // not exposed): still a status page, not the phone, whose picture
+        // carries no accessibility elements at all. Its Try Again or Resume
+        // must not take a tap meant for the phone.
+        if corroborated, let control = texts.first(where: { controls.contains(normalize($0)) }) {
+            return (.uncertain, control)
+        }
         return (.ready, nil)
     }
 
