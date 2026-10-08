@@ -8,7 +8,7 @@
   ],
   "title": "审批只提供 allow_once / reject_once；拒绝与取消都不执行，允许才执行",
   "status": "PASS",
-  "durationMs": 107,
+  "durationMs": 75,
   "failures": [],
   "steps": [
     {

@@ -3,7 +3,7 @@
   "cases": [
     "ACP-T06-09"
   ],
-  "title": "session/load 先回放历史，再回复（ACP v1 Loading Sessions）",
+  "title": "session/load 先回放历史再回复；用户自己的输入以 user_message_chunk 回放（ACP v1 Loading Sessions）",
   "requires": [
     "session.load"
   ],
@@ -54,7 +54,11 @@
       "method": "load",
       "expect": {
         "ok": true,
-        "replayBeforeResponse": true
+        "replayBeforeResponse": true,
+        "replayUpdatesInclude": [
+          "user_message_chunk"
+        ],
+        "replayUserTextNotAsAgent": "${PROMPT_ECHO}"
       }
     },
     {

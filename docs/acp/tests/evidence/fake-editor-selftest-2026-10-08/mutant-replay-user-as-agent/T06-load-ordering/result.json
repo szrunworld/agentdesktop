@@ -1,0 +1,19 @@
+{
+  "id": "T06-load-ordering",
+  "cases": [
+    "ACP-T06-09"
+  ],
+  "title": "session/load 先回放历史再回复；用户自己的输入以 user_message_chunk 回放（ACP v1 Loading Sessions）",
+  "status": "FAIL",
+  "durationMs": 123,
+  "failures": [
+    "session/load: replay before the response has no user_message_chunk (saw agent_message_chunk)"
+  ],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "echo hello-from-fake-editor",
+      "outcome": "end_turn"
+    }
+  ]
+}

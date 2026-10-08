@@ -6,6 +6,7 @@ PASS    T01-valid-requests  ACP-T01-01,ACP-T01-02,ACP-T01-03
 PASS    T01-pipelining  ACP-T01-06
 PASS    T02-malformed-frames  ACP-T02-01,ACP-T02-02,ACP-T02-03,ACP-T02-05
 PASS    T02-oversize-frame  ACP-T02-04
+BLOCKED T02-oversize-then-continue  ACP-T02-04  — blocked: profile qtest-echo lacks frame.survivesOversize
 PASS    T03-stdio-close  ACP-T03-01,ACP-T03-02
 PASS    T04-version  ACP-T04-01,ACP-T04-02
 PASS    T05-capabilities  ACP-T05-01,ACP-T05-02
@@ -22,6 +23,7 @@ PASS    T01-valid-requests  ACP-T01-01,ACP-T01-02,ACP-T01-03
 PASS    T01-pipelining  ACP-T01-06
 PASS    T02-malformed-frames  ACP-T02-01,ACP-T02-02,ACP-T02-03,ACP-T02-05
 PASS    T02-oversize-frame  ACP-T02-04
+PASS    T02-oversize-then-continue  ACP-T02-04
 PASS    T03-stdio-close  ACP-T03-01,ACP-T03-02
 PASS    T04-version  ACP-T04-01,ACP-T04-02
 PASS    T12-cancel  ACP-T12-01,ACP-T12-02,ACP-T12-03
@@ -44,5 +46,6 @@ caught   cross-talk by t08-concurrent-sessions
 caught   overclaim by t05-capabilities
 caught   continue-after-reconnect by t14-scoped-disconnect
 caught   stdout-noise by t01-valid-requests
-evidence: /tmp/adt-q2-selftest
+caught   replay-user-as-agent by t06b-load-ordering
+evidence: /tmp/adt-q3-st
 SELFTEST_EXIT=0

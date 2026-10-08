@@ -2,10 +2,10 @@
   "profile": "qtest-echo",
   "agent": [
     "node",
-    "/Users/kevinshi/orca/agentdesktop-acp-q2/scripts/acp/fake-editor/dist/echo-agent.js"
+    "/Users/kevinshi/orca/agentdesktop-acp-q3/scripts/acp/fake-editor/dist/echo-agent.js"
   ],
   "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
-  "startedAt": "2026-10-08T07:40:32.345Z",
+  "startedAt": "2026-10-08T08:07:24.976Z",
   "node": "v22.23.2",
   "scenarios": [
     {
@@ -83,6 +83,17 @@
       "status": "PASS",
       "failures": [],
       "transcript": "T02-oversize-frame/transcript.jsonl"
+    },
+    {
+      "id": "T02-oversize-then-continue",
+      "cases": [
+        "ACP-T02-04"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile qtest-echo lacks frame.survivesOversize"
+      ],
+      "transcript": "T02-oversize-then-continue/transcript.jsonl"
     },
     {
       "id": "T03-stdio-close",
@@ -189,10 +200,10 @@
       "transcript": "T16-approval/transcript.jsonl"
     }
   ],
-  "finishedAt": "2026-10-08T07:40:47.451Z",
+  "finishedAt": "2026-10-08T08:07:39.111Z",
   "counts": {
     "PASS": 16,
     "FAIL": 0,
-    "BLOCKED": 1
+    "BLOCKED": 2
   }
 }

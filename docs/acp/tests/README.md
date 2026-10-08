@@ -1,6 +1,6 @@
 # ACP 测试与验收（工作线 Q）
 
-状态：2026-10-08 第二轮。163 个用例：PASSED 29、FAILED 3、BLOCKED 13、NOT_RUN 118。PASSED 只出现在 L1（假编辑器对 dev 入口）与 L2 只读冒烟（测试副本，无 unit.run）上；任何需要 A2/A4/A6 或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4 节。
+状态：2026-10-08 第三轮（acp-skeleton 136eb61）。163 个用例：PASSED 32、FAILED 0、BLOCKED 13、NOT_RUN 118。PASSED 只在 L1（假编辑器对 dev 入口）与 L2 只读冒烟（测试副本，无 unit.run）上；任何需要 A2/A4/A6 或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4、4.5 节。
 
 ## 一、分层（Kevin 裁决附加约束 6）
 
@@ -102,8 +102,8 @@
 | 门禁 | 用例 | L1 | L2 | L3 | PASSED | FAILED | BLOCKED |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | G0 | 6 | 2 | 4 | 0 | 0 | 0 | 1 |
-| G1 | 56 | 32 | 11 | 13 | 20 | 2 | 0 |
-| G2 | 52 | 36 | 11 | 5 | 8 | 1 | 10 |
+| G1 | 56 | 32 | 11 | 13 | 22 | 0 | 0 |
+| G2 | 52 | 36 | 11 | 5 | 9 | 0 | 10 |
 | G3 | 46 | 23 | 12 | 11 | 3 | 0 | 2 |
 | G4 | 10 | 0 | 10 | 0 | 0 | 0 | 0 |
 | G5 | 9 | 2 | 0 | 7 | 0 | 0 | 0 |
@@ -145,6 +145,7 @@ AgentDesktop profile 的 `features` 随依赖合入逐项打开：A6（任务入
 | t01b-pipelining | ACP-T01-06（专门测流水线；其余场景都等上一条回复） | — |
 | t02-malformed-frames | ACP-T02-01、02、03、05 | — |
 | t02b-oversize-frame | ACP-T02-04 | — |
+| t02c-oversize-then-continue | ACP-T02-04（拒绝后连接仍可用） | frame.survivesOversize |
 | t03-stdio-close | ACP-T03-01、02 | task.slow |
 | t04-version | ACP-T04-01、02 | — |
 | t05-capabilities | ACP-T05-01、02 | — |
@@ -168,7 +169,7 @@ AgentDesktop profile 的 `features` 随依赖合入逐项打开：A6（任务入
 | 回声 agent，17 个场景 | 16 PASS，1 BLOCKED（l2-readonly 需要真 Runtime），退出码 0 |
 | 官方 SDK 示例 agent，14 个场景 | 9 PASS（T01、T01b、T02、T02b、T03、T04、T12、T16、场景 D），5 BLOCKED（T06、T07、T08、T14、场景 B：示例 agent 没有 session/load、列表与第二身份），退出码 0 |
 | 官方 SDK 示例 agent，T05 | FAIL，符合预期：示例 agent 未宣告 `promptCapabilities.image`，却照常执行只含图片的 prompt。这说明能力探测对第三方实现有效 |
-| 回声 agent 注入 8 种缺陷 | 8 种全部被对应场景判 FAIL：审批不可用当作允许（场景 D）、提供 allow_always（T16）、忽略取消（T12）、不检查会话归属（T07）、串流（T08）、宣告了图片却拒收（T05）、重连后自动继续（T14）、stdout 夹杂日志（T01） |
+| 回声 agent 注入 9 种缺陷 | 9 种全部被对应场景判 FAIL：审批不可用当作允许（场景 D）、提供 allow_always（T16）、忽略取消（T12）、不检查会话归属（T07）、串流（T08）、宣告了图片却拒收（T05）、重连后自动继续（T14）、stdout 夹杂日志（T01）、用户输入当作 agent 文本回放（T06b） |
 
 自检证明的是**测试工具会抓到这些缺陷**，不改变 cases.csv 的状态。
 
@@ -209,6 +210,37 @@ AgentDesktop profile 的 `features` 随依赖合入逐项打开：A6（任务入
 
 另外：测试副本仍同时监听 `side.runtime.sock` 与 `side.ai.sock`（`side/listeners.txt`），A2 之前 ACP-T18-01 保持 BLOCKED。
 
+
+### 4.5 第三轮：#83、#85、#86 合入后复跑（2026-10-08，acp-skeleton 136eb61）
+
+dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 0）。
+
+**L1 `--demo`**：18 个场景，退出码 0，证据 [evidence/l1-dev-demo-r3-2026-10-08](evidence/l1-dev-demo-r3-2026-10-08/)
+
+| 场景 | 第二轮 | 第三轮 | 说明 |
+| --- | --- | --- | --- |
+| t01-valid-requests | PASS | PASS | |
+| t01b-pipelining | FAIL | **PASS** | initialize 与 session/new 连续写出，两个都成功（#83） |
+| t02-malformed-frames | PASS | PASS | |
+| t02b-oversize-frame | FAIL | **PASS** | 17 MiB 帧得到 -32600，带请求 id「raw-big」，提示「skipped to the next line」（#86） |
+| t02c-oversize-then-continue（新） | — | **PASS** | 超限帧之后在同一连接上 session/new 与 prompt 都正常；进程不退出 |
+| t03-stdio-close | PASS | PASS | |
+| t04-version | PASS | PASS | |
+| t05-capabilities | PASS | PASS | |
+| t06-session-lifecycle | PASS | PASS | |
+| t06b-load-ordering | FAIL | **PASS** | load 回复前到 4 条更新、回复后 0 条；用户输入以 `user_message_chunk` 回放（demo 投影器把文字显示为「[已隐藏]」）；没有作为 agent 文本回放（#85、136eb61） |
+| t12-cancel | PASS | PASS | |
+| t14-scoped-disconnect | PASS | PASS | |
+| t07、t08、t16、场景 B、场景 D、l2-readonly | BLOCKED | BLOCKED | 缺第二身份、回显任务、审批、真 Runtime |
+
+**L2 只读**（宿主与 Runtime 源码自 509d8ef 未变，所以复用该提交构建的测试副本包；dev 入口用本轮构建）：退出码 0，证据 [evidence/l2-side-readonly-r3-2026-10-08](evidence/l2-side-readonly-r3-2026-10-08/)。l2-readonly、t01、t01b、t02、t02b、t02c、t04、t05、t06、t06b 都是 PASS，其余为 BLOCKED。真实模式下回放的用户输入是原命令 `/help`，类型为 `user_message_chunk`；跑完后 Run 列表和 Desktop 列表都为空。测试副本已用 SIGTERM 停止，`/tmp/adt-acp` 已删除。
+
+本轮的新断言：
+
+- t06b 断言回复前的回放里有 `user_message_chunk`，且用户输入不会原样作为 agent 文本出现。第一次判定用的是「agent 文本包含该命令」，结果误报：`/help` 的回答本身就列出了 `/help`。现在改成整句相等才算。
+- 自检新增一个注入缺陷 `replay-user-as-agent`（把用户输入当作 agent 文本回放），已被 t06b 抓到。
+
+观察（不算失败，交 S 线）：真实模式下 load 的回放里，「身份说明」出现了两次，一次来自历史，一次是加载时重新生成的。
 
 ## 五、冻结接口一致性测试
 

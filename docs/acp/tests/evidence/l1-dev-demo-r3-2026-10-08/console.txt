@@ -1,0 +1,19 @@
+BLOCKED L2-readonly  ACP-L2-01,ACP-L2-02,ACP-L2-03,ACP-L2-04,ACP-L2-05  — blocked: profile agentdesktop-acp-dev-demo lacks runtime.real
+BLOCKED SceneB-scoped-disconnect  ACP-P2B-01,ACP-P2B-02  — blocked: profile agentdesktop-acp-dev-demo lacks approval
+BLOCKED SceneD-approval-unavailable  ACP-P2D-01,ACP-P2D-02  — blocked: profile agentdesktop-acp-dev-demo lacks approval
+PASS    T01-valid-requests  ACP-T01-01,ACP-T01-02,ACP-T01-03
+PASS    T01-pipelining  ACP-T01-06
+PASS    T02-malformed-frames  ACP-T02-01,ACP-T02-02,ACP-T02-03,ACP-T02-05
+PASS    T02-oversize-frame  ACP-T02-04
+PASS    T02-oversize-then-continue  ACP-T02-04
+PASS    T03-stdio-close  ACP-T03-01,ACP-T03-02
+PASS    T04-version  ACP-T04-01,ACP-T04-02
+PASS    T05-capabilities  ACP-T05-01,ACP-T05-02
+PASS    T06-session-lifecycle  ACP-T06-01,ACP-T06-02,ACP-T06-03,ACP-T06-04
+PASS    T06-load-ordering  ACP-T06-09
+BLOCKED T07-foreign-session  ACP-T07-01,ACP-T07-02,ACP-T07-03  — blocked: profile agentdesktop-acp-dev-demo lacks identity.second
+BLOCKED T08-concurrent-sessions  ACP-T08-01  — blocked: profile agentdesktop-acp-dev-demo lacks echo.marker
+PASS    T12-cancel  ACP-T12-01,ACP-T12-02,ACP-T12-03
+PASS    T14-scoped-disconnect  ACP-T14-01,ACP-T14-02
+BLOCKED T16-approval  ACP-T16-01,ACP-T16-02,ACP-T16-03,ACP-T16-04  — blocked: profile agentdesktop-acp-dev-demo lacks approval
+EXIT=0

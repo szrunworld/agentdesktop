@@ -11,7 +11,8 @@
     "runtime.real",
     "session.load",
     "session.list",
-    "session.close"
+    "session.close",
+    "frame.survivesOversize"
   ],
   "vars": {
     "SUPPORTED_VERSIONS": "[1]",
