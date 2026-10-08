@@ -681,7 +681,9 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         #expect(report.capability(.screenshot)?.evidence.contains { $0.contains("decoded PNG 1170x2532") } == true)
         #expect(report.observation == nil)
         #expect(report.observationState == .unverified)
-        #expect(report.observationEvidence.contains { $0.contains("window/size") })
+        // Classified as a timeout of the geometry request, not as any other
+        // failure (Codex on #146): "<kind> at <endpoint>: …".
+        #expect(report.observationEvidence.contains { $0.contains("timeout at") && $0.contains("window/size") })
         // The screenshot is not fetched again with the spent deadline.
         #expect(fake.requests("GET", suffix: "/screenshot").count == 1)
     }
