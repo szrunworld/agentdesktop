@@ -211,13 +211,16 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         let fake = FakeWDA()
         fake.override("POST", "/actions", .hang)
         let client = fake.client(timeout: .milliseconds(200))
-        let started = ContinuousClock.now
         let error = await expectWDAError { try await client.tap(WDAPoint(x: 1, y: 1)) }
         #expect(error?.kind == .timeout)
         #expect(error?.delivery == .unknown)  // may have run: never replay
-        // The 200 ms timeout applied, not the 30 s default; generous, since a
-        // loaded machine stretched a 3 s bound to 3.3 s.
-        #expect(ContinuousClock.now - started < .seconds(10))
+        // The 200 ms timeout applied, not the 30 s default. Read off the
+        // request, not the wall clock: with one cooperative thread shared by
+        // the whole suite (LIBDISPATCH_COOPERATIVE_POOL_STRICT=1) the timeout
+        // can be reported seconds late, which a time bound mistook for a bug.
+        let sent = fake.requests("POST", suffix: "/actions")
+        #expect(sent.count == 1)
+        #expect(sent.allSatisfy { abs($0.timeout - 0.2) < 0.001 })
     }
 
     @Test func deadlineShortensTheRequestTimeout() async throws {
@@ -649,10 +652,14 @@ private func shape(_ items: [[String: Any]]) -> [String] {
     @Test func geometryTimeoutKeepsTheDecodedScreenshot() async throws {
         let fake = FakeWDA()
         let geometry = ["value": ["width": 390, "height": 844], "sessionId": "S1"] as [String: Any]
-        fake.override("GET", "/window/size", .delayed(5, .json(200, geometry)))
+        // The geometry never answers; the deadline is generous so that the
+        // screenshot, which answers at once, is in hand well before it even
+        // when the suite shares one cooperative thread.
+        _ = geometry
+        fake.override("GET", "/window/size", .hang)
         let client = fake.client()
         try await client.ensureSession()
-        let report = await client.probe(deadline: .now + .milliseconds(800))
+        let report = await client.probe(deadline: .now + .seconds(5))
         #expect(report.capability(.screenshot)?.state == .supported)
         #expect(report.capability(.screenshot)?.evidence.contains { $0.contains("decoded PNG 1170x2532") } == true)
         #expect(report.observation == nil)
