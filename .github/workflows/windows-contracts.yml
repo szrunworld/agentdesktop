@@ -2,9 +2,9 @@ name: windows contracts
 
 on:
   push:
-    paths: ["windows/**", "contracts/**", "Tests/AgentDesktopContractsTests/Fixtures/**", ".github/workflows/windows-contracts.yml"]
+    paths: ["windows/**", "contracts/**", "Tests/AgentDesktopContractsTests/Fixtures/**", "Tests/AgentDesktopGUITests/Fixtures/**", ".github/workflows/windows-contracts.yml"]
   pull_request:
-    paths: ["windows/**", "contracts/**", "Tests/AgentDesktopContractsTests/Fixtures/**", ".github/workflows/windows-contracts.yml"]
+    paths: ["windows/**", "contracts/**", "Tests/AgentDesktopContractsTests/Fixtures/**", "Tests/AgentDesktopGUITests/Fixtures/**", ".github/workflows/windows-contracts.yml"]
 
 jobs:
   test:

@@ -82,7 +82,8 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentDesktopGUITests",
-            dependencies: ["AgentDesktopGUI", "AgentDesktopAI", "AgentDesktopContracts"]
+            dependencies: ["AgentDesktopGUI", "AgentDesktopAI", "AgentDesktopContracts"],
+            exclude: ["Fixtures"]
         ),
         // Runtime API agentdesktop.runtime/1 (CLI plan v1.2 §02, §05).
         // Dependency direction: CLI → Client → Protocol → Contracts (JSON
