@@ -90,6 +90,23 @@ enum HostRole {
         }
     }
 
+    /// Where the AI service keeps API keys. The product uses the login
+    /// Keychain. A test copy never does: it would share (and could
+    /// overwrite) the product's items, and a rebuilt, re-signed copy would
+    /// stop on a Keychain prompt for items an earlier build created. Its
+    /// keys live as 0600 files in its own records directory instead.
+    enum CredentialBackend: Equatable {
+        case keychain
+        case files(directory: URL)
+    }
+
+    var credentialBackend: CredentialBackend {
+        switch self {
+        case .product: return .keychain
+        case .sideInstance: return .files(directory: runtimeRecordsDirectory.appendingPathComponent("test-credentials"))
+        }
+    }
+
     var isSideInstance: Bool {
         if case .sideInstance = self { return true }
         return false
