@@ -1,0 +1,217 @@
+{
+  "profile": "agentdesktop-acp-dev",
+  "agent": [
+    "/Users/kevinshi/orca/agentdesktop-acp-q2/.build/debug/agentdesktop-acp-dev"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T07:40:12.906Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "L2-readonly",
+      "cases": [
+        "ACP-L2-01",
+        "ACP-L2-02",
+        "ACP-L2-03",
+        "ACP-L2-04",
+        "ACP-L2-05"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "L2-readonly/transcript.jsonl"
+    },
+    {
+      "id": "SceneB-scoped-disconnect",
+      "cases": [
+        "ACP-P2B-01",
+        "ACP-P2B-02"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile agentdesktop-acp-dev lacks approval"
+      ],
+      "transcript": "SceneB-scoped-disconnect/transcript.jsonl"
+    },
+    {
+      "id": "SceneD-approval-unavailable",
+      "cases": [
+        "ACP-P2D-01",
+        "ACP-P2D-02"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile agentdesktop-acp-dev lacks approval"
+      ],
+      "transcript": "SceneD-approval-unavailable/transcript.jsonl"
+    },
+    {
+      "id": "T01-valid-requests",
+      "cases": [
+        "ACP-T01-01",
+        "ACP-T01-02",
+        "ACP-T01-03"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T01-valid-requests/transcript.jsonl"
+    },
+    {
+      "id": "T01-pipelining",
+      "cases": [
+        "ACP-T01-06"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "rawBatch raw-new: expected a result, got {\"jsonrpc\":\"2.0\",\"id\":\"raw-new\",\"error\":{\"code\":-32600,\"message\":\"connection not initialized: send initialize first\"}}"
+      ],
+      "transcript": "T01-pipelining/transcript.jsonl"
+    },
+    {
+      "id": "T02-malformed-frames",
+      "cases": [
+        "ACP-T02-01",
+        "ACP-T02-02",
+        "ACP-T02-03",
+        "ACP-T02-05"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T02-malformed-frames/transcript.jsonl"
+    },
+    {
+      "id": "T02-oversize-frame",
+      "cases": [
+        "ACP-T02-04"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "raw: agent closed the connection ({\"code\":0,\"signal\":null})"
+      ],
+      "transcript": "T02-oversize-frame/transcript.jsonl"
+    },
+    {
+      "id": "T03-stdio-close",
+      "cases": [
+        "ACP-T03-01",
+        "ACP-T03-02"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile agentdesktop-acp-dev lacks task.slow"
+      ],
+      "transcript": "T03-stdio-close/transcript.jsonl"
+    },
+    {
+      "id": "T04-version",
+      "cases": [
+        "ACP-T04-01",
+        "ACP-T04-02"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T04-version/transcript.jsonl"
+    },
+    {
+      "id": "T05-capabilities",
+      "cases": [
+        "ACP-T05-01",
+        "ACP-T05-02"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T05-capabilities/transcript.jsonl"
+    },
+    {
+      "id": "T06-session-lifecycle",
+      "cases": [
+        "ACP-T06-01",
+        "ACP-T06-02",
+        "ACP-T06-03",
+        "ACP-T06-04"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T06-session-lifecycle/transcript.jsonl"
+    },
+    {
+      "id": "T06-load-ordering",
+      "cases": [
+        "ACP-T06-09"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "session/load: no history update arrived before the response"
+      ],
+      "transcript": "T06-load-ordering/transcript.jsonl"
+    },
+    {
+      "id": "T07-foreign-session",
+      "cases": [
+        "ACP-T07-01",
+        "ACP-T07-02",
+        "ACP-T07-03"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile agentdesktop-acp-dev lacks identity.second"
+      ],
+      "transcript": "T07-foreign-session/transcript.jsonl"
+    },
+    {
+      "id": "T08-concurrent-sessions",
+      "cases": [
+        "ACP-T08-01"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile agentdesktop-acp-dev lacks echo.marker"
+      ],
+      "transcript": "T08-concurrent-sessions/transcript.jsonl"
+    },
+    {
+      "id": "T12-cancel",
+      "cases": [
+        "ACP-T12-01",
+        "ACP-T12-02",
+        "ACP-T12-03"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile agentdesktop-acp-dev lacks task.slow"
+      ],
+      "transcript": "T12-cancel/transcript.jsonl"
+    },
+    {
+      "id": "T14-scoped-disconnect",
+      "cases": [
+        "ACP-T14-01",
+        "ACP-T14-02"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile agentdesktop-acp-dev lacks task.slow"
+      ],
+      "transcript": "T14-scoped-disconnect/transcript.jsonl"
+    },
+    {
+      "id": "T16-approval",
+      "cases": [
+        "ACP-T16-01",
+        "ACP-T16-02",
+        "ACP-T16-03",
+        "ACP-T16-04"
+      ],
+      "status": "BLOCKED",
+      "failures": [
+        "blocked: profile agentdesktop-acp-dev lacks approval"
+      ],
+      "transcript": "T16-approval/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T07:40:13.967Z",
+  "counts": {
+    "PASS": 6,
+    "FAIL": 3,
+    "BLOCKED": 8
+  }
+}

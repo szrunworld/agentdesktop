@@ -1,33 +1,33 @@
 {"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
 {"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
 {"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":115,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
-{"ms":116,"dir":"step","step":"newSession","at":{"op":"newSession","as":"sA"}}
-{"ms":116,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-acp-selftest-q/echo/T07-foreign-session/run","mcpServers":[]}}}
-{"ms":119,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-69638-1"}}}
-{"ms":119,"dir":"step","step":"prompt","at":{"op":"prompt","session":"sA","text":"echo hello-from-fake-editor","expect":{"stopReason":"end_turn"}}}
-{"ms":119,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-69638-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
-{"ms":121,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-69638-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo hello-from-fake-editor"}}}}}
-{"ms":122,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-69638-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello-from-fake-editor"}}}}}
-{"ms":122,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
-{"ms":122,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
-{"ms":122,"conn":1,"dir":"disconnect","mode":"close-stdin"}
-{"ms":122,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
-{"ms":127,"conn":1,"dir":"exit","code":0,"signal":null}
-{"ms":128,"dir":"step","step":"connect","at":{"op":"connect","identity":"second"}}
-{"ms":129,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
-{"ms":129,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":198,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
-{"ms":198,"dir":"step","step":"listSessions","at":{"op":"listSessions","expect":{"excludes":["sA"]}}}
-{"ms":198,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/list","params":{}}}
-{"ms":199,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessions":[]}}}
-{"ms":199,"dir":"step","step":"resume","at":{"op":"resume","session":"sA","method":"load","expect":{"ok":false,"noReplay":true}}}
-{"ms":199,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/load","params":{"sessionId":"qs-69638-1","cwd":"/tmp/adt-acp-selftest-q/echo/T07-foreign-session/run","mcpServers":[]}}}
-{"ms":199,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"Resource not found: qs-69638-1","data":{"uri":"qs-69638-1"}}}}
-{"ms":200,"dir":"step","step":"prompt","at":{"op":"prompt","session":"sA","text":"echo hello-from-fake-editor","expect":{"stopReason":"error"}}}
-{"ms":200,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"qs-69638-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
-{"ms":201,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"Resource not found: qs-69638-1","data":{"uri":"qs-69638-1"}}}}
-{"ms":201,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
-{"ms":201,"conn":2,"dir":"disconnect","mode":"close-stdin"}
-{"ms":201,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
-{"ms":204,"conn":2,"dir":"exit","code":0,"signal":null}
+{"ms":94,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":94,"dir":"step","step":"newSession","at":{"op":"newSession","as":"sA"}}
+{"ms":94,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q2-selftest/echo/T07-foreign-session/run","mcpServers":[]}}}
+{"ms":96,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-72619-1"}}}
+{"ms":97,"dir":"step","step":"prompt","at":{"op":"prompt","session":"sA","text":"echo hello-from-fake-editor","expect":{"stopReason":"end_turn"}}}
+{"ms":97,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"qs-72619-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
+{"ms":99,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-72619-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo hello-from-fake-editor"}}}}}
+{"ms":99,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-72619-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello-from-fake-editor"}}}}}
+{"ms":99,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":99,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":99,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":99,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":104,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":104,"dir":"step","step":"connect","at":{"op":"connect","identity":"second"}}
+{"ms":105,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":106,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":194,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":194,"dir":"step","step":"listSessions","at":{"op":"listSessions","expect":{"excludes":["sA"]}}}
+{"ms":195,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/list","params":{}}}
+{"ms":196,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessions":[]}}}
+{"ms":196,"dir":"step","step":"resume","at":{"op":"resume","session":"sA","method":"load","expect":{"ok":false,"noReplay":true}}}
+{"ms":196,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/load","params":{"sessionId":"qs-72619-1","cwd":"/tmp/adt-q2-selftest/echo/T07-foreign-session/run","mcpServers":[]}}}
+{"ms":197,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"Resource not found: qs-72619-1","data":{"uri":"qs-72619-1"}}}}
+{"ms":197,"dir":"step","step":"prompt","at":{"op":"prompt","session":"sA","text":"echo hello-from-fake-editor","expect":{"stopReason":"error"}}}
+{"ms":197,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"qs-72619-1","prompt":[{"type":"text","text":"echo hello-from-fake-editor"}]}}}
+{"ms":199,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"error":{"code":-32002,"message":"Resource not found: qs-72619-1","data":{"uri":"qs-72619-1"}}}}
+{"ms":199,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":199,"conn":2,"dir":"disconnect","mode":"close-stdin"}
+{"ms":199,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":203,"conn":2,"dir":"exit","code":0,"signal":null}

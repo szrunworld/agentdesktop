@@ -1,13 +1,16 @@
 == 1. echo agent, all scenarios
+BLOCKED L2-readonly  ACP-L2-01,ACP-L2-02,ACP-L2-03,ACP-L2-04,ACP-L2-05  — blocked: profile qtest-echo lacks runtime.real
 PASS    SceneB-scoped-disconnect  ACP-P2B-01,ACP-P2B-02
 PASS    SceneD-approval-unavailable  ACP-P2D-01,ACP-P2D-02
 PASS    T01-valid-requests  ACP-T01-01,ACP-T01-02,ACP-T01-03
+PASS    T01-pipelining  ACP-T01-06
 PASS    T02-malformed-frames  ACP-T02-01,ACP-T02-02,ACP-T02-03,ACP-T02-05
 PASS    T02-oversize-frame  ACP-T02-04
 PASS    T03-stdio-close  ACP-T03-01,ACP-T03-02
 PASS    T04-version  ACP-T04-01,ACP-T04-02
 PASS    T05-capabilities  ACP-T05-01,ACP-T05-02
 PASS    T06-session-lifecycle  ACP-T06-01,ACP-T06-02,ACP-T06-03,ACP-T06-04
+PASS    T06-load-ordering  ACP-T06-09
 PASS    T07-foreign-session  ACP-T07-01,ACP-T07-02,ACP-T07-03
 PASS    T08-concurrent-sessions  ACP-T08-01
 PASS    T12-cancel  ACP-T12-01,ACP-T12-02,ACP-T12-03
@@ -16,6 +19,7 @@ PASS    T16-approval  ACP-T16-01,ACP-T16-02,ACP-T16-03,ACP-T16-04
 exit=0
 == 2. SDK example agent
 PASS    T01-valid-requests  ACP-T01-01,ACP-T01-02,ACP-T01-03
+PASS    T01-pipelining  ACP-T01-06
 PASS    T02-malformed-frames  ACP-T02-01,ACP-T02-02,ACP-T02-03,ACP-T02-05
 PASS    T02-oversize-frame  ACP-T02-04
 PASS    T03-stdio-close  ACP-T03-01,ACP-T03-02
@@ -40,5 +44,5 @@ caught   cross-talk by t08-concurrent-sessions
 caught   overclaim by t05-capabilities
 caught   continue-after-reconnect by t14-scoped-disconnect
 caught   stdout-noise by t01-valid-requests
-evidence: /tmp/adt-acp-selftest-q
+evidence: /tmp/adt-q2-selftest
 SELFTEST_EXIT=0

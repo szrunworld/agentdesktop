@@ -6,7 +6,7 @@
   ],
   "title": "场景 B：等待审批时编辑器断开，动作不执行；重连加载后不自动继续、不补发审批",
   "status": "PASS",
-  "durationMs": 4689,
+  "durationMs": 4607,
   "failures": [],
   "steps": [
     {
@@ -16,6 +16,11 @@
       "error": {
         "message": "ACP connection closed"
       }
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 3,
+      "updatesAfterResponse": 0
     },
     {
       "op": "prompt",

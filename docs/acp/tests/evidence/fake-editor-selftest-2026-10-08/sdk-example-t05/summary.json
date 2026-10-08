@@ -2,10 +2,10 @@
   "profile": "sdk-example-agent",
   "agent": [
     "node",
-    "/Users/kevinshi/orca/agentdesktop-acp-q/scripts/acp/fake-editor/node_modules/@agentclientprotocol/sdk/dist/examples/agent.js"
+    "/Users/kevinshi/orca/agentdesktop-acp-q2/scripts/acp/fake-editor/node_modules/@agentclientprotocol/sdk/dist/examples/agent.js"
   ],
   "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
-  "startedAt": "2026-10-08T06:26:14.878Z",
+  "startedAt": "2026-10-08T07:41:33.067Z",
   "node": "v22.23.2",
   "scenarios": [
     {
@@ -21,7 +21,7 @@
       "transcript": "T05-capabilities/transcript.jsonl"
     }
   ],
-  "finishedAt": "2026-10-08T06:26:20.246Z",
+  "finishedAt": "2026-10-08T07:41:38.179Z",
   "counts": {
     "PASS": 0,
     "FAIL": 1,

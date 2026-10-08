@@ -8,7 +8,7 @@
   ],
   "title": "创建、列表、断开后重连加载（回放历史）、关闭；加载不存在的会话被拒",
   "status": "PASS",
-  "durationMs": 228,
+  "durationMs": 189,
   "failures": [],
   "steps": [
     {
@@ -17,9 +17,19 @@
       "outcome": "end_turn"
     },
     {
+      "op": "session/load",
+      "updatesBeforeResponse": 2,
+      "updatesAfterResponse": 0
+    },
+    {
       "op": "prompt",
       "text": "echo hello-from-fake-editor",
       "outcome": "end_turn"
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 0,
+      "updatesAfterResponse": 0
     }
   ]
 }

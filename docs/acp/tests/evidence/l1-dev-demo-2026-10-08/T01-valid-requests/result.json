@@ -1,0 +1,24 @@
+{
+  "id": "T01-valid-requests",
+  "cases": [
+    "ACP-T01-01",
+    "ACP-T01-02",
+    "ACP-T01-03"
+  ],
+  "title": "合法的 initialize / session/new / session/prompt 正常处理，连续两轮都结束于 end_turn",
+  "status": "PASS",
+  "durationMs": 19,
+  "failures": [],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "/help",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "prompt",
+      "text": "/help",
+      "outcome": "end_turn"
+    }
+  ]
+}

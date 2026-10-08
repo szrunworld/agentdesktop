@@ -1,6 +1,6 @@
 # ACP 真机端到端手册（L2 真 Runtime / L3 真编辑器）
 
-状态：2026-10-08，工作线 Q。本手册写给 A2、A4、A6 合入之后执行验收的人（Q 主导、协调者验收）。在那之前，这里的步骤只能做到「启动成功」一类的冒烟，不能把任何用例标为 PASSED（[README](README.md) §一）。
+状态：2026-10-08，工作线 Q（第二轮：dev 入口已接通，见 tests/README 4.4；Zed 首帧采集见 §三.1）。本手册写给 A2、A4、A6 合入之后执行验收的人（Q 主导、协调者验收）。在那之前，这里的步骤只能做到「启动成功」与只读冒烟（ACP-L2-01～05），其余用例不能标为 PASSED（[README](README.md) §一）。
 
 用例编号见 [cases.csv](cases.csv)；`automation` 列写着「手工（runbook §x）」的用例按本手册对应一节执行。
 
@@ -74,6 +74,31 @@ dev 入口（S 线合入后、CLI `acp` 之前）：
 - 打开 Agent 面板 → 新建线程 → 选「AgentDesktop (test /tmp/adt-acp)」。
 - ACP 日志：命令面板执行 `dev: open acp logs`，测试期间保持打开；导出前按 §八 检查脱敏。
 - 录屏：`screencapture -v -C /tmp/adt-acp/evidence/<case>.mov`（或 QuickTime），录 Zed 窗口；测试 Desktop 的画面用 `observe --image-output` 取，不录用户主屏上的其他内容。
+
+### 三.1 给 Kevin：采集 Zed 的真实 initialize 帧（约 5 分钟，ACP-T26-01 的首份证据）
+
+只需要 Zed，不需要测试副本，不会产生任何 GUI 输入（用 dev 入口的 `--demo`）。
+
+1. 在仓库根目录构建一次：`swift build --product agentdesktop-acp-dev`（看退出码为 0）。
+2. Zed 命令面板 → `zed: open settings`，在顶层加入下面这一项并保存（路径按你的 checkout 改）：
+
+   ```json
+   "agent_servers": {
+     "AgentDesktop dev (demo)": {
+       "type": "custom",
+       "command": "/Users/kevinshi/orca/agentdesktop/.build/debug/agentdesktop-acp-dev",
+       "args": ["--demo"],
+       "env": {}
+     }
+   }
+   ```
+3. 命令面板 → `dev: open acp logs`，保持这个窗口开着。
+4. 打开 Agent 面板 → 「New Thread」→ 选「AgentDesktop dev (demo)」。
+5. 线程打开后输入 `/help` 回车，再输入任意一句话（演示任务约 2 秒结束）。
+6. 在 ACP 日志里找到第一条 `initialize` 请求（Zed → agent）与它的回复，以及 `session/new`，复制成文本存为 `zed-initialize-<日期>.txt`，交给 Q；有报错就截图。
+7. 删除第 2 步加的设置项。
+
+Q 收到后核对：Zed 请求的 `protocolVersion`、`clientCapabilities`（fs、terminal、elicitation 等）、是否在 initialize 回复前就发 `session/new`（流水线，见 ACP-T01-06），并把结果写进 ACP-T26-01 的证据和 02-protocol-version。此步只证明 Zed 能启动 dev 入口，不算 P1 验收。
 
 ## 四、P1 端到端：计算器中立样本（ACP-T26-*、ACP-P1-*）
 

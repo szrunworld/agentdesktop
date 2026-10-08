@@ -32,7 +32,7 @@ echo "== 2. SDK example agent"
 sdk=()
 # t06/t07/t08/t14/scene B need session/load or a second identity, which the
 # example agent does not have: they report BLOCKED. t05 runs separately below.
-for s in t01-valid-requests t02-malformed-frames t02b-oversize-frame t03-stdio-close t04-version t12-cancel t16-approval scene-d-approval-unavailable \
+for s in t01-valid-requests t01b-pipelining t02-malformed-frames t02b-oversize-frame t03-stdio-close t04-version t12-cancel t16-approval scene-d-approval-unavailable \
          t06-session-lifecycle t07-foreign-session t08-concurrent-sessions t14-scoped-disconnect scene-b-scoped-disconnect; do
   sdk+=(--scenario "$fe/scenarios/$s.json")
 done

@@ -1,0 +1,22 @@
+{
+  "id": "T06-load-ordering",
+  "cases": [
+    "ACP-T06-09"
+  ],
+  "title": "session/load 先回放历史，再回复（ACP v1 Loading Sessions）",
+  "status": "PASS",
+  "durationMs": 214,
+  "failures": [],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "echo hello-from-fake-editor",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 2,
+      "updatesAfterResponse": 0
+    }
+  ]
+}

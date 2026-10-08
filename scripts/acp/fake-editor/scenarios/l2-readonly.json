@@ -1,0 +1,104 @@
+{
+  "id": "L2-readonly",
+  "cases": [
+    "ACP-L2-01",
+    "ACP-L2-02",
+    "ACP-L2-03",
+    "ACP-L2-04",
+    "ACP-L2-05"
+  ],
+  "title": "真 Runtime 只读冒烟：initialize / new / list / 自由文本无任务（无 unit.run，未提交）/ /runs /status /cancel / 空闲取消 / 断开",
+  "requires": [
+    "runtime.real"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "listSessions",
+      "expect": {
+        "contains": [
+          "s1"
+        ]
+      }
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_TASK}",
+      "timeoutMs": 30000,
+      "expect": {
+        "stopReasonIn": [
+          "refusal",
+          "end_turn"
+        ],
+        "textMatches": "${NO_TASK_RE}",
+        "updatesExclude": [
+          "tool_call"
+        ]
+      }
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "/runs",
+      "expect": {
+        "stopReason": "end_turn",
+        "updatesExclude": [
+          "tool_call"
+        ]
+      }
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "/status",
+      "expect": {
+        "stopReason": "end_turn",
+        "updatesExclude": [
+          "tool_call"
+        ]
+      }
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "/cancel",
+      "expect": {
+        "stopReasonIn": [
+          "end_turn",
+          "refusal"
+        ],
+        "updatesExclude": [
+          "tool_call"
+        ]
+      }
+    },
+    {
+      "op": "cancel",
+      "session": "s1"
+    },
+    {
+      "op": "expectAlive",
+      "ms": 300
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

@@ -1,8 +1,8 @@
-{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
-{"ms":2,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
-{"ms":2,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":213,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}}
-{"ms":213,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-big","oversizeBytes":"2097152","expect":{"errorCodeIn":[-32600,-32602,-32603,-32700],"allowClose":"false","waitMs":8000}}}
-{"ms":221,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-big\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"x\",\"prompt\":[{\"type\":\"text\",\"text\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…(2097274 bytes)"}
-{"ms":239,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-big","error":{"code":-32603,"message":"Internal error","data":{"details":"Session x not found"}}}}
-{"ms":247,"conn":1,"dir":"exit","code":null,"signal":"SIGKILL"}
+{"ms":1,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":59,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}}
+{"ms":59,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-big","oversizeBytes":"2097152","expect":{"errorCodeIn":[-32600,-32602,-32603,-32700],"allowClose":"false","waitMs":8000}}}
+{"ms":64,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-big\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"x\",\"prompt\":[{\"type\":\"text\",\"text\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…(2097274 bytes)"}
+{"ms":70,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-big","error":{"code":-32603,"message":"Internal error","data":{"details":"Session x not found"}}}}
+{"ms":73,"conn":1,"dir":"exit","code":null,"signal":"SIGKILL"}

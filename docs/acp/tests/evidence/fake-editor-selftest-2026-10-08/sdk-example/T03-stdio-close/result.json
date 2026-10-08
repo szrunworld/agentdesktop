@@ -6,7 +6,7 @@
   ],
   "title": "初始化前与一轮进行中关闭 stdin：进程在 5 秒内退出且不是崩溃信号",
   "status": "PASS",
-  "durationMs": 2230,
+  "durationMs": 2131,
   "failures": [],
   "steps": [
     {

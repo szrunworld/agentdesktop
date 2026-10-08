@@ -2,10 +2,10 @@
   "profile": "sdk-example-agent",
   "agent": [
     "node",
-    "/Users/kevinshi/orca/agentdesktop-acp-q/scripts/acp/fake-editor/node_modules/@agentclientprotocol/sdk/dist/examples/agent.js"
+    "/Users/kevinshi/orca/agentdesktop-acp-q2/scripts/acp/fake-editor/node_modules/@agentclientprotocol/sdk/dist/examples/agent.js"
   ],
   "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
-  "startedAt": "2026-10-08T06:25:28.195Z",
+  "startedAt": "2026-10-08T07:40:47.527Z",
   "node": "v22.23.2",
   "scenarios": [
     {
@@ -18,6 +18,15 @@
       "status": "PASS",
       "failures": [],
       "transcript": "T01-valid-requests/transcript.jsonl"
+    },
+    {
+      "id": "T01-pipelining",
+      "cases": [
+        "ACP-T01-06"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T01-pipelining/transcript.jsonl"
     },
     {
       "id": "T02-malformed-frames",
@@ -156,9 +165,9 @@
       "transcript": "SceneB-scoped-disconnect/transcript.jsonl"
     }
   ],
-  "finishedAt": "2026-10-08T06:26:14.683Z",
+  "finishedAt": "2026-10-08T07:41:32.931Z",
   "counts": {
-    "PASS": 8,
+    "PASS": 9,
     "FAIL": 0,
     "BLOCKED": 5
   }
