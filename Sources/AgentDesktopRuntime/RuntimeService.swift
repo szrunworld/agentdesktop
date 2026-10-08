@@ -108,7 +108,9 @@ public final class RuntimeService: @unchecked Sendable {
         self.artifacts.retained = { [weak self] artifactId, runId in
             guard let self else { return true }
             if self.observations.find("obs_" + artifactId.dropFirst("art_".count)) != nil { return true }
-            if let runId, self.runs.find(runId)?.phase != .ended { return true }
+            // Only a Run the Runtime knows and that has not ended keeps its
+            // artifacts; an unknown runId keeps nothing.
+            if let runId, let run = self.runs.find(runId), run.phase != .ended { return true }
             return false
         }
     }

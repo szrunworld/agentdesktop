@@ -145,7 +145,13 @@ public final class ArtifactStore: @unchecked Sendable {
     /// The artifact a file in the store belongs to, if the store named it.
     static func artifactId(ofFile name: String) -> String? {
         let id: Substring
-        if name.hasSuffix(".meta.json") {
+        if name.hasSuffix(".screen.png") {
+            // The whole-screen capture a cropped screenshot is cut from
+            // (EnginePlatform), left behind if the Runtime died mid-crop.
+            let image = name.dropLast(".screen.png".count)
+            guard let dot = image.lastIndex(of: "."), extensions.values.contains(String(image[image.index(after: dot)...])) else { return nil }
+            id = image[..<dot]
+        } else if name.hasSuffix(".meta.json") {
             id = name.dropLast(".meta.json".count)
         } else if let dot = name.lastIndex(of: "."), extensions.values.contains(String(name[name.index(after: dot)...])) {
             id = name[..<dot]

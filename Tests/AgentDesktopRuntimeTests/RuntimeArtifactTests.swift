@@ -234,7 +234,27 @@ private func aged(_ store: ArtifactStore, _ id: String, hours: Int, now: Date) t
     _ = call(s!, owner, "run.finish", params: #"{"runId":"\#(runId)"}"#)
     _ = call(s!, owner, "run.wait", params: #"{"runId":"\#(runId)","timeoutMs":2000}"#)
     #expect(!store.retained("art_unknown", runId), "an ended Run's artifacts may expire")
+    #expect(!store.retained("art_unknown", "run_never_existed"), "a runId the Runtime does not know keeps nothing")
     #expect(!store.retained("art_unknown", nil))
     s = nil
     #expect(store.retained("art_unknown", nil), "with the Runtime gone, keep everything")
+}
+
+// A whole-screen capture left behind by a crash mid-crop goes with its
+// artifact's age, like the artifact's own files.
+@Test func aCropLeftoverFromACrashIsSweptToo() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let clock = SweepClock()
+    let store = try ArtifactStore(directory: dir, now: { clock.now })
+    let leftover = store.path(for: "art_crash", ext: "png") + ".screen.png"
+    try Data([1, 2, 3]).write(to: URL(fileURLWithPath: leftover))
+    try FileManager.default.setAttributes([.modificationDate: clock.now.addingTimeInterval(-30 * 3600)], ofItemAtPath: leftover)
+    #expect(ArtifactStore.artifactId(ofFile: "art_crash.png.screen.png") == "art_crash")
+    #expect(ArtifactStore.artifactId(ofFile: "notes.screen.png") == nil)
+    clock.now = clock.now.addingTimeInterval(ArtifactStore.sweepInterval)
+    try Data([0x89, 0x50, 0x4e, 0x47]).write(to: URL(fileURLWithPath: store.path(for: "art_t", ext: "png")))
+    try store.register("art_t", mediaType: "image/png", clientId: "owner", runId: nil, createdAt: Timestamp.string(clock.now))
+    store.waitForSweeps()
+    #expect(!FileManager.default.fileExists(atPath: leftover))
 }
