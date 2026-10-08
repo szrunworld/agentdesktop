@@ -37,7 +37,7 @@ jobs:
       - name: Native core unit tests
         timeout-minutes: 8
         run: |
-          swift test --package-path engine
+          python3 scripts/diagnose-native-tests.py
           # Reproduce executor starvation even on runners with many cores.
           LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --package-path engine --skip-build --filter ControlServerTests
       - uses: actions/setup-node@v4
