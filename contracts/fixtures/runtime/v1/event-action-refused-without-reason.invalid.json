@@ -1,0 +1,12 @@
+{
+  "def": "PlatformRunEvent",
+  "instance": {
+    "runId": "run_1",
+    "sequence": 2,
+    "at": "2026-10-08T01:00:00.000Z",
+    "type": "action.refused",
+    "data": {
+      "requestId": "req_1"
+    }
+  }
+}

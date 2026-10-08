@@ -53,8 +53,11 @@ extension RuntimeService {
 
         let snapshotId = request.params["snapshotId"]?.stringValue ?? ""
         guard let snap = observations.find(snapshotId), snap.desktopId == desk.desktopId else {
-            return .failure(RuntimeError("stale_observation", "snapshot \(snapshotId) is unknown or expired on desktop \(desk.desktopId); observe again",
-                                         phase: .handler, notSent: true))
+            let e = RuntimeError("stale_observation", "snapshot \(snapshotId) is unknown or expired on desktop \(desk.desktopId); observe again",
+                                 phase: .handler, notSent: true)
+            runs.appendEvent(runId, "action.refused", .obj([("requestId", .string(request.requestId)),
+                                                           ("reason", .obj([("code", .string(e.code)), ("message", .string(e.message))]))]))
+            return .failure(e)
         }
         let action = request.params["action"] ?? .obj([])
 
@@ -133,7 +136,7 @@ extension RuntimeService {
                                                phase: .handler)
                     }
                 }
-                let receipt = JSONValue.obj([
+                var receipt = JSONValue.obj([
                     ("receiptId", .string(receiptId)), ("requestId", .string(request.requestId)), ("runId", .string(runId)),
                     ("desktopId", .string(d.desktopId)), ("sessionId", .string(session.sessionId)),
                     ("snapshotId", .string(snapshotId)), ("delivery", .string(delivery)), ("execution", .string(execution)),
@@ -151,6 +154,12 @@ extension RuntimeService {
                                      ("dispatchedAt", delivery == "not_dispatched" ? .null : .string(dispatchedAt)),
                                      ("completedAt", .string(nowString))])),
                 ])
+                // Read back later (run.events, request.show), a receipt says why
+                // it was not delivered, failed or is unknown.
+                if let failure {
+                    receipt = receipt.setting("reason", .obj([("code", .string(failure.code)),
+                                                              ("message", .string(String(failure.message.prefix(512))))]))
+                }
                 self.execution.endAction(runId: runId, receiptId: receiptId, deliveryUnknown: delivery == "unknown")
                 runs.appendEvent(runId, "action.\(execution)", .obj([("receipt", receipt)]))
                 if var failure {
@@ -160,7 +169,19 @@ extension RuntimeService {
                 return receipt
             }
         }
-        if case .success = result { oneShotOutcome = .success }
+        switch result {
+        case .success:
+            oneShotOutcome = .success
+        case let .failure(e) where e.details?["receipt"] == nil:
+            // Refused before any input (G0, a stale snapshot, a stop, a
+            // deadline): the Run's history says so too, not only the reply.
+            runs.appendEvent(runId, "action.refused", .obj([
+                ("requestId", .string(request.requestId)),
+                ("reason", .obj([("code", .string(e.code)), ("message", .string(String(e.message.prefix(512))))])),
+            ]))
+        case .failure:
+            break
+        }
         return result
     }
 
