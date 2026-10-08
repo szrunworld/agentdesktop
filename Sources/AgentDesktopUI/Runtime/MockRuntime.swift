@@ -1,5 +1,8 @@
 import AgentDesktopProtocol
+import CommonCrypto
+import CoreGraphics
 import Foundation
+import ImageIO
 
 /// A stand-in Runtime for developing and testing the main window before
 /// the in-process adapter exists (09 brief: "API 未实现时用 Mock Adapter").
@@ -23,7 +26,8 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     public static let modeled: [String] = [
         "runtime.handshake", "runtime.status", "runtime.capabilities", "runtime.stopAll", "runtime.enableInput",
         "desktop.list", "desktop.show", "desktop.create", "desktop.destroy",
-        "app.list", "window.list",
+        "app.list", "window.list", "app.launch", "window.bind",
+        "observe", "artifact.show", "artifact.read",
         "run.list", "run.show", "run.events", "run.cancel",
         "request.show",
     ]
@@ -34,6 +38,12 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     private var clock: TimeInterval = 0
 
     private var desktops: [JSONValue] = []
+    /// Windows not on any Desktop (window.list, window.bind), and apps that
+    /// app.launch can start; both neutral, never a real user app.
+    private var freeWindows: [JSONValue] = []
+    private var launchable: Set<String> = ["com.example.probe"]
+    private var artifactsById: [String: (meta: JSONValue, bytes: Data)] = [:]
+    private var observationCount = 0
     private var runs: [JSONValue] = []
     private var requests: [String: JSONValue] = [:]
     /// Global event log: (cursor, RunEvent).
@@ -199,10 +209,35 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         return m
     }
 
+    /// A window of a neutral app that is on no Desktop (to bind).
+    @discardableResult
+    public func addFreeWindow(app: String = "Probe", title: String = "Probe A", pid: Int = 4242, windowId: Int = 9001) -> Int {
+        lock.withLock {
+            freeWindows.append(.obj([
+                ("windowId", .int(windowId)), ("process", .obj([("pid", .int(pid)), ("startedAt", .string(Timestamp.string(base)))])),
+                ("appName", .string(app)), ("bundleId", .string("com.example.probe")), ("title", .string(title)),
+                ("frame", .obj([("x", .int(100)), ("y", .int(100)), ("width", .int(400)), ("height", .int(328))])),
+                ("onScreen", .bool(true)),
+            ]))
+            return windowId
+        }
+    }
+
+    /// Optional pause before answering a method (shows in-flight states).
+    public var delays: [String: UInt64] {
+        get { lock.withLock { _delays } }
+        set { lock.withLock { _delays = newValue } }
+    }
+    private var _delays: [String: UInt64] = [:]
+
+    /// Number of observations taken (each has its own snapshotId).
+    public var observations: Int { lock.withLock { observationCount } }
+
     // MARK: RuntimePort
 
-    public func call(_ method: String, _ params: JSONValue) async throws -> JSONValue {
-        try lock.withLock { try callLocked(method, params) }
+    public func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue {
+        if let ns = delays[method] { try? await Task.sleep(nanoseconds: ns) }
+        return try lock.withLock { try callLocked(method, params, context: context) }
     }
 
     public func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> {
@@ -242,7 +277,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
 
     // MARK: Dispatch
 
-    private func callLocked(_ method: String, _ params: JSONValue) throws -> JSONValue {
+    private func callLocked(_ method: String, _ params: JSONValue, context: RequestContext) throws -> JSONValue {
         callLog.append(method)
         if _offline { throw RuntimeError.runtimeOffline("mock runtime is offline", endpoint: "mock") }
         guard let spec = contract.method(method) else {
@@ -258,7 +293,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             queuedFailures[method] = queue
             throw e
         }
-        let result = try handle(method, params)
+        let result = try handle(method, params, context: context)
         let broken = contract.validate(result, spec.result)
         guard broken.isEmpty else {
             contractViolations.append("\(method): \(broken.joined(separator: "; "))")
@@ -267,7 +302,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         return result
     }
 
-    private func handle(_ method: String, _ p: JSONValue) throws -> JSONValue {
+    private func handle(_ method: String, _ p: JSONValue, context: RequestContext) throws -> JSONValue {
         switch method {
         case "runtime.handshake":
             return .obj([
@@ -334,18 +369,98 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             desktops.removeAll { $0["desktopId"]?.stringValue == id }
             return .obj([("desktopId", .string(id)), ("destroyed", .bool(true)), ("quitApps", .array([]))])
         case "app.list":
-            return .obj([("apps", .array(desktops.compactMap { d -> JSONValue? in
+            var apps: [JSONValue] = desktops.compactMap { d -> JSONValue? in
                 guard let b = d["binding"], !b.isNull else { return nil }
                 return .obj([("process", b["process"]!), ("bundleId", .null), ("name", b["appName"]!),
                              ("active", .bool(false)), ("hidden", .bool(false))])
-            }))])
+            }
+            for w in freeWindows where !apps.contains(where: { $0["process"] == w["process"] }) {
+                apps.append(.obj([("process", w["process"]!), ("bundleId", w["bundleId"]!), ("name", w["appName"]!),
+                                  ("active", .bool(false)), ("hidden", .bool(false))]))
+            }
+            return .obj([("apps", .array(apps))])
         case "window.list":
-            return .obj([("windows", .array(desktops.compactMap { d -> JSONValue? in
+            let bound: [JSONValue] = desktops.compactMap { d -> JSONValue? in
                 guard let b = d["binding"], !b.isNull, let screen = d["screen"] else { return nil }
                 return .obj([("windowId", b["windowId"]!), ("process", b["process"]!), ("appName", b["appName"]!),
                              ("bundleId", .null), ("title", .string(b["appName"]!.stringValue!)),
                              ("frame", screen["frame"]!), ("onScreen", .bool(true))])
-            }))])
+            }
+            var free = freeWindows
+            if let pid = p["pid"]?.intValue { free = free.filter { $0["process"]?["pid"]?.intValue == pid } }
+            return .obj([("windows", .array(bound + free))])
+        case "app.launch":
+            let id = p["desktopId"]!.stringValue!
+            _ = try desktop(id)
+            let name = p["bundleId"]?.stringValue ?? p["path"]?.stringValue ?? "app"
+            guard launchable.contains(name) || p["path"] != nil else {
+                throw RuntimeError("not_found", "no app \(name)", phase: .handler)
+            }
+            let windowId = 7000 + desktops.count * 10 + observationCount
+            let pid = 6000 + windowId % 1000
+            // Like the Runtime: the window is placed on the Desktop, not bound.
+            freeWindows.append(.obj([
+                ("windowId", .int(windowId)), ("process", .obj([("pid", .int(pid)), ("startedAt", .string(Timestamp.string(base)))])),
+                ("appName", .string("Probe")), ("bundleId", .string("com.example.probe")), ("title", .string("Probe A")),
+                ("frame", .obj([("x", .int(0)), ("y", .int(0)), ("width", .int(400)), ("height", .int(328))])),
+                ("onScreen", .bool(true)),
+            ]))
+            return .obj([("desktopId", .string(id)), ("process", .obj([("pid", .int(pid)), ("startedAt", .string(stamp()))])),
+                         ("windows", .array([.obj([("windowId", .int(windowId)), ("appName", .string("Probe")),
+                                                   ("title", .string("Probe A")),
+                                                   ("frame", .obj([("x", .int(0)), ("y", .int(0)), ("width", .int(400)), ("height", .int(328))]))])]))])
+        case "window.bind":
+            let id = p["desktopId"]!.stringValue!
+            _ = try desktop(id)
+            let pid = p["pid"]!.intValue!
+            guard let w = freeWindows.first(where: { $0["process"]?["pid"]?.intValue == pid
+                && (p["windowId"]?.intValue == nil || $0["windowId"]?.intValue == p["windowId"]?.intValue) }) else {
+                throw RuntimeError("not_found", "no window of pid \(pid)", phase: .handler)
+            }
+            freeWindows.removeAll { $0["windowId"] == w["windowId"] }
+            setBinding(id, app: w["appName"]!.stringValue!, pid: pid, windowId: w["windowId"]!.intValue!)
+            return try desktop(id)
+        case "observe":
+            guard let id = context.desktopId else {
+                throw RuntimeError.schemaInvalid("name the target with context.sessionId or context.desktopId")
+            }
+            let d = try desktop(id)
+            observationCount += 1
+            let snapshotId = "obs_" + String(format: "%04d", observationCount)
+            let b = d["binding"]
+            let bound = b != nil && !(b!.isNull)
+            let w = bound ? 800 : (d["screen"]?["frame"]?["width"]?.intValue ?? 1280) * 2
+            let h = bound ? 656 : (d["screen"]?["frame"]?["height"]?.intValue ?? 800) * 2
+            var image: JSONValue = .null
+            if p["screenshot"]?.boolValue ?? true {
+                let artifactId = "art_" + snapshotId.dropFirst(4)
+                let bytes = Self.png(width: w, height: h, seed: observationCount)
+                let meta = JSONValue.obj([("artifactId", .string(artifactId)), ("mediaType", .string("image/png")),
+                                          ("byteSize", .int(bytes.count)), ("sha256", .string(Self.sha256(bytes))),
+                                          ("createdAt", .string(stamp()))])
+                artifactsById[artifactId] = (meta, bytes)
+                image = .obj([("artifactId", .string(artifactId)), ("mediaType", .string("image/png")),
+                              ("width", .int(w)), ("height", .int(h)), ("byteSize", .int(bytes.count)),
+                              ("sha256", .string(Self.sha256(bytes))),
+                              ("transform", .obj([("originX", .int(0)), ("originY", .int(0)), ("scale", .int(2))]))])
+            }
+            let target: JSONValue = bound ? .obj([
+                ("generation", b!["generation"]!), ("process", b!["process"]!), ("windowId", b!["windowId"]!),
+                ("windowFrame", .obj([("x", .int(0)), ("y", .int(0)), ("width", .int(400)), ("height", .int(328))])),
+                ("title", b!["appName"]!),
+            ]) : .null
+            return .obj([("snapshotId", .string(snapshotId)), ("desktopId", .string(id)), ("capturedAt", .string(stamp())),
+                         ("screen", d["screen"]!), ("target", target), ("image", image), ("elements", .array([]))])
+        case "artifact.show":
+            guard let a = artifactsById[p["artifactId"]!.stringValue!] else { throw RuntimeError.notFound("no artifact") }
+            return a.meta
+        case "artifact.read":
+            guard let a = artifactsById[p["artifactId"]!.stringValue!] else { throw RuntimeError.notFound("no artifact") }
+            let offset = min(p["offset"]?.intValue ?? 0, a.bytes.count)
+            let length = min(p["length"]?.intValue ?? 524_288, a.bytes.count - offset)
+            let chunk = a.bytes.subdata(in: offset..<(offset + length))
+            return .obj([("artifactId", p["artifactId"]!), ("offset", .int(offset)), ("length", .int(length)),
+                         ("eof", .bool(offset + length >= a.bytes.count)), ("dataBase64", .string(chunk.base64EncodedString()))])
         case "run.list":
             var list = runs
             if let d = p["desktopId"]?.stringValue { list = list.filter { $0["desktopId"]?.stringValue == d } }
@@ -393,6 +508,42 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     }
 
     // MARK: Helpers (lock held)
+
+    private func setBinding(_ id: String, app: String, pid: Int, windowId: Int) {
+        guard let i = desktops.firstIndex(where: { $0["desktopId"]?.stringValue == id }) else { return }
+        let gen = (desktops[i]["binding"]?["generation"]?.intValue ?? 0) + 1
+        let at = stamp()
+        desktops[i] = desktops[i].setting("binding", .obj([
+            ("generation", .int(gen)), ("process", .obj([("pid", .int(pid)), ("startedAt", .string(at))])),
+            ("windowId", .int(windowId)), ("appName", .string(app)), ("boundAt", .string(at)),
+        ]))
+    }
+
+    /// A small synthetic PNG (flat colour with a band), so pages can show a
+    /// real decoded image; never a capture of anything.
+    static func png(width: Int, height: Int, seed: Int) -> Data {
+        let w = max(1, width / 8), h = max(1, height / 8)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return Data() }
+        ctx.setFillColor(CGColor(srgbRed: 0.93, green: 0.95, blue: 0.92, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setFillColor(CGColor(srgbRed: 0.25, green: 0.42, blue: 0.33, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: h - max(2, h / 10), width: w, height: max(2, h / 10)))
+        ctx.fill(CGRect(x: (seed * 7) % max(1, w - 8), y: h / 3, width: 8, height: 8))
+        guard let img = ctx.makeImage() else { return Data() }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { return Data() }
+        CGImageDestinationAddImage(dest, img, nil)
+        CGImageDestinationFinalize(dest)
+        return data as Data
+    }
+
+    static func sha256(_ data: Data) -> String {
+        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        data.withUnsafeBytes { _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &digest) }
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
 
     private var platformJSON: JSONValue {
         .obj([("os", .string("macos")), ("osVersion", .string("15.0")), ("arch", .string("arm64"))])

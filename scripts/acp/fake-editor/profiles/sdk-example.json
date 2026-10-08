@@ -1,0 +1,32 @@
+{
+  "name": "sdk-example-agent",
+  "comment": "The official @agentclientprotocol/sdk 1.7.0 example agent (dist/examples/agent.js). It has a fixed script: every prompt streams text, one read tool call and one edit tool call that asks for permission, ~1 s per step. No session/load or list.",
+  "agent": [
+    "node",
+    "${FAKE_EDITOR_DIR}/node_modules/@agentclientprotocol/sdk/dist/examples/agent.js"
+  ],
+  "features": [
+    "task.slow",
+    "approval",
+    "frame.survivesOversize"
+  ],
+  "vars": {
+    "SUPPORTED_VERSIONS": "[1]",
+    "PROMPT_ECHO": "hello",
+    "ECHO_TEXT": "I'll help you",
+    "PROMPT_SLOW": "hello",
+    "CANCEL_AFTER_MS": "1500",
+    "DISCONNECT_AFTER_MS": "1500",
+    "PROMPT_ACT": "hello",
+    "OVERSIZE_BYTES": "2097152",
+    "OVERSIZE_ALLOW_CLOSE": "false",
+    "REFUSAL_EXPLAINED_RE": ".*",
+    "PROMPT_TASK": "forbidden",
+    "NO_TASK_RE": ".*",
+    "PROMPT_P1": "hello",
+    "P1_NAME": "王小明",
+    "P1_TITLE_FRAGMENT": "候选人",
+    "PROMPT_P2": "hello",
+    "P2_TEXT": "结果未知 · 需要核实"
+  }
+}

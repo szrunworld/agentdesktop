@@ -1,0 +1,34 @@
+{
+  "id": "T02-oversize-then-continue",
+  "cases": [
+    "ACP-T02-04"
+  ],
+  "title": "超限帧被拒后连接保持可用：同一连接继续建会话、prompt（协调者决定：不断开）",
+  "status": "PASS",
+  "durationMs": 5631,
+  "failures": [],
+  "steps": [
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": "raw-big",
+          "error": {
+            "code": -32603,
+            "message": "Internal error",
+            "data": {
+              "details": "Session x not found"
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "prompt",
+      "text": "hello",
+      "outcome": "end_turn"
+    }
+  ]
+}

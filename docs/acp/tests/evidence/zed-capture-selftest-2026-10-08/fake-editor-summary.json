@@ -1,0 +1,47 @@
+{
+  "profile": "zed-capture-wrapper",
+  "agent": [
+    "~/.local/share/fnm/node-versions/v22.23.2/installation/bin/node",
+    "~/orca/agentdesktop-acp-q4/scripts/acp/zed-capture/capture-agent.mjs"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T08:59:28.498Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "T01-valid-requests",
+      "cases": [
+        "ACP-T01-01",
+        "ACP-T01-02",
+        "ACP-T01-03"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T01-valid-requests/transcript.jsonl"
+    },
+    {
+      "id": "T01-pipelining",
+      "cases": [
+        "ACP-T01-06"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T01-pipelining/transcript.jsonl"
+    },
+    {
+      "id": "T06-load-ordering",
+      "cases": [
+        "ACP-T06-09"
+      ],
+      "status": "PASS",
+      "failures": [],
+      "transcript": "T06-load-ordering/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T08:59:28.728Z",
+  "counts": {
+    "PASS": 3,
+    "FAIL": 0,
+    "BLOCKED": 0
+  }
+}

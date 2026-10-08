@@ -145,7 +145,7 @@ public final class IPhoneAgentScreen: AgentScreen {
     // MARK: Connection
 
     private func state(of capture: IPhoneWindowCapture) -> (state: IPhoneConnectionState, label: String?) {
-        IPhoneConnection.classify(system.accessibilityLabels(pid: binding?.pid ?? 0),
+        IPhoneConnection.classify(system.accessibilityLabels(pid: binding?.pid ?? 0, windowID: capture.windowID),
                                   ocr: system.recognizedText(in: capture.image))
     }
 
@@ -175,7 +175,7 @@ public final class IPhoneAgentScreen: AgentScreen {
             return ReconnectReport(state: state, label: label, pressed: nil, timedOut: false)
         case .disconnected:
             guard let pid = binding?.pid,
-                  let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid)
+                  let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid, windowID: binding?.windowID)
             else { return ReconnectReport(state: state, label: label, pressed: nil, timedOut: false) }
             pressed = title
         case .reconnecting:

@@ -1,0 +1,26 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":2,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":2,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":72,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}}
+{"ms":72,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-big","oversizeBytes":"2097152","expect":{"errorCodeIn":[-32600,-32602,-32603,-32700],"allowClose":"false","waitMs":8000}}}
+{"ms":78,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-big\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"x\",\"prompt\":[{\"type\":\"text\",\"text\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…(2097274 bytes)"}
+{"ms":91,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-big","error":{"code":-32603,"message":"Internal error","data":{"details":"Session x not found"}}}}
+{"ms":92,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":500}}
+{"ms":593,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":593,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q5-st/sdk-example/T02-oversize-then-continue/run","mcpServers":[]}}}
+{"ms":595,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"e6b5aa826365a05b674d5e352fe4c559"}}}
+{"ms":595,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"hello","expect":{"stopReasonIn":["end_turn","refusal"]}}}
+{"ms":595,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"e6b5aa826365a05b674d5e352fe4c559","prompt":[{"type":"text","text":"hello"}]}}}
+{"ms":596,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"e6b5aa826365a05b674d5e352fe4c559","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"I'll help you with that. Let me start by reading some files to understand the current situation."}}}}}
+{"ms":1597,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"e6b5aa826365a05b674d5e352fe4c559","update":{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"Reading project files","kind":"read","status":"pending","locations":[{"path":"/project/README.md"}],"rawInput":{"path":"/project/README.md"}}}}}
+{"ms":2598,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"e6b5aa826365a05b674d5e352fe4c559","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"# My Project\n\nThis is a sample project..."}}],"rawOutput":{"content":"# My Project\n\nThis is a sample project..."}}}}}
+{"ms":3599,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"e6b5aa826365a05b674d5e352fe4c559","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Now I understand the project structure. I need to make some changes to improve it."}}}}}
+{"ms":4600,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"e6b5aa826365a05b674d5e352fe4c559","update":{"sessionUpdate":"tool_call","toolCallId":"call_2","title":"Modifying critical configuration file","kind":"edit","status":"pending","locations":[{"path":"/project/config.json"}],"rawInput":{"path":"/project/config.json","content":"{\"database\": {\"host\": \"new-host\"}}"}}}}}
+{"ms":4600,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"e6b5aa826365a05b674d5e352fe4c559","toolCall":{"toolCallId":"call_2","title":"Modifying critical configuration file","kind":"edit","status":"pending","locations":[{"path":"/home/user/project/config.json"}],"rawInput":{"path":"/home/user/project/config.json","content":"{\"database\": {\"host\": \"new-host\"}}"}},"options":[{"kind":"allow_once","name":"Allow this change","optionId":"allow"},{"kind":"reject_once","name":"Skip this change","optionId":"reject"}]}}}
+{"ms":4601,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"result":{"outcome":{"outcome":"selected","optionId":"reject"}}}}
+{"ms":5603,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"e6b5aa826365a05b674d5e352fe4c559","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" I understand you prefer not to make that change. I'll skip the configuration update."}}}}}
+{"ms":5603,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":5604,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":5604,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":5604,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":5630,"conn":1,"dir":"exit","code":0,"signal":null}

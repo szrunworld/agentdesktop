@@ -20,14 +20,32 @@ let package = Package(
         .library(name: "AgentDesktopProtocol", targets: ["AgentDesktopProtocol"]),
         .library(name: "AgentDesktopClient", targets: ["AgentDesktopClient"]),
         .library(name: "AgentDesktopRuntime", targets: ["AgentDesktopRuntime"]),
+        .library(name: "AgentDesktopMCP", targets: ["AgentDesktopMCP"]),
         .library(name: "AgentDesktopAI", targets: ["AgentDesktopAI"]),
         .library(name: "AgentDesktopGUI", targets: ["AgentDesktopGUI"]),
         .library(name: "AgentDesktopService", targets: ["AgentDesktopService"]),
+        .library(name: "AgentDesktopACP", targets: ["AgentDesktopACP"]),
     ],
     dependencies: [
         .package(path: "engine"),
     ],
     targets: [
+        // ACP adapter (docs/acp): editors talk to the one Runtime through
+        // RuntimeClient only. No GUI executor, run store or lease here.
+        .target(
+            name: "AgentDesktopACP",
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
+        ),
+        .executableTarget(
+            name: "agentdesktop-acp-dev",
+            dependencies: ["AgentDesktopACP", "AgentDesktopClient"]
+        ),
+        .testTarget(
+            name: "AgentDesktopACPTests",
+            dependencies: ["AgentDesktopACP", "AgentDesktopClient", "AgentDesktopProtocol"],
+            exclude: ["Fixtures"]
+        ),
+
         // Menu bar host; scripts/bundle-app.sh wraps it in "Agent Desktop.app".
         .executableTarget(
             name: "AgentDesktop",
@@ -98,9 +116,18 @@ let package = Package(
             ],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
+        // MCP stdio adapter (CLI plan §02): uses the Client, never the Runtime.
+        .target(
+            name: "AgentDesktopMCP",
+            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
+        ),
+        .testTarget(
+            name: "AgentDesktopMCPTests",
+            dependencies: ["AgentDesktopMCP", "AgentDesktopClient", "AgentDesktopRuntime", "AgentDesktopProtocol"]
+        ),
         .executableTarget(
             name: "AgentDesktopCLI",
-            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
+            dependencies: ["AgentDesktopClient", "AgentDesktopMCP", "AgentDesktopProtocol"]
         ),
         .testTarget(
             name: "AgentDesktopClientTests",

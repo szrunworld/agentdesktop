@@ -1,0 +1,26 @@
+{
+  "id": "T14-scoped-disconnect",
+  "cases": [
+    "ACP-T14-01",
+    "ACP-T14-02"
+  ],
+  "title": "connection_scoped 的一轮执行中编辑器断开：不再产生新动作，重连加载后不自动继续",
+  "status": "PASS",
+  "durationMs": 3978,
+  "failures": [],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "demo slow run",
+      "outcome": "disconnected",
+      "error": {
+        "message": "ACP connection closed"
+      }
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 0,
+      "updatesAfterResponse": 3
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "profile": "sdk-example-agent",
+  "agent": [
+    "node",
+    "/Users/kevinshi/orca/agentdesktop-acp-q5/scripts/acp/fake-editor/node_modules/@agentclientprotocol/sdk/dist/examples/agent.js"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T09:17:46.395Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "T05-capabilities",
+      "cases": [
+        "ACP-T05-01",
+        "ACP-T05-02"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "image prompt not claimed but accepted ({\"ok\":true,\"result\":{\"stopReason\":\"end_turn\"}})"
+      ],
+      "transcript": "T05-capabilities/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T09:17:51.514Z",
+  "counts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 0
+  }
+}

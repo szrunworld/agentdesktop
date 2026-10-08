@@ -1,0 +1,18 @@
+[
+ {
+  "t": 1791440758805,
+  "u": "tool_call",
+  "id": "mcp_adt_get_run_status__mcp_adt_get_run_status_1791440758751_0",
+  "title": "get_run_status(run_id: run-c0)",
+  "kind": "other",
+  "status": "pending"
+ },
+ {
+  "t": 1791440758817,
+  "u": "tool_call_update",
+  "id": "mcp_adt_get_run_status__mcp_adt_get_run_status_1791440758751_0",
+  "title": "get_run_status(run_id: run-c0)",
+  "kind": "other",
+  "status": "completed"
+ }
+]

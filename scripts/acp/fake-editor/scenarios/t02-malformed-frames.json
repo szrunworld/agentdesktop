@@ -1,0 +1,70 @@
+{
+  "id": "T02-malformed-frames",
+  "cases": [
+    "ACP-T02-01",
+    "ACP-T02-02",
+    "ACP-T02-03",
+    "ACP-T02-05"
+  ],
+  "title": "坏 JSON、未知方法、参数类型错误都得到 JSON-RPC 错误，连接继续可用",
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "raw",
+      "line": "{not json",
+      "expect": {
+        "errorCode": -32700
+      }
+    },
+    {
+      "op": "raw",
+      "id": "raw-1",
+      "line": "{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}",
+      "expect": {
+        "errorCode": -32601
+      }
+    },
+    {
+      "op": "raw",
+      "id": "raw-2",
+      "line": "{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}",
+      "expect": {
+        "errorCodeIn": [
+          -32602,
+          -32600
+        ]
+      }
+    },
+    {
+      "op": "expectAlive",
+      "ms": 300
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_ECHO}",
+      "expect": {
+        "stopReason": "end_turn"
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

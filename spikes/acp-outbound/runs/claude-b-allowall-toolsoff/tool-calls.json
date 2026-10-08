@@ -1,0 +1,54 @@
+[
+ {
+  "t": 1791440770291,
+  "u": "tool_call",
+  "id": "toolu_A1-mcp-status_2",
+  "title": "mcp__adt__get_run_status",
+  "kind": "other",
+  "status": "pending"
+ },
+ {
+  "t": 1791440770292,
+  "u": "tool_call_update",
+  "id": "toolu_A1-mcp-status_2",
+  "title": "mcp__adt__get_run_status",
+  "kind": "other"
+ },
+ {
+  "t": 1791440770315,
+  "u": "tool_call_update",
+  "id": "toolu_A1-mcp-status_2"
+ },
+ {
+  "t": 1791440770321,
+  "u": "tool_call_update",
+  "id": "toolu_A1-mcp-status_2",
+  "status": "completed"
+ },
+ {
+  "t": 1791440770351,
+  "u": "tool_call",
+  "id": "toolu_A2-mcp-result_3",
+  "title": "mcp__adt__get_redacted_result",
+  "kind": "other",
+  "status": "pending"
+ },
+ {
+  "t": 1791440770351,
+  "u": "tool_call_update",
+  "id": "toolu_A2-mcp-result_3",
+  "title": "mcp__adt__get_redacted_result",
+  "kind": "other"
+ },
+ {
+  "t": 1791440770358,
+  "u": "tool_call_update",
+  "id": "toolu_A2-mcp-result_3"
+ },
+ {
+  "t": 1791440770360,
+  "u": "tool_call_update",
+  "id": "toolu_A2-mcp-result_3",
+  "status": "completed"
+ }
+]

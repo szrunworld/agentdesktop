@@ -1,0 +1,37 @@
+{
+  "name": "agentdesktop-acp-dev-demo",
+  "comment": "L1 only: lane S dev entry with --demo (built-in scripted port demo.echo, ~1.6 s per Run, no Runtime, no GUI input, no approvals). State dir is the run's own directory. Never counts as end-to-end.",
+  "agent": [
+    "${REPO_ROOT}/.build/debug/agentdesktop-acp-dev",
+    "--demo",
+    "--state-dir",
+    "${RUN_DIR}/state"
+  ],
+  "features": [
+    "session.load",
+    "session.list",
+    "session.close",
+    "task.slow",
+    "frame.survivesOversize"
+  ],
+  "vars": {
+    "SUPPORTED_VERSIONS": "[1]",
+    "PROMPT_ECHO": "/help",
+    "ECHO_TEXT": "",
+    "ECHO_PREFIX": "",
+    "PROMPT_SLOW": "demo slow run",
+    "PROMPT_SLOW_LONG": "demo slow run",
+    "CANCEL_AFTER_MS": "400",
+    "DISCONNECT_AFTER_MS": "400",
+    "PROMPT_ACT": "TBD-after-PR4: neutral sample task that needs approval",
+    "OVERSIZE_BYTES": "17825792",
+    "OVERSIZE_ALLOW_CLOSE": "false",
+    "SCOPED_ENDED_TEXT": "待核实",
+    "REFUSAL_EXPLAINED_RE": "不会当作批准",
+    "PROMPT_P1": "TBD: demo port has no window-title events",
+    "P1_NAME": "王小明",
+    "P1_TITLE_FRAGMENT": "候选人",
+    "PROMPT_P2": "TBD: demo port has no unknown actions",
+    "P2_TEXT": "结果未知 · 需要核实"
+  }
+}

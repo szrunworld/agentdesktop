@@ -1,0 +1,31 @@
+{
+  "profile": "qtest-echo",
+  "agent": [
+    "node",
+    "/Users/kevinshi/orca/agentdesktop-acp-q5/scripts/acp/fake-editor/dist/echo-agent.js"
+  ],
+  "sdk": "@agentclientprotocol/sdk 1.7.0 (ACP v1)",
+  "startedAt": "2026-10-08T09:18:00.582Z",
+  "node": "v22.23.2",
+  "scenarios": [
+    {
+      "id": "T01-valid-requests",
+      "cases": [
+        "ACP-T01-01",
+        "ACP-T01-02",
+        "ACP-T01-03"
+      ],
+      "status": "FAIL",
+      "failures": [
+        "connection 1: 1 non-ACP lines on stdout (stdout must carry only ACP frames)"
+      ],
+      "transcript": "T01-valid-requests/transcript.jsonl"
+    }
+  ],
+  "finishedAt": "2026-10-08T09:18:00.675Z",
+  "counts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 0
+  }
+}

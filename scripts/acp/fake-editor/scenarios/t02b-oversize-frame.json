@@ -1,0 +1,33 @@
+{
+  "id": "T02-oversize-frame",
+  "cases": [
+    "ACP-T02-04"
+  ],
+  "title": "超过上限的帧被安全拒绝：返回错误（profile 允许时可关闭连接），进程不崩溃",
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "raw",
+      "id": "raw-big",
+      "oversizeBytes": "${OVERSIZE_BYTES}",
+      "expect": {
+        "errorCodeIn": [
+          -32600,
+          -32602,
+          -32603,
+          -32700
+        ],
+        "allowClose": "${OVERSIZE_ALLOW_CLOSE}",
+        "waitMs": 8000
+      }
+    }
+  ]
+}

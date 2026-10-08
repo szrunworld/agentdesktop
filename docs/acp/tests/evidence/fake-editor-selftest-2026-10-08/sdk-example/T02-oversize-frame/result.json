@@ -1,0 +1,29 @@
+{
+  "id": "T02-oversize-frame",
+  "cases": [
+    "ACP-T02-04"
+  ],
+  "title": "超过上限的帧被安全拒绝：返回错误（profile 允许时可关闭连接），进程不崩溃",
+  "status": "PASS",
+  "durationMs": 89,
+  "failures": [],
+  "steps": [
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": "raw-big",
+          "error": {
+            "code": -32603,
+            "message": "Internal error",
+            "data": {
+              "details": "Session x not found"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

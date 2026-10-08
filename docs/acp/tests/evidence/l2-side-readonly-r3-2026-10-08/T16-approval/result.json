@@ -1,0 +1,16 @@
+{
+  "id": "T16-approval",
+  "cases": [
+    "ACP-T16-01",
+    "ACP-T16-02",
+    "ACP-T16-03",
+    "ACP-T16-04"
+  ],
+  "title": "审批只提供 allow_once / reject_once；拒绝与取消都不执行，允许才执行",
+  "status": "BLOCKED",
+  "durationMs": 0,
+  "failures": [
+    "blocked: profile agentdesktop-acp-dev lacks approval"
+  ],
+  "steps": []
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@agentdesktop/client",
+  "version": "0.1.0",
+  "description": "Thin client for the AgentDesktop Runtime API (agentdesktop.runtime/1)",
+  "type": "module",
+  "main": "src/index.ts",
+  "engines": { "node": ">=22.18" },
+  "scripts": { "test": "node --test test/*.test.ts" }
+}

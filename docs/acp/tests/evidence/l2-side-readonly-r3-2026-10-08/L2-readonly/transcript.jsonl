@@ -1,0 +1,35 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":3,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":4,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":11,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
+{"ms":12,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":12,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q3-l2/L2-readonly/run","mcpServers":[]}}}
+{"ms":21,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","configOptions":[{"id":"mode","name":"执行确认","category":"mode","type":"select","currentValue":"ask","options":[{"value":"ask","name":"ask"},{"value":"auto","name":"auto"}]},{"id":"screenshots","name":"截图","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"submit","name":"submit"},{"value":"all","name":"all"}]},{"id":"pageText","name":"页面文字","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"on","name":"on"}]}]}}}
+{"ms":22,"dir":"step","step":"listSessions","at":{"op":"listSessions","expect":{"contains":["s1"]}}}
+{"ms":22,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}}
+{"ms":22,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","cwd":"/tmp/adt-q3-l2/L2-readonly/run","title":"AgentDesktop 会话","updatedAt":"2026-10-08T08:05:49.507Z"}]}}}
+{"ms":23,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"run the neutral sample task","timeoutMs":30000,"expect":{"stopReasonIn":["refusal","end_turn"],"textMatches":"未创建任何任务","updatesExclude":["tool_call"]}}}
+{"ms":23,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","prompt":[{"type":"text","text":"run the neutral sample task"}]}}}
+{"ms":35,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"help","description":"列出可用命令"},{"name":"status","description":"查看本会话任务的状态","input":{"hint":"[runId]"}},{"name":"runs","description":"列出本会话的任务"},{"name":"cancel","description":"请求停止本会话正在运行的任务","input":{"hint":"[runId]"}}]}}}}
+{"ms":39,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"身份说明：Runtime 尚未认证调用方身份，本会话暂按本机所有者占位身份（local:501）归属。"}}}}}
+{"ms":39,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"当前没有接受自由文本的任务，未创建任何任务。\n可用命令：\n/help：列出可用命令\n/status [runId]：查看本会话任务的状态\n/runs：列出本会话的任务\n/cancel [runId]：请求停止本会话正在运行的任务"}}}}}
+{"ms":39,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}}
+{"ms":40,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"/runs","expect":{"stopReason":"end_turn","updatesExclude":["tool_call"]}}}
+{"ms":40,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","prompt":[{"type":"text","text":"/runs"}]}}}
+{"ms":42,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"本会话还没有任务。"}}}}}
+{"ms":43,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":4,"result":{"stopReason":"end_turn"}}}
+{"ms":43,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"/status","expect":{"stopReason":"end_turn","updatesExclude":["tool_call"]}}}
+{"ms":43,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":5,"method":"session/prompt","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","prompt":[{"type":"text","text":"/status"}]}}}
+{"ms":45,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"本会话还没有任务。"}}}}}
+{"ms":46,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":5,"result":{"stopReason":"end_turn"}}}
+{"ms":46,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"/cancel","expect":{"stopReasonIn":["end_turn","refusal"],"updatesExclude":["tool_call"]}}}
+{"ms":46,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":6,"method":"session/prompt","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","prompt":[{"type":"text","text":"/cancel"}]}}}
+{"ms":48,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"本会话没有在运行的任务。"}}}}}
+{"ms":48,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":6,"result":{"stopReason":"end_turn"}}}
+{"ms":48,"dir":"step","step":"cancel","at":{"op":"cancel","session":"s1"}}
+{"ms":48,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"acps_a14991df-aaa6-422c-844b-bab05b1a132f"}}}
+{"ms":48,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":300}}
+{"ms":351,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":352,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":353,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":359,"conn":1,"dir":"exit","code":0,"signal":null}

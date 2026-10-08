@@ -1,0 +1,21 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":6,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
+{"ms":6,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-big","oversizeBytes":"17825792","expect":{"errorCodeIn":[-32600,-32602,-32603,-32700],"allowClose":"false","waitMs":8000}}}
+{"ms":44,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-big\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"x\",\"prompt\":[{\"type\":\"text\",\"text\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…(17825914 bytes)"}
+{"ms":194,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-big","error":{"code":-32600,"message":"frame exceeds 16777216 bytes (saw at least 16842752); skipped to the next line"}}}
+{"ms":195,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":500}}
+{"ms":697,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":697,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q3-l1/T02-oversize-then-continue/run","mcpServers":[]}}}
+{"ms":701,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"acps_768d0048-b325-4b4d-bd2b-35ddbefe0aba","configOptions":[{"id":"mode","name":"执行确认","category":"mode","type":"select","currentValue":"ask","options":[{"value":"ask","name":"ask"},{"value":"auto","name":"auto"}]},{"id":"screenshots","name":"截图","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"submit","name":"submit"},{"value":"all","name":"all"}]},{"id":"pageText","name":"页面文字","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"on","name":"on"}]}]}}}
+{"ms":701,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"/help","expect":{"stopReasonIn":["end_turn","refusal"]}}}
+{"ms":701,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"acps_768d0048-b325-4b4d-bd2b-35ddbefe0aba","prompt":[{"type":"text","text":"/help"}]}}}
+{"ms":701,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_768d0048-b325-4b4d-bd2b-35ddbefe0aba","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"demo-echo","description":"演示：三步进度后结束","input":{"hint":"<text>"}},{"name":"help","description":"列出可用命令"},{"name":"status","description":"查看本会话任务的状态","input":{"hint":"[runId]"}},{"name":"runs","description":"列出本会话的任务"},{"name":"cancel","description":"请求停止本会话正在运行的任务","input":{"hint":"[runId]"}}]}}}}
+{"ms":702,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_768d0048-b325-4b4d-bd2b-35ddbefe0aba","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"身份说明：Runtime 尚未认证调用方身份，本会话暂按本机所有者占位身份（[已隐藏]）归属。"}}}}}
+{"ms":704,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_768d0048-b325-4b4d-bd2b-35ddbefe0aba","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"可用命令：\n/demo-echo <text>：演示：三步进度后结束\n/help：列出可用命令\n/status [runId]：查看本会话任务的状态\n/runs：列出本会话的任务\n/cancel [runId]：请求停止本会话正在运行的任务"}}}}}
+{"ms":704,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":704,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":704,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":704,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":705,"conn":1,"dir":"exit","code":0,"signal":null}

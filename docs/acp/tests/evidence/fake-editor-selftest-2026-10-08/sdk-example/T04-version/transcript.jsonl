@@ -1,0 +1,16 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","protocolVersion":99,"expect":{"protocolVersionIn":"[1]","allowError":true}}}
+{"ms":2,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":99,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":65,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}}
+{"ms":65,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":65,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":65,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":69,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":69,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":70,"dir":"step","step":"initialize","at":{"op":"initialize","protocolVersion":0,"expect":{"protocolVersionIn":"[1]","allowError":true}}}
+{"ms":70,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":0,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":131,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}}
+{"ms":131,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":131,"conn":2,"dir":"disconnect","mode":"close-stdin"}
+{"ms":132,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":135,"conn":2,"dir":"exit","code":0,"signal":null}

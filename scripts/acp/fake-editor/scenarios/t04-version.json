@@ -1,0 +1,46 @@
+{
+  "id": "T04-version",
+  "cases": [
+    "ACP-T04-01",
+    "ACP-T04-02"
+  ],
+  "title": "请求未支持的协议版本（99、0）：要么明确报错，要么回复支持集合内的版本（不等于请求值），编辑器随后断开",
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "protocolVersion": 99,
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}",
+        "allowError": true
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    },
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "protocolVersion": 0,
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}",
+        "allowError": true
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

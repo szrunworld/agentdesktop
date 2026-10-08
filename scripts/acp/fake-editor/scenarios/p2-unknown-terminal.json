@@ -1,0 +1,90 @@
+{
+  "id": "RULE-P2-unknown-terminal",
+  "cases": [
+    "ACP-RULE-P2-01",
+    "ACP-RULE-P2-02",
+    "ACP-RULE-P2-03"
+  ],
+  "title": "裁决 P2：动作已发出、结果不明时断开；Run 结束后该工具调用为终态 failed + rawOutput {terminated, unknown}，从不 completed，重连后不重试",
+  "requires": [
+    "runtime.events.unknown",
+    "session.load"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_P2}",
+      "disconnectAfterMs": "${DISCONNECT_AFTER_MS}",
+      "timeoutMs": 30000,
+      "expect": {
+        "stopReasonIn": [
+          "disconnected"
+        ]
+      }
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    },
+    {
+      "op": "mark",
+      "name": "afterExit"
+    },
+    {
+      "op": "wait",
+      "ms": 1500
+    },
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "resume",
+      "session": "s1",
+      "method": "load",
+      "expect": {
+        "ok": true,
+        "replayIncludes": [
+          "${P2_TEXT}"
+        ],
+        "replayWithinMs": 3000
+      }
+    },
+    {
+      "op": "wait",
+      "ms": 1500
+    },
+    {
+      "op": "assert",
+      "noNewToolCallsSince": "afterExit",
+      "unknownTerminal": true,
+      "unknownTitle": "${P2_TEXT}"
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

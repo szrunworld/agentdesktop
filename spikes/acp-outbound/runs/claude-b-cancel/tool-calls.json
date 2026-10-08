@@ -1,0 +1,28 @@
+[
+ {
+  "t": 1791440631142,
+  "u": "tool_call",
+  "id": "toolu_C0-mcp-status_2",
+  "title": "mcp__adt__get_run_status",
+  "kind": "other",
+  "status": "pending"
+ },
+ {
+  "t": 1791440631142,
+  "u": "tool_call_update",
+  "id": "toolu_C0-mcp-status_2",
+  "title": "mcp__adt__get_run_status",
+  "kind": "other"
+ },
+ {
+  "t": 1791440631254,
+  "u": "tool_call_update",
+  "id": "toolu_C0-mcp-status_2"
+ },
+ {
+  "t": 1791440631258,
+  "u": "tool_call_update",
+  "id": "toolu_C0-mcp-status_2",
+  "status": "completed"
+ }
+]

@@ -55,14 +55,19 @@ public struct DesktopCard: View {
     let openPreview: (() -> Void)?
     let stop: (() -> Void)?
     let openDetail: (() -> Void)?
+    let picture: AnyView?
+    let stopUnavailable: String?
 
     public init(desktop: JSONValue, control: DesktopControlPresentation,
-                openPreview: (() -> Void)? = nil, stop: (() -> Void)? = nil, openDetail: (() -> Void)? = nil) {
+                openPreview: (() -> Void)? = nil, stop: (() -> Void)? = nil, openDetail: (() -> Void)? = nil,
+                picture: AnyView? = nil, stopUnavailable: String? = nil) {
         self.desktop = desktop
         self.control = control
         self.openPreview = openPreview
         self.stop = stop
         self.openDetail = openDetail
+        self.picture = picture
+        self.stopUnavailable = stopUnavailable
     }
 
     public var body: some View {
@@ -82,7 +87,10 @@ public struct DesktopCard: View {
                 }
             }
             .padding(ADSpace.l)
-            DesktopViewport(desktop: desktop).frame(height: 210)
+            Group {
+                if let picture { picture } else { DesktopViewport(desktop: desktop) }
+            }
+            .frame(height: 210).clipped()
                 .overlay(alignment: .top) { Rectangle().fill(ADColor.line).frame(height: 1) }
                 .overlay(alignment: .bottom) { Rectangle().fill(ADColor.line).frame(height: 1) }
             VStack(alignment: .leading, spacing: ADSpace.m) {
@@ -101,6 +109,7 @@ public struct DesktopCard: View {
                         .buttonStyle(ADButtonStyle(.secondary)).disabled(openPreview == nil)
                     Button { stop?() } label: { Label("停止", systemImage: "stop.fill") }
                         .buttonStyle(ADButtonStyle(.secondary)).disabled(stop == nil)
+                        .help(stopUnavailable ?? "")
                 }
             }
             .padding(ADSpace.l)

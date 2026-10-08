@@ -1,0 +1,1 @@
+FAIL    T12-cancel  ACP-T12-01,ACP-T12-02,ACP-T12-03  — prompt: stopReason end_turn (undefined), expected cancelled

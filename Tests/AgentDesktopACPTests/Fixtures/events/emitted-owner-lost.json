@@ -1,0 +1,156 @@
+{
+  "name": "emitted-owner-lost",
+  "description": "编辑器断开（connection_scoped）：owner_lost → 停止 → 已取消，原因可见",
+  "policy": {
+    "screenshots": "off",
+    "pageText": false
+  },
+  "events": [
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 1,
+      "type": "run.started",
+      "payload": {
+        "kind": "act",
+        "origin": "agent_hub",
+        "ownership": "external_client",
+        "lifetime": "connection_scoped",
+        "desktopId": "desk_000000aaaaaa",
+        "sessionId": "sess_000000bbbbbb",
+        "at": "2026-10-08T12:00:00.000Z"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 2,
+      "type": "stop.accepted",
+      "payload": {
+        "reason": "owner_lost",
+        "inFlight": false,
+        "revision": 2
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 3,
+      "type": "run.quiescent",
+      "payload": {
+        "revision": 3
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 4,
+      "type": "run.ended",
+      "payload": {
+        "phase": "ended",
+        "outcome": "cancelled",
+        "reason": "owner_lost"
+      }
+    }
+  ],
+  "mustContain": ["编辑器连接已断开"],
+  "expected": [
+    [
+      {
+        "agentMessage": "任务已开始（Run run_0a1b2c3d4e5f）；编辑器断开后将停止输入"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "正在停止"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "completed"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "in_progress"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "已停止输入"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "completed"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "completed"
+          },
+          {
+            "content": "结果",
+            "status": "in_progress"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "agentMessage": "任务结束：已取消；原因：编辑器连接已断开"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "completed"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "completed"
+          },
+          {
+            "content": "结果：已取消",
+            "status": "completed"
+          }
+        ]
+      }
+    ]
+  ],
+  "mustNotContain": []
+}

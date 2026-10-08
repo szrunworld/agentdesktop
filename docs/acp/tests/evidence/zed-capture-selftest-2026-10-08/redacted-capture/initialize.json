@@ -1,0 +1,50 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 0,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": 1,
+      "clientCapabilities": {
+        "fs": {
+          "readTextFile": false,
+          "writeTextFile": false
+        },
+        "terminal": false
+      },
+      "clientInfo": {
+        "name": "agentdesktop-fake-editor",
+        "version": "0.1.0"
+      }
+    }
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 0,
+    "result": {
+      "protocolVersion": 1,
+      "agentCapabilities": {
+        "loadSession": true,
+        "promptCapabilities": {
+          "image": false,
+          "audio": false,
+          "embeddedContext": false
+        },
+        "mcpCapabilities": {
+          "http": false,
+          "sse": false
+        },
+        "sessionCapabilities": {
+          "list": {},
+          "close": {},
+          "resume": {}
+        }
+      },
+      "authMethods": [],
+      "agentInfo": {
+        "name": "agentdesktop",
+        "version": "0.1.0-dev"
+      }
+    }
+  }
+}

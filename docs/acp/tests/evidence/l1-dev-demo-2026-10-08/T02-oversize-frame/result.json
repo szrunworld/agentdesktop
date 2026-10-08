@@ -1,0 +1,24 @@
+{
+  "id": "T02-oversize-frame",
+  "cases": [
+    "ACP-T02-04"
+  ],
+  "title": "超过上限的帧被安全拒绝：返回错误（或按 profile 允许时关闭连接），进程不崩溃",
+  "status": "FAIL",
+  "durationMs": 163,
+  "failures": [
+    "raw: agent closed the connection ({\"code\":0,\"signal\":null})"
+  ],
+  "steps": [
+    {
+      "op": "raw",
+      "got": {
+        "kind": "closed",
+        "m": {
+          "code": 0,
+          "signal": null
+        }
+      }
+    }
+  ]
+}

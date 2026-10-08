@@ -1,0 +1,21 @@
+{
+  "id": "T03-stdio-close",
+  "cases": [
+    "ACP-T03-01",
+    "ACP-T03-02"
+  ],
+  "title": "初始化前与一轮进行中关闭 stdin：进程在 5 秒内退出且不是崩溃信号",
+  "status": "PASS",
+  "durationMs": 2185,
+  "failures": [],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "hello",
+      "outcome": "disconnected",
+      "error": {
+        "message": "ACP connection closed"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "acp-outbound-spike",
+  "private": true,
+  "type": "module",
+  "description": "Lane O research spike: outbound ACP agent isolation. Not part of the product build.",
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.7.0",
+    "@google/gemini-cli": "0.63.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@zed-industries/claude-agent-acp": "0.23.1",
+    "@zed-industries/codex-acp": "0.16.0",
+    "tsx": "4.23.15"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "T08-concurrent-sessions",
+  "cases": [
+    "ACP-T08-01"
+  ],
+  "title": "同一连接上两个会话并发 prompt，各自只收到自己的更新",
+  "requires": [
+    "echo.marker"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "newSession",
+      "as": "s2"
+    },
+    {
+      "op": "promptParallel",
+      "prompts": [
+        {
+          "session": "s1",
+          "text": "${ECHO_PREFIX} marker-s1-q7",
+          "marker": "marker-s1-q7"
+        },
+        {
+          "session": "s2",
+          "text": "${ECHO_PREFIX} marker-s2-k4",
+          "marker": "marker-s2-k4"
+        }
+      ]
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}
