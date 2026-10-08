@@ -1,0 +1,25 @@
+{
+  "id": "T01d-unknown-fields",
+  "cases": ["ACP-T01-05"],
+  "title": "带未知字段与 _meta 的 initialize、session/new 按正常请求处理，不报错，不回显未知字段",
+  "requires": ["protocol.strict"],
+  "steps": [
+    { "op": "connect" },
+    {
+      "op": "raw",
+      "id": "raw-init",
+      "line": "{\"jsonrpc\":\"2.0\",\"id\":\"raw-init\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false,\"qtestFutureCap\":{\"x\":\"QTEST-UNKNOWN-CAP\"}},\"clientInfo\":{\"name\":\"agentdesktop-fake-editor\",\"version\":\"0.1.0\"},\"qtestUnknownTop\":\"QTEST-UNKNOWN-TOP\",\"_meta\":{\"qtest\":\"QTEST-META-INIT\"}}}",
+      "expect": { "ok": true, "maxMs": 2000, "notEchoes": ["QTEST-UNKNOWN-CAP", "QTEST-UNKNOWN-TOP", "QTEST-META-INIT"] }
+    },
+    {
+      "op": "raw",
+      "id": "raw-new",
+      "line": "{\"jsonrpc\":\"2.0\",\"id\":\"raw-new\",\"method\":\"session/new\",\"params\":{\"cwd\":\"${RUN_DIR}\",\"mcpServers\":[],\"qtestUnknown\":\"QTEST-UNKNOWN-NEW\",\"_meta\":{\"qtest\":\"QTEST-META-NEW\"}}}",
+      "expect": { "ok": true, "waitMs": 15000, "notEchoes": ["QTEST-UNKNOWN-NEW", "QTEST-META-NEW"] }
+    },
+    { "op": "expectAlive", "ms": 300 },
+    { "op": "assert", "noFrameContains": ["QTEST-UNKNOWN-CAP", "QTEST-UNKNOWN-TOP", "QTEST-META-INIT", "QTEST-UNKNOWN-NEW", "QTEST-META-NEW"] },
+    { "op": "disconnect" },
+    { "op": "expectExit", "withinMs": 5000 }
+  ]
+}

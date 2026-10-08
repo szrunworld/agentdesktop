@@ -1,0 +1,34 @@
+{
+  "id": "T12-cancel",
+  "cases": [
+    "ACP-T12-01",
+    "ACP-T12-02",
+    "ACP-T12-03"
+  ],
+  "title": "进行中的一轮被取消：stopReason cancelled，之后 1.5 秒无新工具更新；空闲会话取消无副作用；会话仍可用",
+  "status": "PASS",
+  "durationMs": 3947,
+  "failures": [],
+  "steps": [
+    {
+      "op": "initialize",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "op": "session/new",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "op": "prompt",
+      "text": "demo slow run",
+      "outcome": "cancelled"
+    },
+    {
+      "op": "prompt",
+      "text": "/help",
+      "outcome": "end_turn"
+    }
+  ]
+}

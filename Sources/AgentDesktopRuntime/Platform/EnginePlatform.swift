@@ -64,6 +64,20 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         return ScreenHandle(name: s.name, displayId: s.displayID, frame: Self.rect(s.frame), hiDPI: s.hiDPI)
     }
 
+    /// The host registers the user's physical displays with the engine
+    /// (`AgentRuntime.hostScreens`, kind primary); this only looks one up.
+    /// The engine refuses to destroy or resize a host screen.
+    public func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle {
+        let response = try check(handle(ControlRequest(command: .screenList)))
+        let host = (response.screens ?? []).filter { $0.kind == .primary }
+        let wanted = displayId ?? UInt32(CGMainDisplayID())
+        guard let s = host.first(where: { $0.displayID == wanted }) else {
+            let known = host.map { String($0.displayID) }.joined(separator: ", ")
+            throw PlatformError(.notFound, "display \(wanted) is not one of the user's physical displays (\(known.isEmpty ? "none" : known))")
+        }
+        return ScreenHandle(name: s.name, displayId: s.displayID, frame: Self.rect(s.frame), hiDPI: s.hiDPI)
+    }
+
     public func destroyScreen(name: String) throws {
         var r = ControlRequest(command: .screenDestroy)
         r.screen = name

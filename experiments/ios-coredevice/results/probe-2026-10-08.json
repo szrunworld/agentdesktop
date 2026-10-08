@@ -1,14 +1,15 @@
 {
   "probe": "experiments/ios-coredevice/probe.py",
-  "generated_at": "2026-10-08T13:53:58+08:00",
+  "generated_at": "2026-10-08T20:50:21+08:00",
   "read_only": true,
   "options": {
     "allow_mdns": false,
-    "allow_native_tunnel": false
+    "allow_native_tunnel": false,
+    "udid": null
   },
   "host": {
     "pymobiledevice3": "11.24.0",
-    "python": "3.13.15",
+    "python": "3.14.7",
     "macos": "15.1",
     "machine": "arm64",
     "is_root": false,
@@ -41,23 +42,27 @@
   ],
   "mdns": null,
   "rsd_services": null,
+  "devices": [],
+  "capabilities_by_device": {},
+  "target_udid": null,
+  "target_selection": "no device seen",
   "capabilities": {
     "discovery_usbmux_usb": {
       "status": "unverified",
-      "evidence": "usbmuxd reachable, 0 USB devices",
+      "evidence": "usbmuxd reachable, device not listed on USB",
       "reason": "no iPhone on USB",
       "next_step_needs_authorization": "Kevin: connect the iPhone by cable and unlock it"
     },
     "discovery_usbmux_network": {
       "status": "unverified",
-      "evidence": "0 network devices listed by usbmuxd",
+      "evidence": "device not listed by usbmuxd over the network",
       "reason": "device not listed over Wi-Fi; Wi-Fi listing needs a prior USB pairing plus `lockdown wifi-connections on` (or Finder 'Show this iPhone when on Wi-Fi')",
       "next_step_needs_authorization": "Kevin: one USB connection to pair/trust, then decide whether to enable Wi-Fi connections"
     },
     "discovery_remotepairingd": {
       "status": "unverified",
-      "evidence": "remotepairingd answered, 0 devices",
-      "reason": "Apple's CoreDevice pairing daemon knows no device (it learns devices from Xcode/devicectl or `remote pair`; iPhone Mirroring's Continuity pairing is a different relationship)",
+      "evidence": "remotepairingd answered, device not listed",
+      "reason": "Apple's CoreDevice pairing daemon does not know this device (it learns devices from Xcode/devicectl or `remote pair`; iPhone Mirroring's Continuity pairing is a different relationship)",
       "next_step_needs_authorization": "Kevin: USB-connect + Trust, or Wi-Fi `remote pair` with on-device confirmation"
     },
     "discovery_bonjour": {
@@ -69,13 +74,13 @@
     "ios_version": {
       "status": "unverified",
       "evidence": null,
-      "reason": "no device reachable over usbmux",
+      "reason": "device not reachable over usbmux lockdown",
       "next_step_needs_authorization": "Kevin: connect the device (see discovery_usbmux_usb)"
     },
     "pairing": {
       "status": "unverified",
       "evidence": null,
-      "reason": "no device reachable over usbmux",
+      "reason": "device not reachable over usbmux lockdown",
       "next_step_needs_authorization": "Kevin: connect + Trust"
     },
     "developer_mode": {
@@ -105,39 +110,75 @@
     },
     "tunnel_native_remoted": {
       "status": "unverified",
-      "evidence": "no device known to remotepairingd",
-      "reason": "requires a device in remotepairingd and the opt-in --allow-native-tunnel",
+      "evidence": "device not known to remotepairingd",
+      "reason": "requires the device in remotepairingd and the opt-in --allow-native-tunnel",
       "next_step_needs_authorization": "Kevin: allow --allow-native-tunnel after the device shows up"
+    },
+    "service_advertised_screencapture": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list for this device (no tunnel to it)"
+    },
+    "service_advertised_dvt": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list for this device (no tunnel to it)"
+    },
+    "service_advertised_displayservice": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list for this device (no tunnel to it)"
+    },
+    "service_advertised_hid_universal": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list for this device (no tunnel to it)"
+    },
+    "service_advertised_hid_indigo": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list for this device (no tunnel to it)"
+    },
+    "service_advertised_pasteboard": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list for this device (no tunnel to it)"
     },
     "screenshot_coredevice": {
       "status": "unverified",
-      "evidence": null,
-      "reason": "no RSD service list (no tunnel to a device)"
+      "evidence": "NOT_RUN; com.apple.coredevice.screencaptureservice unknown",
+      "reason": "read-only probe never exercises this operation; an advertised service is not proof it works",
+      "next_step_needs_authorization": "Kevin: authorize one real attempt of this operation"
     },
     "screenshot_dvt": {
       "status": "unverified",
-      "evidence": null,
-      "reason": "no RSD service list (no tunnel to a device)"
+      "evidence": "NOT_RUN; com.apple.instruments.dtservicehub unknown",
+      "reason": "read-only probe never exercises this operation; an advertised service is not proof it works",
+      "next_step_needs_authorization": "Kevin: authorize one real attempt of this operation"
     },
     "screen_stream_displayservice": {
       "status": "unverified",
-      "evidence": null,
-      "reason": "no RSD service list (no tunnel to a device)"
+      "evidence": "NOT_RUN; com.apple.coredevice.displayservice unknown",
+      "reason": "read-only probe never exercises this operation; an advertised service is not proof it works; the stream request itself may still be refused",
+      "next_step_needs_authorization": "Kevin: authorize one real attempt of this operation"
     },
     "hid_universal_tap_drag": {
       "status": "unverified",
-      "evidence": null,
-      "reason": "no RSD service list (no tunnel to a device); touch only reaches UIKit while a displayservice media stream is open (auth gate)"
+      "evidence": "NOT_RUN; com.apple.coredevice.hid.universalhidservice unknown",
+      "reason": "read-only probe never exercises this operation; an advertised service is not proof it works; touch only reaches UIKit while a displayservice media stream is open (auth gate), otherwise events can be dropped silently",
+      "next_step_needs_authorization": "Kevin: authorize one real attempt of this operation"
     },
     "hid_indigo_buttons": {
       "status": "unverified",
-      "evidence": null,
-      "reason": "no RSD service list (no tunnel to a device)"
+      "evidence": "NOT_RUN; com.apple.coredevice.hid.indigo unknown",
+      "reason": "read-only probe never exercises this operation; an advertised service is not proof it works",
+      "next_step_needs_authorization": "Kevin: authorize one real attempt of this operation"
     },
     "pasteboard_service": {
       "status": "unverified",
-      "evidence": null,
-      "reason": "no RSD service list (no tunnel to a device)"
+      "evidence": "NOT_RUN; com.apple.coredevice.pasteboardservice unknown",
+      "reason": "read-only probe never exercises this operation; an advertised service is not proof it works",
+      "next_step_needs_authorization": "Kevin: authorize one real attempt of this operation"
     },
     "hid_type_ascii": {
       "status": "unverified",
@@ -164,7 +205,7 @@
     }
   },
   "summary": {
-    "unverified": 20,
+    "unverified": 26,
     "unsupported": 1
   },
   "i13_acceptance": "NOT_RUN"

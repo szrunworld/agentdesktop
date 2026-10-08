@@ -1,0 +1,115 @@
+{
+  "id": "T01d-unknown-fields",
+  "cases": [
+    "ACP-T01-05"
+  ],
+  "title": "带未知字段与 _meta 的 initialize、session/new 按正常请求处理，不报错，不回显未知字段",
+  "status": "PASS",
+  "durationMs": 313,
+  "failures": [],
+  "steps": [
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": "raw-init",
+          "result": {
+            "protocolVersion": 1,
+            "agentCapabilities": {
+              "loadSession": true,
+              "promptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embeddedContext": false
+              },
+              "mcpCapabilities": {
+                "http": false,
+                "sse": false
+              },
+              "sessionCapabilities": {
+                "list": {},
+                "close": {},
+                "resume": {}
+              }
+            },
+            "authMethods": [],
+            "agentInfo": {
+              "name": "agentdesktop",
+              "version": "0.1.0-dev"
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": "raw-new",
+          "result": {
+            "sessionId": "acps_be2b1d5d-07d6-4038-8549-e7854f8c0e07",
+            "configOptions": [
+              {
+                "id": "mode",
+                "name": "执行确认",
+                "category": "mode",
+                "type": "select",
+                "currentValue": "ask",
+                "options": [
+                  {
+                    "value": "ask",
+                    "name": "ask"
+                  },
+                  {
+                    "value": "auto",
+                    "name": "auto"
+                  }
+                ]
+              },
+              {
+                "id": "screenshots",
+                "name": "截图",
+                "type": "select",
+                "currentValue": "off",
+                "options": [
+                  {
+                    "value": "off",
+                    "name": "off"
+                  },
+                  {
+                    "value": "submit",
+                    "name": "submit"
+                  },
+                  {
+                    "value": "all",
+                    "name": "all"
+                  }
+                ]
+              },
+              {
+                "id": "pageText",
+                "name": "页面文字",
+                "type": "select",
+                "currentValue": "off",
+                "options": [
+                  {
+                    "value": "off",
+                    "name": "off"
+                  },
+                  {
+                    "value": "on",
+                    "name": "on"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

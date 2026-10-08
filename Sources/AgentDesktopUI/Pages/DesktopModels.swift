@@ -2,91 +2,8 @@ import AgentDesktopProtocol
 import AppKit
 import Foundation
 
-/// A Desktop's picture as the Runtime observed it: `observe` (screenshot
-/// only, no element read) aimed at the Desktop, then the image read by its
-/// artifact ID (`artifact.read`). With a bound window the image is that
-/// window; without one, the Desktop's whole virtual screen. Never a capture
-/// of the user's screens, and no stream of its own.
-@MainActor
-public final class DesktopFrameLoader: ObservableObject {
-    public let desktopId: String
-    @Published public private(set) var state: PageState = .loading
-    @Published public private(set) var image: NSImage?
-    @Published public private(set) var snapshotId: String?
-    /// Pixel size and the image's scale (pixels per point), as observed.
-    @Published public private(set) var pixelSize: (width: Int, height: Int)?
-    @Published public private(set) var scale: Double?
-    @Published public private(set) var capturedAt: String?
-    @Published public private(set) var targetTitle: String?
-    @Published public private(set) var loadedAt: Date?
-
-    private let runtime: RuntimePort
-    private var ticket = 0
-    private var inFlight = false
-    private let now: () -> Date
-
-    public init(runtime: RuntimePort, desktopId: String, now: @escaping () -> Date = Date.init) {
-        self.runtime = runtime
-        self.desktopId = desktopId
-        self.now = now
-    }
-
-    /// A new observation. A failure keeps the last image on screen.
-    public func load() async {
-        guard !inFlight else { return }
-        inFlight = true
-        defer { inFlight = false }
-        ticket += 1
-        let mine = ticket
-        do {
-            let obs = try await runtime.call("observe", .obj([("screenshot", .bool(true)), ("elements", .bool(false))]),
-                                             context: RequestContext(desktopId: desktopId))
-            guard let img = obs["image"], !img.isNull, let artifactId = img["artifactId"]?.stringValue else {
-                throw RuntimeError("capability_missing", "the observation carries no image", phase: .handler)
-            }
-            let bytes = try await Self.readArtifact(runtime, artifactId)
-            guard mine == ticket else { return }
-            image = NSImage(data: bytes)
-            snapshotId = obs["snapshotId"]?.stringValue
-            pixelSize = (img["width"]?.intValue ?? 0, img["height"]?.intValue ?? 0)
-            scale = img["transform"]?["scale"]?.doubleValue
-            capturedAt = obs["capturedAt"]?.stringValue
-            targetTitle = obs["target"]?["title"]?.stringValue
-            loadedAt = now()
-            state = .loaded
-        } catch {
-            guard mine == ticket else { return }
-            loadedAt = now()
-            state = ShellStore.failure(error)
-        }
-    }
-
-    /// Observe again only when the last one is older than `interval`
-    /// seconds; pages call it on every Store round.
-    public func refreshIfStale(interval: TimeInterval) async {
-        if let loadedAt, now().timeIntervalSince(loadedAt) < interval { return }
-        await load()
-    }
-
-    /// All chunks of an artifact (each ≤ 512 KiB, within the 1 MiB frame).
-    static func readArtifact(_ runtime: RuntimePort, _ id: String) async throws -> Data {
-        var data = Data()
-        var offset = 0
-        while true {
-            let chunk = try await runtime.call("artifact.read", .obj([("artifactId", .string(id)), ("offset", .int(offset)),
-                                                                      ("length", .int(524_288))]))
-            guard let b64 = chunk["dataBase64"]?.stringValue, let part = Data(base64Encoded: b64) else {
-                throw RuntimeError("internal_error", "artifact chunk is not base64", phase: .handler)
-            }
-            data.append(part)
-            offset += part.count
-            if chunk["eof"]?.boolValue ?? true || part.isEmpty { return data }
-        }
-    }
-}
-
-/// How a picture is shown. Changing it never observes again, so the
-/// snapshotId on screen stays the same (UC49).
+/// How a picture is shown. Changing it only changes the display: it never
+/// restarts the capture and never calls the Runtime (UC49).
 public enum PreviewZoom: String, CaseIterable, Identifiable, Sendable {
     case fit = "适应窗口", half = "50%", actual = "100%", double = "200%"
     public var id: String { rawValue }
@@ -104,7 +21,8 @@ public enum PreviewZoom: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// Which Desktops have their own preview window (P08). Closing a preview
-/// only removes it here; it never touches the Desktop (UC14).
+/// only removes it here and lets go of its live picture; it never touches
+/// the Desktop (UC14).
 @MainActor
 public final class PreviewWindowRegistry: ObservableObject {
     @Published public private(set) var open: [String] = []
@@ -112,17 +30,29 @@ public final class PreviewWindowRegistry: ObservableObject {
     public var present: ((String) -> Void)?
     /// The host closes the window for a desktopId.
     public var dismiss: ((String) -> Void)?
+    /// The live-picture hub the preview windows use.
+    public var frames: DesktopFrameHub?
 
-    public init() {}
+    public init(frames: DesktopFrameHub? = nil) { self.frames = frames }
+
+    /// The hub scope of a Desktop's preview window.
+    public static func scope(_ desktopId: String) -> String { "preview:\(desktopId)" }
 
     public func show(_ desktopId: String) {
         if !open.contains(desktopId) { open.append(desktopId) }
         present?(desktopId)
     }
 
-    /// Called when the window goes away (closed by the user or hidden).
+    /// Called when the window goes away (closed by the user or hidden):
+    /// its live picture stops unless another view still shows it.
     public func closed(_ desktopId: String) {
         open.removeAll { $0 == desktopId }
+        frames?.closeScope(Self.scope(desktopId))
+    }
+
+    /// The window was hidden, minimised, occluded or uncovered.
+    public func setVisible(_ desktopId: String, _ visible: Bool) {
+        frames?.setScopeVisible(Self.scope(desktopId), visible)
     }
 
     public func hide(_ desktopId: String) {
@@ -133,6 +63,13 @@ public final class PreviewWindowRegistry: ObservableObject {
     /// Previews of Desktops that no longer exist close by themselves.
     public func prune(existing ids: Set<String>) {
         for id in open where !ids.contains(id) { hide(id) }
+    }
+
+    /// A good desktop list: previews of gone Desktops close and no view
+    /// keeps capturing a gone Desktop's display.
+    public func sync(desktops: [JSONValue]) {
+        prune(existing: Set(desktops.compactMap { $0["desktopId"]?.stringValue }))
+        frames?.prune(desktops: desktops)
     }
 }
 

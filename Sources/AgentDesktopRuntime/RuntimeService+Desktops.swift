@@ -57,6 +57,28 @@ extension RuntimeService {
             return .failure(RuntimeError("conflict", "a desktop named \(name) exists", phase: .handler))
         }
         do {
+            if let physical = p["physical"] {
+                // A physical Desktop: attach one of the user's displays; nothing is created.
+                guard p["width"] == nil, p["height"] == nil else {
+                    return .failure(.invalidArgument("a physical Desktop takes the display's size; leave out width and height"))
+                }
+                let wanted: UInt32?
+                if let value = physical["displayId"] {
+                    guard let raw = value.intValue, let id = UInt32(exactly: raw) else {
+                        return .failure(.invalidArgument("physical.displayId must fit an unsigned 32-bit display ID"))
+                    }
+                    wanted = id
+                } else {
+                    wanted = nil
+                }
+                let screen = try platform.attachDisplay(wanted)
+                if let other = desktops.physical(displayId: screen.displayId) {
+                    return .failure(RuntimeError("conflict", "desktop \(other.desktopId) already attaches display \(screen.displayId)",
+                                                 phase: .handler, details: .obj([("desktopId", .string(other.desktopId))])))
+                }
+                let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical)
+                return .success(desktopJSON(d))
+            }
             let screen = try platform.createScreen(name: id, width: p["width"]?.intValue, height: p["height"]?.intValue)
             let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString)
             return .success(desktopJSON(d))
@@ -78,6 +100,16 @@ extension RuntimeService {
             guard open == 0 else {
                 throw RuntimeError("conflict", "desktop \(d.desktopId) has \(open) open session(s); close them first",
                                    phase: .handler, details: .obj([("openSessions", .int(open))]))
+            }
+            if d.kind == .physical {
+                // The display and every window on it are the user's: drop
+                // the binding and the record, nothing else.
+                d.state = "destroyed"
+                d.generation += 1
+                d.binding = nil
+                desktops.remove(d.desktopId)
+                observations.forget(desktopId: d.desktopId)
+                return .obj([("desktopId", .string(d.desktopId)), ("destroyed", .bool(true)), ("quitApps", .array([]))])
             }
             d.state = "destroying"
             // Apps launched onto this Desktop belong to it: ask them to quit
@@ -106,6 +138,11 @@ extension RuntimeService {
     func launchApp(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         return withDesktop(p["desktopId"]) { d in
+            guard d.kind == .virtual else {
+                throw RuntimeError("invalid_target",
+                                   "desktop \(d.desktopId) is physical: it binds windows the user's apps already show; app.launch is for virtual Desktops",
+                                   phase: .handler, notSent: true)
+            }
             let (pid, windows) = try platform.launch(on: d.screen, bundleId: p["bundleId"]?.stringValue,
                                                      path: p["path"]?.stringValue,
                                                      newInstance: p["newInstance"]?.boolValue ?? false)
@@ -131,6 +168,21 @@ extension RuntimeService {
             let wanted = p["windowId"]?.intValue.map(UInt32.init)
             let process = backend.processIdentity(pid)
             guard process.startedAt != nil else { throw RuntimeError.notFound("no process \(pid)") }
+            if d.kind == .physical {
+                // Never move the user's window: it must already be on this display.
+                guard let wanted else {
+                    throw RuntimeError.invalidArgument("binding on a physical Desktop needs windowId (the window stays where the user put it)")
+                }
+                guard let window = platform.window(on: d.screen, pid: pid, windowId: wanted) else {
+                    throw RuntimeError("invalid_target",
+                                       "window \(wanted) of pid \(pid) is not on display \(d.screen.displayId); a physical Desktop does not move windows",
+                                       phase: .handler, notSent: true)
+                }
+                d.generation += 1
+                d.binding = TargetBinding(generation: d.generation, process: process, windowId: window.windowId,
+                                          appName: window.appName, boundAt: nowString)
+                return d.json(openSessions: sessions.openCount(desktopId: d.desktopId))
+            }
             let moved = try platform.moveWindows(to: d.screen, pid: pid, windowId: wanted)
             guard let chosen = wanted ?? moved.first?.windowId,
                   let window = platform.window(on: d.screen, pid: pid, windowId: chosen)

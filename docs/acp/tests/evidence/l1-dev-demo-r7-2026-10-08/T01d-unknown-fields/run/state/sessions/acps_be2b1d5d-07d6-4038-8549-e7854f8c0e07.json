@@ -1,0 +1,47 @@
+{
+  "acpSessionId" : "acps_be2b1d5d-07d6-4038-8549-e7854f8c0e07",
+  "clientId" : "acp-dev",
+  "createdAt" : "2026-10-08T12:52:19.725Z",
+  "cwd" : "<repo>\/docs\/acp\/tests\/evidence\/l1-dev-demo-r7-2026-10-08\/T01d-unknown-fields\/run",
+  "format" : 1,
+  "lastCursor" : {
+
+  },
+  "options" : [
+    {
+      "choices" : [
+        "ask",
+        "auto"
+      ],
+      "id" : "mode",
+      "name" : "执行确认",
+      "value" : "ask"
+    },
+    {
+      "choices" : [
+        "off",
+        "submit",
+        "all"
+      ],
+      "id" : "screenshots",
+      "name" : "截图",
+      "value" : "off"
+    },
+    {
+      "choices" : [
+        "off",
+        "on"
+      ],
+      "id" : "pageText",
+      "name" : "页面文字",
+      "value" : "off"
+    }
+  ],
+  "principalId" : "demo-owner",
+  "revision" : 1,
+  "runIds" : [
+
+  ],
+  "title" : "AgentDesktop 会话",
+  "updatedAt" : "2026-10-08T12:52:19.725Z"
+}
