@@ -212,10 +212,26 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         return (w, h)
     }
 
-    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?) throws -> (window: PlatformWindow, elements: [PlatformElement]) {
+    /// Makes an element read hang until signalled (a stuck app), or end
+    /// truncated like a walk out of time.
+    var axGate: DispatchSemaphore?
+    var axTruncated: String?
+    var axFailure: PlatformError?
+    /// Element reads running now, and the most at once.
+    var axRunning = 0, axPeak = 0
+    var axThreads: Set<String> = []
+
+    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?, deadline: Date) throws -> ElementRead {
         note("elements \(pid)/\(windowId)")
+        lock.withLock {
+            axRunning += 1; axPeak = max(axPeak, axRunning)
+            axThreads.insert(Thread.isMainThread ? "main" : (Thread.current.name ?? "?"))
+        }
+        defer { lock.withLock { axRunning -= 1 } }
+        lock.withLock { axGate }?.wait()
+        if let f = lock.withLock({ axFailure }) { throw f }
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "the window is gone") }
-        return (w, elements)
+        return ElementRead(window: w, elements: elements, truncated: lock.withLock { axTruncated })
     }
 
     var quit: [Int32] = []

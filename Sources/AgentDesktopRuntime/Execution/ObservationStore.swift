@@ -54,6 +54,12 @@ public final class ObservationStore: @unchecked Sendable {
         lock.withLock { latestElementRead[desktopId] == id }
     }
 
+    /// No element reference of the Desktop is valid until the next stored
+    /// read: the backend's numbering is about to be replaced.
+    func invalidateElementRefs(desktopId: String) {
+        lock.withLock { _ = latestElementRead.removeValue(forKey: desktopId) }
+    }
+
     func forget(desktopId: String) {
         lock.withLock {
             latestElementRead.removeValue(forKey: desktopId)

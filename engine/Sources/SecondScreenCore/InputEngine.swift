@@ -6,7 +6,7 @@ import ApplicationServices
 /// the user's own windows, and picks a route for each action. Elements go
 /// through accessibility where they can, since that needs no input event;
 /// points and keys go through `BackgroundInput`.
-public final class InputEngine {
+public final class InputEngine: @unchecked Sendable {
     /// The last snapshot per window, so indexes from `window.state` stay
     /// valid for the actions that follow it.
     private var snapshots: [CGWindowID: AXSnapshot] = [:]
@@ -35,8 +35,8 @@ public final class InputEngine {
         return window
     }
 
-    public func state(_ window: WindowInfo, query: String?) throws -> ControlResponse {
-        let snapshot = try AXSnapshot.capture(window, query: query)
+    public func state(_ window: WindowInfo, query: String?, deadline: Date? = nil) throws -> ControlResponse {
+        let snapshot = try AXSnapshot.capture(window, query: query, deadline: deadline)
         // A filtered snapshot still indexes the whole tree, so it can serve
         // later actions too.
         store(snapshot)
@@ -44,6 +44,7 @@ public final class InputEngine {
         response.window = WindowSummary(window)
         response.elements = snapshot.elements.filter { $0.index >= 0 }
         response.tree = snapshot.tree
+        response.elementsTruncated = snapshot.truncated
         return response
     }
 
