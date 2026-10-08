@@ -37,9 +37,15 @@ jobs:
       - name: Native core unit tests
         timeout-minutes: 8
         run: |
-          python3 scripts/diagnose-native-tests.py
+          swift test --package-path engine
           # Reproduce executor starvation even on runners with many cores.
-          LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --package-path engine --skip-build --filter ControlServerTests
+          # Apply strict mode to the test runner only; SwiftPM's own manifest
+          # evaluation can stall under it on the CI toolchain.
+          swift_bin="$(xcrun --find swift)"
+          test_runner="$(dirname "$swift_bin")/../libexec/swift/pm/swiftpm-testing-helper"
+          LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 "$test_runner" \
+            --test-bundle-path engine/.build/debug/AgentDesktopEnginePackageTests.xctest/Contents/MacOS/AgentDesktopEnginePackageTests \
+            --testing-library swift-testing --filter ControlServerTests
       - uses: actions/setup-node@v4
         with:
           node-version: 22

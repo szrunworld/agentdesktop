@@ -20,9 +20,6 @@ func contents(_ pasteboard: NSPasteboard) -> [[String: Data]] {
 let pngBytes = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
 let rtfBytes = Data("{\\rtf1\\ansi {\\b bold} text}".utf8)
 
-// AppKit can synchronously fulfil pasteboard data on the main thread.
-// Keep writing and reading each private pasteboard there to avoid a cross-thread wait.
-@MainActor
 @Suite struct PasteboardSnapshotTests {
     /// Fills `pasteboard` with several items of several types.
     func fill(_ pasteboard: NSPasteboard) {
