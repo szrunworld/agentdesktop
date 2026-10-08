@@ -16,26 +16,53 @@ public final class ConnectionState: @unchecked Sendable {
 
 /// Turns one request line into one response line. Every method passes the
 /// same checks in the same order: JSON, apiVersion, Request schema, method,
-/// handshake, params schema, handler.
+/// handshake, params schema; a write then goes through the request ledger
+/// before its handler runs.
 public final class RuntimeService: @unchecked Sendable {
     public let identity: RuntimeIdentity
     public let backend: RuntimeBackend
+    /// nil: this Runtime has no desktop platform, and every method that
+    /// needs one is missing from its capabilities.
+    public let platform: DesktopPlatform?
     public let desktops: DesktopRegistry
+    public let sessions = SessionManager()
+    public let observations = ObservationStore()
+    public let ledger: RequestLedger
+    public let artifacts: ArtifactStore
     public let contract: RuntimeContract
-    private let startedAt: Date
-    private let now: @Sendable () -> Date
+    let startedAt: Date
+    let now: @Sendable () -> Date
+    /// Serializes Desktop creation, so name checks and limits hold.
+    let createLock = NSLock()
     /// Open connections, supplied by the server.
     public var connectionCount: @Sendable () -> Int = { 0 }
 
-    public init(identity: RuntimeIdentity, backend: RuntimeBackend, desktops: DesktopRegistry = DesktopRegistry(),
+    /// Methods that exist only with a desktop platform.
+    static let platformMethods: Set<RuntimeMethod> = [
+        .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind,
+        .sessionOpen, .sessionShow, .sessionClose, .observe,
+    ]
+
+    public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
+                ledger: RequestLedger? = nil, artifacts: ArtifactStore? = nil,
+                desktops: DesktopRegistry = DesktopRegistry(),
                 contract: RuntimeContract = .shared, now: @escaping @Sendable () -> Date = { Date() }) {
         self.identity = identity
         self.backend = backend
+        self.platform = platform
         self.desktops = desktops
+        // In-memory defaults keep a Runtime without storage (tests) whole.
+        self.ledger = ledger ?? (try! RequestLedger(path: nil, now: now))
+        self.artifacts = artifacts ?? (try! ArtifactStore(
+            directory: NSTemporaryDirectory() + "agentdesktop-artifacts-\(getpid())-\(UUID().uuidString.prefix(8))"))
         self.contract = contract
         self.startedAt = Timestamp.date(identity.startedAt) ?? now()
         self.now = now
     }
+
+    func implemented(_ m: RuntimeMethod) -> Bool { platform != nil || !Self.platformMethods.contains(m) }
+
+    var nowString: String { Timestamp.string(now()) }
 
     public func respond(to line: Data, on connection: ConnectionState) -> RuntimeResponse {
         let value: JSONValue
@@ -58,7 +85,8 @@ public final class RuntimeService: @unchecked Sendable {
             return .failure(requestId, .schemaInvalid("request breaks the Request schema", violations: violations))
         }
         let request = RuntimeRequest(validated: value)
-        guard let spec = contract.method(request.method), RuntimeMethod(rawValue: request.method) != nil else {
+        guard let spec = contract.method(request.method), let method = RuntimeMethod(rawValue: request.method),
+              implemented(method) else {
             return .failure(request.requestId, .capabilityMissing("method \(request.method) is not available in this Runtime"))
         }
         if connection.apiVersion == nil, request.method != RuntimeMethod.handshake.rawValue {
@@ -69,11 +97,41 @@ public final class RuntimeService: @unchecked Sendable {
         guard paramViolations.isEmpty else {
             return .failure(request.requestId, .schemaInvalid("params break \(spec.params)", violations: paramViolations))
         }
-        switch handle(request, on: connection) {
+        let result: Result<JSONValue, RuntimeError>
+        if spec.mutation {
+            result = ledgered(request, on: connection)
+        } else {
+            result = handle(request, on: connection)
+        }
+        switch result {
         case let .success(data):
             return .success(request.requestId, data)
         case let .failure(error):
             return .failure(request.requestId, error)
+        }
+    }
+
+    /// A write runs once per caller and requestId; a repeat gets the
+    /// original outcome, other content under the same ID is refused.
+    private func ledgered(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {
+        let begin: RequestLedger.Begin
+        do {
+            begin = try ledger.begin(caller: connection.peerUID, request)
+        } catch {
+            return .failure(RuntimeError("internal_error", "the request ledger is unavailable: \(error)", phase: .request))
+        }
+        switch begin {
+        case .fresh:
+            let result = handle(request, on: connection)
+            ledger.finish(caller: connection.peerUID, requestId: request.requestId, result)
+            return result
+        case let .existing(record):
+            return RequestLedger.replay(record)
+        case let .conflict(record):
+            return .failure(RuntimeError(
+                "idempotency_conflict",
+                "requestId \(request.requestId) was used for a different \(record.method) request; use a new requestId for a new operation",
+                phase: .request, details: .obj([("requestId", .string(request.requestId)), ("originalMethod", .string(record.method))])))
         }
     }
 
@@ -97,11 +155,11 @@ public final class RuntimeService: @unchecked Sendable {
             return .success(RuntimeStatus(
                 instanceId: identity.instanceId, state: "running", startedAt: identity.startedAt,
                 uptimeSeconds: max(0, now().timeIntervalSince(startedAt)),
-                connections: connectionCount(), desktops: desktops.count, sessions: 0, runs: 0).json)
+                connections: connectionCount(), desktops: desktops.count, sessions: sessions.openCount, runs: 0).json)
 
         case .capabilities:
             let methods = contract.methods
-                .filter { RuntimeMethod(rawValue: $0.method) != nil }
+                .filter { RuntimeMethod(rawValue: $0.method).map(implemented) ?? false }
                 .map { JSONValue.obj([("method", .string($0.method)), ("mutation", .bool($0.mutation)),
                                       ("stage", .string($0.stage))]) }
             let perms = backend.permissions()
@@ -117,12 +175,10 @@ public final class RuntimeService: @unchecked Sendable {
             ]))
 
         case .desktopList:
-            return .success(.obj([("desktops", .array(desktops.list().map(\.json)))]))
+            return .success(.obj([("desktops", .array(desktops.list().map(desktopJSON)))]))
 
         case .desktopShow:
-            let id = p["desktopId"]?.stringValue ?? ""
-            guard let d = desktops.show(id) else { return .failure(.notFound("no desktop \(id)")) }
-            return .success(d.json)
+            return desktop(p["desktopId"]).map(desktopJSON)
 
         case .appList:
             let apps = backend.applications(includeBackground: p["includeBackground"]?.boolValue ?? false)
@@ -133,6 +189,17 @@ public final class RuntimeService: @unchecked Sendable {
             let windows = backend.windows(pid: pid, bundleId: p["bundleId"]?.stringValue,
                                           includeOffscreen: p["includeOffscreen"]?.boolValue ?? false)
             return .success(.obj([("windows", .array(windows.map(\.json)))]))
+
+        case .desktopCreate: return createDesktop(p)
+        case .desktopDestroy: return destroyDesktop(p)
+        case .appLaunch: return launchApp(p)
+        case .windowBind: return bindWindow(p)
+        case .windowUnbind: return unbindWindow(p)
+        case .sessionOpen: return openSession(p, connection)
+        case .sessionShow: return showSession(p, connection)
+        case .sessionClose: return closeSession(p, connection)
+        case .observe: return observe(request, connection)
+        case .requestShow: return showRequest(p, connection)
         }
     }
 }

@@ -18,6 +18,15 @@ struct CLI {
     var makeClient: (Endpoint) -> RuntimeClient = { SocketRuntimeClient(endpoint: $0, info: CLI.clientInfo) }
     /// Ask the OS to start the product; returns an error message on failure.
     var launchProduct: (_ appPath: String?) -> String? = CLI.openProduct
+    /// Note a write's requestId, method and endpoint before it is sent, so
+    /// an interrupted run can be looked up later with request show.
+    var recordRequest: (_ requestId: String, _ method: String, _ endpoint: String) -> Void = CLI.appendRequestLog
+    /// Copy a file (observe --image-output).
+    var copyFile: (_ from: String, _ to: String) throws -> Void = { from, to in
+        let fm = FileManager.default
+        if fm.fileExists(atPath: to) { try fm.removeItem(atPath: to) }
+        try fm.copyItem(atPath: from, toPath: to)
+    }
     var sleep: (Double) -> Void = { Thread.sleep(forTimeInterval: $0) }
     var now: () -> Date = Date.init
 
@@ -57,6 +66,8 @@ struct CLI {
             return doctor(out, endpoint: endpoint)
         case .runtimeStatus, .runtimeCapabilities, .desktopList, .desktopShow, .appList, .windowList:
             return query(invocation.command, out, endpoint: endpoint)
+        case let .call(call):
+            return perform(call, out, endpoint: endpoint)
         }
     }
 

@@ -94,7 +94,7 @@ func handshaken(_ s: RuntimeService) -> ConnectionState {
     #expect(contract.validate(d, "RuntimeStatus").isEmpty)
     #expect(d["connections"]?.intValue == 3)
     #expect(d["desktops"]?.intValue == 0)
-    desktops.add(Desktop(desktopId: "d_001", name: "w", state: "ready", createdAt: Timestamp.string(Date())))
+    desktops.add(desktopId: "d_001", name: "w", screen: testScreen, createdAt: Timestamp.string(Date()))
     d = try #require(data(answer(s, requestLine("runtime.status"), c)))
     #expect(d["desktops"]?.intValue == 1)
 }
@@ -106,13 +106,14 @@ func handshaken(_ s: RuntimeService) -> ConnectionState {
     let d = try #require(data(answer(s, requestLine("runtime.capabilities"), handshaken(s))))
     #expect(contract.validate(d, "Capabilities").isEmpty)
     let methods = d["interface"]?["methods"]?.arrayValue?.compactMap { $0["method"]?.stringValue } ?? []
-    #expect(Set(methods) == Set(RuntimeMethod.allCases.map(\.rawValue)))
+    // Without a desktop platform only the methods that need none are offered.
+    #expect(Set(methods) == Set(RuntimeMethod.allCases.filter { !RuntimeService.platformMethods.contains($0) }.map(\.rawValue)))
     #expect(d["backend"]?["permissions"]?["screenRecording"]?.stringValue == "denied")
 }
 
 @Test func desktopShowFindsOrReportsNotFound() throws {
     let desktops = DesktopRegistry()
-    desktops.add(Desktop(desktopId: "d_001", name: "w", state: "ready", createdAt: Timestamp.string(Date())))
+    desktops.add(desktopId: "d_001", name: "w", screen: testScreen, createdAt: Timestamp.string(Date()))
     let s = makeService(desktops: desktops)
     let c = handshaken(s)
     #expect(data(answer(s, requestLine("desktop.show", params: #"{"desktopId":"d_001"}"#), c))?["name"]?.stringValue == "w")

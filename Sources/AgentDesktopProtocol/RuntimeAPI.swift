@@ -27,6 +27,16 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case desktopShow = "desktop.show"
     case appList = "app.list"
     case windowList = "window.list"
+    case desktopCreate = "desktop.create"
+    case desktopDestroy = "desktop.destroy"
+    case appLaunch = "app.launch"
+    case windowBind = "window.bind"
+    case windowUnbind = "window.unbind"
+    case sessionOpen = "session.open"
+    case sessionShow = "session.show"
+    case sessionClose = "session.close"
+    case observe
+    case requestShow = "request.show"
 }
 
 /// The machine-readable contract: schema, method catalog and error table.

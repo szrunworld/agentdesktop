@@ -152,8 +152,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let identity = RuntimeIdentity(instanceId: RuntimeRequest.newId(prefix: "rt"), pid: getpid(),
                                        startedAt: Timestamp.string(Date()), endpoint: path,
                                        buildSource: build.source, builtAt: build.builtAt)
-        let server = RuntimeServer(path: path, service: RuntimeService(identity: identity, backend: MacBackend()))
         do {
+            // Records beside the endpoint: <dir>/runtime (product) or
+            // <dir>/<name>.runtime (side instance), owner-only.
+            let records = role.runtimeRecordsDirectory.path
+            let service = RuntimeService(
+                identity: identity, backend: MacBackend(), platform: EnginePlatform(engine: runtime),
+                ledger: try RequestLedger(path: records + "/requests.sqlite"),
+                artifacts: try ArtifactStore(directory: records + "/artifacts"))
+            let server = RuntimeServer(path: path, service: service)
             try server.start()
             runtimeServer = server
         } catch {

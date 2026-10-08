@@ -1,22 +1,144 @@
 {
   "apiVersion": "agentdesktop.runtime/1",
-  "status": "DRAFT_PR1",
+  "status": "DRAFT_PR2",
   "transport": {
     "macOS": "owner-only Unix domain socket ~/Library/Application Support/AgentDesktop/runtime.sock",
     "windows": "current-user named pipe (W1)",
     "framing": "UTF-8 JSON, one message per LF-terminated line; requests on one connection are answered in order",
     "maxFrameBytes": 1048576,
     "countIncludesNewline": true,
-    "firstMethod": "runtime.handshake"
+    "firstMethod": "runtime.handshake",
+    "requestLedger": {
+      "key": "caller uid + requestId",
+      "digest": "sha256 of canonical {method, context, params}",
+      "retentionDays": 7,
+      "onRestart": "accepted → unknown"
+    },
+    "artifacts": {
+      "location": "<endpoint dir>/runtime/artifacts",
+      "retentionHours": 24
+    }
   },
   "schema": "runtime.schema.json",
   "methods": [
-    {"method": "runtime.handshake",    "stage": "P0", "mutation": false, "params": "runtime_handshake_params",    "result": "RuntimeIdentity"},
-    {"method": "runtime.status",       "stage": "P0", "mutation": false, "params": "empty_params",                "result": "RuntimeStatus"},
-    {"method": "runtime.capabilities", "stage": "P0", "mutation": false, "params": "empty_params",                "result": "Capabilities"},
-    {"method": "desktop.list",         "stage": "P0", "mutation": false, "params": "empty_params",                "result": "DesktopList"},
-    {"method": "desktop.show",         "stage": "P0", "mutation": false, "params": "desktop_show_params",         "result": "Desktop"},
-    {"method": "app.list",             "stage": "P0", "mutation": false, "params": "app_list_params",             "result": "AppList"},
-    {"method": "window.list",          "stage": "P0", "mutation": false, "params": "window_list_params",          "result": "WindowList"}
+    {
+      "method": "runtime.handshake",
+      "stage": "P0",
+      "mutation": false,
+      "params": "runtime_handshake_params",
+      "result": "RuntimeIdentity"
+    },
+    {
+      "method": "runtime.status",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "RuntimeStatus"
+    },
+    {
+      "method": "runtime.capabilities",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "Capabilities"
+    },
+    {
+      "method": "desktop.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "DesktopList"
+    },
+    {
+      "method": "desktop.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "desktop_show_params",
+      "result": "Desktop"
+    },
+    {
+      "method": "app.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "app_list_params",
+      "result": "AppList"
+    },
+    {
+      "method": "window.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "window_list_params",
+      "result": "WindowList"
+    },
+    {
+      "method": "desktop.create",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_create_params",
+      "result": "Desktop"
+    },
+    {
+      "method": "desktop.destroy",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_destroy_params",
+      "result": "DestroyResult"
+    },
+    {
+      "method": "app.launch",
+      "stage": "P0",
+      "mutation": true,
+      "params": "app_launch_params",
+      "result": "LaunchResult"
+    },
+    {
+      "method": "window.bind",
+      "stage": "P0",
+      "mutation": true,
+      "params": "window_bind_params",
+      "result": "Desktop"
+    },
+    {
+      "method": "window.unbind",
+      "stage": "P0",
+      "mutation": true,
+      "params": "window_unbind_params",
+      "result": "Desktop"
+    },
+    {
+      "method": "session.open",
+      "stage": "P0",
+      "mutation": true,
+      "params": "session_open_params",
+      "result": "Session"
+    },
+    {
+      "method": "session.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "session_ref_params",
+      "result": "Session"
+    },
+    {
+      "method": "session.close",
+      "stage": "P0",
+      "mutation": true,
+      "params": "session_ref_params",
+      "result": "Session"
+    },
+    {
+      "method": "observe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_params",
+      "result": "Observation"
+    },
+    {
+      "method": "request.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "request_show_params",
+      "result": "RequestRecord"
+    }
   ]
 }

@@ -59,6 +59,16 @@ enum HostRole {
         }
     }
 
+    /// The Runtime's request ledger and artifacts.
+    var runtimeRecordsDirectory: URL {
+        switch self {
+        case .product:
+            return Self.productEndpoint.deletingLastPathComponent().appendingPathComponent("runtime", isDirectory: true)
+        case .sideInstance(let socket):
+            return socket.deletingPathExtension().appendingPathExtension("runtime")
+        }
+    }
+
     var isSideInstance: Bool {
         if case .sideInstance = self { return true }
         return false

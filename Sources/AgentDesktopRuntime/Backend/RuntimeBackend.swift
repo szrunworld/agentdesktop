@@ -13,4 +13,6 @@ public protocol RuntimeBackend: Sendable {
     /// Normal (layer 0) windows, front to back, of one process or app when
     /// asked; on-screen ones unless `includeOffscreen`.
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary]
+    /// pid plus start time; nil start time when the process is gone.
+    func processIdentity(_ pid: Int32) -> ProcessIdentity
 }
