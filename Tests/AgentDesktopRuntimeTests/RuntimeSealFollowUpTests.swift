@@ -44,14 +44,20 @@ import Testing
     #expect(sc.platform.lock.withLock { sc.platform.performed.isEmpty })
 }
 
-@Test func onlyAProcessStartedByTheLaunchBelongsToTheDesktop() {
-    let requested = Date(timeIntervalSince1970: 1_800_000_000)
-    // Started with the launch (milliseconds kept by the timestamp).
-    #expect(EnginePlatform.startedWithLaunch(Timestamp.string(requested.addingTimeInterval(0.2)), requestedAt: requested))
-    #expect(EnginePlatform.startedWithLaunch(Timestamp.string(requested), requestedAt: requested))
-    // Already running before: the user's app, not the Desktop's.
-    #expect(!EnginePlatform.startedWithLaunch(Timestamp.string(requested.addingTimeInterval(-5)), requestedAt: requested))
-    // Unknown start time: refused.
-    #expect(!EnginePlatform.startedWithLaunch(nil, requestedAt: requested))
-    #expect(!EnginePlatform.startedWithLaunch("not a time", requestedAt: requested))
+@Test func aRefusedLaunchOwnsNothingAndMovesNothing() throws {
+    let platform = FakePlatform()
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                           backend: FixedBackend(), platform: platform)
+    let c = handshaken(s)
+    let d = try created(s, c)
+    // The engine found the "new instance" was the user's running app (pid 101).
+    let r = call(s, c, "app.launch", params: #"{"desktopId":"\#(d)","bundleId":"com.example.single-instance","newInstance":true}"#)
+    #expect(code(r) != nil, "refused")
+    #expect(try #require(s.desktops.find(d)).launched.isEmpty, "nothing is recorded as launched here")
+    #expect(!platform.calls.contains { $0.hasPrefix("move") }, "no window moved")
+    // So the user's app stays unbindable.
+    let bind = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
+    #expect(failure(bind)?.details?["reason"]?.stringValue == "bind_requires_grant")
+    #expect(!platform.calls.contains { $0.hasPrefix("move") })
 }

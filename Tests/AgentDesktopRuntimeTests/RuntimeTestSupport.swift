@@ -151,6 +151,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws -> (pid: Int32, windows: [PlatformWindow]) {
         note("launch \(bundleId ?? path ?? "?") on \(screen.name)")
         guard bundleId != "com.example.missing" else { throw PlatformError(.refused, "give a bundle ID of an installed app") }
+        // The engine's answer when the launch hands back a process that was
+        // already running: refused before anything is moved or bound.
+        guard bundleId != "com.example.single-instance" else { throw PlatformError(.refused, "the app was already running; nothing was moved") }
         let w = PlatformWindow(windowId: 31, pid: 303, appName: "Notes", title: "备忘录",
                                frame: Rect(x: screen.frame.x + 10, y: 10, width: 500, height: 400))
         lock.withLock { windows[303] = [w]; onScreen[31] = screen.name }

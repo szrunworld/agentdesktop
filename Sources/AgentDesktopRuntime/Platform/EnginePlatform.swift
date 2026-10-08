@@ -91,25 +91,11 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         r.bundleID = bundleId
         r.path = path
         r.newInstance = newInstance
-        let requestedAt = Date()
         let response = try check(handle(r))
         guard let pid = response.pid else { throw PlatformError(.refused, "the engine reported no process") }
-        // The engine refuses an app that is already running unless a new
-        // instance is asked for, but it checks before it opens: an app the
-        // user started in between would come back as if launched here. Only
-        // a process that started with this launch belongs to the Desktop.
-        guard Self.startedWithLaunch(MacBackend.identity(pid).startedAt, requestedAt: requestedAt) else {
-            throw PlatformError(.refused, "the app was already running; only a process this launch started can belong to the Desktop")
-        }
+        // The engine refuses a launch that returns an already-running
+        // process before it moves or binds anything (AgentScreens.launch).
         return (pid, (response.windows ?? []).map(Self.window))
-    }
-
-    /// Whether a process that started at `startedAt` (the kernel's start
-    /// time) was started by a launch requested at `requestedAt`. The kernel
-    /// keeps microseconds and the timestamp milliseconds, so a little slack.
-    static func startedWithLaunch(_ startedAt: String?, requestedAt: Date) -> Bool {
-        guard let started = startedAt.flatMap(Timestamp.date) else { return false }
-        return started >= requestedAt.addingTimeInterval(-0.01)
     }
 
     public func moveWindows(to screen: ScreenHandle, pid: Int32, windowId: UInt32?) throws -> [PlatformWindow] {
