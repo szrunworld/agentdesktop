@@ -53,7 +53,7 @@ enum ACPEventText {
         case let .refused(code):
             switch code {
             case "not_dispatched", "input_disabled", "target_moved", "invalid_target", "stale_observation",
-                 "deadline_exceeded", "stop_pending", "run_not_active":
+                 "deadline_exceeded", "stop_pending", "run_not_active", "audit_unavailable", "control_busy":
                 return "未发出"
             case "execution_failed": return "执行失败"
             default: return "已拒绝"
@@ -114,32 +114,31 @@ enum ACPEventText {
     static let terminalUnknown = "结果未知 · 需要核实"
     static let terminalUnknownHint = "不会重试；请在 AgentDesktop 主窗口核实结果后再决定下一步"
 
-    /// G0 window-identity refusals (RuntimeService+Target.swift
-    /// `details.reason`). Window ids, pids and app names in the message are
-    /// never shown; only this fixed vocabulary is.
-    static func targetReason(_ r: String?) -> String? {
-        switch r ?? "" {
-        case "window_gone": return "目标窗口已不在该桌面"
-        case "not_visible": return "目标窗口不可见"
-        case "occluded": return "目标窗口被其他窗口遮挡"
-        case "other_window_of_process_in_front": return "同一应用的另一个窗口在前面"
-        case "moved": return "目标窗口在发送时移动"
-        case "target_changed_during_dispatch": return "发送过程中目标发生变化，输入可能到达其他窗口"
-        default: return nil
-        }
-    }
-
     // MARK: Run lifecycle
 
+    /// Closing reasons (`run.ended` / `stop.accepted` / `run.finishing`
+    /// data.reason). The catalogue types the field as a free string; these
+    /// are the values the Runtime writes today (ExecutionCoordinator.stop
+    /// callers, RunStore restart recovery) plus f1's E-8 list. Any other
+    /// value is not shown.
     static func closingReason(_ r: String?) -> String? {
-        switch r ?? "" {
-        case "owner_lost", "connection_lost": return "编辑器连接已断开"
+        let r = r ?? ""
+        switch r {
+        case "completed": return "动作已处理完"
+        case "finished": return "调用方已结束任务"
+        case "stopped", "cancelled": return "已请求停止"
+        case "failed": return "任务失败"
+        case "owner_lost": return "编辑器连接已断开"
+        case "global_stop": return "已全部停止"
         case "runtime_restarted": return "Runtime 已重启"
-        case "stopped", "cancelled", "cancel", "user_cancel", "user_stop", "stop", "cancel_requested": return "已请求停止"
-        case "global_stop", "stop_all": return "已全部停止"
-        case "deadline", "deadline_exceeded", "timeout": return "超过时限"
-        case "input_disabled": return "输入已关闭"
-        default: return nil
+        case "grant_revoked": return "授权已撤销"
+        case "deadline_exceeded": return "超过时限"
+        default:
+            // run.finish {exitCode}: "exit <n>" — a number, safe to show.
+            if r.range(of: #"^exit -?[0-9]{1,4}$"#, options: .regularExpression) != nil {
+                return "命令已退出（退出码 \(r.dropFirst(5))）"
+            }
+            return nil
         }
     }
 
