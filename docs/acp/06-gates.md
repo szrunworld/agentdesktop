@@ -1,24 +1,24 @@
 # ACP 验收门禁 G0～G5
 
-状态：2026-10-08 第三轮，工作线 D。基线：AgentDesktop `main`（README 第八节，唯一集成基线）；本文核对的分支是 `acp-skeleton`@8f57c1d（已合入 main@134b451，即 #2；尚未合入 main 上更新的 fa2222f #102）。用例状态取自 Q 的 [tests/cases.csv](tests/cases.csv)（168 个：PASSED 40、FAILED 0、BLOCKED 12、NOT_RUN 116）。
+状态：2026-10-08 第三轮，工作线 D。基线：AgentDesktop `main`（README 第八节，唯一集成基线）；本文核对的分支是 `acp-skeleton`@8f57c1d（已合入 main@134b451，即 #2）。第四轮更新：#111 于 11:46:40Z 合入 main（914b8c9），带入 #29 MCP/SDK、#102 事件目录（fa2222f）与整个 `acp-skeleton`（#53 显示 MERGED）；本分支已合入 origin/main。用例状态取自 Q 的 [tests/cases.csv](tests/cases.csv)（168 个：PASSED 40、FAILED 0、BLOCKED 12、NOT_RUN 116）。
 
 ## 〇、摘要
 
 | 门禁 | 行数 | PASSED | NOT_RUN | BLOCKED | 最大的单一阻塞 |
 | --- | --- | --- | --- | --- | --- |
-| G0 | 13 | 5 | 3 | 5 | #29 未合入（T18-04）加真实 GUI 动作（T18-02），G0-02 因此不能通过 |
+| G0 | 14 | 6 | 3 | 5 | 真实 GUI 动作（T18-02）；T18-04 已可跑、待 Q 取证 |
 | G1 | 11 | 0 | 4 | 7 | 40 的 A6 `unit.run`：没有它，ACP 不能创建任何 Run |
 | G2 | 11 | 0 | 0 | 11 | A4 身份与 PR4 审批（G2-02、06、07、08、11），A6 其次 |
 | G3 | 14 | 0 | 1 | 13 | A6（真实事件与真实断连）；审批类等 PR4 |
 | G4 | 12 | 0 | 0 | 12 | P3 实现（MCP 网关数据闸门、OS 层隔离）；真实模型凭据（O1） |
 | G5 | 5 | 0 | 1 | 4 | Zed 手工首帧（Z1）与 G1 |
-| 合计 | 66 | 5 | 9 | 52 | |
+| 合计 | 67 | 6 | 9 | 52 | |
 
 读法：
 
 - **PASSED**：行内写明的证据全部具备，且证据路径与提交可查。
 - **NOT_RUN**：现在就能跑，但还没跑；「缺什么」一栏写明。
-- **BLOCKED（X）**：至少一项必需证据要等 X。X 只取以下几类：f1 契约增量（principal、`Run.lastEventSequence`、事件目录对齐）、A4、A6 `unit.run`、PR4 inbox、#29、Zed 手工 Z1、真实 GUI 动作、P3、环境。
+- **BLOCKED（X）**：至少一项必需证据要等 X。X 只取以下几类：f1 契约增量（principal、`Run.lastEventSequence`、事件目录对齐）、A4、A6 `unit.run`、PR4 inbox、Zed 手工 Z1、真实 GUI 动作、P3、环境。
 - **L1 通过不算端到端**（附加约束 6）。一行即使所有 L1 用例都通过，只要还需要 L2 或 L3 证据，就不是 PASSED。
 
 ## 一、规则
@@ -36,7 +36,7 @@
 | 编号 | 检查项 | 用例 | Q 用例 | 证据与路径 | 状态 | 缺什么 |
 | --- | --- | --- | --- | --- | --- | --- |
 | G0-01 | 宿主只有一个 Runtime 监听 | RT-01 | ACP-T18-01（1/1） | 测试副本 `/tmp/adt-acp-q6`，`acp-skeleton`@f70a9f6（含 A2 #84、#94）：`lsof -U -p <宿主 pid>` 会话前后都只有 `side.runtime.sock`，`lsof -i` 无网络监听；`side.sock`、`side.ai.sock`、`control.sock` 连接均 ENOENT；该 socket 握手并列出 64 个 runtime/1 方法（按握手判定，f1 已接受 C-19）。路径：`docs/acp/tests/evidence/l2-side-readonly-post-a2-2026-10-08/side/lsof-unix.txt`、`lsof-unix-after.txt`、`lsof-inet.txt`、`connect-probe.txt`、`caps.json`。另有 f1 的 `docs/acceptance/foundation-final-2026-10-08.md`（f0f3827，「只监听一个 socket」） | **PASSED** | 无。整门禁通过时在门禁提交上复跑一次 |
-| G0-02 | MCP 与旧入口不能绕过 Runtime | T18 | ACP-T18-02、03、04（1/3） | T18-03 已通过：`ai.sock` 不存在，`ai.*` 都在 runtime/1 上（同上目录 `connect-probe.txt`、`caps.json`） | **BLOCKED（#29；真实 GUI 动作）** | T18-04：`agentdesktop mcp` 发一次 `act` 并在账本查到 requestId，等 #29（仍为草案，并入 #111 待审）。T18-02：按用例要求从 `engine/` 编译旧 CLI（`engine/Package.swift:8` 仍声明 `agentdesktop-cli`）对测试副本发点击，属于真实 GUI 动作，本轮未做；现有证据只说明没有可连的旧 socket |
+| G0-02 | MCP 与旧入口不能绕过 Runtime | T18 | ACP-T18-02、03、04（1/3） | T18-03 已通过：`ai.sock` 不存在，`ai.*` 都在 runtime/1 上（同上目录 `connect-probe.txt`、`caps.json`） | **BLOCKED（真实 GUI 动作）** | T18-04：#29 已随 #111 合入 main（914b8c9），现在可跑，状态 NOT_RUN，Q 即将执行；取得证据前本行不能通过。T18-02：按用例要求从 `engine/` 编译旧 CLI（`engine/Package.swift:8` 仍声明 `agentdesktop-cli`）对测试副本发点击，属于真实 GUI 动作，本轮未做；现有证据只说明没有可连的旧 socket |
 | G0-03 | 所有 ai.* 经 runtime/1 | RT-02 | ACP-T18-03（1/1） | `docs/acceptance/single-endpoint-pr2b-1-2026-10-08.md`（`swift test` 455 项，退出码 0，SingleEndpointTests）；`single-endpoint-pr2b-2-2026-10-08.md`（466 项，退出码 0，ai/1 信封删除）；`foundation-final-2026-10-08.md`（二进制中 `agentdesktop.ai/1` 为 0 处） | **PASSED** | 无。`gui.runs.*` 仍是过渡方法，A6 删除（见 04 GAP-03） |
 | G0-04 | 同一请求只执行一次 | CT-05、CT-06、CT-07 | 无 | `RuntimeDesktopTests.swift:36` `theSameRequestIdRunsOnceAndOtherContentIsAConflict` 在 foundation-final 的全量 `swift test`（f0f3827，470 项，退出码 0）里通过 | NOT_RUN | 行内要求的契约套件 summary.json 不存在：仓库没有 `scripts/verify`（docs/plan/08 8.2）；CT-07（10 个并发相同 requestId 的 run.start）没有找到对应测试 |
 | G0-05 | 线客户端不能要 Durable 所有权 | ADR-05、GX-21 | 无 | `RuntimeRunModelTests.swift:75` `adr05_aClientCannotAskForPlatformOwnership` 在 foundation-final 的 `swift test` 里通过 | **BLOCKED（A6）** | GX-21（`unit.run` 在不同主体下的所有权）要等 A6 |
@@ -47,7 +47,8 @@
 | G0-10 | 旧 2ndscreen 不是运行时依赖 | A0 验收 T30 | 无 | `foundation-final-2026-10-08.md`：干净检出 `swift package resolve` 退出码 0，`.build/checkouts` 为空，无 Package.resolved，无网络下载 | **PASSED** | 无 |
 | G0-11 | 差距与契约需求经 f1 确认 | 文档 | 无 | f1 对 07 的 R1～R11 与 C-19、对 08 的 E-1～E-10 已有书面结论（07、08 第〇节） | NOT_RUN | 04 本身没有 f1 的确认；#102 的落地形状与 f1 在 08 第〇节的结论有两处不同（见 04 GAP-08 备注），需要 f1 说明以哪个为准 |
 | G0-12 | 协议版本决策与互通 | A0-06 | ACP-T04-01、02、03（2/3） | 02 选定 v1；官方 TS SDK 1.7.0 客户端互通（02 7.1）；T04-01、02 在 dev 入口通过（`docs/acp/tests/evidence/l1-dev-demo-2026-10-08/`） | **BLOCKED（Zed 手工 Z1）** | Zed 1.23.2 真实 `initialize` 请求与响应（e2e-runbook §三.1，`scripts/acp/zed-capture/`）；Z1 规定取得真实帧前不得标记通过。T04-03 测的是「第二个版本」，02 决定只支持 v1，该用例不适用 |
-| G0-13 | 事件目录与映射对齐 | A0-08 | 无 | 事件目录已由 #102 冻结在 main（fa2222f，`runtime.schema.json#/$defs/PlatformRunEvent`，10 种事件，`action.refused`） | **BLOCKED（f1 契约增量）** | `acp-skeleton` 尚未合入 fa2222f；E 按目录对齐与夹具；目录里的分级字段（E-10）与 principal、`Run.lastEventSequence` 两项增量尚未在 main 上（`grep` 两者在 main 的 schema 中均为 0 处） |
+| G0-13 | 事件目录与映射对齐 | A0-08 | 无 | 事件目录已由 #102 冻结在 main（fa2222f，`runtime.schema.json#/$defs/PlatformRunEvent`，10 种事件，`action.refused`） | **BLOCKED（f1 契约增量）** | fa2222f 已随 #111 进入 main 与本分支；仍缺 E 按目录对齐与夹具；目录里的分级字段（E-10）与 principal、`Run.lastEventSequence` 两项增量尚未在 main 上（`grep` 两者在 main 的 schema 中均为 0 处） |
+| G0-14 | 发布物不含 ACP | 打包边界 | 无 | 协调者在 main@dddc0db 核对：release 构建的 `agentdesktop` 与 `AgentDesktopApp` 中 ACP 符号 0 个、ACP 字符串 0 处；`scripts/bundle-app.sh` 只复制这两个产品；CLI 没有 `acp` 子命令；main 的 macOS CI 成功 | **PASSED** | 无 |
 
 ## 三、G1：ACP 入站端到端执行成功
 
@@ -137,7 +138,6 @@ G4 只在 O 的 spike 上有实测（[09-outbound-isolation.md](09-outbound-isol
 | PR4 inbox | f1 | G2-06、07、08，G3-03、04、07、10 |
 | A4 身份与授权 | f1 | G1-09，G2-01、02、08、10、11，G3-02、11 |
 | f1 契约增量（principal、`Run.lastEventSequence`、事件目录对齐） | f1 | G0-13，G1-08，G2-11（R5），G3-01 |
-| #29 MCP | f1 | G0-02 |
 | Zed 手工 Z1 | Kevin（约 2 分钟，e2e-runbook §三.1） | G0-12，G1-08、10、11，G2-10，G3-03、09，G5-01、04 |
 | 真实 GUI 动作 | Q（测试副本，经协调者安排） | G0-02（T18-02），G1-11 |
 | P3 实现 | Kevin 批准后 | G4 全部 |
