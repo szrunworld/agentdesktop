@@ -216,7 +216,7 @@ extension RuntimeService {
                                    phase: .handler, notSent: true)
             }
             let px = ip["x"]?.doubleValue ?? -1, py = ip["y"]?.doubleValue ?? -1
-            guard px < Double(size.width), py < Double(size.height) else {
+            guard px >= 0, py >= 0, px < Double(size.width), py < Double(size.height) else {
                 throw RuntimeError("invalid_target", "(\(px), \(py)) is outside the \(size.width)x\(size.height) image",
                                    phase: .handler, notSent: true)
             }
@@ -224,6 +224,13 @@ extension RuntimeService {
             let f = window.frame
             guard gx >= f.x, gx < f.x + f.width, gy >= f.y, gy < f.y + f.height else {
                 throw RuntimeError("invalid_target", "image point (\(px), \(py)) is (\(gx), \(gy)) in points, outside the bound window",
+                                   phase: .handler, notSent: true)
+            }
+            // A window may reach past the screen edge; input there would not
+            // land on the window the image shows.
+            let sf = snap.screen.frame
+            guard gx >= sf.x, gx < sf.x + sf.width, gy >= sf.y, gy < sf.y + sf.height else {
+                throw RuntimeError("invalid_target", "image point (\(px), \(py)) is (\(gx), \(gy)) in points, off the Desktop's screen",
                                    phase: .handler, notSent: true)
             }
             pa.point = (gx, gy)

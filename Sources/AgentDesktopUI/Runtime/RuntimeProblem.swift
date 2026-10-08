@@ -29,7 +29,23 @@ public struct RuntimeProblem: Equatable, Sendable {
             return
         }
         let (t, a) = Self.text(e.code)
-        self.init(code: e.code, title: t, advice: a, notSent: e.notSent ?? false)
+        // A refusal that names its reason says what the user can do instead.
+        let advice = e.details?["reason"]?.stringValue.flatMap(Self.reasonAdvice) ?? a
+        self.init(code: e.code, title: t, advice: advice, notSent: e.notSent ?? false)
+    }
+
+    /// Advice for refusals whose `details.reason` changes what to do.
+    static func reasonAdvice(_ reason: String) -> String? {
+        switch reason {
+        case "bind_requires_grant":
+            return "在逐窗口授权上线前，只能绑定由这个 Desktop 启动的应用。请改用“启动应用”。"
+        case "screen_capture_requires_grant":
+            return "这个 Desktop 还没有绑定窗口；没有整屏授权时不截整个屏幕。请先绑定窗口。"
+        case "physical_desktop_requires_grant":
+            return "在逐窗口授权上线前，不能把你的显示器作为 Desktop。请使用虚拟 Desktop。"
+        default:
+            return nil
+        }
     }
 
     /// Whether this failure means the Runtime cannot be reached at all; the

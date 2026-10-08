@@ -91,9 +91,25 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         r.bundleID = bundleId
         r.path = path
         r.newInstance = newInstance
+        let requestedAt = Date()
         let response = try check(handle(r))
         guard let pid = response.pid else { throw PlatformError(.refused, "the engine reported no process") }
+        // The engine refuses an app that is already running unless a new
+        // instance is asked for, but it checks before it opens: an app the
+        // user started in between would come back as if launched here. Only
+        // a process that started with this launch belongs to the Desktop.
+        guard Self.startedWithLaunch(MacBackend.identity(pid).startedAt, requestedAt: requestedAt) else {
+            throw PlatformError(.refused, "the app was already running; only a process this launch started can belong to the Desktop")
+        }
         return (pid, (response.windows ?? []).map(Self.window))
+    }
+
+    /// Whether a process that started at `startedAt` (the kernel's start
+    /// time) was started by a launch requested at `requestedAt`. The kernel
+    /// keeps microseconds and the timestamp milliseconds, so a little slack.
+    static func startedWithLaunch(_ startedAt: String?, requestedAt: Date) -> Bool {
+        guard let started = startedAt.flatMap(Timestamp.date) else { return false }
+        return started >= requestedAt.addingTimeInterval(-0.01)
     }
 
     public func moveWindows(to screen: ScreenHandle, pid: Int32, windowId: UInt32?) throws -> [PlatformWindow] {
@@ -124,26 +140,6 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
               let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int
         else { throw PlatformError(.refused, "the screenshot at \(path) is unreadable") }
         return (w, h)
-    }
-
-    public func screenshot(_ screen: ScreenHandle, cropTo frame: Rect, to path: String) throws -> (width: Int, height: Int) {
-        let full = path + ".screen.png"
-        defer { try? FileManager.default.removeItem(atPath: full) }
-        let size = try screenshot(screen, to: full)
-        let scale = Double(size.width) / max(1, screen.frame.width)
-        let x0 = max(0, ((frame.x - screen.frame.x) * scale).rounded(.down))
-        let y0 = max(0, ((frame.y - screen.frame.y) * scale).rounded(.down))
-        let x1 = min(Double(size.width), ((frame.x + frame.width - screen.frame.x) * scale).rounded(.up))
-        let y1 = min(Double(size.height), ((frame.y + frame.height - screen.frame.y) * scale).rounded(.up))
-        guard x1 > x0, y1 > y0,
-              let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: full) as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(src, 0, nil),
-              let cropped = image.cropping(to: CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)),
-              let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, "public.png" as CFString, 1, nil)
-        else { throw PlatformError(.refused, "cannot cut the window out of the screenshot") }
-        CGImageDestinationAddImage(dest, cropped, nil)
-        guard CGImageDestinationFinalize(dest) else { throw PlatformError(.refused, "cannot write \(path)") }
-        return (cropped.width, cropped.height)
     }
 
     public func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
