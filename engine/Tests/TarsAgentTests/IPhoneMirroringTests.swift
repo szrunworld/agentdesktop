@@ -810,6 +810,9 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(report.state == .disconnected)
     }
 
+    /// Codex review of d1304fe: a reconnect held back by the barrier is not
+    /// a confirmation; lowering the barrier with a screenshot does not let
+    /// input through until a reconnect reports ready.
     @Test func aBarrierStillUpKeepsItFromReady() throws {
         let (fake, phone) = pausedPhone()
         try fake.inputBarrier.raise("may hold a half-finished paste")
@@ -817,7 +820,32 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let report = try phone.reconnect(timeout: 20)
         #expect(report.outcome == .notReady && !report.isReady)
         #expect(report.blockedBy?.contains("half-finished paste") == true)
-        fake.inputBarrier.lower()
+        #expect(phone.connection.awaitingConfirmation)
+        fake.onSleep = nil
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        #expect(fake.inputBarrier.reason(now: fake.clock) == nil)
+        let refused = try phone.perform(tap(3100, 300))
+        #expect(refused.error?.hasPrefix("not_connected (unconfirmed)") == true)
+        #expect(fake.inputs.isEmpty)
+        let again = try phone.reconnect(timeout: 20)
+        #expect(again.outcome == .ready)
+        #expect(try phone.perform(tap(3100, 300)).ok)
+    }
+
+    /// Codex review of d1304fe: the last ready look landing on the timeout
+    /// does not make it ready; a little more time does.
+    @Test func theLastReadyLookAtTheTimeoutIsNotReady() throws {
+        let (fake, phone) = pausedPhone()
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = [] } }
+        let atTimeout = try phone.reconnect(timeout: Double(Self.needed))
+        #expect(atTimeout.outcome == .pressedUnconfirmed && atTimeout.timedOut)
+        #expect(atTimeout.readyReadings == Self.needed && atTimeout.phase == .ready)
+        #expect(phone.connection.awaitingConfirmation)
+
+        let (fake2, phone2) = pausedPhone()
+        fake2.onSleep = { if fake2.sleeps == 1 { fake2.ax = [] } }
+        let inTime = try phone2.reconnect(timeout: Double(Self.needed) + 0.5)
+        #expect(inTime.outcome == .ready && !inTime.timedOut)
     }
 
     @Test func aWindowSwappedMidwayStartsTheCountAgain() throws {
@@ -855,7 +883,18 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         tracker.record(look(g, .ready, 1.5)); #expect(tracker.phase == .verifying)
         tracker.record(look(g, .ready, 2.5)); #expect(tracker.phase == .ready)
         #expect(tracker.isReady(window: 7) && !tracker.isReady(window: 8))
+        // Steady looks alone do not lift the gate; a reported ready does.
+        #expect(tracker.awaitingConfirmation)
+        tracker.confirm()
         #expect(!tracker.awaitingConfirmation)
+    }
+
+    @Test func confirmDoesNothingBeforeReady() {
+        var tracker = IPhoneConnectionTracker(stableReadings: 2, spacing: 1)
+        let g = tracker.begin(at: t0, pressed: true)
+        tracker.record(look(g, .ready, 1))
+        tracker.confirm()
+        #expect(tracker.awaitingConfirmation && tracker.phase == .connected)
     }
 
     @Test func anyOtherLookStartsOver() {
@@ -912,6 +951,7 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         tracker.record(look(g, .authRequired, 2))
         #expect(tracker.awaitingConfirmation)
         tracker.record(look(g, .ready, 3)); tracker.record(look(g, .ready, 4))
+        tracker.confirm()
         #expect(!tracker.awaitingConfirmation)
     }
 

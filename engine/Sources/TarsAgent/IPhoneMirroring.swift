@@ -376,9 +376,11 @@ public struct IPhoneConnectionTracker {
     public private(set) var phase: IPhoneConnectionPhase = .disconnected
     /// When the current generation began; earlier looks do not count.
     public private(set) var since: Date = .distantPast
-    /// True from a press until a generation reaches ready: input to the
-    /// phone is refused meanwhile. A later check without a press does not
-    /// clear it; only seeing the phone ready does.
+    /// True from a press until a reconnect reports ready (`confirm()`):
+    /// input to the phone is refused meanwhile. Neither a later check
+    /// without a press nor steady ready looks alone clear it: a reconnect
+    /// that saw the phone but was held back (an input barrier, its timeout)
+    /// leaves it up.
     public private(set) var awaitingConfirmation = false
     /// The last look counted in this generation.
     public private(set) var latest: IPhoneConnectionObservation?
@@ -430,7 +432,6 @@ public struct IPhoneConnectionTracker {
             readyStreak += 1
             lastReadyAt = look.at
             phase = readyStreak >= stableReadings ? .ready : (readyStreak == 1 ? .connected : .verifying)
-            if phase == .ready { awaitingConfirmation = false }
         case .reconnecting, .uncertain:
             resetStreak()
             phase = .connecting
@@ -444,6 +445,12 @@ public struct IPhoneConnectionTracker {
     /// Whether the ready looks were of `windowID`.
     public func isReady(window windowID: CGWindowID?) -> Bool {
         phase == .ready && windowID != nil && streakWindow == windowID && latest?.state == .ready
+    }
+
+    /// Every condition for ready held and it was reported: input may go
+    /// on. Only while the phase is ready.
+    public mutating func confirm() {
+        if phase == .ready { awaitingConfirmation = false }
     }
 
     private mutating func resetStreak() {

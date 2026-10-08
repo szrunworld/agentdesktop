@@ -273,7 +273,13 @@ public final class IPhoneAgentScreen: AgentScreen {
             case .phoneInUse, .authRequired, .needsUser:
                 return report(.needsUser, pressed: pressed, timedOut: false)
             case .ready, .reconnecting, .disconnected, .uncertain:
-                continue
+                break
+            }
+            if let stop = stopReason() { throw stop }
+            // A look that ended at or past the timeout cannot make it ready:
+            // the time to be sure of the phone is over.
+            if system.now >= until {
+                return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true)
             }
         }
     }
@@ -287,6 +293,7 @@ public final class IPhoneAgentScreen: AgentScreen {
             blocked.blockedBy = "input barrier: \(reason); take a screenshot first"
             return blocked
         }
+        connection.confirm()
         return report(.ready, pressed: pressed, timedOut: false)
     }
 
