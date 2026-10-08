@@ -48,6 +48,14 @@ public final class AgentRuntime {
         }
         try server.start()
         self.server = server
+        startInProcess()
+    }
+
+    /// Serve only the host process: callers use `handle` directly and no
+    /// control socket is opened, so the host's own Runtime stays the one
+    /// way in (AgentDesktop A0).
+    public func startInProcess() {
+        guard cursorObserver == nil else { return }
         cursorObserver = DistributedNotificationCenter.default().addObserver(
             forName: AgentCursorEvent.notificationName, object: nil, queue: .main
         ) { [weak self] notification in

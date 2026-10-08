@@ -58,3 +58,21 @@ main 删除的旧入口（80e0ed4：engine 内的 SecondScreen App、Bridge、TS
 - **唯一 Runtime 入口未完成**：宿主仍在 `Sources/AgentDesktop/AppController.swift` 的 `applicationDidFinishLaunching` 里调用 `runtime.start(socketPath: endpoint.path)`（约第 145 行），为引擎 `AgentRuntime` 打开旧控制 socket `control.sock`；同时 `startRuntimeServer()` 打开 `runtime.sock`，`startAIService` 打开 `ai.sock`。`AgentRuntime` 还是 `EnginePlatform` 的进程内后端（`AgentRuntime.handle`），所以不能直接删对象，只能停掉其 socket（`start` 只负责 ControlServer，需确认 `hostScreens`/`onScreensChanged` 等不依赖它）。本 PR 未改。
 - `engine/Package.swift` 仍声明 `agentdesktop-cli`（ScreenCLI）与 `vdisplay` 产品，供引擎开发和测试；它们已退出发布路径。
 - `docs/plan/02` 写的是「foundation rebase 到 main」，本 PR 按协调者要求改为把 main 合并进 foundation。
+
+## 补充：只留一个 Runtime 入口（集成负责人，2026-10-08 13:40）
+
+子任务交付时，宿主仍会调用 `runtime.start(socketPath:)` 打开引擎自己的 `control.sock`。这样就有两个入口，引擎的 AgentRuntime 和新的 AgentDesktopRuntime 各自接收请求。本次补丁：
+
+- 引擎 `AgentRuntime` 新增 `startInProcess()`：只注册光标叠加层的观察者，不开 socket。`start(socketPath:)` 保留给引擎自带的开发用 CLI。
+- 宿主改为调用 `runtime.startInProcess()`，引擎只由同进程的 Runtime（EnginePlatform）驱动。
+- 产品单实例检查改为探测 Runtime 端点（`runtime.sock`），因为它现在是宿主唯一的对外监听。原子的单实例保证仍由 Runtime 服务器的锁文件提供。
+
+验证：
+
+- 根包 `swift test` 368 项通过；`swift test --package-path engine` 127 项通过。两者退出码都是 0，此时已合入 foundation 最新提交（含 #41、#45、#46）。
+- `bundle-app.sh` 成功；`verify-command-surface.py` 通过。
+- 测试副本 `/tmp/adt-a0`：
+  - 启动后目录里只有 `side.runtime.sock`、`side.ai.sock`、锁文件和记录目录，**没有 `side.sock`（旧的 control socket）**；`lsof` 显示宿主只监听这两个 socket。`side.ai.sock` 在 A2（PR2b）删除。
+  - 计算器：建 Desktop → 启动 → 绑定 → 观察 → 点 7，送达；关闭会话、退出计算器、销毁 Desktop、停止副本、删除目录。
+
+仍属后续：`ai.sock` 与 ai/1 信封（A2）；`ai.sqlite` 0644（SEC-01，A3 / 40）；`engine/Package.swift` 里的 `agentdesktop-cli` / `vdisplay` 留给引擎开发，不进发布路径。
