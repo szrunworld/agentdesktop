@@ -62,7 +62,8 @@ import Testing
         let ended = try #require(at("任务 run-1 已结束"))
         let second = try #require(lines.lastIndex { $0.contains("› 你：" + ACPAgentServer.userInputPlaceholder) })
         #expect(!lines.contains { $0.contains("please go") || $0.contains("› 你：/nope") })
-        let guidance = try #require(at("没有 /nope 这个命令"))
+        // The live line named the command; the stored one does not echo it.
+        let guidance = try #require(at("没有这个命令。"))
         #expect(user < accepted && accepted < ev1 && ev1 < ev2 && ev2 < ended && ended < second && second < guidance,
                 "\(lines)")
         // Each event once.
@@ -94,6 +95,31 @@ import Testing
         let lines = h2.connection.updatesFor(sid).compactMap(text)
         #expect(!lines.contains { $0.contains("› 你") || $0.contains("[run-1#") || $0.contains("任务已受理") })
         #expect(h2.connection.updatesBeforeReply(1, sid).isEmpty)
+    }
+
+    /// #141 independent review: agent lines that echo the user's input or a
+    /// Runtime question are shown live but stored without the echo.
+    @Test func echoesNeverReachTheHistoryFile() async throws {
+        let rt = STestRuntime()
+        rt.taskList.with { $0 = [STestHarness.task("work", freeText: true)] }
+        let h = STestHarness(runtime: rt)
+        defer { h.cleanup() }
+        let sid = await h.newSession()
+        for line in ["/Users/me/secret-hunter2.txt", "/runs hunter2-runs", "/status hunter2-status"] {
+            _ = await h.connection.waitReply(h.prompt(sid, line))
+        }
+        let p = h.prompt(sid, "go")
+        #expect(await sEventually { rt.runs.get()["run-1"] != nil })
+        rt.pendingByRun.with { $0["run-1"] = [.question(id: "q1", runId: "run-1", message: "hunter2-question?", choices: [])] }
+        rt.setPhase("run-1", "waiting_input")
+        _ = await h.connection.waitReply(p)
+        let live = h.connection.updatesFor(sid).compactMap(text).joined(separator: "\n")
+        #expect(live.contains("hunter2-question"))           // shown to the user live
+        #expect(!live.contains("hunter2-runs") && !live.contains("hunter2-status")) // /runs never echoes
+        let raw = try String(contentsOf: h.dir.appendingPathComponent("\(sid).history.json"), encoding: .utf8)
+        #expect(!raw.contains("hunter2"), "\(raw)")
+        #expect(raw.contains("没有这个命令") && raw.contains("问题内容不保存"))
+        rt.end("run-1")
     }
 
     @Test func conversationIsStoredRedactedAndOwnerOnly() async throws {
@@ -140,7 +166,7 @@ import Testing
         try s.save(binding("s1"))
         try s.appendHistory(sessionId: "s1", [ACPSessionManagerHistoryEntry(kind: .user, text: "hi", at: "t0")])
         try s.appendHistory(sessionId: "s1", [e("a"), e("b")])
-        #expect(try s.history(sessionId: "s1").map(\.text) == ["hi", "a", "b"])
+        #expect(try s.history(sessionId: "s1").map(\.text) == [ACPSessionManagerHistoryEntry.userInputPlaceholder, "a", "b"])
         #expect(try s.history(sessionId: "s1").first?.kind == .user)
         // The binding is untouched (its revision is not the history's).
         #expect(try s.load(sessionId: "s1")?.revision == 1)
@@ -156,8 +182,42 @@ import Testing
         let (s, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }
         try s.save(binding("s1"))
-        try s.appendHistory(sessionId: "s1", [ACPSessionManagerHistoryEntry(kind: .user, text: "to a@b.com", at: "t")])
-        #expect(try s.history(sessionId: "s1").first?.text == "to \(ACPRedactMask.email)")
+        try s.appendHistory(sessionId: "s1", [ACPSessionManagerHistoryEntry(kind: .user, text: "to a@b.com", at: "t"),
+                                              ACPSessionManagerHistoryEntry(kind: .agent, text: "to a@b.com", at: "t")])
+        // User text is never stored, whatever the caller passed; agent text is redacted.
+        #expect(try s.history(sessionId: "s1").map(\.text)
+            == [ACPSessionManagerHistoryEntry.userInputPlaceholder, "to \(ACPRedactMask.email)"])
+        let raw = try String(contentsOf: dir.appendingPathComponent("s1.history.json"), encoding: .utf8)
+        #expect(!raw.contains("a@b.com"))
+    }
+
+    /// #141 review: files written before format 2 are cleaned on disk the
+    /// first time the store is used, and never replayed as they were.
+    @Test func aLegacyHistoryAndTitleAreScrubbedOnDisk() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try s.save(binding("s1"))
+        let bindingURL = dir.appendingPathComponent("s1.json")
+        var b = try String(contentsOf: bindingURL, encoding: .utf8)
+        b = b.replacingOccurrences(of: "\"format\" : 2", with: "\"format\" : 1")
+        b = b.replacingOccurrences(of: "\"title\" : \"", with: "\"title\" : \"secret plan hunter2 ")
+        try b.write(to: bindingURL, atomically: true, encoding: .utf8)
+        let legacy = #"{"format":1,"acpSessionId":"s1","revision":3,"entries":["#
+            + #"{"kind":"user","text":"passphrase hunter2","at":"t"},"#
+            + #"{"kind":"agent","text":"没有 /hunter2 这个命令","runId":"run-1","at":"t"}]}"#
+        try legacy.write(to: dir.appendingPathComponent("s1.history.json"), atomically: true, encoding: .utf8)
+
+        let fresh = ACPFileSessionStore(directory: dir)
+        let h = try fresh.history(sessionId: "s1")
+        #expect(h.map(\.text) == [ACPSessionManagerHistoryEntry.userInputPlaceholder,
+                                   ACPSessionManagerHistoryEntry.legacyAgentPlaceholder])
+        #expect(h.last?.runId == "run-1")
+        #expect(try fresh.load(sessionId: "s1")?.title == "对话")
+        #expect(try fresh.load(sessionId: "s1")?.revision == 1)
+        for name in ["s1.json", "s1.history.json"] {
+            let raw = try String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
+            #expect(!raw.contains("hunter2"), "\(name)")
+        }
     }
 
     /// T06-08: a long history loads quickly.

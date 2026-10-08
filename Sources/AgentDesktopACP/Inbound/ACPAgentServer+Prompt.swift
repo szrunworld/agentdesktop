@@ -67,7 +67,8 @@ extension ACPAgentServer {
             await runFixed(sid, cmd, argument, catalog)
             return .endTurn
         case let .unknownCommand(name):
-            await say(sid, "没有 /\(redact(sid, name)) 这个命令。\n" + guidance(catalog))
+            await say(sid, "没有 /\(redact(sid, name)) 这个命令。\n" + guidance(catalog),
+                      stored: "没有这个命令。\n" + guidance(catalog))
             return .endTurn
         case .freeTextNotAllowed:
             await say(sid, "当前没有接受自由文本的任务，未创建任何任务。\n" + guidance(catalog))
@@ -106,7 +107,9 @@ extension ACPAgentServer {
         }
         let problems = ACPCommandInputValidator.validate(input, schema: task.inputSchema)
         guard problems.isEmpty else {
-            await say(sid, "/\(name) 的输入不符合要求，未创建任务：\n" + problems.joined(separator: "\n"))
+            // Problems can name fields the user typed; only the summary is kept.
+            await say(sid, "/\(name) 的输入不符合要求，未创建任务：\n" + problems.joined(separator: "\n"),
+                      stored: "/\(name) 的输入不符合要求，未创建任务。")
             return .endTurn
         }
         guard let options = live[sid]?.binding.options else { return .endTurn }
@@ -326,7 +329,8 @@ extension ACPAgentServer {
                     break
                 }
                 live[sid]?.pendingQuestion = (id, runId)
-                await say(sid, "任务 \(runId) 需要你的回答：\(shown)\n请在下一条 prompt 里直接回答。")
+                await say(sid, "任务 \(runId) 需要你的回答：\(shown)\n请在下一条 prompt 里直接回答。",
+                          stored: "任务 \(runId) 需要你的回答（问题内容不保存）。请在下一条 prompt 里直接回答。")
                 return true
             }
         }
@@ -365,7 +369,9 @@ extension ACPAgentServer {
     private func runFixed(_ sid: String, _ cmd: ACPCommandFixed, _ argument: String, _ catalog: ACPCommandCatalog) async {
         let runIds = live[sid]?.binding.runIds ?? []
         let arg = argument.trimmingCharacters(in: .whitespaces)
-        if !arg.isEmpty, cmd == .status || cmd == .cancel, !runIds.contains(arg) {
+        // An argument is only ever a Run of this session; anything else is
+        // refused without echoing it (it may be pasted text).
+        if !arg.isEmpty, cmd != .help, !runIds.contains(arg) {
             await say(sid, "本会话没有这个任务。")
             return
         }

@@ -25,8 +25,9 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         var description: String { "refusing the Real-test connection: \(reason)" }
     }
 
-    /// Who may hold the product's sockets; injectable for tests.
-    typealias ProductHolders = () -> Set<pid_t>
+    /// Who holds the product's sockets; nil when that cannot be determined
+    /// (then the connection is refused). Injectable for tests.
+    typealias ProductHolders = () -> Set<pid_t>?
 
     private var channel: LineChannel?
     let peerPid: pid_t
@@ -63,10 +64,25 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         guard pid == expectedPid else {
             throw Refused(reason: "peer pid \(pid) is not the launched test Runtime \(expectedPid)")
         }
-        if let exe = Self.executablePath(pid), exe.hasPrefix("/Applications/") {
+        // The audit token must name the same process (pid and LOCAL_PEERPID
+        // come from the same connection; a mismatch means something is off).
+        var token = audit_token_t()
+        var tlen = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &tlen) == 0,
+              pid_t(bitPattern: token.val.5) == pid else {
+            throw Refused(reason: "the kernel's audit token does not match the peer pid")
+        }
+        // Unknown executable or unknown holders: refuse (fail closed).
+        guard let exe = Self.executablePath(pid) else {
+            throw Refused(reason: "the peer's executable cannot be read")
+        }
+        if exe.hasPrefix("/Applications/") {
             throw Refused(reason: "peer \(pid) runs the installed product \(exe)")
         }
-        if productHolders().contains(pid) {
+        guard let holders = productHolders() else {
+            throw Refused(reason: "the product's socket holders cannot be determined")
+        }
+        if holders.contains(pid) {
             throw Refused(reason: "peer \(pid) holds the product's sockets")
         }
         SocketOptions.receiveTimeout(fd, seconds: timeout)
@@ -105,22 +121,49 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         return n > 0 ? String(cString: buf) : nil
     }
 
-    /// Processes holding any entry of the product data directory open, via
-    /// `lsof -t` (read-only; never connects). If lsof cannot run, nothing is
-    /// known, and the pid pin plus the /Applications check still apply.
-    static func productSocketHolders() -> Set<pid_t> {
-        let paths = ACPTestEndpointGuard.productSockets()
-        guard !paths.isEmpty else { return [] }
+    /// Processes with a Unix socket bound under the product data directory,
+    /// matched on the socket's bound name from `lsof -U` (read-only; never
+    /// connects), so a socket whose file was renamed or unlinked still
+    /// counts. nil when lsof fails: the caller then refuses.
+    static func productSocketHolders() -> Set<pid_t>? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        p.arguments = ["-t"] + paths
+        p.arguments = ["-nP", "-U", "-F", "pn"]
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return [] }
+        do { try p.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        let text = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return Set(text.split(whereSeparator: \.isNewline).compactMap { pid_t($0) })
+        // lsof exits 1 when it lists nothing; any other failure is unknown.
+        guard p.terminationStatus == 0 || (p.terminationStatus == 1 && data.isEmpty) else { return nil }
+        return holders(lsofFields: String(decoding: data, as: UTF8.self), productDirs: productDirectories())
+    }
+
+    /// `lsof -F pn` output → pids whose socket name is in a product directory.
+    static func holders(lsofFields text: String, productDirs: [String]) -> Set<pid_t> {
+        var out = Set<pid_t>()
+        var current: pid_t?
+        for line in text.split(whereSeparator: \.isNewline) {
+            if line.hasPrefix("p") { current = pid_t(line.dropFirst()) }
+            else if line.hasPrefix("n"), let pid = current {
+                let name = String(line.dropFirst())
+                if productDirs.contains(where: { name.hasPrefix($0 + "/") }) { out.insert(pid) }
+            }
+        }
+        return out
+    }
+
+    static func productDirectories() -> [String] {
+        var homes = [NSHomeDirectory()]
+        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir { homes.append(String(cString: dir)) }
+        var dirs = Set<String>()
+        for home in homes {
+            let d = home + "/Library/Application Support/AgentDesktop"
+            dirs.insert(d)
+            if let r = realpath(d, nil) { dirs.insert(String(cString: r)); free(r) }
+        }
+        return Array(dirs)
     }
 
     /// A client factory for Real tests: every connection is kernel-pinned

@@ -4,6 +4,11 @@ import Foundation
 /// can replay it. Text is redacted (`ACPRedactor`) before it is stored.
 public struct ACPSessionManagerHistoryEntry: Equatable, Sendable {
     public enum Kind: String, Sendable { case user, agent }
+    /// What is stored for a user's words: never the text.
+    public static let userInputPlaceholder = "（此处为用户输入，内容不保存）"
+    /// What a history written before format 2 shows for an agent line: such
+    /// lines could echo user input or Runtime questions, so none is kept.
+    public static let legacyAgentPlaceholder = "（早期版本的记录，内容已清除）"
     public var kind: Kind
     public var text: String
     /// The Run this line announced, so a replay can put the Run's events
@@ -40,6 +45,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
 
     public let directory: URL
     private let lock = NSLock()
+    private var migrated = false
 
     /// `~/Library/Application Support/AgentDesktop/acp/sessions`. Not
     /// created until the first save. Tests pass a temporary directory.
@@ -56,6 +62,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     public func load(sessionId: String) throws -> ACPSessionBinding? {
         try Self.checkId(sessionId)
         lock.lock(); defer { lock.unlock() }
+        try migrateLegacy()
         guard let b = try read(fileURL(sessionId)) else { return nil }
         // A file renamed onto another id is not that session.
         return b.acpSessionId == sessionId ? b : nil
@@ -63,6 +70,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
 
     public func list(principalId: String) throws -> [ACPSessionBinding] {
         lock.lock(); defer { lock.unlock() }
+        try migrateLegacy()
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         var out: [ACPSessionBinding] = []
@@ -77,6 +85,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     public func save(_ binding: ACPSessionBinding) throws {
         try Self.checkId(binding.acpSessionId)
         lock.lock(); defer { lock.unlock() }
+        try migrateLegacy()
         try ensureDirectory()
         let lockFd = open(directory.appendingPathComponent(".lock").path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
         guard lockFd >= 0 else { throw ACPFileSessionStoreError.io("lock open errno \(errno)") }
@@ -121,6 +130,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         try Self.checkId(sessionId)
         guard !entries.isEmpty else { return }
         lock.lock(); defer { lock.unlock() }
+        try migrateLegacy()
         try ensureDirectory()
         let lockFd = open(directory.appendingPathComponent(".lock").path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
         guard lockFd >= 0 else { throw ACPFileSessionStoreError.io("lock open errno \(errno)") }
@@ -132,7 +142,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         }
         var record = try readHistory(sessionId) ?? HistoryRecord(acpSessionId: sessionId, revision: 0, entries: [])
         record.entries += entries.map {
-            HistoryRecord.Entry(kind: $0.kind.rawValue, text: ACPRedactor.redact($0.text),
+            HistoryRecord.Entry(kind: $0.kind.rawValue,
+                                text: $0.kind == .user ? ACPSessionManagerHistoryEntry.userInputPlaceholder
+                                                       : ACPRedactor.redact($0.text),
                                 runId: $0.runId, at: $0.at)
         }
         if record.entries.count > Self.historyLimit { record.entries.removeFirst(record.entries.count - Self.historyLimit) }
@@ -147,10 +159,60 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     public func history(sessionId: String) throws -> [ACPSessionManagerHistoryEntry] {
         try Self.checkId(sessionId)
         lock.lock(); defer { lock.unlock() }
+        try migrateLegacy()
         return (try readHistory(sessionId)?.entries ?? []).compactMap { e in
             guard let kind = ACPSessionManagerHistoryEntry.Kind(rawValue: e.kind) else { return nil }
             return ACPSessionManagerHistoryEntry(kind: kind, text: e.text, runId: e.runId, at: e.at)
         }
+    }
+
+    /// Files written before format 2 could hold user text (prompt lines,
+    /// titles built from them, agent lines that echoed input or Runtime
+    /// questions). Once per store, under the directory lock, every such file
+    /// is rewritten in place: user lines become the placeholder, agent lines
+    /// the legacy placeholder (Run ids kept for replay order), titles "对话".
+    /// The revision is unchanged. Called with `lock` held.
+    private func migrateLegacy() throws {
+        guard !migrated else { return }
+        guard FileManager.default.fileExists(atPath: directory.path) else { migrated = true; return }
+        let lockFd = open(directory.appendingPathComponent(".lock").path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
+        guard lockFd >= 0 else { throw ACPFileSessionStoreError.io("lock open errno \(errno)") }
+        defer { close(lockFd) }
+        guard flock(lockFd, LOCK_EX) == 0 else { throw ACPFileSessionStoreError.io("flock errno \(errno)") }
+        defer { flock(lockFd, LOCK_UN) }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        for name in names where name.hasSuffix(".json") && !name.hasPrefix(".") {
+            let url = directory.appendingPathComponent(name)
+            guard let data = Self.readNoFollow(url) else { continue }
+            if name.hasSuffix(".history.json") {
+                guard var r = try? JSONDecoder().decode(HistoryRecord.self, from: data), r.format < 2 else { continue }
+                r.entries = r.entries.map {
+                    .init(kind: $0.kind,
+                          text: $0.kind == ACPSessionManagerHistoryEntry.Kind.user.rawValue
+                              ? ACPSessionManagerHistoryEntry.userInputPlaceholder
+                              : ACPSessionManagerHistoryEntry.legacyAgentPlaceholder,
+                          runId: $0.runId, at: $0.at)
+                }
+                r.format = 2
+                guard let out = try? encoder.encode(r) else { continue }
+                try writeAtomically(out, to: url)
+            } else {
+                guard var r = try? JSONDecoder().decode(Record.self, from: data), r.format < 2 else { continue }
+                r.title = "对话"
+                r.format = 2
+                guard let out = try? encoder.encode(r) else { continue }
+                try writeAtomically(out, to: url)
+            }
+        }
+        migrated = true
+    }
+
+    private static func readNoFollow(_ url: URL) -> Data? {
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW)
+        guard fd >= 0 else { return nil }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true).readDataToEndOfFile()
     }
 
     private func historyURL(_ id: String) -> URL { directory.appendingPathComponent("\(id).history.json") }
@@ -170,7 +232,8 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
 
     private struct HistoryRecord: Codable {
         struct Entry: Codable { var kind: String; var text: String; var runId: String?; var at: String }
-        var format = 1
+        /// 2: user lines are placeholders and agent lines carry no echo.
+        var format = 2
         var acpSessionId: String
         var revision: Int
         var entries: [Entry]
@@ -244,7 +307,8 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
 
     private struct Record: Codable {
         struct Option: Codable { var id, name, value: String; var choices: [String] }
-        var format = 1
+        /// 2: the title is a command name or "对话", never user text.
+        var format = 2
         var acpSessionId, principalId, clientId, cwd, title: String
         var runIds: [String]
         var lastCursor: [String: Int]

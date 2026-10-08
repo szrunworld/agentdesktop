@@ -460,8 +460,11 @@ public actor ACPAgentServer {
 
     /// An agent message. Inside a prompt turn it is also part of the
     /// conversation and is recorded (redacted) for `session/load` replay.
-    func say(_ sid: String, _ text: String, runId: String? = nil) async {
-        if live[sid]?.turn != nil { record(sid, .agent, text, runId: runId) }
+    /// A line that echoes the user's input or a Runtime question passes
+    /// `stored`: the text without that echo, which is all that is persisted
+    /// (#141 independent review: echoes must not reach the history file).
+    func say(_ sid: String, _ text: String, runId: String? = nil, stored: String? = nil) async {
+        if live[sid]?.turn != nil { record(sid, .agent, stored ?? text, runId: runId) }
         await send(sid, .agentMessage(text))
     }
 
@@ -475,7 +478,7 @@ public actor ACPAgentServer {
     /// What is persisted for a user's words: never the text. Pattern-based
     /// redaction cannot recognise every secret (e.g. "passphrase hunter2xyz"),
     /// so user input stays in memory only (#141 independent review, F-1).
-    static let userInputPlaceholder = "（此处为用户输入，内容不保存）"
+    static let userInputPlaceholder = ACPSessionManagerHistoryEntry.userInputPlaceholder
 
     func record(_ sid: String, _ kind: ACPSessionManagerHistoryEntry.Kind, _ text: String, runId: String? = nil) {
         guard let history, !text.isEmpty else { return }

@@ -56,7 +56,7 @@ struct CurPinnedTransportTests {
         deinit { close(fd); try? FileManager.default.removeItem(atPath: dir) }
     }
 
-    private func attempt(_ l: Listener, expected: pid_t?, holders: Set<pid_t> = []) -> Error? {
+    private func attempt(_ l: Listener, expected: pid_t?, holders: Set<pid_t>? = []) -> Error? {
         do {
             let t = try ACPTestPinnedTransport(path: l.path, timeout: 1, expectedPid: expected, productHolders: { holders })
             _ = try? t.exchange(Data("{\"method\":\"runtime.handshake\"}".utf8))
@@ -101,6 +101,26 @@ struct CurPinnedTransportTests {
         let e = attempt(l, expected: getpid(), holders: [getpid()])
         #expect(e is ACPTestPinnedTransport.Refused)
         #expect(l.bytesAfterClose() == 0)
+    }
+
+    @Test("[Mock] holders cannot be determined (lsof failed): fail closed, nothing is sent")
+    func unknownHoldersFailClosed() throws {
+        let l = try Listener()
+        let e = attempt(l, expected: getpid(), holders: nil)
+        #expect(e is ACPTestPinnedTransport.Refused)
+        #expect(l.bytesAfterClose() == 0)
+    }
+
+    @Test("[Mock] lsof fields: a socket bound in the product directory names its holder")
+    func lsofFieldsAreParsed() {
+        let dir = "/Users/x/Library/Application Support/AgentDesktop"
+        let text = "p101\nn\(dir)/runtime.sock\np202\nn/tmp/adt-1/side.runtime.sock\np303\nn\(dir)-other/x.sock\n"
+        #expect(ACPTestPinnedTransport.holders(lsofFields: text, productDirs: [dir]) == [101])
+    }
+
+    @Test("[Mock] the real lsof query runs and answers (no product needed)")
+    func realHolderQueryAnswers() {
+        #expect(ACPTestPinnedTransport.productSocketHolders() != nil)
     }
 
     @Test("[Mock] no expected pid: fail closed, nothing is sent")
