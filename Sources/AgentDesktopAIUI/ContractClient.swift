@@ -1,4 +1,7 @@
 import AgentDesktopContracts
+// PollClock, EmptyState, LabeledValue and the endpoint rule live in the
+// shell library; pages and tests keep using them through this module.
+@_exported import AgentDesktopUI
 import Foundation
 
 /// The only way the AI/GUI pages talk to the service (spec §2.1): one
@@ -107,16 +110,6 @@ public struct SocketContractClient: ContractClient {
         }
         return FrameReader.read(fd: fd)
     }
-}
-
-/// Waiting between polls; tests inject a fast one.
-public protocol PollClock: Sendable {
-    func pause(milliseconds: Int) async throws
-}
-
-public struct SystemPollClock: PollClock {
-    public init() {}
-    public func pause(milliseconds: Int) async throws { try await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000) }
 }
 
 /// One logical submission keeps its idempotency key across retries; a
