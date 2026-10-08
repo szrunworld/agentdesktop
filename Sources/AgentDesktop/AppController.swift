@@ -152,6 +152,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         if role.isSideInstance, role.mainWindowForTest == nil, !role.quitDialogForTest { return .terminateNow }
         if quit.isAsking { return .terminateLater }
         quit.markAsking()
+        quit.markAsking()
         Task { await quit.begin() }
         return .terminateLater
     }

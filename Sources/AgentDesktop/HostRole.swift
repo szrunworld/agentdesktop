@@ -124,13 +124,6 @@ enum HostRole {
         isSideInstance && ProcessInfo.processInfo.environment["AGENTDESKTOP_TEST_QUIT_DIALOG"] == "1"
     }
 
-    /// A test copy without a main window quits straight away; with
-    /// AGENTDESKTOP_TEST_QUIT_DIALOG=1 it asks like the product, so the
-    /// quit dialog can be accepted on its own. The product ignores it.
-    var quitDialogForTest: Bool {
-        isSideInstance && ProcessInfo.processInfo.environment["AGENTDESKTOP_TEST_QUIT_DIALOG"] == "1"
-    }
-
     /// Regular (Dock icon, main window) for the product; accessory for a
     /// test copy.
     var activationPolicy: NSApplication.ActivationPolicy { isSideInstance ? .accessory : .regular }
