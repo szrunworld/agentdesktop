@@ -35,8 +35,12 @@ public enum ACPDataClass: String, Sendable, CaseIterable {
     /// Free text written by a program or a person: titles of actions,
     /// summaries, error messages. Never shown by default.
     case freeText
-    /// Window titles. Never shown by default; `pageText` widens.
+    /// Window titles. Never shown, under any policy, and hidden in logs and
+    /// stores (Kevin's ruling P1: identity data, main window only).
     case windowTitle
+    /// Who someone is: names, accounts, app or process names, senders and
+    /// recipients. Never shown, under any policy (ruling P1).
+    case identity
     /// Text read from the target app: element labels and values, OCR.
     /// Never shown by default; `pageText` widens.
     case pageText
@@ -56,8 +60,8 @@ extension ACPDataClass {
     public var tier: ACPEventTier {
         switch self {
         case .code, .identifier, .scalar: return .normal
-        case .freeText, .windowTitle, .pageText, .url: return .sensitive
-        case .typedValue, .screenshot, .credential, .withheld: return .protected
+        case .freeText, .pageText, .url: return .sensitive
+        case .windowTitle, .identity, .typedValue, .screenshot, .credential, .withheld: return .protected
         }
     }
 }
@@ -80,6 +84,11 @@ public enum ACPDataClassifier {
     /// covering window): cross-app data.
     static let otherWindowPrefixes = ["covering", "other", "foreign", "sibling"]
     static let windowTitleKeys: Set<String> = ["title", "windowtitle", "documenttitle", "tabtitle"]
+    static let identityKeys: Set<String> = [
+        "name", "displayname", "username", "fullname", "realname", "nickname", "appname", "processname", "bundlename",
+        "account", "accountname", "contact", "contactname", "sender", "recipient", "from", "to", "cc", "owner",
+        "candidate", "person", "author",
+    ]
     static let pageTextKeys: Set<String> = [
         "label", "value", "elements", "matches", "pagetext", "content", "ocr", "accessibilitylabel",
         "accessibilityvalue", "placeholder", "selectedtext", "html", "dom",
@@ -87,7 +96,7 @@ public enum ACPDataClassifier {
     static let urlKeys: Set<String> = ["url", "href", "link", "uri", "location", "pageurl"]
     static let screenshotKeys: Set<String> = ["image", "screenshot", "png", "jpeg", "imagedata", "thumbnail", "pixels", "bytes", "base64"]
     static let freeTextKeys: Set<String> = [
-        "message", "summary", "description", "goal", "detail", "details", "note", "name", "displayname", "prompt",
+        "message", "summary", "description", "goal", "detail", "details", "note", "prompt",
         "instruction", "instructions", "step", "reasontext", "explanation",
     ]
     static let codeKeys: Set<String> = [
@@ -111,6 +120,7 @@ public enum ACPDataClassifier {
         if typedKeys.contains(k) || parameterKeys.contains(k) { return .typedValue }
         if otherWindowPrefixes.contains(where: { k.hasPrefix($0) }) { return .withheld }
         if windowTitleKeys.contains(k) { return .windowTitle }
+        if identityKeys.contains(k) { return .identity }
         if screenshotKeys.contains(k) { return .screenshot }
         if pageTextKeys.contains(k) { return .pageText }
         if urlKeys.contains(k) || k.hasSuffix("url") { return .url }

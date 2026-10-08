@@ -1,6 +1,6 @@
 {
   "name": "privacy-t19-t21-widened",
-  "description": "T19～T21 放宽策略（screenshots=all、pageText=true）：显示截图引用与脱敏后的标题/标签/摘要；邮箱、电话、证件号、链接、凭据、输入内容、截图字节仍不出现",
+  "description": "T19～T21 放宽策略（screenshots=all、pageText=true）：只多出绑定窗口截图引用与脱敏后的元素标签；窗口标题、动作说明与摘要（可能含人名或标题）仍不出现（Kevin 第二次裁决 P1）；邮箱、电话、证件号、链接、凭据、输入内容、截图字节不出现",
   "policy": {
     "screenshots": "all",
     "pageText": true
@@ -210,15 +210,17 @@
     "iVBORw0KGgo",
     "6222 0212",
     "eyJhbGciOiJIUzI1NiJ9",
-    "mail.example.com"
+    "mail.example.com",
+    "张三",
+    "候选人",
+    "Inbox",
+    "Click send",
+    "Sent offer",
+    "窗口："
   ],
   "mustContain": [
     "截图：art_",
-    "窗口：",
-    "[邮箱]",
-    "[电话]",
-    "[证件号]",
-    "[凭据]"
+    "元素：联系电话 [电话]"
   ],
   "expected": [
     [
@@ -254,10 +256,7 @@
           "kind": "execute",
           "status": "pending",
           "level": "accepted",
-          "detail": [
-            "状态：已受理",
-            "说明：Click send to candidate: [邮箱]"
-          ]
+          "detail": ["状态：已受理"]
         }
       }
     ],
@@ -289,9 +288,7 @@
             "业务结果：未评估",
             "耗时：350 毫秒",
             "目标：ref-cfdqznsg",
-            "窗口：候选人 张三 简历 [证件号]",
             "元素：联系电话 [电话]",
-            "摘要：Sent offer to [邮箱], card [数字], [凭据]",
             "截图：art_3f9c1a7be2d4（在 AgentDesktop 主窗口查看）"
           ]
         }

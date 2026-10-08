@@ -110,6 +110,9 @@ enum ACPEventText {
     }
 
     static let unknownHint = "不会自动重试，请在 AgentDesktop 主窗口核实"
+    /// Ruling P2: the terminal form after the Run ended.
+    static let terminalUnknown = "结果未知 · 需要核实"
+    static let terminalUnknownHint = "不会重试；请在 AgentDesktop 主窗口核实结果后再决定下一步"
 
     /// G0 window-identity refusals (RuntimeService+Target.swift
     /// `details.reason`). Window ids, pids and app names in the message are

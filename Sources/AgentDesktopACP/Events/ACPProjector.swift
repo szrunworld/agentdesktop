@@ -195,25 +195,19 @@ public struct ACPProjector: ACPEventProjector {
         return ACPRedactor.targetReference(windowId: window, elementRef: element)
     }
 
-    /// Lines only an opt-in policy shows. Typed values and credentials are
-    /// never among them.
     /// Lines only an opt-in policy shows (sensitive tier, redacted). Never
-    /// typed values, credentials, Runtime error messages (they may name other
-    /// apps' windows) or anything outside the bound target.
+    /// typed values, credentials, window titles or identity data (ruling P1:
+    /// main window only), Runtime error messages (they may name other apps'
+    /// windows), free-text titles or summaries (they may quote a window
+    /// title or a name), or anything outside the bound target.
     private func widened(_ f: ACPEventFacts, _ r: JSONValue?, kind: String?, policy p: ACPPrivacyPolicy) -> [String] {
         var lines: [String] = []
         let target = Self.boundTarget(f, r)
         if p.pageText {
-            // Window title and element label: only of the bound target, so a
-            // title of another app's window can never be shown here.
-            if let t = target {
-                for (key, prefix) in [("windowTitle", "窗口"), ("title", "窗口"), ("label", "元素")] {
-                    if let v = t[key]?.stringValue, !v.isEmpty { lines.append("\(prefix)：\(ACPRedactor.redact(v))") }
-                }
-            }
-            // The action's own description (T21's "Click send to …"), redacted.
-            for (key, prefix) in [("title", "说明"), ("summary", "摘要")] {
-                if let v = f.data[key]?.stringValue, !v.isEmpty { lines.append("\(prefix)：\(ACPRedactor.redact(v))") }
+            // Page body only: the bound target's element label, redacted.
+            // Window titles never leave the Runtime's main window.
+            if let t = target, let v = t["label"]?.stringValue, !v.isEmpty {
+                lines.append("元素：\(ACPRedactor.redact(v))")
             }
         }
         let shot: Bool
@@ -301,7 +295,7 @@ public struct ACPProjector: ACPEventProjector {
             }
         case "failed": text = "任务结束：失败"; final = .ended(.failed)
         case "cancelled": text = "任务结束：已取消"; final = .ended(.cancelled)
-        default: text = "任务结束：结果待核实（\(ACPEventText.unknownHint)）"; final = .ended(.unknown)
+        default: text = "任务结束：\(ACPEventText.terminalUnknown)（\(ACPEventText.terminalUnknownHint)）"; final = .ended(.unknown)
         }
         if let n = f.data["unknownActions"]?.intValue, n > 0 { text += "；\(n) 个动作待核实" }
         if let r = ACPEventText.closingReason(f.string("reason")) { text += "；原因：\(r)" }
@@ -319,16 +313,35 @@ public struct ACPProjector: ACPEventProjector {
     private func settleOpenActions(_ f: ACPEventFacts, _ c: ACPEventContext, outcome: String) -> [ACPSessionUpdate] {
         c.openActions.keys.sorted().compactMap { id -> ACPSessionUpdate? in
             guard c.actionRuns[id] == f.runId, let state = c.openActions[id] else { return nil }
-            let level: ACPActionLevel = state == "accepted" && outcome != "unknown" ? .refused(code: "not_dispatched") : .unknown
-            let label = ACPEventText.level(level)
-            var detail = ["状态：\(label)", "Run 已结束，未收到该动作的执行结果"]
-            if case let .refused(code) = level { detail.append("错误码：\(code)") }
-            if level == .unknown { detail.append(ACPEventText.unknownHint) }
             let kind = c.actionKinds[id]
+            // Only a Run that ended known (success / failed / cancelled) lets
+            // an accepted-only action count as not sent; otherwise unknown.
+            guard state == "accepted", ["success", "failed", "cancelled"].contains(outcome) else {
+                return Self.terminalUnknown(id, kind: kind, why: "Run 已结束，未收到该动作的执行结果")
+            }
+            let level: ACPActionLevel = .refused(code: "not_dispatched")
+            let label = ACPEventText.level(level)
+            let detail = ["状态：\(label)", "Run 已结束，未收到该动作的执行结果", "错误码：not_dispatched"]
             return .toolCallUpdate(ACPToolCall(toolCallId: id, title: "\(ACPEventText.category(kind)) — \(label)",
                                                kind: ACPEventText.toolKind(kind), status: ACPEventText.status(level),
                                                level: level, detail: detail))
+        } + c.unknownActions.keys.sorted().compactMap { id -> ACPSessionUpdate? in
+            guard c.unknownActions[id] == f.runId else { return nil }
+            return Self.terminalUnknown(id, kind: c.actionKinds[id], why: nil)
         }
+    }
+
+    /// Ruling P2: once the Run has ended an unknown action is terminal —
+    /// execution terminated, outcome unknown. Status `.failed` only because
+    /// ACP v1 has no neutral terminal status (the Wire adds rawOutput
+    /// {execution: terminated, outcome: unknown}); the level stays
+    /// `.unknown`, never `.failed` / `.refused`, and it is never retried.
+    static func terminalUnknown(_ id: String, kind: String?, why: String?) -> ACPSessionUpdate {
+        var detail = ["状态：\(ACPEventText.terminalUnknown)", "执行已终止，结果未知"]
+        if let why { detail.append(why) }
+        detail.append(ACPEventText.terminalUnknownHint)
+        return .toolCallUpdate(ACPToolCall(toolCallId: id, title: "\(ACPEventText.category(kind)) — \(ACPEventText.terminalUnknown)",
+                                           kind: ACPEventText.toolKind(kind), status: .failed, level: .unknown, detail: detail))
     }
 
     // MARK: Plan (Run lifecycle as four steps)
@@ -356,8 +369,9 @@ public struct ACPProjector: ACPEventProjector {
             case .verified: result = ACPPlanEntry(content: "结果：已验证", status: .completed)
             case .failed: result = ACPPlanEntry(content: "结果：失败", status: .completed)
             case .cancelled: result = ACPPlanEntry(content: "结果：已取消", status: .completed)
-            // Never a completed mark for an unknown result.
-            case .unknown: result = ACPPlanEntry(content: "结果：待核实", status: .inProgress)
+            // Ruling P2: terminal, not in progress; the content, not the
+            // mark, says the outcome is unknown.
+            case .unknown: result = ACPPlanEntry(content: "结果：未知 · 需要核实", status: .completed)
             }
         }
         return .plan([

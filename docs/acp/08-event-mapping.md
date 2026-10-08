@@ -1,10 +1,15 @@
 # 08 Runtime 事件到 ACP 更新的映射规范
 
-状态：工作线 E 交付稿，2026-10-08。基于 `acp-skeleton`（含 ai-gui-foundation b2831ca：A0 #47、G0 #51）。
+状态：工作线 E 第二轮，2026-10-08 晚。基于 `acp-skeleton` fe1b606（含 Kevin 第二次裁决 P1、P2，README 第七节）。
 实现：`Sources/AgentDesktopACP/Events/`（投影）、`Sources/AgentDesktopACP/Privacy/`（分类与脱敏）。
 测试：`Tests/AgentDesktopACPTests/Events/`、`Privacy/`、`Fixtures/events/`（15 份 golden 夹具）。
 
-依据：方案 v1.0 第五节、6.4；docs/plan/06 §6.4；README 第五节 Kevin 裁决附加约束 3（事件分三级，重点验证截图、窗口标题、输入内容、审批参数不泄露跨应用数据）。
+依据：方案 v1.0 第五节、6.4；docs/plan/06 §6.4；README 第五节 Kevin 裁决附加约束 3（事件分三级，重点验证截图、窗口标题、输入内容、审批参数不泄露跨应用数据）；README 第七节第二次裁决 P1（窗口标题与身份信息只在主窗口展示，不进入 ACP 事件流与日志）、P2（结果不明的动作在 Run 结束后为明确终态）。
+
+## 第二轮变更（P1、P2）
+
+- **P1**：窗口标题（title、windowTitle、documentTitle、tabTitle）与身份信息（新增字段类 `identity`：name、displayName、userName、appName、processName、account、contact、sender、recipient、from、to、candidate 等）升为**受保护级**：任何策略下（含 `pageText` 放宽）都不进入 ACP 更新的标题、详情、摘要，也不进入 `redactJSON` / `logLine` 的日志与存储文本（一律 `[已隐藏]`）。动作自身的 title 与 summary 可能引用窗口标题或人名、无法靠正则识别，因此放宽后也不再显示；日志里的自由文本一律隐藏；`logSafe` 只记录错误码或错误类型，不记录 message。页面正文（绑定目标的元素标签）仍按 `pageText` 与脱敏规则显示。
+- **P2**：Run 进行中，结果不明的动作保持 `in_progress` + level `unknown`（「结果待核实」）。`ACPProjectorSession` 看到该 Run 的 `run.ended` 时，对每个仍为 unknown 的动作（含 action.unknown、回执轴为 unknown、已发出无结果、Run 以非已知 outcome 结束时仍只到受理的动作）发一条终态 toolCallUpdate：status `failed`、level `unknown`（从不用 `.failed` / `.refused`）、标题「<动作> — 结果未知 · 需要核实」、详情「执行已终止，结果未知」与「不会重试；请在 AgentDesktop 主窗口核实结果后再决定下一步」。线上 `rawOutput {execution: terminated, outcome: unknown}` 由线 T 在 Wire 一处添加。Run 级文案改为「任务结束：结果未知 · 需要核实（…）」，plan 结果项为 completed「结果：未知 · 需要核实」（终态，不再转圈；标记失败的颜色由内容而非状态表达）。
 
 ## 〇、f1 审核结论（2026-10-08）
 
@@ -25,8 +30,8 @@ PR2b 合入后，工作线 E 改为读目录里的级别与字段，删除按键
 
 1. **唯一出口。** Runtime 事件只经 `ACPProjector`（实现冻结接口 `ACPEventProjector`）变成 `ACPSessionUpdate`。投影是纯函数：同一事件、同一策略、同一上下文，输出逐字相同。
 2. **三级结果不混淆**（方案 5.2、docs/plan/06 §6.4）：已受理 ≠ 已执行 ≠ 已验证。只有 Runtime 报告验证「matched」时才显示「已验证成功」；`verification = not_requested`、`businessResult = not_evaluated` 一律停在「已执行，未验证」。
-3. **unknown 只显示「待核实」**：不显示完成、不显示失败（失败标记会诱导重试），附「不会自动重试，请在 AgentDesktop 主窗口核实」。
-4. **默认最严。** 默认只显示动作类别、状态、耗时、脱敏目标标识、目录内错误码、验证状态。截图、页面文字、窗口标题、输入内容、原始参数默认都不出现。
+3. **unknown 不显示成功也不记为失败**：Run 进行中显示「结果待核实」（in_progress）；Run 结束后成为终态「结果未知 · 需要核实」（ACP v1 线上 status failed，内部 level 始终 unknown），从不重试，只能在主窗口核实。
+4. **默认最严。** 默认只显示动作类别、状态、耗时、脱敏目标标识、目录内错误码、验证状态。截图、页面文字、输入内容、原始参数默认都不出现；窗口标题与身份信息在任何策略下都不出现（P1）。
 5. **永不崩溃。** 未识别的事件类型变成一条中性 thought；字段缺失或类型不对时按最保守的语义投影。
 6. **事件来源**：`ACPRuntimeEvent.payload` 可以是 RunEvent 的 `data`，也可以是整个 RunEvent（`{runId, sequence, at, type, data}`）；两种形状投影结果相同（夹具 `emitted-full-frame-payload`）。建议线 R 传整个 RunEvent，以便拿到 `at` 计算 Run 用时。
 
@@ -35,8 +40,8 @@ PR2b 合入后，工作线 E 改为读目录里的级别与字段，删除按键
 | 级别 | 含义 | 事件 | 字段类 |
 | --- | --- | --- | --- |
 | 普通 normal | 可完整展示 | Run 生命周期：run.accepted / queued / started / resumed / finishing / quiescent / ended、stop.accepted、unit.started / ended | code、identifier、scalar |
-| 敏感 sensitive | 脱敏后展示；内容类字段只在策略放宽时出现 | 动作：action.* 、verification.* | freeText、windowTitle、pageText、url |
-| 受保护 protected | 只显示状态，任何策略下都不暴露内容 | approval.required、run.waiting_approval、question.asked、run.waiting_input、目录外的任何类型；以及 data 带 `sensitive / withheld / redacted` 或敏感 `dataClassification` 的事件 | typedValue（含审批与动作参数 params / arguments）、credential、screenshot（字节）、withheld（含 covering* / other* / foreign* / sibling* 等描述其他窗口的字段） |
+| 敏感 sensitive | 脱敏后展示；内容类字段只在策略放宽时出现 | 动作：action.* 、verification.* | freeText（显示端不再输出，日志隐藏）、pageText、url |
+| 受保护 protected | 只显示状态，任何策略下都不暴露内容 | approval.required、run.waiting_approval、question.asked、run.waiting_input、目录外的任何类型；以及 data 带 `sensitive / withheld / redacted` 或敏感 `dataClassification` 的事件 | windowTitle、identity（P1）、typedValue（含审批与动作参数 params / arguments）、credential、screenshot（字节）、withheld（含 covering* / other* / foreign* / sibling* 等描述其他窗口的字段） |
 
 实现：`ACPEventTier`、`ACPEventType.tier`、`ACPEventType.tier(of:)`（目录外 → protected）、`ACPDataClass.tier`。受保护事件一律按最严策略投影并只保留状态行；被标记 withheld 的动作事件只剩「状态：…」一行。
 
@@ -45,7 +50,7 @@ PR2b 合入后，工作线 E 改为读目录里的级别与字段，删除按键
 | 数据 | 风险 | 规则 | 测试 |
 | --- | --- | --- | --- |
 | 截图 | 屏幕或桌面截图可含其他应用 | 字节、base64、路径永不输出；只在 `screenshots` 放宽时输出 artifact 引用，且仅当图像对象的 `windowId` 等于本动作绑定目标的 `windowId`；没有 windowId（整屏）或不一致一律不出 | `crossAppScreenshots`、夹具 `privacy-cross-app` |
-| 窗口标题 | G0 拒绝会描述遮挡窗口；事件可能同时带多个窗口 | 只读取绑定目标对象（data.target / 回执 target）上的 title / windowTitle / label；两者 windowId 不一致时都不读；covering* 等字段归 withheld；Runtime 错误 message 永不显示（只显示错误码与固定原因词表） | `crossAppWindowTitles` |
+| 窗口标题 | G0 拒绝会描述遮挡窗口；标题常含人名 | P1 后任何窗口（含绑定目标）的标题都不显示；元素标签只取绑定目标，两处 windowId 不一致时不读；covering* 等字段归 withheld；Runtime 错误 message 永不显示（只显示错误码与固定原因词表） | `crossAppWindowTitles`、`p1WindowTitleNameNeverLeaves` |
 | 输入内容 | 粘贴或输入的文本可来自其他应用 | text / input / clipboard / paste / keys 归 typedValue，任何策略都不显示 | `crossAppTypedInput` |
 | 审批参数 | 摘要、参数可引用其他应用内容 | 审批与提问事件属受保护级，只显示「等待批准（未批准前不会执行）」「等待回答一个问题」；params / arguments 归 typedValue | `crossAppApprovalParameters` |
 
@@ -70,7 +75,7 @@ PR2b 合入后，工作线 E 改为读目录里的级别与字段，删除按键
 | `run.quiescent` | 已发（`settle`） | — | agentMessage + plan | 已停止输入 |
 | `run.ended` | 已发（`settle`、重启恢复） | `outcome`、`reason`、`unknownActions`（暂定）、`verification`（暂定） | 先补齐未结动作的 toolCallUpdate，再 agentMessage + plan | 见 3.3 |
 
-plan 固定四项：受理任务 / 执行 / 停止输入并收尾 / 结果。状态随阶段推进；结果项在 unknown 时保持 `in_progress`「结果：待核实」，绝不打勾。
+plan 固定四项：受理任务 / 执行 / 停止输入并收尾 / 结果。状态随阶段推进；结果项在 unknown 时为 completed「结果：未知 · 需要核实」（P2 终态；内容写明未知，不表示成功）。
 
 ### 3.2 动作
 
@@ -85,12 +90,13 @@ toolCallId = `act:<runId>:<requestId>`，两段都经 `ACPRedactor.identifier`�
 | 回执 verification ∈ {contradicted, mismatched, not_matched, failed, rejected} | 暂定 | contradicted | failed | 验证未通过 |
 | `action.failed`，回执 not_dispatched | 已发 | refused(code) | failed | 未发出 |
 | `action.failed`，回执 dispatched + failed | 已发 | refused(execution_failed) | failed | 执行失败 |
-| `action.unknown`，或任何回执 delivery / execution 为 unknown | 已发 | unknown | in_progress | 结果待核实 |
+| `action.unknown`，或任何回执 delivery / execution 为 unknown（Run 进行中） | 已发 | unknown | in_progress | 结果待核实 |
+| 上一行的动作，在同一 Run 的 `run.ended` 时（P2） | 已发 | unknown | failed（终态） | 结果未知 · 需要核实 |
 | `action.refused` | 暂定（方案「Policy Rejected」） | refused(code，缺省 policy_rejected) | failed | 已拒绝 |
 | `action.verified` | 暂定 | 按 `verification` 值：matched→verified，contradicted→contradicted，其余→executed | — | — |
 | `verification.succeeded` / `verification.failed` | 暂定（方案 5.1） | verified / contradicted | completed / failed | 已验证成功 / 验证未通过 |
 | （无结果事件）`run.ended` 时仍只到 accepted | 已发路径：G0 派发前拒绝 | refused(not_dispatched)；Run outcome 为 unknown 时为 unknown | failed | 未发出 |
-| （无结果事件）`run.ended` 时已 dispatched | 已发路径：重启恢复 | unknown | in_progress | 结果待核实 |
+| （无结果事件）`run.ended` 时已 dispatched，或 Run outcome 不是 success / failed / cancelled | 已发路径：重启恢复 | unknown | failed（终态） | 结果未知 · 需要核实 |
 
 规则：
 
@@ -108,7 +114,7 @@ toolCallId = `act:<runId>:<requestId>`，两段都经 `ACPRedactor.identifier`�
 | success | unit / exec | 任务结束：已执行（业务结果：未评估） |
 | failed | — | 任务结束：失败 |
 | cancelled | — | 任务结束：已取消 |
-| unknown、空、其他 | — | 任务结束：结果待核实（不会自动重试，请在 AgentDesktop 主窗口核实） |
+| unknown、空、其他 | — | 任务结束：结果未知 · 需要核实（不会重试；请在 AgentDesktop 主窗口核实结果后再决定下一步） |
 
 追加：`unknownActions > 0` 时「N 个动作待核实」；`reason` 只按固定表翻译（owner_lost / connection_lost「编辑器连接已断开」、runtime_restarted「Runtime 已重启」、stopped 等「已请求停止」、global_stop「已全部停止」、超时类「超过时限」），表外原因不显示；见过 `run.started` 时追加「用时 N 秒」。
 
@@ -140,8 +146,9 @@ toolCallId = `act:<runId>:<requestId>`，两段都经 `ACPRedactor.identifier`�
 | code | kind、phase、outcome、delivery、execution、verification、businessResult、code、reason | 只显示固定词表的中文 | 同左 | 同左 |
 | identifier | *Id、*Ref | 运行时形状 id 原样，其余哈希 | 同左 | 同左 |
 | scalar | sequence、revision、windowId、x、y、pid、时间戳 | 只用于计算（耗时、目标哈希），不显示原值 | 同左 | 同左 |
-| freeText | message、summary、description、goal、name，及所有未列出的键 | 不显示 | 只显示动作自身的 title（说明）与 summary（摘要），脱敏后；Runtime 错误 message 永不显示 | — |
-| windowTitle | title、windowTitle | 不显示 | 仅绑定目标的标题，脱敏后显示 | — |
+| freeText | message、summary、description、goal，及所有未列出的键 | 不显示；日志与存储中为 `[已隐藏]` | 仍不显示（可能引用窗口标题或人名，P1） | — |
+| windowTitle | title、windowTitle、documentTitle、tabTitle | **永不显示**，日志 `[已隐藏]`（P1） | **永不显示** | — |
+| identity | name、displayName、userName、fullName、nickname、appName、processName、account、contact、sender、recipient、from、to、cc、owner、candidate、person、author | **永不显示**，日志 `[已隐藏]`（P1） | **永不显示** | — |
 | pageText | label、value、elements、matches、content、ocr | 不显示 | 仅绑定目标的元素标签，脱敏后显示；elements / matches 列表不显示 | — |
 | typedValue | text、input、typed、clipboard、paste、keys、params、arguments、args | **永不显示** | **永不显示** | **永不显示** |
 | url | url、href、link、uri | 不显示 | 不显示（文本内链接一律 `[链接]`） | — |
@@ -153,7 +160,7 @@ Runtime 因缺少屏幕录制授权而给出 `title: null`（`contracts/fixtures
 
 ### 4.2 文本脱敏（`ACPRedactor.redact`）
 
-对每一个离开投影器的自由文本（标题、元素标签、窗口标题、摘要；以及其他线经 `redact` 写日志的错误与参数）执行；**与策略无关**：放宽只决定哪些字段出现，不放松字段内容的遮盖。
+对每一个离开投影器的自由文本（元素标签；以及其他线经 `redact` 显示的文本）执行；窗口标题与身份信息不靠正则，而是按字段整体不输出（P1）；**与策略无关**：放宽只决定哪些字段出现，不放松字段内容的遮盖。
 
 | 顺序 | 识别 | 替换为 |
 | --- | --- | --- |
@@ -185,10 +192,12 @@ Runtime 因缺少屏幕录制授权而给出 `title: null`（`contracts/fixtures
 | golden | `Events/ETestGoldenTests.swift` + `Fixtures/events/*.json`（15 份） | 每份夹具：合成输入事件、策略、逐事件的期望更新、`mustNotContain`（植入的个人信息）与 `mustContain`；所有输出另过一遍泄露正则。`ETEST_REGEN=1 swift test --filter ETestGoldenTests` 重写期望，提交前人工核对 |
 | 三级结果 | `Events/ETestProjectorTests.swift` | accepted ≠ dispatched ≠ executed ≠ verified；只有 matched 才 verified；回执轴优先；unknown 不完成也不失败 |
 | T19 | 同上 + 夹具 `privacy-t19-*` | 默认不出截图；`all` 只出引用不出字节；`submit` 只对提交类 |
-| T20 | 同上 + `privacy-t19-t21-*` | 默认不出窗口标题、元素标签、摘要；放宽后脱敏显示 |
+| T20 | 同上 + `privacy-t19-t21-*` | 默认不出窗口标题、元素标签、摘要；放宽后只出脱敏的元素标签，窗口标题与摘要仍不出（P1） |
 | T21 | 同上 | `Click send to candidate: example@email.com` 在任何策略下输出都不含邮箱；输入内容永不出现；坐标、pid、windowId 不出现 |
 | 脱敏 | `Privacy/ETestRedactorTests.swift` | 28 条样例、单行与截断、策略不放松遮盖、id 哈希、错误码目录覆盖 errors.json 全部 40 个码、字段分类、`redactJSON`、`logLine` |
 | 健壮 | 同上 | 每个目录类型 × 多种畸形 payload 不崩溃；未识别类型只产生 thought |
+| P1 | `p1WindowTitleNameNeverLeaves`、夹具 `privacy-t19-t21-widened` | 放宽策略 + 绑定窗口标题含人名：人名与标题不出现在任何更新、`logLine`、`redactJSON` 中；元素标签照常 |
+| P2 | `p2*` 五个测试、夹具 `emitted-act-unknown`、`emitted-restart`、`unknown-types` | 进行中 in_progress；run.ended 后 failed + level unknown + 固定标题；已验证或已执行的动作不被重开；其他 Run 不受影响 |
 | 三级与跨应用 | `Events/ETestProjectorTests.swift` + 夹具 `privacy-cross-app` | 每种事件与字段类有级别；截图、窗口标题、输入内容、审批参数四类各一条测试；带 sensitive 标记的动作只剩状态 |
 
 ## 六、需要 f1 补的契约（schema 缺口）
@@ -208,13 +217,13 @@ Runtime 因缺少屏幕录制授权而给出 `title: null`（`contracts/fixtures
 
 ## 七、需要协调者决定或调整的接口
 
-1. `ACPActionLevel` 没有「派发后执行失败」：现在用 `refused(code: "execution_failed")` 表示，名称不贴切。建议增加 `.failed(code:)`。
+1. ~~`ACPActionLevel` 增加 `.failed(code:)`~~：已由协调者加入并采用。
 2. `ACPEventProjector.project` 无状态，动作的后续事件拿不到类别、Run 结束拿不到 Run kind。已提供 `ACPProjectorSession`（值类型，内含 `ACPEventContext`）作为补充，不改协议；线 S 应每会话持有一个。若希望协议本身带上下文，可把 `project(_:policy:context:)` 提到协议里。
 3. `ACPToolCall` 的 `title` / `kind` 在更新里是必填：无上下文时后续更新只能写「界面动作」，可能覆盖编辑器已显示的类别。建议线 T 在 toolCallUpdate 里只发变化的字段，或把这两个字段改为可选。
 4. 夹具 JSON 位于测试 target 内，SwiftPM 报「found 14 file(s) which are unhandled」警告（线 T 的 Fixtures/acp-schema 同样）。建议协调者在 `Package.swift` 的 `AgentDesktopACPTests` 加 `exclude: ["Fixtures"]`。
-5. unknown 动作的 ACP 状态选 `in_progress`（不选 failed，避免诱导重试；不选 completed）。代价是编辑器里会一直转圈；如果 Kevin 更希望显示终态，可改为 failed 并保留「待核实」标题。
+5. ~~unknown 动作的终态~~：按第二次裁决 P2 实现（Run 结束后 status failed、level unknown，线 T 加 rawOutput）。
 
 ## 八、待 Kevin 确认
 
 - 放宽 `pageText` 后，页面文字里的邮箱、电话仍被遮盖（策略只扩大字段范围，不放松遮盖）。这让「看页面文字」对招聘类场景用处有限，但符合「默认最严、凭据永不外发」。若需要「看到原文」，应是单独的、带审计的开关，而不是 pageText。
-- 人名无法可靠识别：放宽后绑定目标的窗口标题若含人名（如「候选人 张三 简历」），人名会出现（证件号、电话、邮箱仍被遮盖）。默认策略下不出现。
+- ~~窗口标题里的人名~~：第二次裁决 P1 已决定，窗口标题与身份信息不进入 ACP。仍存在的边界：页面正文（元素标签）在 `pageText` 放宽后显示，其中的人名无法可靠识别。
