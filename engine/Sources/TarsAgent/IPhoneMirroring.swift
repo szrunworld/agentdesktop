@@ -71,6 +71,10 @@ public protocol IPhoneMirroringSystem {
     /// waiting out a phone that may still fetch (the pending mark). While it
     /// is, a screenshot shows a field in flux and lowers no barrier.
     var pasteInProgress: Bool { get }
+    /// Runs `body` with no paste able to begin meanwhile (holding the
+    /// clipboard lease), if none is under way; false, without running it,
+    /// when one is.
+    func whileNoPaste(_ body: () -> Void) -> Bool
 }
 
 // MARK: Observation
@@ -399,16 +403,30 @@ public struct IPhoneLifecycle {
 /// accessibility and Vision.
 public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     public let bundleID: String
+    /// The clipboard lease and pending mark every paste uses
+    /// (`PasteTransaction`'s defaults); settable for tests.
+    public var leaseURL: URL = ClipboardLease.defaultURL
+    public var pendingMark: HostFlag = .named("clipboard.pending")
 
     /// One phone per Mac (iPhone Mirroring mirrors one at a time), so one
     /// barrier.
     public var inputBarrier: HostFlag { .named("iphone-input-barrier") }
 
     public var pasteInProgress: Bool {
-        if HostFlag.named("clipboard.pending").reason() != nil { return true }
-        guard let lease = try? ClipboardLease.acquire(timeout: 0) else { return true }
+        if pendingMark.reason() != nil { return true }
+        guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return true }
         lease.release()
         return false
+    }
+
+    public func whileNoPaste(_ body: () -> Void) -> Bool {
+        guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return false }
+        defer { lease.release() }
+        // Under the lease no paste can start; one that left a pending mark
+        // is still under way.
+        guard pendingMark.reason() == nil else { return false }
+        body()
+        return true
     }
 
     public init(bundleID: String = IPhoneAgentScreen.bundleID) {

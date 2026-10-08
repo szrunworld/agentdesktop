@@ -29,6 +29,11 @@ class FakeMirroring: IPhoneMirroringSystem {
     var onSleep: (() -> Void)?
     var createFails = false
     var pasteInProgress = false
+    func whileNoPaste(_ body: () -> Void) -> Bool {
+        guard !pasteInProgress else { return false }
+        body()
+        return true
+    }
     var deliverThrows = false
     let inputBarrier = HostFlag(url: FileManager.default.temporaryDirectory
         .appendingPathComponent("agentdesktop-barrier-\(UUID().uuidString)/iphone-input-barrier"))
@@ -255,6 +260,41 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let next = IPhoneAgentScreen(screen: "phone", system: fake)
         _ = try next.frame()
         #expect(try next.perform(tap(3100, 300)).error?.contains("delivery_unknown") == true)
+    }
+
+    /// The live check the screenshot relies on: a held lease (from any
+    /// process) or a pending mark means a paste is under way, and nothing
+    /// runs under `whileNoPaste`. Codex on #127: the last check and the
+    /// lowering happen under the lease, so no paste can begin between them.
+    @Test func theLiveSystemSeesAPasteUnderWay() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesktop-live-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var live = LiveIPhoneMirroringSystem()
+        live.leaseURL = directory.appendingPathComponent("clipboard.lock")
+        live.pendingMark = HostFlag(url: directory.appendingPathComponent("clipboard.pending"))
+        #expect(!live.pasteInProgress)
+        var ran = false
+        #expect(live.whileNoPaste { ran = true })
+        #expect(ran)
+
+        let held = try ClipboardLease.acquire(at: live.leaseURL, timeout: 1)
+        #expect(live.pasteInProgress)
+        ran = false
+        #expect(!live.whileNoPaste { ran = true })
+        #expect(!ran)
+        held.release()
+
+        try live.pendingMark.raise("pending", until: Date().addingTimeInterval(60))
+        #expect(live.pasteInProgress)
+        #expect(!live.whileNoPaste { ran = true })
+        #expect(!ran)
+        live.pendingMark.lower()
+
+        // While the body runs, no paste can take the lease.
+        #expect(live.whileNoPaste {
+            #expect(throws: ClipboardLease.LeaseError.self) { try ClipboardLease.acquire(at: live.leaseURL, timeout: 0) }
+        })
     }
 
     @Test func noInputBeforeTheWindowIsRead() throws {

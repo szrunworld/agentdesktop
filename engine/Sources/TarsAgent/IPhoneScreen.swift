@@ -130,7 +130,11 @@ public final class IPhoneAgentScreen: AgentScreen {
         invalidated = nil
         // Nor while a paste is under way in any process: its outcome is not
         // yet known, so this picture does not show what the field will hold.
-        if let barrierSeen, !pasteBefore, !system.pasteInProgress { system.inputBarrier.lower(ifStill: barrierSeen) }
+        // The last check and the lowering are one step under the clipboard
+        // lease, so no paste can begin between them and be left unguarded.
+        if let barrierSeen, !pasteBefore {
+            _ = system.whileNoPaste { system.inputBarrier.lower(ifStill: barrierSeen) }
+        }
         return png
     }
 
