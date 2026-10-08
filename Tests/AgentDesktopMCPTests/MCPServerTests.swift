@@ -13,7 +13,7 @@ final class MCPPlatform: DesktopPlatform, @unchecked Sendable {
     var placed = false
     var performed: [PlatformAction] = []
     let window = PlatformWindow(windowId: 3, pid: 4, appName: "备忘录", title: "购物清单",
-                                frame: AgentDesktopProtocol.Rect(x: 3000, y: 0, width: 1000, height: 700))
+                                frame: AgentDesktopProtocol.Rect(x: 3000, y: 0, width: 1280, height: 800))
     func createScreen(name: String, width: Int?, height: Int?) throws -> ScreenHandle {
         ScreenHandle(name: name, displayId: 5, frame: AgentDesktopProtocol.Rect(x: 3000, y: 0, width: 1280, height: 800), hiDPI: true)
     }
@@ -36,8 +36,12 @@ final class MCPPlatform: DesktopPlatform, @unchecked Sendable {
         CGImageDestinationFinalize(dest)
         return (2560, 1600)
     }
-    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?) throws -> (window: PlatformWindow, elements: [PlatformElement]) {
-        (window, [PlatformElement(index: 2, role: "AXButton", label: "完成", value: nil, actions: ["AXPress"],
+    func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
+        try screenshot(screen, to: path)
+    }
+    func stack(on screen: ScreenHandle) -> [PlatformWindow] { lock.withLock { placed ? [window] : [] } }
+    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?, deadline: Date) throws -> ElementRead {
+        ElementRead(window: window, elements: [PlatformElement(index: 2, role: "AXButton", label: "完成", value: nil, actions: ["AXPress"],
                                   frame: AgentDesktopProtocol.Rect(x: 3100, y: 50, width: 60, height: 24))])
     }
     func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {

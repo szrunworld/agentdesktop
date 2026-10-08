@@ -2,9 +2,14 @@ name: windows contracts
 
 on:
   push:
+    branches: [main]
     paths: ["windows/**", "contracts/**", "Tests/AgentDesktopContractsTests/Fixtures/**", "Tests/AgentDesktopGUITests/Fixtures/**", ".github/workflows/windows-contracts.yml"]
   pull_request:
     paths: ["windows/**", "contracts/**", "Tests/AgentDesktopContractsTests/Fixtures/**", "Tests/AgentDesktopGUITests/Fixtures/**", ".github/workflows/windows-contracts.yml"]
+
+concurrency:
+  group: windows-contracts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

@@ -14,6 +14,9 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
+    env:
+      LC_ALL: C
+      LANG: C
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

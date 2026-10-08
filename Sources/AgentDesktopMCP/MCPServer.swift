@@ -19,14 +19,11 @@ public final class MCPServer {
 
     private let makeClient: () -> RuntimeClient
     private var client: RuntimeClient?
-    private let readFile: (String) -> Data?
     /// Snapshot → factor from returned-image pixels to snapshot pixels.
     private var imageScale: [String: Double] = [:]
 
-    public init(makeClient: @escaping () -> RuntimeClient,
-                readFile: @escaping (String) -> Data? = { try? Data(contentsOf: URL(fileURLWithPath: $0)) }) {
+    public init(makeClient: @escaping () -> RuntimeClient) {
         self.makeClient = makeClient
-        self.readFile = readFile
     }
 
     /// Serve until `readLine` returns nil (stdin closed).
@@ -120,8 +117,8 @@ public final class MCPServer {
             var shown = data
             if tool.method == .observe {
                 // The image, scaled down for the model; points in it map back.
-                if args["includeImage"]?.boolValue ?? true, let path = data["image"]?["path"]?.stringValue,
-                   let png = readFile(path), let (bytes, factor) = Self.scaled(png, maxSide: Self.maxImageSide),
+                if args["includeImage"]?.boolValue ?? true, let image = data["image"], image["artifactId"]?.stringValue != nil,
+                   let (bytes, factor) = Self.scaled(try readImage(image, using: c), maxSide: Self.maxImageSide),
                    let snap = data["snapshotId"]?.stringValue {
                     imageScale[snap] = factor
                     content.append(.obj([("type", .string("image")), ("data", .string(bytes.base64EncodedString())),
@@ -139,6 +136,32 @@ public final class MCPServer {
         } catch {
             return Self.toolError(RuntimeError("internal_error", "\(error)", phase: .local))
         }
+    }
+
+    /// Retrieve screenshots through the authenticated Runtime connection.
+    private func readImage(_ image: JSONValue, using client: RuntimeClient) throws -> Data {
+        guard let id = image["artifactId"]?.stringValue,
+              let size = image["byteSize"]?.intValue, size > 0, size <= 64 * 1024 * 1024 else {
+            throw RuntimeError("invalid_response", "invalid screenshot artifact size", phase: .local)
+        }
+        var bytes = Data()
+        while bytes.count < size {
+            let chunk = try client.call(RuntimeRequest(.artifactRead, params: .obj([
+                ("artifactId", .string(id)), ("offset", .int(bytes.count)),
+                ("length", .int(min(524_288, size - bytes.count)))])))
+            guard chunk["artifactId"]?.stringValue == id, chunk["offset"]?.intValue == bytes.count,
+                  let encoded = chunk["dataBase64"]?.stringValue, let data = Data(base64Encoded: encoded),
+                  !data.isEmpty, data.count <= size - bytes.count,
+                  chunk["length"]?.intValue == data.count else {
+                throw RuntimeError("invalid_response", "invalid screenshot artifact chunk", phase: .local)
+            }
+            bytes.append(data)
+            if chunk["eof"]?.boolValue == true { break }
+        }
+        guard bytes.count == size else {
+            throw RuntimeError("invalid_response", "incomplete screenshot artifact", phase: .local)
+        }
+        return bytes
     }
 
     static func request(_ tool: MCPTools.Tool, _ a: JSONValue, imageScale: [String: Double]) throws -> RuntimeRequest {

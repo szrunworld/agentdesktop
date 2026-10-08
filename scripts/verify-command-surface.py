@@ -5,11 +5,10 @@ The product ships one command line, `agentdesktop` (Sources/AgentDesktopCLI),
 speaking agentdesktop.runtime/1. This checks, against the packaged binary:
 - help needs no Runtime and lists the current commands;
 - the old engine command line's entries (screen, screenshot, task,
-  agent-bridge, agent, and its MCP server) are absent and refused as
+  agent-bridge, and agent) are absent and refused as
   argument errors (exit 2), before any connection;
 - the bundle carries no second command line beside it.
-The MCP server of the new command line arrives with plan A7; until then
-`mcp` is refused like the other old entries.
+The new Runtime-backed MCP entry is checked through an offline initialize request.
 """
 import json
 import os
@@ -34,16 +33,25 @@ help_text = help_run.stdout + help_run.stderr
 assert help_text.startswith('usage: agentdesktop'), help_text[:200]
 current = ['version', 'runtime status', 'runtime capabilities', 'doctor', 'desktop create', 'desktop destroy',
            'app launch', 'window bind', 'session open', 'observe', 'act click', 'act type', 'wait',
-           'run cancel', 'runtime stop-all', 'artifact get']
+           'run cancel', 'runtime stop-all', 'artifact get', 'mcp']
 missing = [c for c in current if f'  {c}' not in help_text]
 assert not missing, f'help lacks current commands: {missing}'
-old = ['screen', 'screenshot', 'task', 'agent-bridge', 'agent', 'mcp']
+old = ['screen', 'screenshot', 'task', 'agent-bridge', 'agent']
 listed = [c for c in old if f'\n  {c} ' in help_text]
 assert not listed, f'help lists old commands: {listed}'
 
 for command in old:
     rejected = run(command, 'list')
     assert rejected.returncode == 2, (command, rejected.returncode, rejected.stderr)
+
+mcp = subprocess.run([str(cli), 'mcp'], input=json.dumps({
+    'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+    'params': {'protocolVersion': '2024-11-05', 'capabilities': {},
+               'clientInfo': {'name': 'bundle-check', 'version': '1'}}}) + '\n',
+    capture_output=True, text=True, timeout=15, env=env)
+assert mcp.returncode == 0, mcp.stderr
+reply = json.loads(mcp.stdout.splitlines()[0])
+assert reply['id'] == 1 and reply['result']['serverInfo']['name'] == 'agentdesktop', reply
 
 version = run('version', '--format', 'json')
 assert version.returncode == 0, version.stderr
