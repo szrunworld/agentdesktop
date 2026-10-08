@@ -43,6 +43,8 @@ jobs:
           # evaluation can stall under it on the CI toolchain.
           swift_bin="$(xcrun --find swift)"
           test_runner="$(dirname "$swift_bin")/../libexec/swift/pm/swiftpm-testing-helper"
+          framework_dir="$(xcrun --show-sdk-platform-path)/Developer/Library/Frameworks"
+          DYLD_FRAMEWORK_PATH="$framework_dir${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}" \
           LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 "$test_runner" \
             --test-bundle-path engine/.build/debug/AgentDesktopEnginePackageTests.xctest/Contents/MacOS/AgentDesktopEnginePackageTests \
             --testing-library swift-testing --filter ControlServerTests
