@@ -362,9 +362,16 @@ public struct PasteWatcher {
         // fetch seen to start and end does: quiet alone may come before a
         // slow fetch, which would then get the user's restored clipboard.
         let checked = verify ? Self.check(text, before: baseline, after: settled) : .delivered(nil)
-        // The text seen (exactly, or up to OCR's confusions) shows the fetch
-        // is over as well as a seen transfer does.
-        if checked == .confirmed || sawTransfer || checked == .delivered(Self.ocrSimilar) { return checked }
+        // The text seen exactly shows the fetch is over as well as a seen
+        // transfer does. Text seen only up to OCR's confusions does not:
+        // other text may read alike (Codex on #127: a new "RO" for "R0"),
+        // and handing back the clipboard then may give a late fetch the
+        // user's data.
+        if checked == .confirmed || sawTransfer { return checked }
+        if checked == .delivered(Self.ocrSimilar) {
+            return .unknown("no_transfer_seen: the phone was never seen fetching the clipboard and the text was "
+                + "seen only up to characters OCR confuses, so the fetch may still come")
+        }
         return .unknown("no_transfer_seen: the phone was never seen fetching the clipboard and the text is not on "
             + "screen, so the fetch may still come")
     }

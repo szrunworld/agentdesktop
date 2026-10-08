@@ -196,10 +196,11 @@ func fast() -> PasteWatcher {
     /// F10 (device, 2026-10-09): Vision read "R0" as "RO". Text seen only up
     /// to OCR's confusions is delivered, never confirmed, and no Return.
     @Test func ocrConfusionsAreDeliveredNotConfirmed() {
-        let phone = ScriptedPhone(baseline: keyboard, [keyboard + [line("retest RO plain", y: 0.3)]])
+        let phone = ScriptedPhone(baseline: keyboard,
+                                  [keyboard + pasting, keyboard + [line("retest RO plain", y: 0.3)]])
         #expect(fast().paste("retest R0 plain", verify: true, driver: phone) == .delivered(PasteWatcher.ocrSimilar))
         // "PAY1OO" for "PAY100": seen, not confirmed, and Return withheld.
-        let pay = ScriptedPhone(baseline: keyboard, [keyboard + [line("PAY1OO", y: 0.3)]])
+        let pay = ScriptedPhone(baseline: keyboard, [keyboard + pasting, keyboard + [line("PAY1OO", y: 0.3)]])
         let outcome = fast().paste("PAY100", verify: true, driver: pay)
         #expect(outcome == .delivered(PasteWatcher.ocrSimilar))
         #expect(!outcome.allowsReturn)
@@ -209,6 +210,18 @@ func fast() -> PasteWatcher {
         // Nothing alike on screen: still unknown.
         let none = ScriptedPhone(baseline: keyboard, [keyboard + [line("something else", y: 0.3)]])
         #expect(fast().paste("retest R0 plain", verify: true, driver: none) == PasteFixtures.noTransfer)
+    }
+
+    /// Codex on #127: a look-alike alone does not prove the fetch is over:
+    /// other text may read alike, and the user's clipboard must not go back
+    /// while the phone may still fetch it.
+    @Test func ocrConfusionsWithoutATransferAreUnknown() {
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard + [line("RO", y: 0.3)]])
+        guard case .unknown(let why) = fast().paste("R0", verify: true, driver: phone) else {
+            Issue.record("a look-alike with no transfer seen must stay unknown")
+            return
+        }
+        #expect(why.hasPrefix("no_transfer_seen"))
     }
 
     /// A protected field shows dots.
