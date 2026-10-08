@@ -7,8 +7,8 @@
 | 命令 | 退出码 | 结果 |
 | --- | --- | --- |
 | `swift build --build-tests` | 0 | — |
-| 全量 `swift test`（基于 main fa2222f，2026-10-08 重启后） | 0 | 480 项通过 |
-| 全量 `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test` | 0 | 480 项通过 |
+| 全量 `swift test`（基于 main fa2222f，2026-10-08，连续两轮） | 0 | 486 项通过 |
+| 全量 `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test`（连续两轮） | 0 | 486 项通过 |
 
 新增测试：
 
@@ -18,6 +18,9 @@
 | UC51 | `nothingRunningIsQuietAtOnce`、`cancelWhileStopping`、`stopFailureCanBeRetried` | 没有运行时立即可退出；取消后输入保持停止，不调用 `enableInput`；`stopAll` 失败可以重试 |
 | UC50 / UC51 | `MainWindowHostTests.quitChoices` | 隐藏主窗口、保留后台、取消：都回答「不退出」，不调用 `runtime.stopAll`，运行不变；停止输入并退出：Run 只在停止中时不回答，全部静止后才回答「退出」 |
 | P32 | `MainWindowHostTests.quitDialogDoesNotWaitForTheRuntime` | run.list 延迟 2 秒时退出对话框不等它：begin 1 秒内返回，运行数显示「正在读取」而不是 0，仍可取消 |
+| UC51 | `quitDialogDoesNotWaitForTheRuntime`、`countWhileDisconnectedThenRecovered` | 运行数依次显示「读取中」、超时或断连时的「暂时读不到」（不显示 0），恢复后显示实际数量；读取还没返回时不重复发送请求 |
+| UC51 | `stopWhileDisconnectedNeverReportsQuiet`、`unknownQuiescenceIsNotQuiet` | 断连时停止失败并显示问题，可以重试；quiescence 未确认时不算静止 |
+| 测试副本 | `TestFaultRuntimePortTests` | 故障端口只在测试副本里、并且文件位于 /tmp/adt-* 下时才启用；可以在运行中切换；延迟用 Task.sleep 实现 |
 | UC51 | `MainWindowHostTests.aSecondQuitRequestWhileAskingDoesNotTerminate` | 对话框等待时再次请求退出不会调用 terminate，只把对话框调到前面；回答之后的下一次请求才会再次发起退出 |
 | P31 | `panelStatusAndRenders`、`menuStatusLines` | 面板状态文字（正在连接 / 运行中 / 输入已停止）、摘要（含「N 个停止中」）；面板与退出对话框能渲染 |
 
@@ -73,12 +76,46 @@
 
 **30、31 号显示器**（1440×900）是 `/Applications/2ndscreen.app`（pid 19953）在 17:31:48 和 17:31:57 创建的，与本测试无关，属于环境干扰。之后 WindowServer 停止接受新连接，发生在这些显示器反复增删之后。
 
-**UC51 仍未真机通过。** 重做要求（Kevin 2026-10-08）：
-- 不创建虚拟显示器；
-- 不影响正在运行的 Agent；
-- 使用独立测试副本；
-- 覆盖 Runtime 正常、断连、无响应三种情况；
-- 不能造成 WindowServer 卡死，不能绕过运行中任务的安全收尾。
+## UC51 真机验收（第二轮，2026-10-08 20:45–20:46，a5c6ac5 + 55a4407）
+
+按 Kevin 2026-10-08 的要求执行：
+- 不创建虚拟显示器（全程只有 1 块显示器）；
+- 不移动鼠标，不点击其他应用；
+- 使用独立测试副本：`/tmp/adt-uc51{a,b,c}`，带 `AGENTDESKTOP_TEST_QUIT_DIALOG=1` 和 `AGENTDESKTOP_TEST_FAULT_FILE`；
+- 三个场景依次串行执行。
+
+操作方式：
+- 退出请求：向副本的 pid 发送 kAEQuitApplication（即 Dock「退出」走的路径）；
+- 按钮：用辅助功能 AXPress 按下，不移动鼠标；
+- 截图：`screencapture -l` 只截对话框窗口。
+
+| 场景 | 步骤 | 结果 |
+| --- | --- | --- |
+| 正常 | 发出退出请求 | 对话框出现，显示「现在没有进行中的运行。」；前台仍是用户的应用（Orca） |
+| 正常 | 对话框等待时**再发一次退出请求** | 进程仍在，对话框仍只有 1 个（[图](real-uc51-s1-second-quit.jpg)）。系统日志没有 `Unexpected call to terminate`，第一轮的缺陷已修复 |
+| 正常 | 取消 → 再次请求退出 → 停止输入并退出 | 取消后进程保留、对话框关闭。停止输入并退出后日志顺序为：`applicationShouldTerminate: NSTerminateLater` → `Termination commencing` → `Termination complete`，没有被强制退出 |
+| 无响应（`delay run.list 8000`） | 发出退出请求 | 1 秒内显示对话框，文字为「正在读取」（[图](real-uc51-s2-reading.jpg)） |
+| 无响应 | 等 5 秒 | 显示「暂时读不到进行中的运行（Runtime 在 5 秒内没有回答），可能仍有运行在进行」，不显示 0（[图](real-uc51-s2-unavailable.jpg)） |
+| 无响应 → 恢复 | 清空故障 | 迟到的回答补上数量：「现在没有进行中的运行。」（[图](real-uc51-s2-recovered.jpg)） |
+| 无响应（`delay runtime.stopAll 8000`） | 停止输入并退出 | 停在「正在等待运行静止」，只有「不退出了」（[图](real-uc51-s2-stopping-stalled.jpg)）；此时再发退出请求，进程仍在 |
+| 无响应 | 不退出了 → 清空故障 → 停止输入并退出 | 取消后进程保留；之后正常退出（`Termination complete`） |
+| 断连（`offline`） | 发出退出请求 | 显示「暂时读不到进行中的运行（Runtime 未运行）」（[图](real-uc51-s3-offline.jpg)） |
+| 断连 | 停止输入并退出 | 显示 `runtime_offline` 问题，提供「不退出了 / 再试一次」，没有退出（[图](real-uc51-s3-stop-failed.jpg)） |
+| 断连 → 恢复 | 清空故障 → 再试一次 | 正常退出（`Termination complete`） |
+
+结束后检查：
+- 没有残留的副本进程；
+- WindowServer 正常（新进程能取到显示器列表），显示器仍为 1 块；
+- 测试副本从未成为前台应用。期间前台从 Orca 变成 ChatGPT，是用户自己切换的，测试副本的 pid 一次都没有出现在前台。
+
+**这一轮没有覆盖的内容**：
+- 不建虚拟显示器就不能创建 Desktop，`run.start` 需要 session，session 需要 Desktop，所以真机上没有进行中的 Run。
+- 「运行中的任务不会被错误中断、未知状态不会被当成已结束」这一条，由单元测试覆盖：
+  - `uc51_quitWaitsForQuiescence`：stopAll 受理后仍要等全部 ended + confirmed；
+  - `unknownQuiescenceIsNotQuiet`：ended 但 quiescence 为 unknown / not_confirmed / pending 时都不算静止；
+  - `stopWhileDisconnectedNeverReportsQuiet`：断连时停止失败并显示问题，不会报告静止；
+  - `quitChoices`：隐藏、保留后台、取消都不会调用 stopAll。
+- 如果要带真实 Run 做真机验证，需要先由 Kevin 批准使用虚拟显示器。
 
 ### 是否触及用户屏幕
 
