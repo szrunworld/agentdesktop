@@ -97,6 +97,41 @@ import Testing
         #expect(h2.connection.updatesBeforeReply(1, sid).isEmpty)
     }
 
+    /// b9 on #141: the title is a recognised command's canonical name or
+    /// "对话"; an unknown "/word" never reaches <sid>.json or session/list.
+    @Test(arguments: [("/hunter2secret", "对话"), ("/张三13800138000", "对话"), ("hunter2 free text", "对话"),
+                      ("/help", "/help"), ("/status run-x", "/status")])
+    func theTitleIsNeverUserText(_ prompt: String, _ title: String) async throws {
+        let rt = STestRuntime()
+        rt.taskList.with { $0 = [STestHarness.task("work", freeText: false)] }
+        let h = STestHarness(runtime: rt)
+        defer { h.cleanup() }
+        let sid = await h.newSession()
+        _ = await h.connection.waitReply(h.prompt(sid, prompt))
+        #expect(try h.store.load(sessionId: sid)?.title == title)
+        let raw = try String(contentsOf: h.dir.appendingPathComponent("\(sid).json"), encoding: .utf8)
+        #expect(!raw.contains("hunter2") && !raw.contains("13800138000") && !raw.contains("张三"))
+        h.connection.request(90, .listSessions(cwd: nil))
+        guard case let .sessions(list)? = await h.connection.waitReply(90) else { Issue.record("no list"); return }
+        #expect(list.first { $0.sessionId == sid }?.title == title)
+    }
+
+    /// Kevin's S4 ruling: a reopened session says plainly that the user's
+    /// words were not kept; the notice itself is never stored.
+    @Test func aReopenedSessionSaysTheInputWasNotSaved() async throws {
+        let (h, sid) = try await conversation()
+        defer { h.cleanup() }
+        let h2 = STestHarness(runtime: h.runtime, dir: h.dir)
+        defer { h2.connection.close() }
+        h2.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
+        _ = await h2.connection.waitReply(1)
+        let lines = h2.connection.updatesBeforeReply(1, sid).compactMap(text)
+        #expect(lines.filter { $0 == ACPAgentServer.notSavedNotice }.count == 1)
+        #expect(lines.contains { $0.contains("任务已受理：run-1") }) // useful history is kept
+        let raw = try String(contentsOf: h.dir.appendingPathComponent("\(sid).history.json"), encoding: .utf8)
+        #expect(!raw.contains("为保护隐私"))
+    }
+
     /// #141 independent review: agent lines that echo the user's input or a
     /// Runtime question are shown live but stored without the echo.
     @Test func echoesNeverReachTheHistoryFile() async throws {
@@ -191,12 +226,16 @@ import Testing
         #expect(!raw.contains("a@b.com"))
     }
 
-    /// #141 review: files written before format 2 are cleaned on disk the
-    /// first time the store is used, and never replayed as they were.
+    /// #141 review + Kevin's S4 ruling: files written before format 2 are
+    /// cleaned on disk the first time the store is used. User lines become
+    /// the placeholder, echoes are removed, useful agent lines (accepted,
+    /// status, results) stay, and a log records counts but no text.
     @Test func aLegacyHistoryAndTitleAreScrubbedOnDisk() throws {
         let (s, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try s.save(binding("s1"))
+        var bound = binding("s1")
+        bound.runIds = ["run-1"]
+        try s.save(bound)
         let bindingURL = dir.appendingPathComponent("s1.json")
         var b = try String(contentsOf: bindingURL, encoding: .utf8)
         b = b.replacingOccurrences(of: "\"format\" : 2", with: "\"format\" : 1")
@@ -204,20 +243,44 @@ import Testing
         try b.write(to: bindingURL, atomically: true, encoding: .utf8)
         let legacy = #"{"format":1,"acpSessionId":"s1","revision":3,"entries":["#
             + #"{"kind":"user","text":"passphrase hunter2","at":"t"},"#
-            + #"{"kind":"agent","text":"没有 /hunter2 这个命令","runId":"run-1","at":"t"}]}"#
+            + #"{"kind":"agent","text":"任务已受理：run-1（工作）。","runId":"run-1","at":"t"},"#
+            + #"{"kind":"agent","text":"没有 /hunter2 这个命令。\n可用命令：","at":"t"},"#
+            + #"{"kind":"agent","text":"任务 run-1 需要你的回答：hunter2 是什么？\n请在下一条 prompt 里直接回答。","at":"t"},"#
+            + #"{"kind":"agent","text":"/work 的输入不符合要求，未创建任务：\n$：不接受字段 hunter2","at":"t"},"#
+            + #"{"kind":"agent","text":"run-1：阶段 ended，结果 succeeded\nhunter2-arg：状态待核实（不会自动重试）","at":"t"},"#
+            + #"{"kind":"agent","text":"任务 run-1 已结束：阶段 ended，结果 succeeded","runId":"run-1","at":"t"}]}"#
         try legacy.write(to: dir.appendingPathComponent("s1.history.json"), atomically: true, encoding: .utf8)
 
         let fresh = ACPFileSessionStore(directory: dir)
         let h = try fresh.history(sessionId: "s1")
-        #expect(h.map(\.text) == [ACPSessionManagerHistoryEntry.userInputPlaceholder,
-                                   ACPSessionManagerHistoryEntry.legacyAgentPlaceholder])
-        #expect(h.last?.runId == "run-1")
+        #expect(h.map(\.text) == [
+            ACPSessionManagerHistoryEntry.userInputPlaceholder,
+            "任务已受理：run-1（工作）。",
+            "没有这个命令。",
+            "任务 run-1 需要你的回答（问题内容不保存）。",
+            "/work 的输入不符合要求，未创建任务。",
+            ACPRedactor.redact("run-1：阶段 ended，结果 succeeded\n（不属于本会话的任务，已清除）"),
+            "任务 run-1 已结束：阶段 ended，结果 succeeded",
+        ])
+        #expect(h[1].runId == "run-1")
         #expect(try fresh.load(sessionId: "s1")?.title == "对话")
         #expect(try fresh.load(sessionId: "s1")?.revision == 1)
-        for name in ["s1.json", "s1.history.json"] {
+        for name in ["s1.json", "s1.history.json", ACPFileSessionStore.migrationLogName] {
             let raw = try String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
-            #expect(!raw.contains("hunter2"), "\(name)")
+            #expect(!raw.contains("hunter2") && !raw.contains("secret plan"), "\(name)")
         }
+        let log = try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
+            .split(separator: "\n").map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
+        let hist = try #require(log.first { $0.file == "history" })
+        #expect(hist.entries == 7 && hist.userScrubbed == 1 && hist.agentChanged == 4 && hist.agentKept == 2 && hist.error == nil)
+        #expect(log.contains { $0.file == "binding" && $0.titleReset && $0.error == nil })
+        let mode = (try FileManager.default.attributesOfItem(
+            atPath: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName).path)[.posixPermissions] as? NSNumber)?.intValue
+        #expect(mode == 0o600)
+        // Migrated once: a second store finds nothing to do and logs nothing.
+        _ = try ACPFileSessionStore(directory: dir).history(sessionId: "s1")
+        #expect(try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
+            .split(separator: "\n").count == log.count)
     }
 
     /// T06-08: a long history loads quickly.

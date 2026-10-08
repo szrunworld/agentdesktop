@@ -12,8 +12,8 @@ import Testing
 // `auth`, `principal`, `hub.pairing.*` params, `credential_*` codes) are
 // PROPOSALS and will be aligned to whatever f1 freezes.
 //
-// Run only against a scratch copy: AGENTDESKTOP_A4_TEST_ENDPOINT must point
-// at a socket under /tmp/adt-* (README §四.7), never the product endpoint.
+// Run only against a Runtime this test process launched and owns
+// (ACPTestRuntimeChild, ACP_TEST_RUNTIME_BINARY), never the product endpoint.
 
 private let waitingForA4 = "waiting for A4: Runtime identity (handshake principal, pairing, credentials, revocation) — PR3, f1"
 
@@ -24,20 +24,12 @@ final class A4TestLiveConnection {
     /// Nothing but the handshake is sent until the stated endpoint passed.
     private var verified = false
 
-    static func endpoint() throws -> String {
-        guard let path = ProcessInfo.processInfo.environment["AGENTDESKTOP_A4_TEST_ENDPOINT"] else {
-            throw RuntimeError("invalid_argument", "set AGENTDESKTOP_A4_TEST_ENDPOINT to a /tmp/adt-* scratch socket",
-                               phase: .local)
-        }
-        // realpath-based allowlist: a /tmp/adt-* symlink or `..` cannot reach the product endpoint.
-        return try ACPTestEndpointGuard.check(path)
-    }
-
-    /// Kernel-pinned: the peer must be the launched test Runtime
-    /// (AGENTDESKTOP_A4_TEST_RUNTIME_PID), checked before any byte is sent.
+    /// Kernel-pinned: the peer must be the Runtime child this test process
+    /// launched (ACPTestRuntimeChild, ACP_TEST_RUNTIME_BINARY), checked
+    /// before any byte is sent.
     init() throws {
-        transport = try ACPTestPinnedTransport(path: try Self.endpoint(), timeout: 5,
-                                               expectedPid: ACPTestPinnedTransport.expectedPid(env: "AGENTDESKTOP_A4_TEST_RUNTIME_PID"))
+        let child = try ACPTestRuntimeChild.shared()
+        transport = try ACPTestPinnedTransport(path: child.runtimeEndpoint, timeout: 5, child: child)
     }
 
     deinit { transport.close() }

@@ -405,11 +405,12 @@ final class CurTestHarness: @unchecked Sendable {
 /// the product endpoint, and only once the Runtime owner shipped the cursor
 /// contract. Until then every Real test is `.disabled`.
 enum CurTestReal {
-    static var endpoint: String? {
-        ProcessInfo.processInfo.environment["CURTEST_REAL_ENDPOINT"].flatMap { $0.isEmpty ? nil : $0 }
-    }
+    /// Real cursor tests run only against a Runtime this test process
+    /// launched (ACPTestRuntimeChild); there is no endpoint to point them at.
+    static var enabled: Bool { ACPTestRuntimeChild.binary != nil && endedRunId != nil }
 
-    /// An ended Run on that instance with at least three events.
+    /// An ended Run on the launched Runtime with at least three events.
+    /// Until the cursor contract lands the test cannot create one itself.
     static var endedRunId: String? {
         ProcessInfo.processInfo.environment["CURTEST_REAL_RUN_ID"].flatMap { $0.isEmpty ? nil : $0 }
     }
@@ -420,7 +421,7 @@ enum CurTestReal {
     static func checkedEndpoint(_ raw: String) throws -> String { try ACPTestEndpointGuard.check(raw) }
 
     static func factory() throws -> ACPBridgeClientFactory {
-        try ACPTestPinnedTransport.verifiedFactory(path: try #require(endpoint), pidEnv: "CURTEST_REAL_RUNTIME_PID",
+        try ACPTestPinnedTransport.verifiedFactory(child: try ACPTestRuntimeChild.shared(),
                                                    name: "agentdesktop-acp-curtest")
     }
 

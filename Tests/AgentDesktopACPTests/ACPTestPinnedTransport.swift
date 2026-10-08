@@ -9,16 +9,20 @@ import Foundation
 /// an OS-trusted identity, never on the tested process's own claims).
 ///
 /// After `connect(2)` and before a single byte is written it reads the peer
-/// process from the kernel (`LOCAL_PEERPID` on this very descriptor) and
-/// requires that:
-/// 1. it is the test Runtime the operator launched (`expectedPid`, given by
-///    whoever started the test copy; no pid → refuse, fail closed);
-/// 2. its executable is not the installed product under /Applications;
-/// 3. it is not a process that holds the product's data-directory sockets
-///    open (looked up read-only, never by connecting to them).
+/// process from the kernel (the `LOCAL_PEERTOKEN` audit token on this very
+/// descriptor) and requires that:
+/// 1. it is the Runtime child this test launched and still owns, unreaped
+///    (`ACPTestRuntimeChild.owns`: pid and pid version); no child → refuse.
+///    There is no pid-only mode (Kevin: never fall back to matching a pid);
+/// 2. it runs as this user;
+/// 3. its executable is readable and not the installed product under
+///    /Applications;
+/// 4. it has no socket bound in the product data directory (read-only
+///    lookup, never by connecting); unknown → refuse.
 /// Any failure closes the descriptor unused. Because the check is on the
 /// connected descriptor itself, a socket swapped between the path check and
-/// the connect, or a handshake that forges its endpoint, cannot pass.
+/// the connect, a reused path after the child exited, or a handshake that
+/// forges its endpoint, cannot pass.
 final class ACPTestPinnedTransport: RuntimeTransport {
     struct Refused: Error, CustomStringConvertible {
         let reason: String
@@ -32,11 +36,14 @@ final class ACPTestPinnedTransport: RuntimeTransport {
     private var channel: LineChannel?
     let peerPid: pid_t
 
-    init(path: String, timeout: Double, expectedPid: pid_t?,
+    init(path: String, timeout: Double, child: ACPTestRuntimeChild?,
          productHolders: ProductHolders = ACPTestPinnedTransport.productSocketHolders) throws {
         _ = try ACPTestEndpointGuard.check(path)
-        guard let expectedPid, expectedPid > 0 else {
-            throw Refused(reason: "no expected test Runtime pid was given (fail closed)")
+        guard let child else {
+            throw Refused(reason: "no test-launched Runtime child (fail closed)")
+        }
+        guard path == child.runtimeEndpoint else {
+            throw Refused(reason: "\(path) is not the endpoint of the launched test Runtime")
         }
         guard var addr = SocketOptions.address(path) else { throw Refused(reason: "bad socket path \(path)") }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -61,16 +68,14 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         guard getpeereid(fd, &peerUid, &peerGid) == 0, peerUid == getuid() else {
             throw Refused(reason: "the peer is not running as this user")
         }
-        guard pid == expectedPid else {
-            throw Refused(reason: "peer pid \(pid) is not the launched test Runtime \(expectedPid)")
-        }
-        // The audit token must name the same process (pid and LOCAL_PEERPID
-        // come from the same connection; a mismatch means something is off).
         var token = audit_token_t()
         var tlen = socklen_t(MemoryLayout<audit_token_t>.size)
         guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &tlen) == 0,
               pid_t(bitPattern: token.val.5) == pid else {
             throw Refused(reason: "the kernel's audit token does not match the peer pid")
+        }
+        guard child.owns(peerPid: pid, peerPidVersion: token.val.7) else {
+            throw Refused(reason: "peer \(pid) is not the test Runtime child \(child.pid) this test launched")
         }
         // Unknown executable or unknown holders: refuse (fail closed).
         guard let exe = Self.executablePath(pid) else {
@@ -128,15 +133,15 @@ final class ACPTestPinnedTransport: RuntimeTransport {
     static func productSocketHolders() -> Set<pid_t>? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        p.arguments = ["-nP", "-U", "-F", "pn"]
+        p.arguments = ["-b", "-nP", "-U", "-F", "pn"]
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
         do { try p.run() } catch { return nil }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        // lsof exits 1 when it lists nothing; any other failure is unknown.
-        guard p.terminationStatus == 0 || (p.terminationStatus == 1 && data.isEmpty) else { return nil }
+        // Any non-zero exit is unknown (b9): with -U there are always sockets.
+        guard p.terminationStatus == 0 else { return nil }
         return holders(lsofFields: String(decoding: data, as: UTF8.self), productDirs: productDirectories())
     }
 
@@ -168,21 +173,15 @@ final class ACPTestPinnedTransport: RuntimeTransport {
 
     /// A client factory for Real tests: every connection is kernel-pinned
     /// (layer 1) and the stated endpoint is checked after the handshake
-    /// (layer 2). Without the pid variable every connection is refused.
-    static func verifiedFactory(path: String, pidEnv: String, name: String) throws -> ACPBridgeClientFactory {
-        let checked = try ACPTestEndpointGuard.check(path)
-        let expected = expectedPid(env: pidEnv)
+    /// (layer 2). Only the given child is ever accepted.
+    static func verifiedFactory(child: ACPTestRuntimeChild, name: String) throws -> ACPBridgeClientFactory {
+        let checked = try ACPTestEndpointGuard.check(child.runtimeEndpoint)
         let ep = Endpoint(path: checked, source: .environment)
         return { role in
             ACPTestVerifiedClient(SocketRuntimeClient(
                 endpoint: ep, info: ClientInfo(name: name, version: "0"),
                 timeout: role == .control ? 10 : 1,
-                connect: { p, t in try ACPTestPinnedTransport(path: p, timeout: t, expectedPid: expected) }))
+                connect: { p, t in try ACPTestPinnedTransport(path: p, timeout: t, child: child) }))
         }
-    }
-
-    /// The operator-supplied pid of the launched test Runtime, from `name`.
-    static func expectedPid(env name: String) -> pid_t? {
-        ProcessInfo.processInfo.environment[name].flatMap { pid_t($0) }
     }
 }

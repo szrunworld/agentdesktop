@@ -6,9 +6,6 @@ public struct ACPSessionManagerHistoryEntry: Equatable, Sendable {
     public enum Kind: String, Sendable { case user, agent }
     /// What is stored for a user's words: never the text.
     public static let userInputPlaceholder = "（此处为用户输入，内容不保存）"
-    /// What a history written before format 2 shows for an agent line: such
-    /// lines could echo user input or Runtime questions, so none is kept.
-    public static let legacyAgentPlaceholder = "（早期版本的记录，内容已清除）"
     public var kind: Kind
     public var text: String
     /// The Run this line announced, so a replay can put the Run's events
@@ -170,8 +167,15 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     /// titles built from them, agent lines that echoed input or Runtime
     /// questions). Once per store, under the directory lock, every such file
     /// is rewritten in place: user lines become the placeholder, agent lines
-    /// the legacy placeholder (Run ids kept for replay order), titles "对话".
-    /// The revision is unchanged. Called with `lock` held.
+    /// lose only their echoes (`ACPHistoryScrub`; status, results and Run
+    /// ids stay), titles become "对话". Revisions are unchanged. Each file's
+    /// counts or error go to `migration-log.jsonl` (never any text). A file
+    /// that fails stays format 1 and is scrubbed in memory whenever read;
+    /// the next store retries it. Called with `lock` held.
+    ///
+    /// Rewriting replaces the current file only. Earlier contents may still
+    /// exist in snapshots, backups or freed disk blocks: this is not a
+    /// secure erase, and nothing here may claim it is.
     private func migrateLegacy() throws {
         guard !migrated else { return }
         guard FileManager.default.fileExists(atPath: directory.path) else { migrated = true; return }
@@ -183,30 +187,96 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        for name in names where name.hasSuffix(".json") && !name.hasPrefix(".") {
+        var log: [MigrationLogEntry] = []
+        var failed = false
+        for name in names.sorted() where name.hasSuffix(".json") && !name.hasPrefix(".") {
             let url = directory.appendingPathComponent(name)
             guard let data = Self.readNoFollow(url) else { continue }
             if name.hasSuffix(".history.json") {
                 guard var r = try? JSONDecoder().decode(HistoryRecord.self, from: data), r.format < 2 else { continue }
-                r.entries = r.entries.map {
-                    .init(kind: $0.kind,
-                          text: $0.kind == ACPSessionManagerHistoryEntry.Kind.user.rawValue
-                              ? ACPSessionManagerHistoryEntry.userInputPlaceholder
-                              : ACPSessionManagerHistoryEntry.legacyAgentPlaceholder,
-                          runId: $0.runId, at: $0.at)
+                let runIds = Set((try? read(fileURL(r.acpSessionId)))??.runIds ?? [])
+                var entry = MigrationLogEntry(at: Self.now(), file: "history", sessionId: r.acpSessionId,
+                                              entries: r.entries.count)
+                r = Self.scrubbed(r, runIds: runIds, stats: &entry)
+                do {
+                    try writeAtomically(try encoder.encode(r), to: url)
+                } catch {
+                    entry.error = Self.errorCode(error); failed = true
                 }
-                r.format = 2
-                guard let out = try? encoder.encode(r) else { continue }
-                try writeAtomically(out, to: url)
+                log.append(entry)
             } else {
                 guard var r = try? JSONDecoder().decode(Record.self, from: data), r.format < 2 else { continue }
+                var entry = MigrationLogEntry(at: Self.now(), file: "binding", sessionId: r.acpSessionId, entries: 0)
+                entry.titleReset = r.title != "对话"
                 r.title = "对话"
                 r.format = 2
-                guard let out = try? encoder.encode(r) else { continue }
-                try writeAtomically(out, to: url)
+                do {
+                    try writeAtomically(try encoder.encode(r), to: url)
+                } catch {
+                    entry.error = Self.errorCode(error); failed = true
+                }
+                log.append(entry)
             }
         }
-        migrated = true
+        appendMigrationLog(log)
+        migrated = !failed
+    }
+
+    /// One migrated file: counts and an error code, never any text.
+    struct MigrationLogEntry: Codable, Equatable {
+        var at: String
+        var file: String
+        var sessionId: String
+        var entries: Int
+        var userScrubbed = 0
+        var agentChanged = 0
+        var agentKept = 0
+        var titleReset = false
+        var error: String?
+        init(at: String, file: String, sessionId: String, entries: Int) {
+            self.at = at; self.file = file; self.sessionId = sessionId; self.entries = entries
+        }
+    }
+
+    public static let migrationLogName = "migration-log.jsonl"
+
+    private func appendMigrationLog(_ entries: [MigrationLogEntry]) {
+        guard !entries.isEmpty else { return }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var lines = Data()
+        for e in entries { if let d = try? encoder.encode(e) { lines += d + Data("\n".utf8) } }
+        let fd = open(directory.appendingPathComponent(Self.migrationLogName).path,
+                      O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        _ = lines.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+    }
+
+    private static func scrubbed(_ r: HistoryRecord, runIds: Set<String>, stats: inout MigrationLogEntry) -> HistoryRecord {
+        var r = r
+        r.entries = r.entries.map { e in
+            if e.kind == ACPSessionManagerHistoryEntry.Kind.user.rawValue {
+                stats.userScrubbed += 1
+                return .init(kind: e.kind, text: ACPSessionManagerHistoryEntry.userInputPlaceholder, runId: e.runId, at: e.at)
+            }
+            let (text, outcome) = ACPHistoryScrub.legacyAgent(e.text, runIds: runIds)
+            if outcome == .changed { stats.agentChanged += 1 } else { stats.agentKept += 1 }
+            return .init(kind: e.kind, text: text, runId: e.runId, at: e.at)
+        }
+        r.format = 2
+        return r
+    }
+
+    private static func errorCode(_ error: Error) -> String {
+        if case let ACPFileSessionStoreError.io(code) = error { return code }
+        return "encode"
+    }
+
+    private static func now() -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f.string(from: Date())
     }
 
     private static func readNoFollow(_ url: URL) -> Data? {
@@ -227,7 +297,10 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         guard let r = try? JSONDecoder().decode(HistoryRecord.self, from: data), r.acpSessionId == id else {
             throw ACPFileSessionStoreError.io("decode history")
         }
-        return r
+        // A format-1 file the migration could not rewrite: never served as is.
+        guard r.format < 2 else { return r }
+        var ignored = MigrationLogEntry(at: "", file: "history", sessionId: id, entries: 0)
+        return Self.scrubbed(r, runIds: Set((try? read(fileURL(id)))??.runIds ?? []), stats: &ignored)
     }
 
     private struct HistoryRecord: Codable {
@@ -273,7 +346,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         let data = handle.readDataToEndOfFile()
         do {
-            return try JSONDecoder().decode(Record.self, from: data).binding
+            var r = try JSONDecoder().decode(Record.self, from: data)
+            if r.format < 2 { r.title = "对话" } // not yet migrated: never shown as stored
+            return r.binding
         } catch {
             throw ACPFileSessionStoreError.io("decode")
         }

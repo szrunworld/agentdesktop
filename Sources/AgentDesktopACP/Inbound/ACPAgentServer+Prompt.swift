@@ -30,15 +30,6 @@ extension ACPAgentServer {
         record(sid, .user, text)
         if ignored > 0 { await say(sid, "已忽略 \(ignored) 个附件：目前只接受文字。") }
 
-        if live[sid]?.binding.title == Self.defaultTitle, !text.isEmpty {
-            // The persisted title never carries user text: a command keeps its
-            // name, free text becomes a fixed label (#141 review, F-1).
-            let first = text.split(whereSeparator: { $0 == " " || $0 == "\n" }).first.map(String.init) ?? ""
-            let title = first.hasPrefix("/") && first.count <= 40 && first.dropFirst().allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
-                ? first : "对话"
-            try? persist(sid) { $0.title = title }
-        }
-
         // A question the editor could not show is answered by this prompt.
         if let q = live[sid]?.pendingQuestion, !text.isEmpty, !text.hasPrefix("/") {
             do {
@@ -59,7 +50,20 @@ extension ACPAgentServer {
             await say(sid, "暂时无法读取可用任务，只能使用 /status、/runs、/cancel。")
         }
         let catalog = ACPCommandCatalog(tasks: tasksList)
-        switch catalog.parse(text) {
+        let parsed = catalog.parse(text)
+        if live[sid]?.binding.title == Self.defaultTitle, !text.isEmpty {
+            // The persisted title never carries user text: only a command the
+            // catalog recognised keeps its canonical name; anything else,
+            // including an unknown "/word", is "对话" (#141 review, b9).
+            let title: String
+            switch parsed {
+            case let .fixed(cmd, _): title = "/" + cmd.rawValue
+            case let .task(task, _): title = catalog.commandName(for: task).map { "/" + $0 } ?? "对话"
+            default: title = "对话"
+            }
+            try? persist(sid) { $0.title = title }
+        }
+        switch parsed {
         case .empty:
             await say(sid, guidance(catalog))
             return .endTurn
