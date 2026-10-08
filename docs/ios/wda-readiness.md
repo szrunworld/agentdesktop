@@ -91,7 +91,8 @@
     let report = await client.probe()
     // report.capabilities: screenshot / elementTree 直接观察到才是 supported；
     // screenshot 只看截图路由本身；几何端点（window/size、wda/screen、orientation）缺失
-    // 只让 report.observationState 变成 unverified，不影响 screenshot 能力；
+    // 或超时只让 report.observationState 变成 unverified，不影响 screenshot 能力
+    // （观察中已解码的截图直接算数，不会拿已耗尽的 deadline 再截一次）；
     // tap / swipe / drag / longPress / appLaunch 只证明路由存在，仍是 unverified；
     // unicodeText / home 不在探测里发送；audio 恒为 unsupported。
     ```
