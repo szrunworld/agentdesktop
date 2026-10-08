@@ -95,7 +95,7 @@ public struct DesktopFrameView: View {
     public static func problemText(_ status: DesktopFrameStatus) -> (title: String, advice: String)? {
         switch status {
         case .permissionDenied:
-            return ("需要屏幕录制权限", "在「系统设置 › 隐私与安全性 › 屏幕录制」中允许 Agent Desktop，然后重试。")
+            return ("需要屏幕录制权限", "在「系统设置 › 隐私与安全性 › 屏幕录制」中允许 Agent Desktop，然后重新打开 Agent Desktop：macOS 通常要重新启动应用后才生效。")
         case .unavailable(let why):
             return ("画面暂不可用", why)
         case .starting, .live, .paused:
