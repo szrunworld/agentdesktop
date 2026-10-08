@@ -15,6 +15,8 @@ final class RTestRuntime: @unchecked Sendable {
         /// The connection breaks before the request reached the Runtime.
         case loseBeforeArrival
         case refuse(code: String)
+        /// A refusal whose message is chosen by the test (e.g. one echoing a secret).
+        case refuseWith(code: String, message: String)
         /// Nothing listens: certain not sent.
         case offline
     }
@@ -131,6 +133,10 @@ final class RTestRuntime: @unchecked Sendable {
                 throw RuntimeError.runtimeOffline("nothing listens", endpoint: "/tmp/x")
             case .loseBeforeArrival:
                 throw RuntimeError.connectionLost("broken before arrival")
+            case let .refuseWith(code, message):
+                let e = RuntimeError(code, message, phase: .handler)
+                ledger[r.requestId] = ("unit.run", "failed", .obj([("error", e.json)]))
+                throw e
             case let .refuse(code):
                 let e = RuntimeError(code, "refused by test", phase: .handler)
                 ledger[r.requestId] = ("unit.run", "failed", .obj([("error", e.json)]))
