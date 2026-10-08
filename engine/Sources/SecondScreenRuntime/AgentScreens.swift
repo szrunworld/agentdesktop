@@ -53,6 +53,8 @@ public final class AgentScreens {
     /// they like, usually on the main display, in front of the user; these
     /// get moved onto the app's screen as they appear.
     private var bindings: [pid_t: Binding] = [:]
+    /// Processes whose windows follow an agent screen (for tests).
+    var boundPIDs: Set<pid_t> { Set(bindings.keys) }
     private var followTimer: Timer?
     private var reapTimer: Timer?
     /// Called after a screen is created or removed, so the app can add or
@@ -267,10 +269,10 @@ public final class AgentScreens {
         }
         // A window that just appeared often does not take an accessibility
         // move yet: try for a few seconds.
-        var moved = WindowMover.move(window, to: target.displayID, fill: fill)
+        var moved = launching.move(window, target.displayID, fill)
         for _ in 0..<12 where !moved {
             try? await Task.sleep(nanoseconds: 250_000_000)
-            moved = WindowMover.move(window, to: target.displayID, fill: fill)
+            moved = launching.move(window, target.displayID, fill)
         }
         guard moved else {
             // The app was started for the agent; left running, its window
@@ -283,6 +285,7 @@ public final class AgentScreens {
         }
         // A new process: every window it opens is the agent's.
         bind(pid, to: target, leaving: [], fit: fitScreen)
+        launching.bound(pid)
         var response = ControlResponse()
         response.pid = pid
         response.screen = target

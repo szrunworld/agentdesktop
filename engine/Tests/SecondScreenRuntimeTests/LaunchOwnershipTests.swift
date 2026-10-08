@@ -1,104 +1,221 @@
+import CoreGraphics
 import Foundation
-import SecondScreenCore
+@testable import SecondScreenCore
 import Testing
 @testable import SecondScreenRuntime
 
-// A launch owns only a process it provably created. Every refusal returns
-// before AgentScreens.launch moves or binds a window (it only continues with
-// an owned pid), so a refused launch leaves the user's windows where they are.
+// A launch owns only a process it can prove it created (a one-time token in
+// the environment the kernel recorded). Refusals come before any window is
+// moved or bound; after an open the foreground is handed back; only a
+// proved process is ever quit. Every system call is scripted: no real app
+// is started, moved or bound.
 
-/// A system that the test scripts: who runs before, what the open returns,
-/// and who appears meanwhile.
+/// A system the test scripts.
 final class ScriptedSystem: @unchecked Sendable {
     let lock = NSLock()
     var running: [pid_t: String] = [:]
-    var bundles: [String: (id: String?, single: Bool)] = ["/Apps/Notes.app": ("com.apple.Notes", false)]
-    /// What the open does: returns a pid, and may add processes.
-    var onOpen: (ScriptedSystem) -> pid_t = { _ in 0 }
-    var opened = 0
+    var environments: [pid_t: [String: String]] = [:]
+    var bundles: [String: (id: String?, single: Bool)] = [:]
+    /// What the open does, given the environment it was asked to pass.
+    var onOpen: (ScriptedSystem, [String: String]) -> pid_t = { _, _ in 0 }
+    var window: WindowInfo?
+    var opened = 0, moves = 0
+    var binds: [pid_t] = []
     var quitPIDs: [pid_t] = []
+    var focusReturned: [(pid_t, String)] = []
 
     var launching: AppLaunching {
-        AppLaunching(
+        var l = AppLaunching(
             runningPIDs: { self.lock.withLock { Set(self.running.keys) } },
             processes: { id in self.lock.withLock { Set(self.running.filter { $0.value == id }.keys) } },
             bundleInfo: { url in self.lock.withLock { self.bundles[url.path] ?? (nil, false) } },
-            open: { _ in
+            frontmost: { 77 },
+            open: { _, env in
                 self.lock.withLock { self.opened += 1 }
-                return .success(self.onOpen(self))
+                return .success(self.onOpen(self, env))
             },
+            environment: { pid in self.lock.withLock { self.environments[pid] } },
             bundleURL: { pid in
                 self.lock.withLock {
                     guard let id = self.running[pid] else { return nil }
                     return self.bundles.first { $0.value.id == id }.map { URL(fileURLWithPath: $0.key) }
                 }
             },
+            returnFocus: { previous, id in self.lock.withLock { self.focusReturned.append((previous, id)) } },
             quit: { pid in self.lock.withLock { self.quitPIDs.append(pid); self.running[pid] = nil } },
             canPlaceWindows: { true },
-            firstWindow: { _, _ in nil })
+            firstWindow: { pid, _ in self.lock.withLock { self.window.map { WindowInfo(pid: pid, windowID: $0.windowID, appName: $0.appName, title: $0.title, frame: $0.frame) } } },
+            move: { _, _, _ in self.lock.withLock { self.moves += 1 }; return true })
+        l.bound = { pid in self.lock.withLock { self.binds.append(pid) } }
+        return l
     }
 
-    func start(_ pid: pid_t, _ id: String = "com.apple.Notes") -> pid_t {
-        lock.withLock { running[pid] = id }
+    /// A process the user (or the system) started: no launch token.
+    @discardableResult func userStarts(_ pid: pid_t, _ id: String = "com.apple.Notes") -> pid_t {
+        lock.withLock { running[pid] = id; environments[pid] = ["HOME": "/Users/u"] }
+        return pid
+    }
+    /// The process this launch created, with the environment it was given.
+    func launchStarts(_ pid: pid_t, _ env: [String: String], _ id: String = "com.apple.Notes") -> pid_t {
+        lock.withLock { running[pid] = id; environments[pid] = env.merging(["HOME": "/Users/u"]) { a, _ in a } }
         return pid
     }
 }
 
-let notes = URL(fileURLWithPath: "/Apps/Notes.app")
+/// An .app directory on disk (the launch checks the path exists).
+func tempApp(_ sys: ScriptedSystem, id: String? = "com.apple.Notes", single: Bool = false) throws -> (URL, () -> Void) {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("launch-\(UUID().uuidString)")
+    let app = dir.appendingPathComponent("App.app")
+    try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+    sys.bundles[app.path] = (id, single)
+    return (app, { try? FileManager.default.removeItem(at: dir) })
+}
 
-@Test func theLaunchAlwaysAsksForANewInstanceWithoutActivating() {
-    let c = LaunchOwnership.configuration()
+@MainActor
+func launch(_ sys: ScriptedSystem, _ app: URL, newInstance: Bool = true) async -> (ControlResponse, AgentScreens) {
+    let screens = AgentScreens()
+    screens.launching = sys.launching
+    let target = ScreenInfo(name: "agent-1", kind: .agent, displayID: 9, width: 800, height: 600, hiDPI: false,
+                            frame: .init(CGRect(x: 0, y: 0, width: 800, height: 600)))
+    return (await screens.launch(on: target, bundleID: nil, path: app.path, newInstance: newInstance, fill: false), screens)
+}
+
+/// Nothing of the user's was touched: no move, no binding, nothing quit.
+@MainActor
+func touchedNothing(_ sys: ScriptedSystem, _ screens: AgentScreens) -> Bool {
+    sys.moves == 0 && sys.binds.isEmpty && screens.boundPIDs.isEmpty && sys.quitPIDs.isEmpty
+}
+
+@Test func theLaunchAlwaysAsksForANewInstanceWithoutActivatingAndCarriesTheToken() {
+    let c = LaunchOwnership.configuration([LaunchOwnership.tokenVariable: "t1"])
     #expect(c.createsNewApplicationInstance)
     #expect(!c.activates)
+    #expect(c.environment[LaunchOwnership.tokenVariable] == "t1")
 }
 
-// ① The user already has an instance.
-@Test func anAppTheUserHasOpenIsRefusedWithoutANewInstance() async {
+// ① The user already has an instance: refused before opening, with or
+// without newInstance (browsers and editors hand a new instance's request
+// to the running one).
+@MainActor
+@Test func anAppTheUserHasOpenIsRefusedBeforeOpening() async throws {
+    for newInstance in [false, true] {
+        let sys = ScriptedSystem()
+        let (app, cleanup) = try tempApp(sys)
+        defer { cleanup() }
+        sys.userStarts(100)
+        sys.window = WindowInfo(pid: 100, windowID: 5, appName: "Notes", title: "", frame: .zero)
+        let (r, screens) = await launch(sys, app, newInstance: newInstance)
+        #expect(!r.ok)
+        #expect(sys.opened == 0, "never opened")
+        #expect(touchedNothing(sys, screens))
+        #expect(sys.focusReturned.isEmpty, "nothing was opened, nothing to hand back")
+    }
+}
+
+// ② The user starts the app while it opens, and the system hands back
+// the user's process: it carries no token, so it is refused, untouched,
+// and the foreground goes back.
+@MainActor
+@Test func aProcessTheUserStartedMeanwhileIsRefusedUntouched() async throws {
     let sys = ScriptedSystem()
-    _ = sys.start(100)
-    let r = await LaunchOwnership.openOwnedProcess(notes, newInstance: false, using: sys.launching)
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    sys.onOpen = { s, _ in s.userStarts(500) }
+    sys.window = WindowInfo(pid: 500, windowID: 5, appName: "Notes", title: "", frame: .zero)
+    let (r, screens) = await launch(sys, app)
+    #expect(!r.ok)
+    #expect(touchedNothing(sys, screens))
+    #expect(sys.focusReturned.map(\.0) == [77])
+    // When the system makes our instance next to the user's, the token picks ours.
+    let both = ScriptedSystem()
+    let (app2, cleanup2) = try tempApp(both)
+    defer { cleanup2() }
+    both.onOpen = { s, env in s.userStarts(500); return s.launchStarts(600, env) }
+    #expect(try await LaunchOwnership.openOwnedProcess(app2, newInstance: true, using: both.launching).get() == 600)
+}
+
+// ③ The system reuses a process: no token, refused untouched. Apps that
+// allow one instance, or have no bundle ID, are never opened.
+@MainActor
+@Test func aReusedProcessAndUnprovableAppsAreRefusedUntouched() async throws {
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    let other = sys.userStarts(100, "com.example.other")
+    sys.onOpen = { _, _ in other }
+    sys.window = WindowInfo(pid: other, windowID: 5, appName: "Other", title: "", frame: .zero)
+    let (r, screens) = await launch(sys, app)
+    #expect(!r.ok)
+    #expect(touchedNothing(sys, screens))
+    for (id, single) in [("com.example.one", true), (nil, false)] as [(String?, Bool)] {
+        let s = ScriptedSystem()
+        let (a, c) = try tempApp(s, id: id, single: single)
+        defer { c() }
+        let (r2, sc2) = await launch(s, a)
+        #expect(!r2.ok)
+        #expect(s.opened == 0)
+        #expect(touchedNothing(s, sc2))
+    }
+}
+
+// A process that claims the token through its own (later) environment is
+// not believed: only what the kernel recorded counts, and a mismatch is a
+// refusal.
+@Test func aWrongTokenIsRefused() async throws {
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    sys.onOpen = { s, _ in s.launchStarts(700, [LaunchOwnership.tokenVariable: "someone-else"]) }
+    let r = await LaunchOwnership.openOwnedProcess(app, newInstance: true, using: sys.launching, token: "mine")
     #expect(r.isRefused)
-    #expect(sys.opened == 0, "refused before opening anything")
 }
 
-// ② The user starts the same app while it opens.
-@Test func anInstanceTheUserStartsMeanwhileMakesTheLaunchUnprovable() async {
+// ④ A process proved by the token is moved and bound.
+@MainActor
+@Test func aProvedNewProcessIsMovedAndBound() async throws {
     let sys = ScriptedSystem()
-    sys.onOpen = { s in _ = s.start(500); return s.start(600) }   // the user's 500, ours 600
-    let r = await LaunchOwnership.openOwnedProcess(notes, newInstance: true, using: sys.launching)
-    // The launch asked for a new instance, so the system made 600 apart
-    // from the user's 500; with two new processes neither is provably ours.
-    #expect(r.isRefused)
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    sys.userStarts(100, "com.example.other")
+    sys.onOpen = { s, env in s.launchStarts(900, env) }
+    sys.window = WindowInfo(pid: 900, windowID: 5, appName: "Notes", title: "", frame: CGRect(x: 10, y: 10, width: 100, height: 100))
+    let (_, screens) = await launch(sys, app)
+    #expect(sys.moves >= 1)
+    #expect(sys.binds == [900])
+    _ = screens
+    #expect(sys.quitPIDs.isEmpty)
 }
 
-// ③ The system reuses a process that was already running.
-@Test func aProcessTheSystemReusesIsNotTheLaunchs() async {
+// Runtime bug found by 2ndscreen-42 (TextEdit with only its open panel): a
+// proved process that shows no window is quit, and only it.
+@MainActor
+@Test func aProvedLaunchWithoutAWindowQuitsOnlyItsProcess() async throws {
     let sys = ScriptedSystem()
-    let users = sys.start(100)
-    sys.onOpen = { _ in users }
-    let r = await LaunchOwnership.openOwnedProcess(notes, newInstance: true, using: sys.launching)
-    #expect(r.isRefused)
-    // Single-instance apps and apps without a bundle ID are never opened.
-    sys.bundles["/Apps/One.app"] = ("com.example.one", true)
-    let one = await LaunchOwnership.openOwnedProcess(URL(fileURLWithPath: "/Apps/One.app"), newInstance: true, using: sys.launching)
-    let bare = await LaunchOwnership.openOwnedProcess(URL(fileURLWithPath: "/tmp/bare"), newInstance: true, using: sys.launching)
-    #expect(one.isRefused && bare.isRefused)
-    #expect(sys.opened == 1, "only the first case reached the open")
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    let users = sys.userStarts(100, "com.example.other")
+    sys.onOpen = { s, env in s.launchStarts(4100, env) }
+    let (r, screens) = await launch(sys, app)
+    #expect(!r.ok)
+    #expect(sys.quitPIDs == [4100])
+    #expect(sys.running[users] != nil)
+    #expect(sys.moves == 0 && sys.binds.isEmpty && screens.boundPIDs.isEmpty)
 }
 
-@Test func aNewProcessOfAnotherAppIsNotTheLaunchs() async {
-    let sys = ScriptedSystem()
-    sys.onOpen = { s in s.start(800, "com.example.other") }
-    #expect(await LaunchOwnership.openOwnedProcess(notes, newInstance: true, using: sys.launching).isRefused)
-}
-
-// ④ A confirmed new process is the launch's.
-@Test func theOnlyNewProcessOfTheAppIsTheLaunchs() async {
-    let sys = ScriptedSystem()
-    _ = sys.start(100)
-    sys.onOpen = { s in s.start(900) }
-    let r = await LaunchOwnership.openOwnedProcess(notes, newInstance: true, using: sys.launching)
-    #expect(r == .success(900))
+@Test func theKernelEnvironmentIsParsedAndReadForThisProcess() {
+    var b: [UInt8] = []
+    var argc: Int32 = 2
+    withUnsafeBytes(of: &argc) { b += $0 }
+    b += Array("/Applications/X.app/Contents/MacOS/X".utf8) + [0, 0, 0, 0]
+    b += Array("X".utf8) + [0] + Array("-psn".utf8) + [0]
+    b += Array("HOME=/Users/u".utf8) + [0] + Array("\(LaunchOwnership.tokenVariable)=abc=d".utf8) + [0, 0, 0]
+    let env = LaunchOwnership.parseProcArgs(b)
+    #expect(env?["HOME"] == "/Users/u")
+    #expect(env?[LaunchOwnership.tokenVariable] == "abc=d")
+    #expect(env?["X"] == nil && env?["-psn"] == nil, "arguments are not environment")
+    #expect(LaunchOwnership.parseProcArgs([1, 0]) == nil)
+    // The real sysctl, on this test process.
+    #expect(LaunchOwnership.kernelEnvironment(of: getpid())?["PATH"] != nil)
 }
 
 @Test func aProcessRunningBeforeTheLaunchIsNotNew() {
@@ -110,47 +227,4 @@ let notes = URL(fileURLWithPath: "/Apps/Notes.app")
 
 extension Result where Failure == LaunchRefusal {
     var isRefused: Bool { if case .failure = self { return true } else { return false } }
-}
-
-// Runtime bug found by 2ndscreen-42: an app that starts but shows no window
-// (TextEdit with only its open panel) stayed on the user's display, owned by
-// no Desktop. A launch that fails after it created the process quits it, and
-// only it.
-@MainActor
-@Test func aLaunchWithoutAWindowQuitsTheProcessItStartedAndNothingElse() async throws {
-    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("launch-\(UUID().uuidString)")
-    let app = dir.appendingPathComponent("Notes.app")
-    try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: dir) }
-    let sys = ScriptedSystem()
-    sys.bundles = [app.path: ("com.apple.Notes", false)]
-    let users = sys.start(100)
-    sys.onOpen = { s in s.start(4100) }
-    let screens = AgentScreens()
-    screens.launching = sys.launching
-    let target = ScreenInfo(name: "agent-1", kind: .agent, displayID: 9, width: 800, height: 600, hiDPI: false,
-                            frame: .init(CGRect(x: 0, y: 0, width: 800, height: 600)))
-    let r = await screens.launch(on: target, bundleID: nil, path: app.path, newInstance: true, fill: false)
-    #expect(!r.ok)
-    #expect(sys.quitPIDs == [4100], "only the process this launch created")
-    #expect(sys.running[users] != nil, "the user's instance keeps running")
-}
-
-@MainActor
-@Test func aRefusedLaunchQuitsNothing() async throws {
-    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("launch-\(UUID().uuidString)")
-    let app = dir.appendingPathComponent("Notes.app")
-    try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: dir) }
-    let sys = ScriptedSystem()
-    sys.bundles = [app.path: ("com.apple.Notes", false)]
-    let users = sys.start(100)
-    sys.onOpen = { _ in users }   // the system hands back the user's process
-    let screens = AgentScreens()
-    screens.launching = sys.launching
-    let target = ScreenInfo(name: "agent-1", kind: .agent, displayID: 9, width: 800, height: 600, hiDPI: false,
-                            frame: .init(CGRect(x: 0, y: 0, width: 800, height: 600)))
-    let r = await screens.launch(on: target, bundleID: nil, path: app.path, newInstance: true, fill: false)
-    #expect(!r.ok)
-    #expect(sys.quitPIDs.isEmpty, "the user's app is neither moved nor quit")
 }
