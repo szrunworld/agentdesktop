@@ -7,6 +7,7 @@
 // stays in engine/ as history.
 
 import AppKit
+import Combine
 import SecondScreenCore
 import SecondScreenRuntime
 import AgentDesktopAI
@@ -35,6 +36,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// the host, so closing the window changes nothing in the Runtime.
     private(set) var store: ShellStore!
     private(set) var mainWindow: MainWindowController!
+    private var showOnFirstDesktop: AnyCancellable?
 
     init(role: HostRole) {
         self.role = role
@@ -77,7 +79,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !role.isSideInstance {
             mainWindow.show()
         } else if let request = role.mainWindowForTest {
-            mainWindow.showInBackground(onDisplay: request.displayID)
+            if request.onFirstDesktop {
+                showOnFirstDesktop = store.$desktops.sink { [weak self] list in
+                    guard let self, let id = list.first.flatMap(DesktopFrameHub.displayId(of:)) else { return }
+                    self.showOnFirstDesktop = nil
+                    // After the sink returns: the list is published on willSet.
+                    DispatchQueue.main.async { self.mainWindow.showInBackground(onDisplay: id) }
+                }
+            } else {
+                mainWindow.showInBackground(onDisplay: request.displayID)
+            }
         }
     }
 

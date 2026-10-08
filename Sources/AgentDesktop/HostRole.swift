@@ -101,6 +101,10 @@ enum HostRole {
     /// ignores both.
     struct TestWindowRequest: Equatable {
         var displayID: CGDirectDisplayID?
+        /// AGENTDESKTOP_MAIN_WINDOW_DISPLAY=first-desktop: wait for the
+        /// copy's first Desktop and show the window on its display, so
+        /// acceptance needs only that one virtual display.
+        var onFirstDesktop = false
     }
 
     var mainWindowForTest: TestWindowRequest? {
@@ -109,7 +113,8 @@ enum HostRole {
 
     func mainWindowForTest(environment env: [String: String]) -> TestWindowRequest? {
         guard isSideInstance, env["AGENTDESKTOP_MAIN_WINDOW"] == "1" else { return nil }
-        return TestWindowRequest(displayID: env["AGENTDESKTOP_MAIN_WINDOW_DISPLAY"].flatMap { UInt32($0) })
+        let display = env["AGENTDESKTOP_MAIN_WINDOW_DISPLAY"]
+        return TestWindowRequest(displayID: display.flatMap { UInt32($0) }, onFirstDesktop: display == "first-desktop")
     }
 
     /// Regular (Dock icon, main window) for the product; accessory for a

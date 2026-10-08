@@ -30,6 +30,10 @@ struct MainWindowHostTests {
         #expect(side.mainWindowForTest(environment: ["AGENTDESKTOP_MAIN_WINDOW": "1", "AGENTDESKTOP_MAIN_WINDOW_DISPLAY": "951"])
                 == HostRole.TestWindowRequest(displayID: 951))
         #expect(HostRole.product.mainWindowForTest(environment: ["AGENTDESKTOP_MAIN_WINDOW": "1"]) == nil)
+        #expect(side.mainWindowForTest(environment: ["AGENTDESKTOP_MAIN_WINDOW": "1", "AGENTDESKTOP_MAIN_WINDOW_DISPLAY": "first-desktop"])
+                == HostRole.TestWindowRequest(displayID: nil, onFirstDesktop: true))
+        #expect(HostRole.product.mainWindowForTest(environment: ["AGENTDESKTOP_MAIN_WINDOW": "1",
+                                                                 "AGENTDESKTOP_MAIN_WINDOW_DISPLAY": "first-desktop"]) == nil)
     }
 
     // The in-process port answers runtime/1 through the Runtime itself, as
