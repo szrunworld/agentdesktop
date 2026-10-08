@@ -323,10 +323,23 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
     @Test func aPhoneAppSentenceIsNotAStatusPage() {
         let line = "Connecting to the server, please keep this app open while we finish syncing your messages"
         #expect(IPhoneConnection.classify([], ocr: [line]).state == .ready)
-        // Not even beside a status control: a sentence is not a title.
-        #expect(IPhoneConnection.classify(["Try Again"], ocr: [line]).state == .ready)
         // Mirroring's own text counts however long.
         #expect(IPhoneConnection.classify([line]).state == .reconnecting)
+    }
+
+    /// Codex on #126: with the status page's control showing through
+    /// accessibility, its full message read by OCR matches the rules that
+    /// are sentence fragments. Requiring the phrase at the start of the line
+    /// called these pages ready, so their picture went out as the phone's.
+    @Test(arguments: [
+        ("iPhone Mirroring has ended due to iPhone use", IPhoneConnectionState.phoneInUse),
+        ("Your iPhone is no longer in use", IPhoneConnectionState.disconnected),
+        ("Your macOS user password or Touch ID is required to access your iPhone", IPhoneConnectionState.authRequired),
+    ] as [(String, IPhoneConnectionState)])
+    func aStatusPagesFullMessageCountsWithItsControl(message: String, state: IPhoneConnectionState) {
+        #expect(IPhoneConnection.classify(["OK"], ocr: [message]).state != .ready)
+        // Without the page's control the same words could be a phone app's.
+        #expect(IPhoneConnection.classify([], ocr: [message]).state == .ready)
     }
 
     /// Codex review of #61 / #95: a phone app showing one short line that
