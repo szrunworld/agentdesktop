@@ -73,10 +73,8 @@ extension RuntimeService {
                     throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted; bind again",
                                        phase: .handler, notSent: true)
                 }
-                guard let window = platform.window(on: d.screen, pid: b.process.pid, windowId: b.windowId) else {
-                    throw RuntimeError("stale_observation", "window \(b.windowId) left desktop \(d.desktopId)",
-                                       phase: .handler, notSent: true)
-                }
+                // G0: the observed window is still the one input would reach.
+                let window = try exposedTarget(d, b, notSent: true).window
                 if let was = snap.windowFrame, !Self.sameFrame(was, window.frame) {
                     throw RuntimeError("stale_observation", "window \(b.windowId) moved or resized since snapshot \(snapshotId); observe again",
                                        phase: .handler, notSent: true)
@@ -99,6 +97,24 @@ extension RuntimeService {
                 var failure: RuntimeError?
                 do {
                     route = try platform.perform(pa, on: d.screen, pid: b.process.pid, windowId: b.windowId)
+                    // The OS cannot make check-then-send atomic. If the target
+                    // stopped being exposed around the send (a window popped
+                    // up), the input may have reached that window instead:
+                    // unknown, never success, and the next input is refused
+                    // by the check above.
+                    do {
+                        let after = try exposedTarget(d, b, notSent: false)
+                        if !Self.sameFrame(after.window.frame, window.frame) {
+                            throw RuntimeError("stale_observation", "window \(b.windowId) moved while input was sent",
+                                               phase: .handler, details: .obj([("reason", .string("moved"))]))
+                        }
+                    } catch let changed as RuntimeError {
+                        delivery = "unknown"; execution = "unknown"
+                        failure = RuntimeError("action_delivery_unknown",
+                                               "the target changed while input was sent (\(changed.details?["reason"]?.stringValue ?? changed.code)); it may have reached another window. Observe before deciding on a new action",
+                                               phase: .handler,
+                                               details: .obj([("reason", .string("target_changed_during_dispatch"))]))
+                    }
                 } catch let e as PlatformError {
                     if e.beforeDispatch {
                         delivery = "not_dispatched"; execution = "failed"
@@ -115,7 +131,11 @@ extension RuntimeService {
                     ("receiptId", .string(receiptId)), ("requestId", .string(request.requestId)), ("runId", .string(runId)),
                     ("desktopId", .string(d.desktopId)), ("sessionId", .string(session.sessionId)),
                     ("snapshotId", .string(snapshotId)), ("delivery", .string(delivery)), ("execution", .string(execution)),
-                    ("verification", .string("not_requested")), ("route", route.map(JSONValue.string) ?? .null),
+                    ("verification", .string("not_requested")),
+                    // Delivery is not effect: whether the app did what was meant
+                    // is for a later observation (or the caller) to establish.
+                    ("businessResult", .string("not_evaluated")),
+                    ("route", route.map(JSONValue.string) ?? .null),
                     ("target", .obj([
                         ("generation", .int(b.generation)), ("process", b.process.json), ("windowId", .int(Int(b.windowId))),
                         ("elementRef", action["target"]?["elementRef"] ?? .null),
@@ -128,7 +148,7 @@ extension RuntimeService {
                 self.execution.endAction(runId: runId, receiptId: receiptId, deliveryUnknown: delivery == "unknown")
                 runs.appendEvent(runId, "action.\(execution)", .obj([("receipt", receipt)]))
                 if var failure {
-                    failure.details = .obj([("receipt", receipt)])
+                    failure.details = (failure.details ?? .obj([])).setting("receipt", receipt)
                     throw failure
                 }
                 return receipt
