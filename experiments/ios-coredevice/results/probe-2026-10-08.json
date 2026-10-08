@@ -1,0 +1,171 @@
+{
+  "probe": "experiments/ios-coredevice/probe.py",
+  "generated_at": "2026-10-08T13:53:58+08:00",
+  "read_only": true,
+  "options": {
+    "allow_mdns": false,
+    "allow_native_tunnel": false
+  },
+  "host": {
+    "pymobiledevice3": "11.24.0",
+    "python": "3.13.15",
+    "macos": "15.1",
+    "machine": "arm64",
+    "is_root": false,
+    "xcode_apps": [],
+    "command_line_tools": true,
+    "devicectl_available": false
+  },
+  "pair_records": {
+    "pymobiledevice3_home": "/Users/kevinshi/.pymobiledevice3",
+    "own_lockdown_records": 0,
+    "remote_pairing_records": 0,
+    "system_lockdown_store": "present, not readable without root (expected on macOS)"
+  },
+  "usbmux": {
+    "ok": true,
+    "result": []
+  },
+  "lockdown": [],
+  "tunneld": {
+    "address": "127.0.0.1:49151",
+    "running": false
+  },
+  "native_browse": {
+    "ok": true,
+    "result": []
+  },
+  "userspace_stack": [
+    true,
+    "pmd_pytcp 0.3.7 importable"
+  ],
+  "mdns": null,
+  "rsd_services": null,
+  "capabilities": {
+    "discovery_usbmux_usb": {
+      "status": "unverified",
+      "evidence": "usbmuxd reachable, 0 USB devices",
+      "reason": "no iPhone on USB",
+      "next_step_needs_authorization": "Kevin: connect the iPhone by cable and unlock it"
+    },
+    "discovery_usbmux_network": {
+      "status": "unverified",
+      "evidence": "0 network devices listed by usbmuxd",
+      "reason": "device not listed over Wi-Fi; Wi-Fi listing needs a prior USB pairing plus `lockdown wifi-connections on` (or Finder 'Show this iPhone when on Wi-Fi')",
+      "next_step_needs_authorization": "Kevin: one USB connection to pair/trust, then decide whether to enable Wi-Fi connections"
+    },
+    "discovery_remotepairingd": {
+      "status": "unverified",
+      "evidence": "remotepairingd answered, 0 devices",
+      "reason": "Apple's CoreDevice pairing daemon knows no device (it learns devices from Xcode/devicectl or `remote pair`; iPhone Mirroring's Continuity pairing is a different relationship)",
+      "next_step_needs_authorization": "Kevin: USB-connect + Trust, or Wi-Fi `remote pair` with on-device confirmation"
+    },
+    "discovery_bonjour": {
+      "status": "unverified",
+      "evidence": "NOT_RUN (opt-in --allow-mdns)",
+      "reason": "an mDNS query can raise macOS's Local Network prompt for the terminal",
+      "next_step_needs_authorization": "Kevin: allow running with --allow-mdns, accept/deny the prompt himself"
+    },
+    "ios_version": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no device reachable over usbmux",
+      "next_step_needs_authorization": "Kevin: connect the device (see discovery_usbmux_usb)"
+    },
+    "pairing": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no device reachable over usbmux",
+      "next_step_needs_authorization": "Kevin: connect + Trust"
+    },
+    "developer_mode": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "needs a paired, reachable device"
+    },
+    "ddi_mounted": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "needs a paired, reachable device"
+    },
+    "tunnel_tunneld": {
+      "status": "unverified",
+      "evidence": {
+        "address": "127.0.0.1:49151",
+        "running": false
+      },
+      "reason": "tunneld not running (only detected; starting it needs sudo)",
+      "next_step_needs_authorization": "Kevin: `sudo .venv/bin/pymobiledevice3 remote tunneld` in his own terminal"
+    },
+    "tunnel_userspace_no_root": {
+      "status": "unverified",
+      "evidence": "pmd_pytcp 0.3.7 importable",
+      "reason": "host stack present, but no tunnel was opened: it needs a paired iOS 17.4+ device (and would auto-pair, i.e. raise Trust)",
+      "next_step_needs_authorization": "Kevin: allow a --userspace tunnel attempt once the device is paired"
+    },
+    "tunnel_native_remoted": {
+      "status": "unverified",
+      "evidence": "no device known to remotepairingd",
+      "reason": "requires a device in remotepairingd and the opt-in --allow-native-tunnel",
+      "next_step_needs_authorization": "Kevin: allow --allow-native-tunnel after the device shows up"
+    },
+    "screenshot_coredevice": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list (no tunnel to a device)"
+    },
+    "screenshot_dvt": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list (no tunnel to a device)"
+    },
+    "screen_stream_displayservice": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list (no tunnel to a device)"
+    },
+    "hid_universal_tap_drag": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list (no tunnel to a device); touch only reaches UIKit while a displayservice media stream is open (auth gate)"
+    },
+    "hid_indigo_buttons": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list (no tunnel to a device)"
+    },
+    "pasteboard_service": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "no RSD service list (no tunnel to a device)"
+    },
+    "hid_type_ascii": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "`universal-hid-service type` maps printable US-ASCII only; never exercised here",
+      "next_step_needs_authorization": "Kevin: allow a harmless HID test in Notes"
+    },
+    "hid_type_direct_cjk": {
+      "status": "unsupported",
+      "evidence": "pymobiledevice3 ASCII_TO_HID maps printable US-ASCII only; `type` rejects other chars",
+      "reason": "HID keyboard reports carry key usages, not Unicode text"
+    },
+    "text_chinese": {
+      "status": "unverified",
+      "evidence": null,
+      "reason": "candidate paths, none exercised: (a) pinyin keystrokes through the on-device Chinese IME + candidate pick, (b) pasteboardservice `copy` then a paste action, (c) WDA",
+      "next_step_needs_authorization": "Kevin: allow a pasteboard write + paste test in Notes"
+    },
+    "hid_input_exercised": {
+      "status": "unverified",
+      "evidence": "NOT_RUN",
+      "reason": "probe never sends HID input by design",
+      "next_step_needs_authorization": "Kevin: explicit OK for one tap on a neutral spot"
+    }
+  },
+  "summary": {
+    "unverified": 20,
+    "unsupported": 1
+  },
+  "i13_acceptance": "NOT_RUN"
+}
