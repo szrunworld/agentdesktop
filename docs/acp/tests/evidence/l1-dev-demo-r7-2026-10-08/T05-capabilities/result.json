@@ -1,0 +1,82 @@
+{
+  "id": "T05-capabilities",
+  "cases": [
+    "ACP-T05-01",
+    "ACP-T05-02"
+  ],
+  "title": "宣告与实现一致：宣告的会话能力能调用，未宣告的被拒；未宣告图片时图片 prompt 被拒",
+  "status": "PASS",
+  "durationMs": 19,
+  "failures": [],
+  "steps": [
+    {
+      "op": "initialize",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "op": "session/new",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "op": "session/load",
+      "ms": 1,
+      "ok": false,
+      "code": -32002
+    },
+    {
+      "op": "session/list",
+      "ms": 1,
+      "ok": true
+    },
+    {
+      "op": "session/resume",
+      "ms": 0,
+      "ok": false,
+      "code": -32002
+    },
+    {
+      "op": "session/close",
+      "ms": 0,
+      "ok": false,
+      "code": -32002
+    },
+    {
+      "op": "image prompt",
+      "ms": 0,
+      "ok": false,
+      "code": -32602
+    },
+    {
+      "op": "probeCapabilities",
+      "report": [
+        {
+          "name": "session/load",
+          "claimed": true,
+          "response": -32002
+        },
+        {
+          "name": "session/list",
+          "claimed": true,
+          "response": "result"
+        },
+        {
+          "name": "session/resume",
+          "claimed": true,
+          "response": -32002
+        },
+        {
+          "name": "session/close",
+          "claimed": true,
+          "response": -32002
+        },
+        {
+          "name": "prompt image",
+          "claimed": false,
+          "response": -32602
+        }
+      ]
+    }
+  ]
+}

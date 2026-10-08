@@ -1,0 +1,47 @@
+{
+  "acpSessionId" : "acps_79e20921-b02d-40da-b275-180f328d88a4",
+  "clientId" : "acp-dev",
+  "createdAt" : "2026-10-08T12:51:33.819Z",
+  "cwd" : "\/Users\/kevinshi\/orca\/agentdesktop-acp-q7\/docs\/acp\/tests\/evidence\/l1-dev-demo-r7-2026-10-08\/T01-pipelining\/run",
+  "format" : 1,
+  "lastCursor" : {
+
+  },
+  "options" : [
+    {
+      "choices" : [
+        "ask",
+        "auto"
+      ],
+      "id" : "mode",
+      "name" : "执行确认",
+      "value" : "ask"
+    },
+    {
+      "choices" : [
+        "off",
+        "submit",
+        "all"
+      ],
+      "id" : "screenshots",
+      "name" : "截图",
+      "value" : "off"
+    },
+    {
+      "choices" : [
+        "off",
+        "on"
+      ],
+      "id" : "pageText",
+      "name" : "页面文字",
+      "value" : "off"
+    }
+  ],
+  "principalId" : "demo-owner",
+  "revision" : 1,
+  "runIds" : [
+
+  ],
+  "title" : "AgentDesktop 会话",
+  "updatedAt" : "2026-10-08T12:51:33.819Z"
+}

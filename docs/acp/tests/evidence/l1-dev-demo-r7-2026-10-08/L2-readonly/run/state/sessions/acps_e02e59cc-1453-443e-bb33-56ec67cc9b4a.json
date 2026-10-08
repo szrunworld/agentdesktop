@@ -1,0 +1,47 @@
+{
+  "acpSessionId" : "acps_e02e59cc-1453-443e-bb33-56ec67cc9b4a",
+  "clientId" : "acp-dev",
+  "createdAt" : "2026-10-08T12:51:36.000Z",
+  "cwd" : "\/Users\/kevinshi\/orca\/agentdesktop-acp-q7\/docs\/acp\/tests\/evidence\/l1-dev-demo-r7-2026-10-08\/T03-stdio-close\/run",
+  "format" : 1,
+  "lastCursor" : {
+
+  },
+  "options" : [
+    {
+      "choices" : [
+        "ask",
+        "auto"
+      ],
+      "id" : "mode",
+      "name" : "执行确认",
+      "value" : "ask"
+    },
+    {
+      "choices" : [
+        "off",
+        "submit",
+        "all"
+      ],
+      "id" : "screenshots",
+      "name" : "截图",
+      "value" : "off"
+    },
+    {
+      "choices" : [
+        "off",
+        "on"
+      ],
+      "id" : "pageText",
+      "name" : "页面文字",
+      "value" : "off"
+    }
+  ],
+  "principalId" : "demo-owner",
+  "revision" : 4,
+  "runIds" : [
+    "demo-run-1"
+  ],
+  "title" : "[已隐藏]",
+  "updatedAt" : "2026-10-08T12:51:36.005Z"
+}

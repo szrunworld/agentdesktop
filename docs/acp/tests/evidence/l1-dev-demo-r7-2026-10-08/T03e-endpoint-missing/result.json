@@ -1,0 +1,13 @@
+{
+  "id": "T03e-endpoint-missing",
+  "cases": [
+    "ACP-T03-04"
+  ],
+  "title": "Runtime 端点路径不存在：dev 入口启动即拒绝，stderr 说明原因，非崩溃退出，stdout 不出现非 ACP 内容",
+  "status": "BLOCKED",
+  "durationMs": 0,
+  "failures": [
+    "blocked: profile agentdesktop-acp-dev-demo lacks runtime.missing"
+  ],
+  "steps": []
+}

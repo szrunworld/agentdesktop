@@ -1,0 +1,108 @@
+{
+  "id": "T01-pipelining",
+  "cases": [
+    "ACP-T01-06"
+  ],
+  "title": "不等 initialize 回复就发 session/new（流水线）：两个请求都应成功",
+  "status": "PASS",
+  "durationMs": 13,
+  "failures": [],
+  "steps": [
+    {
+      "op": "rawBatch",
+      "got": [
+        {
+          "jsonrpc": "2.0",
+          "id": "raw-init",
+          "result": {
+            "protocolVersion": 1,
+            "agentCapabilities": {
+              "loadSession": true,
+              "promptCapabilities": {
+                "image": false,
+                "audio": false,
+                "embeddedContext": false
+              },
+              "mcpCapabilities": {
+                "http": false,
+                "sse": false
+              },
+              "sessionCapabilities": {
+                "list": {},
+                "close": {},
+                "resume": {}
+              }
+            },
+            "authMethods": [],
+            "agentInfo": {
+              "name": "agentdesktop",
+              "version": "0.1.0-dev"
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": "raw-new",
+          "result": {
+            "sessionId": "acps_79e20921-b02d-40da-b275-180f328d88a4",
+            "configOptions": [
+              {
+                "id": "mode",
+                "name": "执行确认",
+                "category": "mode",
+                "type": "select",
+                "currentValue": "ask",
+                "options": [
+                  {
+                    "value": "ask",
+                    "name": "ask"
+                  },
+                  {
+                    "value": "auto",
+                    "name": "auto"
+                  }
+                ]
+              },
+              {
+                "id": "screenshots",
+                "name": "截图",
+                "type": "select",
+                "currentValue": "off",
+                "options": [
+                  {
+                    "value": "off",
+                    "name": "off"
+                  },
+                  {
+                    "value": "submit",
+                    "name": "submit"
+                  },
+                  {
+                    "value": "all",
+                    "name": "all"
+                  }
+                ]
+              },
+              {
+                "id": "pageText",
+                "name": "页面文字",
+                "type": "select",
+                "currentValue": "off",
+                "options": [
+                  {
+                    "value": "off",
+                    "name": "off"
+                  },
+                  {
+                    "value": "on",
+                    "name": "on"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

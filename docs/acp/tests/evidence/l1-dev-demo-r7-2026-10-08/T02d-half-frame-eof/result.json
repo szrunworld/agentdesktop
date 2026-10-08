@@ -1,0 +1,37 @@
+{
+  "id": "T02d-half-frame-eof",
+  "cases": [
+    "ACP-T02-06"
+  ],
+  "title": "写入不带换行的半个 session/new 后关闭 stdin：该请求不执行（无回复、会话数不变），进程干净退出",
+  "status": "PASS",
+  "durationMs": 334,
+  "failures": [],
+  "steps": [
+    {
+      "op": "initialize",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "op": "session/list",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "op": "initialize",
+      "ms": 6,
+      "ok": true
+    },
+    {
+      "op": "initialize",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "op": "session/list",
+      "ms": 2,
+      "ok": true
+    }
+  ]
+}
