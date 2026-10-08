@@ -130,7 +130,7 @@ import Testing
 
         await ed.request(1, "session/load", .obj([("sessionId", .string("s")), ("cwd", .string("/w")),
                                                   ("mcpServers", .array([]))]))
-        guard case let .request(lid, .resumeSession("s"))? = await ed.nextEvent() else { Issue.record("load"); return }
+        guard case let .request(lid, .resumeSession(sessionId: "s", cwd: nil, replay: true))? = await ed.nextEvent() else { Issue.record("load"); return }
         await ed.request(2, "session/close", .obj([("sessionId", .string("s"))]))
         guard case let .request(cid, .closeSession("s"))? = await ed.nextEvent() else { Issue.record("close"); return }
         await ed.request(3, "session/prompt", .obj([("sessionId", .string("s")), ("prompt", .array([

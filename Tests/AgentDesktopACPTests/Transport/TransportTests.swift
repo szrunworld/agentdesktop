@@ -92,7 +92,7 @@ import Testing
 
         guard case let .request(id1, .newSession(cwd))? = await ed.nextEvent() else { Issue.record("new"); return }
         #expect(cwd == "/tmp/w")
-        guard case let .request(id2, .listSessions)? = await ed.nextEvent() else { Issue.record("list"); return }
+        guard case let .request(id2, .listSessions(cwd: nil))? = await ed.nextEvent() else { Issue.record("list"); return }
         #expect(id2 == ACPRequestId(.string("two")))
         guard case let .request(id3, .prompt(sid, content))? = await ed.nextEvent() else { Issue.record("prompt"); return }
         #expect(sid == "s1" && content == [.text("hi")])

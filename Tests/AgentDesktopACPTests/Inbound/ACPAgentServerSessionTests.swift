@@ -38,7 +38,7 @@ import Testing
             }
         })
 
-        h.connection.request(2, .listSessions)
+        h.connection.request(2, .listSessions(cwd: nil))
         guard case let .sessions(list)? = await h.connection.waitReply(2) else { Issue.record("no list"); return }
         #expect(list.map(\.sessionId) == [sid])
 
@@ -53,7 +53,7 @@ import Testing
 
         let h2 = STestHarness(runtime: rt, dir: h.dir)
         defer { h2.connection.close() }
-        h2.connection.request(3, .resumeSession(sessionId: sid))
+        h2.connection.request(3, .resumeSession(sessionId: sid, cwd: nil, replay: true))
         guard case .resumed? = await h2.connection.waitReply(3) else { Issue.record("not resumed"); return }
         let text = h2.connection.allText(sid)
         #expect(text.contains("[run-old#1] first"))
@@ -76,13 +76,13 @@ import Testing
         bob.callerValue.with { $0 = ACPCaller(principalId: "bob", clientId: "editor-2", connectionId: "c2") }
         let h2 = STestHarness(runtime: bob, dir: h.dir)
         defer { h2.connection.close() }
-        h2.connection.request(1, .resumeSession(sessionId: sid))
+        h2.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
         guard case let .error(e)? = await h2.connection.waitReply(1) else { Issue.record("not refused"); return }
         #expect(e.reason == "session_not_found")
-        h2.connection.request(2, .resumeSession(sessionId: "acps_does-not-exist"))
+        h2.connection.request(2, .resumeSession(sessionId: "acps_does-not-exist", cwd: nil, replay: true))
         guard case let .error(e2)? = await h2.connection.waitReply(2) else { Issue.record("not refused"); return }
         #expect(e2 == e)
-        h2.connection.request(3, .listSessions)
+        h2.connection.request(3, .listSessions(cwd: nil))
         guard case let .sessions(list)? = await h2.connection.waitReply(3) else { Issue.record("no list"); return }
         #expect(list.isEmpty)
         // Bob cannot prompt into it either.
@@ -147,7 +147,7 @@ import Testing
         var b = try #require(try h.store.load(sessionId: sid))
         b.runIds = ["r1"]; b.revision += 1
         try h.store.save(b)
-        h.connection.request(1, .resumeSession(sessionId: sid))
+        h.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
         _ = await h.connection.waitReply(1)
         let msgs = h.connection.messages(sid).filter { $0.hasPrefix("[r1#") }
         #expect(msgs == ["[r1#1] one", "[r1#2] two"])
@@ -164,7 +164,7 @@ import Testing
         var b = try #require(try h.store.load(sessionId: sid))
         b.runIds = ["live"]; b.revision += 1
         try h.store.save(b)
-        h.connection.request(1, .resumeSession(sessionId: sid))
+        h.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
         guard case .resumed? = await h.connection.waitReply(1) else { Issue.record("not resumed"); return }
         rt.emit("live", cursor: 5, text: "progress")
         #expect(await sEventually { h.connection.allText(sid).contains("[live#5] progress") })
@@ -188,7 +188,7 @@ import Testing
         // Reconnect and resume: still one submission, the old run is only observed.
         let h2 = STestHarness(runtime: rt, dir: h.dir)
         defer { h2.cleanup() }
-        h2.connection.request(1, .resumeSession(sessionId: sid))
+        h2.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
         guard case .resumed? = await h2.connection.waitReply(1) else { Issue.record("not resumed"); return }
         #expect(rt.submitCount == 1)
     }

@@ -129,14 +129,14 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
                 return .failure(invalidParams("session/load needs an absolute cwd"))
             }
             remember(cwd: cwd, for: sid)
-            return .success(.resumeSession(sessionId: sid))
+            return .success(.resumeSession(sessionId: sid, cwd: nil, replay: true))
         case Method.sessionList:
             if let c = p["cursor"], !c.isNull {
                 // We never hand out cursors, so any cursor is invalid.
                 return .failure(invalidParams("unknown cursor"))
             }
             lock.lock(); lastListCwd = p["cwd"]?.stringValue; lock.unlock()
-            return .success(.listSessions)
+            return .success(.listSessions(cwd: nil))
         case Method.sessionClose:
             guard let sid = sessionId(p) else { return .failure(invalidParams("session/close needs sessionId")) }
             return .success(.closeSession(sessionId: sid))

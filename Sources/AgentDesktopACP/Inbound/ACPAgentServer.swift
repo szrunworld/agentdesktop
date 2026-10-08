@@ -98,9 +98,9 @@ public actor ACPAgentServer {
                 answer = .initialized(version: connection.version, agent: config.agentInfo, capabilities: caps)
             case let .newSession(cwd):
                 answer = try await newSession(cwd: cwd)
-            case .listSessions:
+            case .listSessions:  // TODO(lane S): filter by cwd
                 answer = try await listSessions()
-            case let .resumeSession(sid):
+            case let .resumeSession(sid, _, _):  // TODO(lane S): honour replay=false and cwd
                 try await resumeSession(id: id, sessionId: sid)
                 return
             case let .closeSession(sid):
@@ -153,7 +153,7 @@ public actor ACPAgentServer {
         // show another principal's session.
         let mine = all.filter { $0.principalId == c.principalId }
             .sorted { $0.updatedAt > $1.updatedAt }
-        return .sessions(mine.map { ACPSessionSummary(sessionId: $0.acpSessionId, title: $0.title, updatedAt: $0.updatedAt) })
+        return .sessions(mine.map { ACPSessionSummary(sessionId: $0.acpSessionId, title: $0.title, updatedAt: $0.updatedAt, cwd: $0.cwd) })
     }
 
     /// Rebind a stored session to this connection and replay its visible

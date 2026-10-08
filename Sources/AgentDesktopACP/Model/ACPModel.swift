@@ -68,9 +68,11 @@ public struct ACPConfigOption: Equatable, Sendable {
 public enum ACPIncoming: Equatable, Sendable {
     case initialize(client: ACPImplementationInfo?, capabilities: ACPClientCapabilities, requested: String)
     case newSession(cwd: String)
-    case listSessions
-    /// v1 `session/load` and v2 `session/resume` both arrive here.
-    case resumeSession(sessionId: String)
+    /// `cwd`: only sessions of this working directory, when given.
+    case listSessions(cwd: String?)
+    /// v1 `session/load` (replay: true, history is streamed back) and v1
+    /// `session/resume` (replay: false, no history) both arrive here.
+    case resumeSession(sessionId: String, cwd: String?, replay: Bool)
     case closeSession(sessionId: String)
     case prompt(sessionId: String, content: [ACPContentBlock])
     case cancel(sessionId: String)
@@ -117,8 +119,10 @@ public struct ACPSessionSummary: Equatable, Sendable {
     public var sessionId: String
     public var title: String
     public var updatedAt: String
-    public init(sessionId: String, title: String, updatedAt: String) {
-        self.sessionId = sessionId; self.title = title; self.updatedAt = updatedAt
+    /// The session's working directory (required by v1 SessionInfo).
+    public var cwd: String
+    public init(sessionId: String, title: String, updatedAt: String, cwd: String = "") {
+        self.sessionId = sessionId; self.title = title; self.updatedAt = updatedAt; self.cwd = cwd
     }
 }
 

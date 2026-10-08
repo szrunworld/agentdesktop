@@ -234,7 +234,7 @@ struct QTestConnectionEventConformanceTests {
     @Test func everyIncomingRequestKindIsKnown() {
         let all: [ACPIncoming] = [
             .initialize(client: nil, capabilities: ACPClientCapabilities(), requested: "1"),
-            .newSession(cwd: "/"), .listSessions, .resumeSession(sessionId: "s"), .closeSession(sessionId: "s"),
+            .newSession(cwd: "/"), .listSessions(cwd: nil), .resumeSession(sessionId: "s", cwd: nil, replay: true), .closeSession(sessionId: "s"),
             .prompt(sessionId: "s", content: [.text("x")]), .cancel(sessionId: "s"),
             .setConfigOption(sessionId: "s", optionId: "mode", value: "ask"),
         ]
