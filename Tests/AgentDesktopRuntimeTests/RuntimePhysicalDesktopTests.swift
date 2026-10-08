@@ -20,7 +20,8 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     let bound = try #require(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101,"windowId":11}"#)))
     #expect(bound["binding"]?["windowId"]?.intValue == 11)
     let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
-    let snap = try #require(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#))?["snapshotId"]?.stringValue)
+    // Screenshots on physical Desktops are disabled until #143; elements still work.
+    let snap = try #require(data(call(s, c, "observe", params: #"{"screenshot":false}"#, context: #"{"sessionId":"\#(sid)"}"#))?["snapshotId"]?.stringValue)
     return Scene(platform: platform, s: s, c: c, desktop: d, session: sid, snapshot: snap)
 }
 
@@ -75,15 +76,17 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     #expect(!platform.calls.contains { $0.hasPrefix("launch") })
 }
 
-@Test func onAPhysicalDesktopTheImageAndTheInputAreTheBoundWindow() throws {
+@Test func onAPhysicalDesktopScreenshotsAreDisabledAndInputStillReachesTheBoundWindow() throws {
     let sc = try physicalScene()
-    let o = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)))
+    // Disabled until window-only capture (#143): refused before any capture, so no screen image exists.
+    let refused = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(code(refused) == "capability_missing")
+    #expect(failure(refused)?.details?["reason"]?.stringValue == "physical_screenshot_disabled")
+    #expect(!sc.platform.calls.contains { $0.hasPrefix("screenshot") }, "\(sc.platform.calls)")
+    let o = try #require(data(call(sc.s, sc.c, "observe", params: #"{"screenshot":false}"#, context: #"{"sessionId":"\#(sc.session)"}"#)))
     #expect(contract.validate(o, "Observation").isEmpty, "\(o.encoded())")
     #expect(o["target"]?["windowId"]?.intValue == 11)
-    // The capture is cut to the window's frame, never the whole display.
-    #expect(sc.platform.calls.contains("screenshot physical-1 window"))
-    #expect(!sc.platform.calls.contains("screenshot physical-1"))
-    #expect(o["image"]?["transform"]?["originX"]?.doubleValue == 10)
+    #expect(o["image"] == .null)
     let a = act(sc, #"{"kind":"key","key":"return"}"#)
     #expect(data(a)?["delivery"]?.stringValue == "dispatched", "\(a)")
     #expect(sc.platform.performed.count == 1)
