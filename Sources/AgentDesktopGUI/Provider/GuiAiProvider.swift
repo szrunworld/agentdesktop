@@ -50,6 +50,18 @@ public struct GuiInferenceOutput: Sendable {
 public struct GuiSuggestionFailure: Error, Sendable {
     public let error: ContractError
     public let receipt: GuiInferenceReceipt
+
+    /// The model answered with nothing at all (or only whitespace).
+    public var isEmptyReply: Bool { error.details?["reasonCode"]?.stringValue == Self.emptyReplyReason }
+
+    public static let emptyReplyReason = "MODEL_EMPTY_RESPONSE"
+
+    /// INVALID_ACTION with reasonCode MODEL_EMPTY_RESPONSE: an existing code,
+    /// the reason in RpcError.details.
+    public static func emptyReplyError() -> ContractError {
+        ContractError(.invalidAction, "the model's reply was empty",
+                      details: .obj([("reasonCode", .string(emptyReplyReason))]))
+    }
 }
 
 /// Turns one observation into exactly one proposal (spec §06.2):
@@ -104,6 +116,9 @@ public struct GuiAiProvider: Sendable {
                                 stepIndex: input.stepIndex, candidate: candidate, proposalId: proposalId)
         }
         do {
+            guard !result.outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GuiSuggestionFailure.emptyReplyError()
+            }
             let (proposal, thought) = try factory.propose(
                 codec: codec, modelOutput: result.outputText, runId: binding.runId, stepIndex: input.stepIndex,
                 inferenceAttemptId: result.record.context.inferenceAttemptId, observation: observation,

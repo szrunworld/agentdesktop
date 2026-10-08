@@ -145,13 +145,15 @@ public final class GuiRunDriver: Sendable {
 
         var history: [GuiHistoryTurn] = []
         var stepIndex = 0
+        // The step whose empty reply was already recovered from once.
+        var recoveredStep: Int?
         while true {
             try await checkProceed()
             guard stepIndex < limits.maxSteps else {
                 throw ContractError(.limitExceeded, "the run used all \(limits.maxSteps) steps")
             }
             try await move(.inferencing, "step \(stepIndex)")
-            await recorder.stepStarted()
+            if recoveredStep != stepIndex { await recorder.stepStarted() }
             let snapshotId = bundle.observation.stamp.snapshotId
             try await audited { try await ports.audit.reserveInference(runId: binding.runId, stepIndex: stepIndex, snapshotId: snapshotId) }
             await recorder.note(.inferenceStarted, "step \(stepIndex)")
@@ -163,8 +165,22 @@ public final class GuiRunDriver: Sendable {
                 output = try await provider.suggest(input)
             } catch let failure as GuiSuggestionFailure {
                 await recorder.inference(failure.receipt)
-                try? await ports.audit.recordInference(failure.receipt)
-                throw failure.error
+                try await audited { try await ports.audit.recordInference(failure.receipt) }
+                // An empty reply: once per step, observe the bound target
+                // again and ask again on that new observation. Nothing the
+                // run already sent is repeated; the second call is its own
+                // attempt within the step's attempt limit. A target that is
+                // no longer valid ends the run in observe() before any call.
+                guard failure.isEmptyReply, recoveredStep != stepIndex,
+                      await budget.attempts(step: stepIndex) < budget.maxAttemptsPerStep else {
+                    throw failure.error
+                }
+                recoveredStep = stepIndex
+                try await move(.validating, "empty model reply")
+                try await move(.observing, "observing again after an empty reply")
+                bundle = try await observe()
+                if try await verifyFresh(bundle) { return }
+                continue
             }
             guard await lifecycle.mayProceed(generation: generation) else {
                 await recorder.inference(output.receipt, discarded: true)
