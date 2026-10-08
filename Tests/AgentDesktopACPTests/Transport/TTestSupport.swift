@@ -195,6 +195,16 @@ final class TTestEditor: @unchecked Sendable {
         await sendRaw(v.encoded() + "\n")
     }
 
+    /// Several messages in a single write (JSON-RPC pipelining).
+    func sendPipelined(_ lines: [String]) async {
+        for line in lines {
+            if let v = try? StrictJSON.parse(line), let m = v["method"]?.stringValue, let id = v["id"] {
+                lock.withLock { sentMethods[id.encoded()] = m }
+            }
+        }
+        await sendRaw(lines.map { $0 + "\n" }.joined())
+    }
+
     func request(_ id: Int, _ method: String, _ params: JSONValue) async {
         await send(.obj([("jsonrpc", .string("2.0")), ("id", .int(id)), ("method", .string(method)),
                          ("params", params)]))

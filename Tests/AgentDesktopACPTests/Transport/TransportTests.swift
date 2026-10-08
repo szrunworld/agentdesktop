@@ -147,6 +147,55 @@ import Testing
         #expect(ed.schemaProblems == [])
     }
 
+    // T01: JSON-RPC pipelining. initialize, session/new, session/list and a
+    // notification in one write: nothing is refused, the server sees them in
+    // order, and only after the initialize answer is out.
+    @Test func t01PipelinedRequestsWaitForTheInitializeAnswer() async throws {
+        let ed = TTestEditor()
+        let lines = [
+            #"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}"#,
+            #"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/p","mcpServers":[]}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"session/list","params":{"cwd":"/p"}}"#,
+            #"{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s1"}}"#,
+        ]
+        await ed.sendPipelined(lines)
+        guard case let .request(initId, .initialize)? = await ed.nextEvent() else { Issue.record("init"); return }
+        await ed.connection.reply(to: initId, .initialized(version: .v1, agent: .init(name: "a", version: "1"),
+                                                           capabilities: TTestEditor.defaultCaps))
+        // The first frame out is the initialize answer, not a refusal.
+        let first = await ed.nextFrame()
+        #expect(first?["id"] == .int(0) && first?["result"]?["protocolVersion"] == .int(1))
+        guard case let .request(newId, .newSession("/p"))? = await ed.nextEvent() else { Issue.record("new"); return }
+        guard case let .request(listId, .listSessions(cwd: "/p"))? = await ed.nextEvent() else { Issue.record("list"); return }
+        #expect(await ed.nextEvent() == .notification(.cancel(sessionId: "s1")))
+        await ed.connection.reply(to: newId, .sessionCreated(sessionId: "s1", options: []))
+        await ed.connection.reply(to: listId, .sessions([]))
+        #expect(await ed.nextFrame()?["id"] == .int(1))
+        #expect(await ed.nextFrame()?["id"] == .int(2))
+        #expect(await ed.probeFrameIsNext())
+        #expect(ed.schemaProblems == [])
+    }
+
+    @Test func t01PipelinedRequestsAfterARefusedInitializeAreRefusedInOrder() async throws {
+        let ed = TTestEditor()
+        let lines = [
+            #"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}"#,
+            #"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/p","mcpServers":[]}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"session/list","params":{}}"#,
+        ]
+        await ed.sendPipelined(lines)
+        guard case let .request(initId, .initialize)? = await ed.nextEvent() else { Issue.record("init"); return }
+        await ed.connection.reply(to: initId, .error(ACPError(code: -32000, reason: "auth_required", message: "no")))
+        #expect(await ed.nextFrame()?["error"]?["code"] == .int(-32000))
+        for id in [1, 2] {
+            let f = await ed.nextFrame()
+            #expect(f?["id"] == .int(id))
+            #expect(f?["error"]?["message"] == .string("connection not initialized: send initialize first"))
+        }
+        // Not ready, so a fresh initialize is accepted again.
+        #expect(await ed.initialize() != nil)
+    }
+
     // T02: malformed frames are answered safely; the connection keeps going.
     @Test func t02MalformedFramesAreRefusedSafely() async throws {
         let ed = TTestEditor()

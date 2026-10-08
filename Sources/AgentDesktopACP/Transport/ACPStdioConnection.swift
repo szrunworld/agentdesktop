@@ -18,6 +18,9 @@ public struct ACPStdioConnectionOptions: Sendable {
 /// It answers protocol-level faults itself (parse errors, invalid requests,
 /// unknown or unadvertised methods, bad params, incompatible versions) and
 /// delivers only well-formed requests to the server, in arrival order.
+/// Pipelining is allowed: anything that arrives after an accepted
+/// `initialize` but before its answer is held and processed, in order,
+/// right after that answer is written (docs/acp/02-protocol-version.md §4).
 /// Input end, a write failure, an oversized frame or too many malformed
 /// frames end it with `.closed(reason:)`; pending agent→editor requests then
 /// resolve to `.unavailable`.
@@ -36,6 +39,12 @@ public final class ACPStdioConnection: ACPConnection, @unchecked Sendable {
     private var clientCaps = ACPClientCapabilities()
     /// Set when our `initialize` answer went out: the connection is ready.
     private var advertised: ACPAgentCapabilities?
+    /// An `initialize` was delivered and its answer is not fully out yet:
+    /// incoming messages wait in `held`, in arrival order.
+    private var initPending = false
+    private var held: [ACPJsonRpcMessage] = []
+    /// Capabilities of an accepted `initialize` answer not yet written.
+    private var pendingAdvertised: ACPAgentCapabilities?
     /// Editor requests delivered to the server and not yet answered.
     private var unanswered: [ACPRequestId: (method: String, params: JSONValue?)] = [:]
     private var outgoing: [Int: OutgoingSlot] = [:]
@@ -108,8 +117,48 @@ public final class ACPStdioConnection: ACPConnection, @unchecked Sendable {
 
     public func reply(to id: ACPRequestId, _ reply: ACPReply) async {
         // Unknown, already answered, or gone: answering twice is never right.
-        guard let message = locked({ encodeAnswer(to: id, reply) }) else { return }
+        guard let (message, wasInitialize) = locked({ () -> (ACPJsonRpcMessage, Bool)? in
+            let isInit = unanswered[id]?.method == ACPWireV1.Method.initialize
+            return encodeAnswer(to: id, reply).map { ($0, isInit) }
+        }) else { return }
         await write(message)
+        if wasInitialize { await releaseHeld() }
+    }
+
+    /// After the `initialize` answer is written: become ready (if it was
+    /// accepted) and process held messages in arrival order. Messages that
+    /// arrive meanwhile stay held until every earlier refusal is written,
+    /// so nothing overtakes anything.
+    private func releaseHeld() async {
+        while true {
+            let (refusals, done) = locked { () -> ([ACPJsonRpcMessage], Bool) in
+                if let caps = pendingAdvertised { advertised = caps; pendingAdvertised = nil }
+                let items = held
+                held = []
+                var refusals: [ACPJsonRpcMessage] = []
+                for m in items {
+                    switch m {
+                    case let .request(rawId, method, params):
+                        let id = ACPRequestId(rawId)
+                        switch decide(id: id, method: method, params: params) {
+                        case let .refuse(e): refusals.append(.errorResponse(id: rawId, error: e))
+                        case let .deliver(event): eventsContinuation.yield(event)
+                        case .held: break
+                        }
+                    case let .notification(method, params):
+                        if let incoming = notificationNow(method: method, params: params) {
+                            eventsContinuation.yield(.notification(incoming))
+                        }
+                    default:
+                        break
+                    }
+                }
+                if refusals.isEmpty { initPending = false }
+                return (refusals, refusals.isEmpty)
+            }
+            for r in refusals { await write(r) }
+            if done || isClosed { return }
+        }
     }
 
     /// Called with the lock held.
@@ -146,7 +195,8 @@ public final class ACPStdioConnection: ACPConnection, @unchecked Sendable {
                     message: "internal error: server answered a version other than the negotiated one"))
             }
             if case let .success(result) = adapter.encodeReply(reply, method: ACPWireV1.Method.initialize) {
-                advertised = caps
+                // Ready once the answer is written (releaseHeld).
+                pendingAdvertised = caps
                 return .response(id: id.raw, result: result)
             }
         }
@@ -279,13 +329,22 @@ public final class ACPStdioConnection: ACPConnection, @unchecked Sendable {
         case let .request(rawId, method, params):
             await handleRequest(id: ACPRequestId(rawId), method: method, params: params)
         case let .notification(method, params):
-            let incoming = locked { advertised != nil ? adapter?.decodeNotification(method: method, params: params) : nil }
-            if let incoming { eventsContinuation.yield(.notification(incoming)) }
+            locked {
+                if initPending { held.append(message); return }
+                if let incoming = notificationNow(method: method, params: params) {
+                    eventsContinuation.yield(.notification(incoming))
+                }
+            }
         case let .response(rawId, result):
             resolve(rawId, .result(result))
         case let .errorResponse(rawId, error):
             resolve(rawId, .error(error))
         }
+    }
+
+    /// Called with the lock held.
+    private func notificationNow(method: String, params: JSONValue?) -> ACPIncoming? {
+        advertised != nil ? adapter?.decodeNotification(method: method, params: params) : nil
     }
 
     private func resolve(_ rawId: JSONValue, _ r: OutgoingResult) {
@@ -297,13 +356,21 @@ public final class ACPStdioConnection: ACPConnection, @unchecked Sendable {
     private enum RequestDecision {
         case refuse(ACPJsonRpcError)
         case deliver(ACPConnectionEvent)
+        case held
     }
 
     private func handleRequest(id: ACPRequestId, method: String, params: JSONValue?) async {
-        switch locked({ decide(id: id, method: method, params: params) }) {
-        case let .refuse(e): await write(.errorResponse(id: id.raw, error: e))
-        case let .deliver(event): eventsContinuation.yield(event)
+        let decision = locked { () -> RequestDecision in
+            if initPending {
+                held.append(.request(id: id.raw, method: method, params: params))
+                return .held
+            }
+            // Yield under the lock so a concurrent release cannot reorder events.
+            let d = decide(id: id, method: method, params: params)
+            if case let .deliver(event) = d { eventsContinuation.yield(event); return .held }
+            return d
         }
+        if case let .refuse(e) = decision { await write(.errorResponse(id: id.raw, error: e)) }
     }
 
     /// Called with the lock held.
@@ -328,6 +395,7 @@ public final class ACPStdioConnection: ACPConnection, @unchecked Sendable {
                 let (info, caps) = a.decodeInitialize(params: p)
                 clientCaps = caps
                 unanswered[id] = (method, params)
+                initPending = true
                 return .deliver(.request(id, .initialize(client: info, capabilities: caps,
                                                           requested: String(outcome.requested))))
             }
@@ -364,6 +432,7 @@ public final class ACPStdioConnection: ACPConnection, @unchecked Sendable {
         // Anything still waiting registers later and sees no slot: `.closed`.
         outgoing.removeAll()
         unanswered.removeAll()
+        held.removeAll()
         lock.unlock()
         for c in conts { c.resume(returning: .closed) }
         eventsContinuation.yield(.closed(reason: reason))
