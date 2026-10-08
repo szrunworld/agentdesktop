@@ -1,6 +1,6 @@
 # ACP 测试与验收（工作线 Q）
 
-状态：2026-10-08 第三轮（acp-skeleton 136eb61）。163 个用例：PASSED 32、FAILED 0、BLOCKED 13、NOT_RUN 118。PASSED 只在 L1（假编辑器对 dev 入口）与 L2 只读冒烟（测试副本，无 unit.run）上；任何需要 A2/A4/A6 或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4、4.5 节。
+状态：2026-10-08 第五轮（acp-skeleton f150e0b）。168 个用例：PASSED 37、FAILED 0、BLOCKED 13、NOT_RUN 118。PASSED 只在 L1（假编辑器对 dev 入口、真 ACP 栈配脚本化 Runtime）与 L2 只读冒烟（测试副本，无 unit.run）上；任何需要 A2/A4/A6 或真实 Zed 的用例都没有标 PASSED，**没有一条算端到端验收**。结果见 4.4～4.6 节。
 
 ## 一、分层（Kevin 裁决附加约束 6）
 
@@ -21,7 +21,7 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `docs/acp/tests/cases.csv` | 163 个可执行用例 |
+| `docs/acp/tests/cases.csv` | 168 个可执行用例 |
 | `docs/acp/tests/e2e-runbook.md` | 真机端到端手册：测试副本、Zed 配置、计算器中立样本、证据、通过标准 |
 | `docs/acp/tests/evidence/fake-editor-selftest-2026-10-08/` | 假编辑器自检的原始记录 |
 | `scripts/acp/fake-editor/` | 假编辑器（TypeScript，官方 `@agentclientprotocol/sdk` 1.7.0 锁定版本，`package-lock.json` 已提交，`node_modules/`、`dist/` 不提交） |
@@ -94,18 +94,19 @@
 | ACP-29 执行中关闭 Zed | 3 | 0 | 0 | 0 | 3 | ACP-29-01～03 |
 | ACP-30 重连后查询先前 Run | 3 | 2 | 0 | 0 | 1 | ACP-30-01～03 |
 | ACP-31 观察他人 Durable Run | 4 | 1 | 3 | 0 | 0 | ACP-31-01～04 |
-| **合计** | **163** | 57 | 61 | 10 | 35 | |
+| 裁决 P1/P2（Kevin 第二次裁决，L1） | 5 | 0 | 3 | 0 | 2 | ACP-RULE-P1-01、02，ACP-RULE-P2-01～03 |
+| **合计** | **168** | 57 | 64 | 10 | 37 | |
 
 ### 3.3 每个门禁的用例数
 
-一个用例可以属于多个门禁，所以下表合计大于 163。门禁的 PASSED 数只是 L1/L2 子项，门禁本身仍未通过。
+一个用例可以属于多个门禁，所以下表合计大于 168。门禁的 PASSED 数只是 L1/L2 子项，门禁本身仍未通过。
 
 | 门禁 | 用例 | L1 | L2 | L3 | PASSED | FAILED | BLOCKED |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | G0 | 6 | 2 | 4 | 0 | 0 | 0 | 1 |
 | G1 | 56 | 32 | 11 | 13 | 22 | 0 | 0 |
 | G2 | 52 | 36 | 11 | 5 | 9 | 0 | 10 |
-| G3 | 46 | 23 | 12 | 11 | 3 | 0 | 2 |
+| G3 | 51 | 28 | 12 | 11 | 8 | 0 | 2 |
 | G4 | 10 | 0 | 10 | 0 | 0 | 0 | 0 |
 | G5 | 9 | 2 | 0 | 7 | 0 | 0 | 0 |
 
@@ -134,7 +135,7 @@ node dist/fake-editor.js --profile profiles/<p>.json \
 
 AgentDesktop profile 的 `features` 随依赖合入逐项打开：A6（任务入口与中立样本任务 → task.slow、提示词）、PR4（approval）、A4（identity.second）。T14 的期望文本取自 08-event-mapping：真实模式 owner_lost 显示「编辑器连接已断开」；demo 端口重启后 Run 丢失，显示「待核实」。
 
-**场景操作**：`rawBatch`（多帧连续写出、不等回复，只用于流水线场景）、`connect`（可选 `identity`）、`initialize`、`newSession`、`prompt`（`permission` = allow / deny / cancelled / none / hang；`cancelAfterMs`；`disconnectAfterMs`）、`promptParallel`、`listSessions`、`resume`（load 或 resume）、`closeSession`、`cancel`、`disconnect`（关 stdin 或 kill）、`expectExit`（非崩溃信号）、`expectAlive`、`raw`（任意字节，含超限帧）、`probeCapabilities`（宣告的能力必须可用、未宣告的必须被拒）、`mark` / `wait` / `assert`（标记之后没有新工具调用；标记时未完成的工具调用之后不能变成 completed）。
+**场景操作**：`setConfig`（session/set_config_option）、`assert` 的 `noFrameContains`（agent 写出的任何帧都不得含某串）与 `unknownTerminal`（结果不明的工具调用从不 completed，最后为 failed + rawOutput terminated/unknown）、`rawBatch`（多帧连续写出、不等回复，只用于流水线场景）、`connect`（可选 `identity`）、`initialize`、`newSession`、`prompt`（`permission` = allow / deny / cancelled / none / hang；`cancelAfterMs`；`disconnectAfterMs`）、`promptParallel`、`listSessions`、`resume`（load 或 resume）、`closeSession`、`cancel`、`disconnect`（关 stdin 或 kill）、`expectExit`（非崩溃信号）、`expectAlive`、`raw`（任意字节，含超限帧）、`probeCapabilities`（宣告的能力必须可用、未宣告的必须被拒）、`mark` / `wait` / `assert`（标记之后没有新工具调用；标记时未完成的工具调用之后不能变成 completed）。
 
 `permission=none` 模拟没有审批界面的编辑器：对 `session/request_permission` 回 `-32601`。`hang` 永不回答，用来做「等待审批时断开」。
 
@@ -160,6 +161,8 @@ AgentDesktop profile 的 `features` 随依赖合入逐项打开：A6（任务入
 | scene-b-scoped-disconnect | ACP-P2B-01、02 | approval、session.load |
 | scene-d-approval-unavailable | ACP-P2D-01、02 | approval |
 | l2-readonly | ACP-L2-01～05 | runtime.real |
+| p1-window-title | ACP-RULE-P1-01、02 | runtime.events.windowTitle、session.load |
+| p2-unknown-terminal | ACP-RULE-P2-01～03 | runtime.events.unknown、session.load |
 
 ### 4.3 自检结果（2026-10-08，已执行）
 
@@ -170,7 +173,7 @@ AgentDesktop profile 的 `features` 随依赖合入逐项打开：A6（任务入
 | 回声 agent，17 个场景 | 16 PASS，1 BLOCKED（l2-readonly 需要真 Runtime），退出码 0 |
 | 官方 SDK 示例 agent，14 个场景 | 9 PASS（T01、T01b、T02、T02b、T03、T04、T12、T16、场景 D），5 BLOCKED（T06、T07、T08、T14、场景 B：示例 agent 没有 session/load、列表与第二身份），退出码 0 |
 | 官方 SDK 示例 agent，T05 | FAIL，符合预期：示例 agent 未宣告 `promptCapabilities.image`，却照常执行只含图片的 prompt。这说明能力探测对第三方实现有效 |
-| 回声 agent 注入 9 种缺陷 | 9 种全部被对应场景判 FAIL：审批不可用当作允许（场景 D）、提供 allow_always（T16）、忽略取消（T12）、不检查会话归属（T07）、串流（T08）、宣告了图片却拒收（T05）、重连后自动继续（T14）、stdout 夹杂日志（T01）、用户输入当作 agent 文本回放（T06b） |
+| 回声 agent 注入 11 种缺陷 | 11 种全部被对应场景判 FAIL：泄露窗口标题（P1）、结果不明显示为 completed（P2）、审批不可用当作允许（场景 D）、提供 allow_always（T16）、忽略取消（T12）、不检查会话归属（T07）、串流（T08）、宣告了图片却拒收（T05）、重连后自动继续（T14）、stdout 夹杂日志（T01）、用户输入当作 agent 文本回放（T06b） |
 
 自检证明的是**测试工具会抓到这些缺陷**，不改变 cases.csv 的状态。
 
@@ -243,9 +246,40 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 
 观察（不算失败，交 S 线）：真实模式下 load 的回放里，「身份说明」出现了两次，一次来自历史，一次是加载时重新生成的。
 
+### 4.6 第五轮：裁决 P1 / P2（2026-10-08，acp-skeleton f150e0b，含 #90、#91）
+
+**dev 入口 `--demo` 全量复跑**：重新构建（退出码 0）后共 20 个场景，退出码 0，证据在 [evidence/l1-dev-demo-r5-2026-10-08](evidence/l1-dev-demo-r5-2026-10-08/)。
+
+- PASS（12）：t01、t01b、t02、t02b、t02c、t03、t04、t05、t06、t06b、t12、t14。
+- BLOCKED（8）：t07、t08、t16、场景 B、场景 D、l2-readonly，以及新增的 p1-window-title、p2-unknown-terminal。
+
+两个新场景之所以 BLOCKED，是因为 demo 端口只发 `demo.progress`，配的也是演示投影器，既没有窗口标题，也没有结果不明的动作，测不到 P1、P2。dev 入口的 demo 属于 S 线的文件，本线不改。
+
+**P1、P2 改在完整的 ACP 栈上测**：`Tests/AgentDesktopACPTests/Conformance/QTestStackRulingTests.swift`。
+
+- 接线与 `agentdesktop-acp-dev` 完全相同：真实管道上的 `ACPStdioFileTransport`、`ACPStdioConnection`、`ACPAgentServer`、`ACPProjector`、`ACPWireV1`，以及写在磁盘上的 `ACPFileSessionStore`。
+- 只有 Runtime 换成脚本化端口 `QTestScriptedPort`。断言针对编辑器收到的字节，以及服务器写下的文件。
+- 设置 `QTEST_STACK_EVIDENCE=<dir>` 时保存原始输出，证据在 [evidence/l1-stack-rulings-2026-10-08](evidence/l1-stack-rulings-2026-10-08/)。
+
+| 测试 | 用例 | 结果 |
+| --- | --- | --- |
+| widenedPolicyStillHidesTheBoundWindowTitle | ACP-RULE-P1-01、02 | PASS：截图设为 all、页面文字设为 on 后，人名、标题片段、应用名都不出现在实时帧、重连回放帧或会话存储的任何文件里；页面元素标签「下载简历」照常显示 |
+| unknownActionEndsTerminalAndIsNeverRetried | ACP-RULE-P2-01、03 | PASS：运行期间该动作为 in_progress「结果待核实」；run.ended 时变为 `failed` + `rawOutput {execution: terminated, outcome: unknown}`，标题「输入文字 — 结果未知 · 需要核实」，始终没有出现 completed；只提交 1 次 |
+| disconnectMidRunThenLoadShowsTerminalUnknownWithoutRetry | ACP-RULE-P2-02、03 | PASS：动作发出后断开（connectionLost 被调用），Runtime 以 owner_lost、unknown 结束 Run；重连 load 后回放以同样的终态结束，原因为「编辑器连接已断开」；没有重新提交 |
+
+变异检查（[mutations.txt](evidence/l1-stack-rulings-2026-10-08/mutations.txt)，每次改完立即用 git checkout 还原）：
+
+- 把 `ACPWireV1.terminalUnknownStatus` 改成 `.completed`：P2 两个测试都失败，被抓到。
+- 让投影器的元素行改读 `windowTitle`：P1 测试失败，被抓到。
+- 把窗口标题键错分类成 `pageText`：测试仍然通过。原因是这个分类器不在该字段的输出路径上，只是兜底防线。
+
+同一套断言也写成了假编辑器场景（`p1-window-title`、`p2-unknown-terminal`，新增操作 `setConfig`，以及 `assert` 的 `noFrameContains`、`unknownTerminal`）。它们对回声 agent 都 PASS；回声 agent 新增的两个注入缺陷 `leak-title`、`unknown-as-completed` 都被抓到。等真 Runtime（A6）或带这类事件的 demo 出现后，同样的场景可以直接对 dev 入口跑。
+
+观察（交 S 线，不算失败）：P2 实时过程最后一条轮询状态文字仍是旧措辞「结果待核实（不会自动重试）」，没有统一成裁决 P2 的「结果未知 · 需要核实」（见 p2-unknown-live.ndjson 末尾）。
+
 ## 五、冻结接口一致性测试
 
-`Tests/AgentDesktopACPTests/Conformance/QTestFrozenModelConformanceTests.swift`：9 个 suite、22 个测试，只依赖 `Model/ACPModel.swift` 与 `Ports.swift`，在 `acp-skeleton` 上单独可编译。
+`Tests/AgentDesktopACPTests/Conformance/QTestFrozenModelConformanceTests.swift`：9 个 suite、22 个测试，只依赖 `Model/ACPModel.swift` 与 `Ports.swift`，在 `acp-skeleton` 上单独可编译。另有 `QTestStackRulingTests.swift`（2 个 suite、3 个测试）：用整套 ACP 代码、只把 Runtime 换成脚本化端口，验证裁决 P1、P2（见 4.6 节）。它依赖各线的实现，不属于冻结接口一致性。
 
 | suite | 钉住的不变量 |
 | --- | --- |
@@ -297,13 +331,13 @@ dev 入口重新构建（`swift build --product agentdesktop-acp-dev` 退出码 
 | G2-09 丢回复只查询 | ACP-T10-03、ACP-T09-04 |
 | （建议 G2-10）重连查询先前 Run | ACP-30-01～03 |
 | （建议 G2-11）观察他人 Durable Run 需授权 | ACP-31-01～04 |
-| G3-01 | ACP-T11-01～05 |
+| G3-01 | ACP-T11-01～05、ACP-RULE-P2-01～03 |
 | G3-02 T13（K1 改写） | ACP-T13-01～04、ACP-P2A-01、ACP-P2A-02 |
 | G3-03 | ACP-T14-01～04、ACP-P2B-01～03、ACP-29-01～03 |
 | G3-04 | ACP-T17-01～03、ACP-P2C-01、ACP-P2C-02 |
 | G3-05 | ACP-T19-01～03 |
 | G3-06 | ACP-T20-01、02 |
-| G3-07 | ACP-T21-01～05、ACP-T02-07 |
+| G3-07 | ACP-T21-01～05、ACP-T02-07、ACP-RULE-P1-01、02 |
 | G3-08 | ACP-T28-01～03 |
 | G3-09 长运行 | ACP-P209-01、ACP-P209-02 |
 | G3-10 | ACP-T16-06 |

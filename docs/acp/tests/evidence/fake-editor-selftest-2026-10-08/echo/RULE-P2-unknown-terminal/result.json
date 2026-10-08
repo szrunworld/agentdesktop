@@ -1,0 +1,27 @@
+{
+  "id": "RULE-P2-unknown-terminal",
+  "cases": [
+    "ACP-RULE-P2-01",
+    "ACP-RULE-P2-02",
+    "ACP-RULE-P2-03"
+  ],
+  "title": "裁决 P2：动作已发出、结果不明时断开；Run 结束后该工具调用为终态 failed + rawOutput {terminated, unknown}，从不 completed，重连后不重试",
+  "status": "PASS",
+  "durationMs": 4076,
+  "failures": [],
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "unknown",
+      "outcome": "disconnected",
+      "error": {
+        "message": "ACP connection closed"
+      }
+    },
+    {
+      "op": "session/load",
+      "updatesBeforeResponse": 5,
+      "updatesAfterResponse": 0
+    }
+  ]
+}

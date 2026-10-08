@@ -1,23 +1,23 @@
 {"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
-{"ms":0,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
-{"ms":0,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":62,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
-{"ms":62,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
-{"ms":62,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q3-st/echo/T08-concurrent-sessions/run","mcpServers":[]}}}
-{"ms":63,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-59785-1"}}}
-{"ms":63,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s2"}}
-{"ms":64,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/tmp/adt-q3-st/echo/T08-concurrent-sessions/run","mcpServers":[]}}}
-{"ms":64,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"sessionId":"qs-59785-2"}}}
-{"ms":64,"dir":"step","step":"promptParallel","at":{"op":"promptParallel","prompts":[{"session":"s1","text":"echo marker-s1-q7","marker":"marker-s1-q7"},{"session":"s2","text":"echo marker-s2-k4","marker":"marker-s2-k4"}]}}
-{"ms":64,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"qs-59785-1","prompt":[{"type":"text","text":"echo marker-s1-q7"}]}}}
-{"ms":64,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"qs-59785-2","prompt":[{"type":"text","text":"echo marker-s2-k4"}]}}}
-{"ms":65,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-59785-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo marker-s1-q7"}}}}}
-{"ms":65,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-59785-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"marker-s1-q7"}}}}}
-{"ms":65,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}}
-{"ms":66,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-59785-2","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo marker-s2-k4"}}}}}
-{"ms":66,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-59785-2","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"marker-s2-k4"}}}}}
-{"ms":66,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":4,"result":{"stopReason":"end_turn"}}}
-{"ms":66,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
-{"ms":66,"conn":1,"dir":"disconnect","mode":"close-stdin"}
-{"ms":66,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
-{"ms":70,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":82,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"list":{},"resume":{},"close":{}}},"agentInfo":{"name":"qtest-echo-agent","version":"0.1.0"},"authMethods":[]}}}
+{"ms":82,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":82,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q5-st/echo/T08-concurrent-sessions/run","mcpServers":[]}}}
+{"ms":83,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"qs-65914-1"}}}
+{"ms":83,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s2"}}
+{"ms":83,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/tmp/adt-q5-st/echo/T08-concurrent-sessions/run","mcpServers":[]}}}
+{"ms":84,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"sessionId":"qs-65914-2"}}}
+{"ms":84,"dir":"step","step":"promptParallel","at":{"op":"promptParallel","prompts":[{"session":"s1","text":"echo marker-s1-q7","marker":"marker-s1-q7"},{"session":"s2","text":"echo marker-s2-k4","marker":"marker-s2-k4"}]}}
+{"ms":84,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"qs-65914-1","prompt":[{"type":"text","text":"echo marker-s1-q7"}]}}}
+{"ms":84,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"qs-65914-2","prompt":[{"type":"text","text":"echo marker-s2-k4"}]}}}
+{"ms":85,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65914-1","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo marker-s1-q7"}}}}}
+{"ms":86,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65914-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"marker-s1-q7"}}}}}
+{"ms":86,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}}
+{"ms":86,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65914-2","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echo marker-s2-k4"}}}}}
+{"ms":87,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"qs-65914-2","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"marker-s2-k4"}}}}}
+{"ms":87,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":4,"result":{"stopReason":"end_turn"}}}
+{"ms":87,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":87,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":87,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":93,"conn":1,"dir":"exit","code":0,"signal":null}

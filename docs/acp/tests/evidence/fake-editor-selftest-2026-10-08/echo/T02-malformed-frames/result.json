@@ -8,7 +8,7 @@
   ],
   "title": "坏 JSON、未知方法、参数类型错误都得到 JSON-RPC 错误，连接继续可用",
   "status": "PASS",
-  "durationMs": 369,
+  "durationMs": 378,
   "failures": [],
   "steps": [
     {

@@ -1,0 +1,5 @@
+◇ Test run started.
+✔ Test widenedPolicyStillHidesTheBoundWindowTitle() passed after 0.254 seconds.
+✔ Test unknownActionEndsTerminalAndIsNeverRetried() passed after 0.763 seconds.
+✔ Test disconnectMidRunThenLoadShowsTerminalUnknownWithoutRetry() passed after 0.997 seconds.
+✔ Test run with 3 tests passed after 1.761 seconds.

@@ -6,9 +6,9 @@
   ],
   "title": "connection_scoped 的一轮执行中编辑器断开：不再产生新动作，重连加载后不自动继续",
   "status": "FAIL",
-  "durationMs": 4454,
+  "durationMs": 4502,
   "failures": [
-    "4 new tool calls after mark afterExit: step-61679-1,step-61679-1,step-61679-2,step-61679-2"
+    "4 new tool calls after mark afterExit: step-70046-1,step-70046-1,step-70046-2,step-70046-2"
   ],
   "steps": [
     {

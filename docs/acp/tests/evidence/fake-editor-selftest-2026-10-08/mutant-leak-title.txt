@@ -1,0 +1,1 @@
+FAIL    RULE-P1-window-title  ACP-RULE-P1-01,ACP-RULE-P1-02  — "王小明" appears in 2 agent frames (first at 74 ms)

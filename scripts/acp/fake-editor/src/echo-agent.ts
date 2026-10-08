@@ -9,6 +9,8 @@
 //   act <label>    one tool call that needs permission (allow_once / reject_once)
 //   slow <steps>   <steps> tool calls, 250 ms apart; cancellable
 //   forbidden      refused (stopReason refusal), nothing executed
+//   titled <name>  one action on a window titled with <name> (ruling P1)
+//   unknown        one action whose result never comes (ruling P2)
 //
 // Environment:
 //   QTEST_ECHO_STATE      directory for sessions.json and actions.log (required)
@@ -20,7 +22,7 @@
 //                         no-owner-check, cross-talk, overclaim (claims
 //                         images, still rejects them),
 //                         continue-after-reconnect, stdout-noise,
-//                         replay-user-as-agent
+//                         replay-user-as-agent, leak-title, unknown-as-completed
 import * as acp from "@agentclientprotocol/sdk";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -179,6 +181,10 @@ class QTestEchoAgent implements acp.Agent {
           }
           await this.send(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: arg } });
           return { stopReason: "end_turn" };
+        case "titled":
+          return await this.titled(sid, arg || "王小明");
+        case "unknown":
+          return await this.unknown(sid, abort.signal);
         case "forbidden":
           await this.send(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "task_not_authorized" } });
           return { stopReason: "refusal" };
@@ -248,14 +254,59 @@ class QTestEchoAgent implements acp.Agent {
     return { stopReason: "end_turn" };
   }
 
+  async setSessionConfigOption(_p: acp.SetSessionConfigOptionRequest): Promise<acp.SetSessionConfigOptionResponse> {
+    return { configOptions: [] };
+  }
+
+  /// Ruling P1 stand-in: the "bound window" is titled with a person's name;
+  /// only the mutant lets it reach the editor.
+  private async titled(sid: string, name: string): Promise<acp.PromptResponse> {
+    const windowTitle = `候选人 ${name} 的简历 – Preview`;
+    const toolCallId = nextId("act");
+    const shown = mutant === "leak-title" ? `Click download on ${windowTitle}` : "点击（目标 ref-0001）";
+    await this.send(sid, { sessionUpdate: "tool_call", toolCallId, title: shown, kind: "execute", status: "in_progress" });
+    recordInput(sid, `titled ${toolCallId}`);
+    await this.send(sid, { sessionUpdate: "tool_call_update", toolCallId, status: "completed" });
+    return { stopReason: "end_turn" };
+  }
+
+  /// Ruling P2 stand-in: an action is sent but its result never comes; it
+  /// stays in progress until the turn ends (cancel or disconnect).
+  private unknownCalls = new Map<string, string>();
+  private async unknown(sid: string, signal: AbortSignal): Promise<acp.PromptResponse> {
+    const toolCallId = nextId("act");
+    this.unknownCalls.set(sid, toolCallId);
+    await this.send(sid, { sessionUpdate: "tool_call", toolCallId, title: "输入文字 — 已发出", kind: "execute", status: "in_progress", rawOutput: { outcome: "unknown" } });
+    recordInput(sid, `unknown ${toolCallId}`);
+    while (!signal.aborted) await new Promise((r) => setTimeout(r, 50));
+    await this.endUnknown(sid);
+    return { stopReason: "cancelled" };
+  }
+
+  private endUnknownFor(sid: string): acp.SessionUpdate[] {
+    const toolCallId = this.unknownCalls.get(sid);
+    if (!toolCallId) return [];
+    this.unknownCalls.delete(sid);
+    const status = mutant === "unknown-as-completed" ? "completed" : "failed";
+    return [
+      { sessionUpdate: "tool_call_update", toolCallId, title: "输入文字 — 结果未知 · 需要核实", status, rawOutput: { execution: "terminated", outcome: "unknown" } },
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "任务结束：结果未知 · 需要核实" } },
+    ];
+  }
+  private async endUnknown(sid: string) {
+    for (const u of this.endUnknownFor(sid)) await this.send(sid, u);
+  }
+
   /// The control connection is gone: a connection-scoped turn stops input,
   /// and the history says so for whoever loads the session later.
   connectionLost() {
     for (const [sid, abort] of this.running) {
       abort.abort();
-      mutate(sid, (s) =>
-        s.history.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ended:connection_lost outcome:unknown" } }),
-      );
+      const tail = this.endUnknownFor(sid);
+      mutate(sid, (s) => {
+        s.history.push(...tail);
+        s.history.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ended:connection_lost outcome:unknown" } });
+      });
     }
   }
 }

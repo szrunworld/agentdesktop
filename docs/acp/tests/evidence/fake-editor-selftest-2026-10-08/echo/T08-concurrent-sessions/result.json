@@ -5,7 +5,7 @@
   ],
   "title": "同一连接上两个会话并发 prompt，各自只收到自己的更新",
   "status": "PASS",
-  "durationMs": 70,
+  "durationMs": 93,
   "failures": [],
   "steps": []
 }

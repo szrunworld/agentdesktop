@@ -8,7 +8,7 @@
   ],
   "title": "创建、列表、断开后重连加载（回放历史）、关闭；加载不存在的会话被拒",
   "status": "PASS",
-  "durationMs": 131,
+  "durationMs": 197,
   "failures": [],
   "steps": [
     {

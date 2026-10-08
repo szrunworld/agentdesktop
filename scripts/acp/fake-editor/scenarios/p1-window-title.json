@@ -1,0 +1,92 @@
+{
+  "id": "RULE-P1-window-title",
+  "cases": [
+    "ACP-RULE-P1-01",
+    "ACP-RULE-P1-02"
+  ],
+  "title": "裁决 P1：放宽截图与页面文字后，绑定窗口标题里的人名不出现在任何帧（实时与回放）",
+  "requires": [
+    "runtime.events.windowTitle",
+    "session.load"
+  ],
+  "steps": [
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "newSession",
+      "as": "s1"
+    },
+    {
+      "op": "setConfig",
+      "session": "s1",
+      "configId": "screenshots",
+      "value": "all"
+    },
+    {
+      "op": "setConfig",
+      "session": "s1",
+      "configId": "pageText",
+      "value": "on"
+    },
+    {
+      "op": "prompt",
+      "session": "s1",
+      "text": "${PROMPT_P1}",
+      "timeoutMs": 30000,
+      "expect": {
+        "updatesInclude": [
+          "tool_call"
+        ]
+      }
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    },
+    {
+      "op": "connect"
+    },
+    {
+      "op": "initialize",
+      "expect": {
+        "protocolVersionIn": "${SUPPORTED_VERSIONS}"
+      }
+    },
+    {
+      "op": "resume",
+      "session": "s1",
+      "method": "load",
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "op": "wait",
+      "ms": 500
+    },
+    {
+      "op": "assert",
+      "noFrameContains": [
+        "${P1_NAME}",
+        "${P1_TITLE_FRAGMENT}"
+      ]
+    },
+    {
+      "op": "disconnect"
+    },
+    {
+      "op": "expectExit",
+      "withinMs": 5000
+    }
+  ]
+}

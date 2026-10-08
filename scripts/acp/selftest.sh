@@ -70,6 +70,8 @@ overclaim t05-capabilities
 continue-after-reconnect t14-scoped-disconnect
 stdout-noise t01-valid-requests
 replay-user-as-agent t06b-load-ordering
+leak-title p1-window-title
+unknown-as-completed p2-unknown-terminal
 EOF
 
 echo "evidence: $out"

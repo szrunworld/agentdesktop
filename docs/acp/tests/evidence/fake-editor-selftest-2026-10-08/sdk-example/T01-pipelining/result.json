@@ -5,7 +5,7 @@
   ],
   "title": "不等 initialize 回复就发 session/new（流水线）：两个请求都应成功",
   "status": "PASS",
-  "durationMs": 92,
+  "durationMs": 78,
   "failures": [],
   "steps": [
     {
@@ -25,7 +25,7 @@
           "jsonrpc": "2.0",
           "id": "raw-new",
           "result": {
-            "sessionId": "072d00bf02b5d2902df732e840808e1d"
+            "sessionId": "b1adf221aefb6d69585ff4f6b8b3f1a2"
           }
         }
       ]

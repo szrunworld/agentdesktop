@@ -5,7 +5,7 @@
   ],
   "title": "session/load 先回放历史再回复；用户自己的输入以 user_message_chunk 回放（ACP v1 Loading Sessions）",
   "status": "PASS",
-  "durationMs": 127,
+  "durationMs": 213,
   "failures": [],
   "steps": [
     {

@@ -2,18 +2,18 @@
 {"ms":1,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
 {"ms":1,"conn":1,"dir":"disconnect","mode":"close-stdin"}
 {"ms":1,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
-{"ms":59,"conn":1,"dir":"exit","code":0,"signal":null}
-{"ms":59,"dir":"step","step":"connect","at":{"op":"connect"}}
-{"ms":60,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
-{"ms":60,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":117,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}}
-{"ms":117,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
-{"ms":117,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q3-st/sdk-example/T03-stdio-close/run","mcpServers":[]}}}
-{"ms":119,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"f748a462d95b7303a376861a389139b4"}}}
-{"ms":119,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"hello","disconnectAfterMs":"1500","expect":{"stopReasonIn":["disconnected"]}}}
-{"ms":119,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"f748a462d95b7303a376861a389139b4","prompt":[{"type":"text","text":"hello"}]}}}
-{"ms":120,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"f748a462d95b7303a376861a389139b4","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"I'll help you with that. Let me start by reading some files to understand the current situation."}}}}}
-{"ms":1123,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"f748a462d95b7303a376861a389139b4","update":{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"Reading project files","kind":"read","status":"pending","locations":[{"path":"/project/README.md"}],"rawInput":{"path":"/project/README.md"}}}}}
-{"ms":1621,"conn":2,"dir":"disconnect","mode":"close-stdin"}
-{"ms":2135,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
-{"ms":2136,"conn":2,"dir":"exit","code":0,"signal":null}
+{"ms":83,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":83,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":84,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":84,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":167,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}}
+{"ms":167,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":168,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q5-st/sdk-example/T03-stdio-close/run","mcpServers":[]}}}
+{"ms":171,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"d5d04062391d1bfa712c2a07816b96c7"}}}
+{"ms":172,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"hello","disconnectAfterMs":"1500","expect":{"stopReasonIn":["disconnected"]}}}
+{"ms":172,"conn":2,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"d5d04062391d1bfa712c2a07816b96c7","prompt":[{"type":"text","text":"hello"}]}}}
+{"ms":173,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"d5d04062391d1bfa712c2a07816b96c7","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"I'll help you with that. Let me start by reading some files to understand the current situation."}}}}}
+{"ms":1177,"conn":2,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"d5d04062391d1bfa712c2a07816b96c7","update":{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"Reading project files","kind":"read","status":"pending","locations":[{"path":"/project/README.md"}],"rawInput":{"path":"/project/README.md"}}}}}
+{"ms":1672,"conn":2,"dir":"disconnect","mode":"close-stdin"}
+{"ms":2184,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":2185,"conn":2,"dir":"exit","code":0,"signal":null}

@@ -1,32 +1,32 @@
 {"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
-{"ms":0,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
-{"ms":0,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
-{"ms":54,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}}
-{"ms":54,"dir":"step","step":"raw","at":{"op":"raw","line":"{not json","expect":{"errorCode":-32700}}}
-{"ms":55,"conn":1,"dir":"out-raw","raw":"{not json"}
-{"ms":55,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}}
-{"ms":55,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-1","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}","expect":{"errorCode":-32601}}}
-{"ms":55,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}"}
-{"ms":55,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-1","error":{"code":-32601,"message":"\"Method not found\": qtest/no_such_method","data":{"method":"qtest/no_such_method"}}}}
-{"ms":56,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-2","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}","expect":{"errorCodeIn":[-32602,-32600]}}}
-{"ms":56,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}"}
-{"ms":56,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-2","error":{"code":-32602,"message":"Invalid params","data":{"_errors":[],"sessionId":{"_errors":["Invalid input: expected string, received number"]},"prompt":{"_errors":["Invalid input: expected array, received undefined"]}}}}}
-{"ms":56,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":300}}
-{"ms":359,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
-{"ms":359,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q3-st/sdk-example/T02-malformed-frames/run","mcpServers":[]}}}
-{"ms":366,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"f39d24dd124a108e01167aba87660d22"}}}
-{"ms":367,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"hello","expect":{"stopReason":"end_turn"}}}
-{"ms":367,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"f39d24dd124a108e01167aba87660d22","prompt":[{"type":"text","text":"hello"}]}}}
-{"ms":370,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"f39d24dd124a108e01167aba87660d22","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"I'll help you with that. Let me start by reading some files to understand the current situation."}}}}}
-{"ms":1373,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"f39d24dd124a108e01167aba87660d22","update":{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"Reading project files","kind":"read","status":"pending","locations":[{"path":"/project/README.md"}],"rawInput":{"path":"/project/README.md"}}}}}
-{"ms":2375,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"f39d24dd124a108e01167aba87660d22","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"# My Project\n\nThis is a sample project..."}}],"rawOutput":{"content":"# My Project\n\nThis is a sample project..."}}}}}
-{"ms":3378,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"f39d24dd124a108e01167aba87660d22","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Now I understand the project structure. I need to make some changes to improve it."}}}}}
-{"ms":4381,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"f39d24dd124a108e01167aba87660d22","update":{"sessionUpdate":"tool_call","toolCallId":"call_2","title":"Modifying critical configuration file","kind":"edit","status":"pending","locations":[{"path":"/project/config.json"}],"rawInput":{"path":"/project/config.json","content":"{\"database\": {\"host\": \"new-host\"}}"}}}}}
-{"ms":4383,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"f39d24dd124a108e01167aba87660d22","toolCall":{"toolCallId":"call_2","title":"Modifying critical configuration file","kind":"edit","status":"pending","locations":[{"path":"/home/user/project/config.json"}],"rawInput":{"path":"/home/user/project/config.json","content":"{\"database\": {\"host\": \"new-host\"}}"}},"options":[{"kind":"allow_once","name":"Allow this change","optionId":"allow"},{"kind":"reject_once","name":"Skip this change","optionId":"reject"}]}}}
-{"ms":4384,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"result":{"outcome":{"outcome":"selected","optionId":"reject"}}}}
-{"ms":5388,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"f39d24dd124a108e01167aba87660d22","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" I understand you prefer not to make that change. I'll skip the configuration update."}}}}}
-{"ms":5389,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
-{"ms":5389,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
-{"ms":5389,"conn":1,"dir":"disconnect","mode":"close-stdin"}
-{"ms":5389,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
-{"ms":5399,"conn":1,"dir":"exit","code":0,"signal":null}
+{"ms":2,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":2,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":65,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}}
+{"ms":65,"dir":"step","step":"raw","at":{"op":"raw","line":"{not json","expect":{"errorCode":-32700}}}
+{"ms":65,"conn":1,"dir":"out-raw","raw":"{not json"}
+{"ms":66,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}}
+{"ms":66,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-1","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}","expect":{"errorCode":-32601}}}
+{"ms":66,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-1\",\"method\":\"qtest/no_such_method\",\"params\":{}}"}
+{"ms":66,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-1","error":{"code":-32601,"message":"\"Method not found\": qtest/no_such_method","data":{"method":"qtest/no_such_method"}}}}
+{"ms":66,"dir":"step","step":"raw","at":{"op":"raw","id":"raw-2","line":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}","expect":{"errorCodeIn":[-32602,-32600]}}}
+{"ms":66,"conn":1,"dir":"out-raw","raw":"{\"jsonrpc\":\"2.0\",\"id\":\"raw-2\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":42}}"}
+{"ms":67,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":"raw-2","error":{"code":-32602,"message":"Invalid params","data":{"_errors":[],"sessionId":{"_errors":["Invalid input: expected string, received number"]},"prompt":{"_errors":["Invalid input: expected array, received undefined"]}}}}}
+{"ms":67,"dir":"step","step":"expectAlive","at":{"op":"expectAlive","ms":300}}
+{"ms":368,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":368,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/tmp/adt-q5-st/sdk-example/T02-malformed-frames/run","mcpServers":[]}}}
+{"ms":370,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"b49805749a7c795f4ae75737c8332c07"}}}
+{"ms":371,"dir":"step","step":"prompt","at":{"op":"prompt","session":"s1","text":"hello","expect":{"stopReason":"end_turn"}}}
+{"ms":371,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"b49805749a7c795f4ae75737c8332c07","prompt":[{"type":"text","text":"hello"}]}}}
+{"ms":372,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"b49805749a7c795f4ae75737c8332c07","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"I'll help you with that. Let me start by reading some files to understand the current situation."}}}}}
+{"ms":1374,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"b49805749a7c795f4ae75737c8332c07","update":{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"Reading project files","kind":"read","status":"pending","locations":[{"path":"/project/README.md"}],"rawInput":{"path":"/project/README.md"}}}}}
+{"ms":2375,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"b49805749a7c795f4ae75737c8332c07","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"# My Project\n\nThis is a sample project..."}}],"rawOutput":{"content":"# My Project\n\nThis is a sample project..."}}}}}
+{"ms":3376,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"b49805749a7c795f4ae75737c8332c07","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Now I understand the project structure. I need to make some changes to improve it."}}}}}
+{"ms":4377,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"b49805749a7c795f4ae75737c8332c07","update":{"sessionUpdate":"tool_call","toolCallId":"call_2","title":"Modifying critical configuration file","kind":"edit","status":"pending","locations":[{"path":"/project/config.json"}],"rawInput":{"path":"/project/config.json","content":"{\"database\": {\"host\": \"new-host\"}}"}}}}}
+{"ms":4378,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"b49805749a7c795f4ae75737c8332c07","toolCall":{"toolCallId":"call_2","title":"Modifying critical configuration file","kind":"edit","status":"pending","locations":[{"path":"/home/user/project/config.json"}],"rawInput":{"path":"/home/user/project/config.json","content":"{\"database\": {\"host\": \"new-host\"}}"}},"options":[{"kind":"allow_once","name":"Allow this change","optionId":"allow"},{"kind":"reject_once","name":"Skip this change","optionId":"reject"}]}}}
+{"ms":4378,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"result":{"outcome":{"outcome":"selected","optionId":"reject"}}}}
+{"ms":5380,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"b49805749a7c795f4ae75737c8332c07","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" I understand you prefer not to make that change. I'll skip the configuration update."}}}}}
+{"ms":5380,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}}
+{"ms":5380,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":5380,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":5380,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":5386,"conn":1,"dir":"exit","code":0,"signal":null}
