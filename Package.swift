@@ -41,12 +41,14 @@ let package = Package(
                 "AgentDesktopGUI",
                 "AgentDesktopAI",
                 "AgentDesktopAIUI",
+                "AgentDesktopUI",
                 "AgentDesktopContracts",
             ]
         ),
         .testTarget(
             name: "AgentDesktopTests",
-            dependencies: ["AgentDesktop"]
+            dependencies: ["AgentDesktop", "AgentDesktopUI", "AgentDesktopRuntime", "AgentDesktopProtocol",
+                           "AgentDesktopContracts"]
         ),
 
         // AI/GUI contract v1 (docs/ai-gui/implementation-spec.md §03.1):

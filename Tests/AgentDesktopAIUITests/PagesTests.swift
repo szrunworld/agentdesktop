@@ -411,7 +411,7 @@ struct PagesTests {
     @Test func renderSmoke() async throws {
         let h = try await Harness()
         let c = h.client
-        let views: [AnyView] = [
+        var views: [AnyView] = [
             AnyView(ConnectionsView(model: ConnectionsModel(client: c))),
             AnyView(ConnectionEditorView(model: ConnectionEditorModel(client: c, mode: .create))),
             AnyView(ProfilesView(model: ProfilesModel(client: c))),
@@ -420,8 +420,20 @@ struct PagesTests {
             AnyView(RunDetailView(model: RunDetailModel(client: c, runId: "run-none"))),
             AnyView(AttentionView(model: AttentionModel(client: c, runId: "run-none"))),
             AnyView(UsageView(model: UsageModel(client: c))),
-            AnyView(AIGUIRootView(client: c)),
         ]
+        let settings = AISettingsModel(client: c)
+        let nav = ShellNavigation(section: .settings)
+        let entries = SettingsPage.allCases.compactMap { settings.view(for: $0, navigation: nav) }
+        #expect(entries.count == AISettingsModel.entries.count)
+        #expect(settings.view(for: .general, navigation: nav) == nil)
+        views += entries
+        // T27 / D32: the AI/GUI pages have no sidebar or window of their own.
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/AgentDesktopAIUI")
+        for file in try FileManager.default.contentsOfDirectory(atPath: sources.path) + (try FileManager.default.contentsOfDirectory(atPath: sources.appendingPathComponent("Pages").path).map { "Pages/" + $0 }) where file.hasSuffix(".swift") {
+            let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
+            #expect(!text.contains("NavigationSplitView"), "\(file) brings back a separate sidebar")
+        }
         for v in views {
             let host = NSHostingView(rootView: v.frame(width: 1440, height: 1000))
             host.frame = NSRect(x: 0, y: 0, width: 1440, height: 1000)

@@ -98,6 +98,28 @@ struct RenderTests {
         try write("state-disconnected", MainWindowView(store: offStore))
     }
 
+    // U1b-1: the wired Runs and Desktop detail pages with actions in every
+    // delivery state (the real test copy had no bound window to act on).
+    @Test func mockPagesWithActions() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let run = store.runs.first { $0["desktopId"]?.stringValue == "desk_001" && $0["phase"]?.stringValue == "running" }!
+        let runNav = ShellNavigation(section: .runs, runId: run["runId"]!.stringValue!)
+        let loader = RunDetailLoader(runtime: m, runId: runNav.runId!)
+        await loader.load()
+        try write("mock-run-detail-with-receipts", frame(.runs, store: store) {
+            RunInspectorView(store: store, navigation: runNav, loader: loader)
+        })
+        let deskNav = ShellNavigation(section: .desktops, desktopId: "desk_002")
+        let activity = DesktopActivityLoader(runtime: m, desktopId: "desk_002")
+        await activity.load(runs: store.runs)
+        try write("mock-desktop-detail-with-actions", frame(.desktops, store: store) {
+            DesktopInspectorView(store: store, navigation: deskNav, activity: activity)
+        })
+    }
+
     @Test func componentSheet() throws {
         let r1 = receipt("dispatched", "completed"), r2 = receipt("not_dispatched", "failed"), r3 = receipt("unknown", "unknown")
         var name = "本机模型", url = "http://10.0.0.2/v1", key = "", model = "", timeout = 30000
