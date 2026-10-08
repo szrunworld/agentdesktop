@@ -199,10 +199,18 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         return m
     }
 
+    /// Optional pause before answering a method (shows in-flight states).
+    public var delays: [String: UInt64] {
+        get { lock.withLock { _delays } }
+        set { lock.withLock { _delays = newValue } }
+    }
+    private var _delays: [String: UInt64] = [:]
+
     // MARK: RuntimePort
 
     public func call(_ method: String, _ params: JSONValue) async throws -> JSONValue {
-        try lock.withLock { try callLocked(method, params) }
+        if let ns = delays[method] { try? await Task.sleep(nanoseconds: ns) }
+        return try lock.withLock { try callLocked(method, params) }
     }
 
     public func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> {

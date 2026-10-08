@@ -18,11 +18,12 @@ import AgentDesktopService
 import AgentDesktopUI
 
 @MainActor
-final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppController: NSObject, NSApplicationDelegate {
     private static let displayName = HostRole.productName
 
     private let role: HostRole
-    private var statusItem: NSStatusItem?
+    private(set) var menuPanel: MenuBarPanel?
+    private(set) var quit: QuitController!
     /// Agent screens and input into them, driven by the Runtime in process.
     private let runtime: AgentRuntime
     private var agentScreens: AgentScreens { runtime.screens }
@@ -47,13 +48,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // A test copy keeps to the background; it quits once its agent
             // has left it idle.
             quitWhenIdle()
-        } else {
-            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-            item.button?.image = NSImage(systemSymbolName: "display.2", accessibilityDescription: Self.displayName)
-            let menu = NSMenu()
-            menu.delegate = self
-            item.menu = menu
-            statusItem = item
         }
 
         runtime.fallback = { request in
@@ -74,11 +68,62 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mainWindow = MainWindowController(store: store)
         Task { await store.start() }
 
+        quit = QuitController(store: store)
+        quit.hideMainWindow = { [weak self] in self?.mainWindow.close() }
+        quit.keepInBackground = { [weak self] in self?.enterBackground() }
+        let panel = MenuBarPanel(store: store, actions: MenuBarActions(
+            openMain: { [weak self] in self?.openMain(section: nil) },
+            // Until the independent preview window lands (#98), the panel's
+            // Desktop entry opens that Desktop in the main window.
+            openPreview: { [weak self] id in self?.openDesktop(id) },
+            openSettings: { [weak self] in self?.openMain(section: .settings) },
+            quit: { NSApp.terminate(nil) }))
+        menuPanel = panel
+
         if !role.isSideInstance {
+            panel.installStatusItem()
             mainWindow.show()
         } else if let request = role.mainWindowForTest {
+            quit.testDisplay = request.displayID
             mainWindow.showInBackground(onDisplay: request.displayID)
+            if let d = request.displayID, ProcessInfo.processInfo.environment["AGENTDESKTOP_MENU_PANEL"] == "1" {
+                panel.showTestWindow(onDisplay: d)
+            }
         }
+    }
+
+    /// Main window back (and the Dock icon, if the app was in the
+    /// background), optionally on one entry.
+    func openMain(section: MainSection?) {
+        if let section { mainWindow.navigation.open(section) }
+        if role.isSideInstance {
+            mainWindow.showInBackground(onDisplay: quit.testDisplay)
+        } else {
+            if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
+            mainWindow.show()
+        }
+    }
+
+    func openDesktop(_ id: String) {
+        mainWindow.navigation.showDesktop(id)
+        openMain(section: nil)
+    }
+
+    /// P32 "保留后台": every window closes, the Dock icon goes; the menu bar
+    /// entry, the Runtime, every Desktop and Run stay.
+    func enterBackground() {
+        mainWindow.close()
+        if !role.isSideInstance { NSApp.setActivationPolicy(.accessory) }
+    }
+
+    /// Quit asks first (P32). An idle test copy without windows quits
+    /// straight away.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if quit == nil || quit.approved { return .terminateNow }
+        if role.isSideInstance, role.mainWindowForTest == nil { return .terminateNow }
+        if quit.isAsking { return .terminateLater }
+        Task { await quit.begin() }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -92,7 +137,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// The Dock icon reopens the main window whenever it is not visible.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !role.isSideInstance, !mainWindow.isVisible { mainWindow.show() }
+        if !role.isSideInstance, !mainWindow.isVisible { openMain(section: nil) }
         return true
     }
 
@@ -177,121 +222,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 NSApp.terminate(nil)
             }
         }
-    }
-
-    /// Side instances run to test builds of the product, which keep off the
-    /// menu bar; each can be quit from here.
-    private func testCopiesItem() -> NSMenuItem? {
-        let ownPID = ProcessInfo.processInfo.processIdentifier
-        let copies = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
-            .filter { $0.processIdentifier != ownPID }
-        guard !copies.isEmpty else { return nil }
-        let parent = NSMenuItem(title: "测试副本（\(copies.count)）", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        for copy in copies {
-            var title = "退出 " + Self.copyName(copy.bundleURL)
-            if let launched = copy.launchDate {
-                title += "（\(launched.formatted(date: .omitted, time: .shortened)) 起）"
-            }
-            let entry = item(title, #selector(quitTestCopy(_:)))
-            entry.representedObject = copy.processIdentifier
-            entry.toolTip = copy.bundleURL?.path
-            submenu.addItem(entry)
-        }
-        parent.submenu = submenu
-        return parent
-    }
-
-    /// "agentdesktop-feature" for …/agentdesktop-feature/build/Agent Desktop.app,
-    /// the folder it was built in; otherwise its folder and name.
-    static func copyName(_ url: URL?) -> String {
-        guard let url else { return "unknown" }
-        let folder = url.deletingLastPathComponent()
-        if folder.lastPathComponent == "build" {
-            return folder.deletingLastPathComponent().lastPathComponent
-        }
-        return folder.lastPathComponent + "/" + url.deletingPathExtension().lastPathComponent
-    }
-
-    @objc private func quitTestCopy(_ sender: NSMenuItem) {
-        guard let pid = sender.representedObject as? pid_t else { return }
-        NSRunningApplication(processIdentifier: pid)?.terminate()
-    }
-
-    // MARK: Menu bar (P31: status, open the main window, stop all input)
-
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        for line in Self.statusLines(store) {
-            let status = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-            status.isEnabled = false
-            menu.addItem(status)
-        }
-        menu.addItem(.separator())
-        let open = item("打开 \(Self.displayName)", #selector(openMainWindow))
-        open.keyEquivalent = "o"
-        menu.addItem(open)
-        menu.addItem(.separator())
-        let connected: Bool = { if case .connected = store.connection { return true }; return false }()
-        if store.inputAdmission == "stopped" {
-            let resume = item("恢复输入", #selector(enableInput))
-            resume.isEnabled = connected
-            menu.addItem(resume)
-        } else {
-            let stop = item("停止所有输入…", #selector(stopAllInput))
-            stop.isEnabled = connected
-            menu.addItem(stop)
-        }
-        menu.addItem(.separator())
-        if let copies = testCopiesItem() {
-            menu.addItem(copies)
-            menu.addItem(.separator())
-        }
-        menu.addItem(NSMenuItem(title: "退出 \(Self.displayName)", action: #selector(NSApplication.terminate(_:)),
-                                keyEquivalent: "q"))
-    }
-
-    /// What the menu says about the Runtime: only what the Store last read.
-    static func statusLines(_ store: ShellStore?) -> [String] {
-        guard let store else { return ["正在启动"] }
-        switch store.connection {
-        case .connecting: return ["正在连接本机服务"]
-        case .disconnected(let p): return ["Runtime 未连接：\(p.title)"]
-        case .connected:
-            var lines = ["\(store.desktops.count) 个 Desktop · \(store.activeRuns.count) 个运行进行中"]
-            switch store.inputAdmission {
-            case "stopped": lines.append("输入已停止")
-            case "stopping": lines.append("正在停止输入")
-            default: break
-            }
-            return lines
-        }
-    }
-
-    private func item(_ title: String, _ action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        return item
-    }
-
-    @objc private func openMainWindow() {
-        mainWindow.show()
-    }
-
-    /// Global stop is explicit (P31): confirm, then runtime.stopAll.
-    @objc private func stopAllInput() {
-        NSApp.activate()
-        let alert = NSAlert()
-        alert.messageText = "停止所有输入？"
-        alert.informativeText = "所有平台运行立即不再接受新输入并进入停止流程；已经开始的动作要等执行端确认静止。外部 Agent 应用不会被结束。"
-        alert.addButton(withTitle: "停止所有输入")
-        alert.addButton(withTitle: "取消")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        Task { await store.stopAllInput() }
-    }
-
-    @objc private func enableInput() {
-        Task { await store.enableInput() }
     }
 
     private func presentError(_ message: String) {
