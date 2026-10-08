@@ -27,6 +27,11 @@ struct CLI {
         if fm.fileExists(atPath: to) { try fm.removeItem(atPath: to) }
         try fm.copyItem(atPath: from, toPath: to)
     }
+    /// Run session exec's child; its exit status (128+signal when killed).
+    var spawnChild: (_ argv: [String], _ environment: [String: String]) -> Int32 = CLI.runChild
+    /// Ctrl-C seen (main installs the handler).
+    var interrupted: () -> Bool = { Interrupt.received }
+    var readFile: (String) throws -> Data = { try Data(contentsOf: URL(fileURLWithPath: $0)) }
     var sleep: (Double) -> Void = { Thread.sleep(forTimeInterval: $0) }
     var now: () -> Date = Date.init
 
@@ -48,7 +53,11 @@ struct CLI {
             return ExitStatus.unclassified
         }
         let out = ResultWriter(format: invocation.format, stdout: stdout, stderr: stderr)
-        let endpoint = EndpointResolver.resolve(option: invocation.endpoint, environment: environment)
+        // Inside session exec, the context names the Runtime unless told otherwise.
+        let context = try? ExecContext.load(environment: environment)
+        var env = environment
+        if let context, env[EndpointResolver.environmentKey] == nil { env[EndpointResolver.environmentKey] = context.endpoint }
+        let endpoint = EndpointResolver.resolve(option: invocation.endpoint, environment: env)
 
         switch invocation.command {
         case let .help(topic):
@@ -66,8 +75,35 @@ struct CLI {
             return doctor(out, endpoint: endpoint)
         case .runtimeStatus, .runtimeCapabilities, .desktopList, .desktopShow, .appList, .windowList:
             return query(invocation.command, out, endpoint: endpoint)
-        case let .call(call):
+        case var .call(call):
+            if call.usesContext, call.context.sessionId == nil, call.context.desktopId == nil {
+                // No explicit target: the session exec context supplies it.
+                do {
+                    guard let ctx = try ExecContext.load(environment: environment) else {
+                        throw RuntimeError.invalidArgument("give the target with --session (or --desktop), or run inside session exec")
+                    }
+                    call.context = RequestContext(sessionId: ctx.sessionId, runId: call.method == .act ? ctx.runId : nil)
+                    return perform(call, out, endpoint: endpoint, attach: ctx)
+                } catch let e as RuntimeError {
+                    out.failure(requestId: nil, e)
+                    return ExitStatus.of(e)
+                } catch {
+                    return ExitStatus.unclassified
+                }
+            }
+            if call.method == .act, call.context.runId == nil, let ctx = context, call.context.sessionId == ctx.sessionId {
+                call.context.runId = ctx.runId
+                return perform(call, out, endpoint: endpoint, attach: ctx)
+            }
             return perform(call, out, endpoint: endpoint)
+        case let .runEvents(runId, after, follow):
+            return runEvents(runId: runId, after: after, follow: follow, format: invocation.format, out, endpoint: endpoint)
+        case let .runWait(runId, timeout, untilQuiescent):
+            return runWait(runId: runId, timeout: timeout, untilQuiescent: untilQuiescent, out, endpoint: endpoint)
+        case let .runCancel(runId, requestId, wait, timeout):
+            return runCancel(runId: runId, requestId: requestId, wait: wait, timeout: timeout, out, endpoint: endpoint)
+        case let .sessionExec(desktopId, sessionId, argv):
+            return sessionExec(desktopId: desktopId, sessionId: sessionId, argv: argv, out, endpoint: endpoint)
         }
     }
 

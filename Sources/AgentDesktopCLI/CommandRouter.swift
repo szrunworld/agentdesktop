@@ -23,6 +23,14 @@ struct RuntimeInvocation: Equatable {
         case windowList(pid: Int32?, bundleId: String?, includeOffscreen: Bool)
         /// Any other Runtime method, already mapped to its params.
         case call(RuntimeCall)
+        /// run events, optionally following new events until the Run ends.
+        case runEvents(runId: String, after: Int, follow: Bool)
+        /// run wait: observe until the Run ends or is quiescent.
+        case runWait(runId: String, timeout: Double, untilQuiescent: Bool)
+        /// run cancel, optionally waiting for quiescence.
+        case runCancel(runId: String, requestId: String?, wait: Bool, timeout: Double)
+        /// session exec: own a Run while a child program acts in it.
+        case sessionExec(desktopId: String?, sessionId: String?, argv: [String])
     }
 
     var command: Command
@@ -42,6 +50,10 @@ struct RuntimeCall: Equatable {
     var requestId: String?
     /// observe --image-output: copy the screenshot here.
     var imageOutput: String?
+    /// --text-file: read into action.text just before sending.
+    var textFile: String?
+    /// Target may come from AGENTDESKTOP_CONTEXT (session exec).
+    var usesContext = false
 }
 
 /// The command table. A command is listed here only once it is implemented.
@@ -151,6 +163,8 @@ enum CommandRouter {
              options: ["--desktop": true, "--request-id": true], positionals: []) { o, _ in
             try write(.sessionOpen, .obj([("desktopId", .string(try required(o, "--desktop")))]), o)
         },
+        Spec(words: ["session", "exec"], summary: "run a program that acts in its own Run: --desktop D | --session S -- PROGRAM ARGS…",
+             options: [:], positionals: []) { _, _ in throw RuntimeError.invalidArgument("session exec needs -- before the program") },
         Spec(words: ["session", "show"], summary: "one Session",
              options: [:], positionals: ["sessionId"]) { _, p in
             .call(RuntimeCall(method: .sessionShow, params: .obj([("sessionId", .string(p[0]))])))
@@ -163,7 +177,8 @@ enum CommandRouter {
              options: ["--session": true, "--desktop": true, "--query": true, "--no-screenshot": false,
                        "--no-elements": false, "--image-output": true], positionals: []) { o, _ in
             var call = RuntimeCall(method: .observe)
-            call.context = try target(o)
+            call.context = try contextTarget(o)
+            call.usesContext = true
             var p: [(String, JSONValue)] = []
             if let q = o["--query"] { p.append(("query", .string(q))) }
             if o["--no-screenshot"] != nil {
@@ -181,9 +196,128 @@ enum CommandRouter {
              options: [:], positionals: ["requestId"]) { _, p in
             .call(RuntimeCall(method: .requestShow, params: .obj([("requestId", .string(p[0]))])))
         },
+        Spec(words: ["act", "click"], summary: "click an element or image point of a snapshot",
+             options: actOptions.merging(["--element": true, "--image-point": true, "--right": false, "--double": false]) { a, _ in a },
+             positionals: []) { o, _ in
+            var a: [(String, JSONValue)] = [("kind", .string("click"))]
+            a.append(("target", try actTarget(o, required: true)!))
+            if o["--right"] != nil { a.append(("button", .string("right"))) }
+            if o["--double"] != nil { a.append(("count", .int(2))) }
+            return try act(o, a)
+        },
+        Spec(words: ["act", "type"], summary: "type text into an element or the focused field",
+             options: actOptions.merging(["--element": true, "--text": true, "--text-file": true]) { a, _ in a },
+             positionals: []) { o, _ in
+            guard (o["--text"] == nil) != (o["--text-file"] == nil) else {
+                throw RuntimeError.invalidArgument("give exactly one of --text and --text-file")
+            }
+            var a: [(String, JSONValue)] = [("kind", .string("type"))]
+            if let t = try actTarget(o, required: false) { a.append(("target", t)) }
+            if let t = o["--text"] { a.append(("text", .string(t))) } else { a.append(("text", .string("\u{0}"))) }
+            var cmd = try act(o, a)
+            if case var .call(c) = cmd, let f = o["--text-file"] { c.textFile = f; cmd = .call(c) }
+            return cmd
+        },
+        Spec(words: ["act", "key"], summary: "press a key, with modifiers",
+             options: actOptions.merging(["--key": true, "--modifiers": true]) { a, _ in a }, positionals: []) { o, _ in
+            var a: [(String, JSONValue)] = [("kind", .string("key")), ("key", .string(try required(o, "--key")))]
+            if let m = o["--modifiers"] {
+                a.append(("modifiers", .array(m.split(separator: ",").map { .string(String($0)) })))
+            }
+            return try act(o, a)
+        },
+        Spec(words: ["act", "scroll"], summary: "scroll at an element or image point",
+             options: actOptions.merging(["--element": true, "--image-point": true, "--direction": true, "--amount": true]) { a, _ in a },
+             positionals: []) { o, _ in
+            var a: [(String, JSONValue)] = [("kind", .string("scroll")), ("direction", .string(try required(o, "--direction")))]
+            if let t = try actTarget(o, required: false) { a.append(("target", t)) }
+            if let n = try positive(o, "--amount", required: false) { a.append(("amount", .int(n))) }
+            return try act(o, a)
+        },
+        Spec(words: ["wait"], summary: "wait on the Runtime for an element to appear or go away",
+             options: ["--session": true, "--desktop": true, "--element-present": false, "--element-absent": false,
+                       "--role": true, "--label": true, "--label-contains": true, "--wait-timeout": true], positionals: []) { o, _ in
+            guard (o["--element-present"] == nil) != (o["--element-absent"] == nil) else {
+                throw RuntimeError.invalidArgument("give exactly one of --element-present and --element-absent")
+            }
+            var cond: [(String, JSONValue)] = [("kind", .string(o["--element-present"] != nil ? "elementPresent" : "elementAbsent"))]
+            if let r = o["--role"] { cond.append(("role", .string(r))) }
+            if let l = o["--label"] { cond.append(("label", .string(l))) }
+            if let l = o["--label-contains"] { cond.append(("labelContains", .string(l))) }
+            let t = try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 10
+            guard t >= 0.1, t <= 60 else { throw RuntimeError.invalidArgument("--wait-timeout for wait is 100ms to 60s") }
+            var call = RuntimeCall(method: .wait, params: .obj([("condition", .obj(cond)), ("timeoutMs", .int(Int(t * 1000)))]))
+            call.context = try contextTarget(o)
+            call.usesContext = true
+            return .call(call)
+        },
+        Spec(words: ["run", "show"], summary: "one Run: state, quiescence and receipts",
+             options: [:], positionals: ["runId"]) { _, p in
+            .call(RuntimeCall(method: .runShow, params: .obj([("runId", .string(p[0]))])))
+        },
+        Spec(words: ["run", "events"], summary: "a Run's events after a cursor (--follow: until it ends)",
+             options: ["--after": true, "--follow": false], positionals: ["runId"]) { o, p in
+            let after = try o["--after"].map { s -> Int in
+                guard let v = Int(s), v >= 0 else { throw RuntimeError.invalidArgument("--after needs a sequence number ≥ 0") }
+                return v
+            } ?? 0
+            return .runEvents(runId: p[0], after: after, follow: o["--follow"] != nil)
+        },
+        Spec(words: ["run", "wait"], summary: "observe a Run until it ends (or --until quiescent); Ctrl-C stops only the wait",
+             options: ["--wait-timeout": true, "--until": true], positionals: ["runId"]) { o, p in
+            let until = o["--until"] ?? "terminal"
+            guard ["terminal", "quiescent"].contains(until) else { throw RuntimeError.invalidArgument("--until is terminal or quiescent") }
+            return .runWait(runId: p[0], timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 30,
+                            untilQuiescent: until == "quiescent")
+        },
+        Spec(words: ["run", "cancel"], summary: "cancel a Run (--wait: until no further input is possible)",
+             options: ["--request-id": true, "--wait": false, "--wait-timeout": true], positionals: ["runId"]) { o, p in
+            if let id = o["--request-id"], !RuntimeContract.shared.validate(.string(id), "Id").isEmpty {
+                throw RuntimeError.invalidArgument("--request-id must be 1-128 of A-Z a-z 0-9 . _ : - and start with a letter or digit")
+            }
+            if o["--wait-timeout"] != nil, o["--wait"] == nil { throw RuntimeError.invalidArgument("--wait-timeout needs --wait") }
+            return .runCancel(runId: p[0], requestId: o["--request-id"], wait: o["--wait"] != nil,
+                              timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 30)
+        },
     ]
 
     static func parse(_ args: [String]) throws -> RuntimeInvocation {
+        // session exec: options before `--`, the child's argv after it, untouched.
+        if args.count >= 2, args[0] == "session", args[1] == "exec" {
+            guard let sep = args.firstIndex(of: "--") else {
+                if args.contains("--help") || args.contains("-h") { return RuntimeInvocation(command: .help(topic: ["session"])) }
+                throw RuntimeError.invalidArgument("session exec needs -- before the program to run")
+            }
+            let argv = Array(args[(sep + 1)...])
+            guard !argv.isEmpty else { throw RuntimeError.invalidArgument("session exec needs a program after --") }
+            var inv = RuntimeInvocation(command: .help(topic: []))
+            var desktop: String?, session: String?
+            var i = 2
+            while i < sep {
+                let a = args[i]
+                func value() throws -> String {
+                    guard i + 1 < sep else { throw RuntimeError.invalidArgument("\(a) needs a value") }
+                    i += 1
+                    return args[i]
+                }
+                switch a {
+                case "--desktop": guard desktop == nil else { throw RuntimeError.invalidArgument("--desktop is given twice") }; desktop = try value()
+                case "--session": guard session == nil else { throw RuntimeError.invalidArgument("--session is given twice") }; session = try value()
+                case "--endpoint": guard inv.endpoint == nil else { throw RuntimeError.invalidArgument("--endpoint is given twice") }; inv.endpoint = try value()
+                case "--format":
+                    let f = try value()
+                    guard let fmt = OutputFormat(rawValue: f), fmt != .jsonl else { throw RuntimeError.invalidArgument("--format is text or json") }
+                    inv.format = fmt
+                default: throw RuntimeError.invalidArgument("unknown option \(a) for session exec")
+                }
+                i += 1
+            }
+            guard (desktop == nil) != (session == nil) else {
+                throw RuntimeError.invalidArgument("give exactly one of --desktop and --session")
+            }
+            inv.command = .sessionExec(desktopId: desktop, sessionId: session, argv: argv)
+            return inv
+        }
         var words: [String] = []
         var options: [String: String] = [:]
         var help = false
@@ -251,8 +385,8 @@ enum CommandRouter {
             guard let format = OutputFormat(rawValue: f) else {
                 throw RuntimeError.invalidArgument("--format is text, json or jsonl, not \(f)")
             }
-            // No command of this build streams events or logs.
-            guard format != .jsonl else {
+            // Only event streams print JSONL.
+            guard format != .jsonl || spec.words == ["run", "events"] else {
                 throw RuntimeError.invalidArgument("--format jsonl is only for event and log streams; use json")
             }
             invocation.format = format
@@ -289,6 +423,40 @@ enum CommandRouter {
             throw RuntimeError.invalidArgument("\(name) needs a positive integer, got \(s)")
         }
         return v
+    }
+
+    static let actOptions: [String: Bool] = ["--session": true, "--snapshot": true, "--request-id": true]
+
+    static func act(_ o: [String: String], _ action: [(String, JSONValue)]) throws -> RuntimeInvocation.Command {
+        guard case var .call(call) = try write(.act, .obj([("snapshotId", .string(try required(o, "--snapshot"))),
+                                                          ("action", .obj(action))]), o) else { fatalError() }
+        call.context = o["--session"].map { RequestContext(sessionId: $0) } ?? RequestContext()
+        call.usesContext = true
+        return .call(call)
+    }
+
+    /// --element or --image-point X,Y (pixels of the snapshot's image).
+    static func actTarget(_ o: [String: String], required: Bool) throws -> JSONValue? {
+        switch (o["--element"], o["--image-point"]) {
+        case let (e?, nil): return .obj([("elementRef", .string(e))])
+        case let (nil, p?):
+            let parts = p.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
+            guard parts.count == 2, let x = parts[0], let y = parts[1], x >= 0, y >= 0 else {
+                throw RuntimeError.invalidArgument("--image-point is X,Y in image pixels, got \(p)")
+            }
+            return .obj([("imagePoint", .obj([("x", .double(x)), ("y", .double(y))]))])
+        case (.some, .some): throw RuntimeError.invalidArgument("--element and --image-point are exclusive")
+        case (nil, nil):
+            if required { throw RuntimeError.invalidArgument("give the target with --element or --image-point") }
+            return nil
+        }
+    }
+
+    /// Like `target`, but both may be absent: then AGENTDESKTOP_CONTEXT
+    /// must supply the session.
+    static func contextTarget(_ o: [String: String]) throws -> RequestContext {
+        if o["--session"] == nil, o["--desktop"] == nil { return RequestContext() }
+        return try target(o)
     }
 
     /// --session or --desktop, not both.

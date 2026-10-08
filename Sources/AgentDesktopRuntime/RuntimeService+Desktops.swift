@@ -59,12 +59,24 @@ extension RuntimeService {
     func destroyDesktop(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         return withDesktop(p["desktopId"]) { d in
+            if let holder = execution.holder(of: d.desktopId) {
+                throw RuntimeError("conflict", "run \(holder) controls desktop \(d.desktopId); cancel it first",
+                                   phase: .handler, details: .obj([("holderRunId", .string(holder))]))
+            }
             let open = sessions.openCount(desktopId: d.desktopId)
             guard open == 0 else {
                 throw RuntimeError("conflict", "desktop \(d.desktopId) has \(open) open session(s); close them first",
                                    phase: .handler, details: .obj([("openSessions", .int(open))]))
             }
             d.state = "destroying"
+            // Apps launched onto this Desktop belong to it: ask them to quit
+            // first, or macOS moves their windows onto the user's screens.
+            // Windows the user's own apps lent by bind go back to them.
+            var closed: [JSONValue] = []
+            for proc in d.launched where backend.processIdentity(proc.pid) == proc {
+                if platform.quit(pid: proc.pid) { closed.append(proc.json) }
+            }
+            if !closed.isEmpty { Thread.sleep(forTimeInterval: 0.5) }
             do {
                 try platform.destroyScreen(name: d.screen.name)
             } catch let e as PlatformError where e.kind == .notFound {
@@ -76,7 +88,7 @@ extension RuntimeService {
             d.state = "destroyed"
             desktops.remove(d.desktopId)
             observations.forget(desktopId: d.desktopId)
-            return .obj([("desktopId", .string(d.desktopId)), ("destroyed", .bool(true))])
+            return .obj([("desktopId", .string(d.desktopId)), ("destroyed", .bool(true)), ("quitApps", .array(closed))])
         }
     }
 
@@ -86,6 +98,7 @@ extension RuntimeService {
             let (pid, windows) = try platform.launch(on: d.screen, bundleId: p["bundleId"]?.stringValue,
                                                      path: p["path"]?.stringValue,
                                                      newInstance: p["newInstance"]?.boolValue ?? false)
+            d.launched.append(backend.processIdentity(pid))
             return .obj([
                 ("desktopId", .string(d.desktopId)),
                 ("process", backend.processIdentity(pid).json),

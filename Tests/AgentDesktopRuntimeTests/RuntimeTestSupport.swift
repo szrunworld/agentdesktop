@@ -143,8 +143,15 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         return try lock.withLock {
             let ws = (windows[pid] ?? []).filter { windowId == nil || $0.windowId == windowId }
             guard !ws.isEmpty else { throw PlatformError(.notFound, "pid \(pid) has no matching on-screen window") }
-            for w in ws { onScreen[w.windowId] = screen.name }
-            return ws
+            // Placed inside the screen, like the engine does.
+            var placed: [PlatformWindow] = []
+            for var w in ws {
+                w.frame = Rect(x: screen.frame.x + 100, y: 100, width: 400, height: 300)
+                onScreen[w.windowId] = screen.name
+                placed.append(w)
+            }
+            windows[pid] = (windows[pid] ?? []).map { w in placed.first { $0.windowId == w.windowId } ?? w }
+            return placed
         }
     }
 
@@ -169,6 +176,31 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         note("elements \(pid)/\(windowId)")
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "the window is gone") }
         return (w, elements)
+    }
+
+    var quit: [Int32] = []
+    func quit(pid: Int32) -> Bool { lock.withLock { quit.append(pid) }; return true }
+    var performed: [PlatformAction] = []
+    /// Fail the next action: before or after dispatch.
+    var failNext: PlatformError?
+    /// Hold actions until signalled (cancel-in-flight tests).
+    var gate: DispatchSemaphore?
+    var entered = DispatchSemaphore(value: 0)
+
+    func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
+        note("perform \(action.kind.rawValue)")
+        entered.signal()
+        gate?.wait()
+        if let f = lock.withLock({ () -> PlatformError? in defer { failNext = nil }; return failNext }) { throw f }
+        lock.withLock { performed.append(action) }
+        return action.elementIndex != nil ? "ax.press" : "event.click"
+    }
+
+    /// The user moves the window.
+    func moveWindow(_ id: UInt32, by dx: Double) {
+        lock.withLock {
+            for (pid, ws) in windows { windows[pid] = ws.map { var w = $0; if w.windowId == id { w.frame.x += dx }; return w } }
+        }
     }
 
     /// The window leaves the screen (closed or moved away by the user).

@@ -30,6 +30,8 @@ public final class DesktopRecord: @unchecked Sendable {
     public internal(set) var binding: TargetBinding?
     public internal(set) var generation = 0
     public internal(set) var state = "ready"
+    /// Apps app.launch started here: the agent's, closed with the Desktop.
+    public internal(set) var launched: [ProcessIdentity] = []
 
     init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle) {
         self.desktopId = desktopId

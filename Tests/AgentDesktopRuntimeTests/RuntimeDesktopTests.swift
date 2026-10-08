@@ -111,6 +111,12 @@ func created(_ s: RuntimeService, _ c: ConnectionState, name: String? = nil) thr
     #expect(r["process"]?["startedAt"]?.stringValue != nil)
     #expect(code(call(s, c, "app.launch", params: #"{"desktopId":"\#(id)","bundleId":"com.example.missing"}"#)) == "execution_failed")
     #expect(code(call(s, c, "app.launch", params: #"{"desktopId":"\#(id)","bundleId":"a","path":"/b"}"#)) == "schema_invalid")
+    // Destroying the Desktop quits what was launched there, not bound apps.
+    let platform = s.platform as! FakePlatform
+    _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(id)","pid":101}"#)
+    let gone = try #require(data(call(s, c, "desktop.destroy", params: #"{"desktopId":"\#(id)"}"#)))
+    #expect(gone["quitApps"]?.arrayValue?.compactMap { $0["pid"]?.intValue } == [303])
+    #expect(platform.quit == [303])
 }
 
 @Test func bindObserveAndTheGenerationsThatMakeSnapshotsStale() throws {

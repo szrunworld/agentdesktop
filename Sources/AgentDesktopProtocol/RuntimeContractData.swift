@@ -933,6 +933,13 @@ enum RuntimeContractData {
         },
         "destroyed": {
           "const": true
+        },
+        "quitApps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProcessIdentity"
+          },
+          "description": "apps launched onto the Desktop that were asked to quit"
         }
       }
     },
@@ -1238,6 +1245,687 @@ enum RuntimeContractData {
           "type": "object"
         }
       }
+    },
+    "ActionTarget": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "elementRef"
+          ],
+          "properties": {
+            "elementRef": {
+              "$ref": "#/$defs/Id"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "imagePoint"
+          ],
+          "properties": {
+            "imagePoint": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "x",
+                "y"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "click",
+            "type",
+            "key",
+            "scroll"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/ActionTarget"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10000
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "modifiers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "cmd",
+              "shift",
+              "option",
+              "ctrl"
+            ]
+          }
+        },
+        "button": {
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "direction": {
+          "enum": [
+            "up",
+            "down",
+            "left",
+            "right"
+          ]
+        },
+        "amount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "click"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "type"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "text"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "key"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "key"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "scroll"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "direction"
+            ]
+          }
+        }
+      ]
+    },
+    "act_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshotId",
+        "action"
+      ],
+      "properties": {
+        "snapshotId": {
+          "$ref": "#/$defs/Id"
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        }
+      }
+    },
+    "wait_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition",
+        "timeoutMs"
+      ],
+      "properties": {
+        "condition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "elementPresent",
+                "elementAbsent"
+              ]
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "label": {
+              "type": "string"
+            },
+            "labelContains": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        }
+      }
+    },
+    "run_attach_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "token"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "token": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "run_finish_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "exitCode": {
+          "type": "integer"
+        }
+      }
+    },
+    "run_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "run_events_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "after": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      }
+    },
+    "run_wait_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "timeoutMs"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600000
+        },
+        "until": {
+          "enum": [
+            "terminal",
+            "quiescent"
+          ]
+        }
+      }
+    },
+    "ActionReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiptId",
+        "requestId",
+        "runId",
+        "desktopId",
+        "sessionId",
+        "snapshotId",
+        "delivery",
+        "execution",
+        "verification",
+        "route",
+        "target",
+        "timing"
+      ],
+      "properties": {
+        "receiptId": {
+          "$ref": "#/$defs/Id"
+        },
+        "requestId": {
+          "$ref": "#/$defs/Id"
+        },
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/Id"
+        },
+        "snapshotId": {
+          "$ref": "#/$defs/Id"
+        },
+        "delivery": {
+          "enum": [
+            "dispatched",
+            "not_dispatched",
+            "unknown"
+          ]
+        },
+        "execution": {
+          "enum": [
+            "completed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "verification": {
+          "const": "not_requested"
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "generation",
+            "process",
+            "windowId",
+            "elementRef",
+            "point"
+          ],
+          "properties": {
+            "generation": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "process": {
+              "$ref": "#/$defs/ProcessIdentity"
+            },
+            "windowId": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "elementRef": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "point": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "timing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "acceptedAt",
+            "dispatchedAt",
+            "completedAt"
+          ],
+          "properties": {
+            "acceptedAt": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "dispatchedAt": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Timestamp"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completedAt": {
+              "$ref": "#/$defs/Timestamp"
+            }
+          }
+        }
+      }
+    },
+    "WaitResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "satisfied",
+        "snapshotId",
+        "matches"
+      ],
+      "properties": {
+        "satisfied": {
+          "const": true
+        },
+        "snapshotId": {
+          "$ref": "#/$defs/Id"
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Element"
+          }
+        }
+      }
+    },
+    "Run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "kind",
+        "sessionId",
+        "desktopId",
+        "state",
+        "quiescent",
+        "createdAt",
+        "receipts"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "enum": [
+            "act",
+            "exec"
+          ]
+        },
+        "sessionId": {
+          "$ref": "#/$defs/Id"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "enum": [
+            "running",
+            "cancelling",
+            "completed",
+            "cancelled",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "quiescent": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "endedAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "endReason": {
+          "type": "string"
+        },
+        "receipts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        }
+      }
+    },
+    "RunStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run",
+        "attachToken"
+      ],
+      "properties": {
+        "run": {
+          "$ref": "#/$defs/Run"
+        },
+        "attachToken": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "writeOnly": true
+        }
+      }
+    },
+    "RunEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "sequence",
+        "at",
+        "type",
+        "data"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "type": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object"
+        }
+      }
+    },
+    "RunEvents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events",
+        "next",
+        "ended"
+      ],
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RunEvent"
+          }
+        },
+        "next": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ended": {
+          "type": "boolean"
+        }
+      }
+    },
+    "CancelReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cancelRequest",
+        "execution"
+      ],
+      "properties": {
+        "cancelRequest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "accepted",
+            "scope"
+          ],
+          "properties": {
+            "accepted": {
+              "const": true
+            },
+            "scope": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "id"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "run"
+                },
+                "id": {
+                  "$ref": "#/$defs/Id"
+                }
+              }
+            }
+          }
+        },
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "quiescent"
+          ],
+          "properties": {
+            "state": {
+              "type": "string"
+            },
+            "quiescent": {
+              "type": "boolean"
+            }
+          }
+        },
+        "alreadyTerminal": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }
@@ -1263,6 +1951,11 @@ enum RuntimeContractData {
     "artifacts": {
       "location": "<endpoint dir>/runtime/artifacts",
       "retentionHours": 24
+    },
+    "control": {
+      "lease": "one per Desktop, held by one running Run",
+      "act": "a one-action Run unless context.runId names an exec Run this connection owns or attached to",
+      "ownerLoss": "closing the connection that started a Run stops its input"
     }
   },
   "schema": "runtime.schema.json",
@@ -1385,6 +2078,70 @@ enum RuntimeContractData {
       "mutation": false,
       "params": "request_show_params",
       "result": "RequestRecord"
+    },
+    {
+      "method": "act",
+      "stage": "P0",
+      "mutation": true,
+      "params": "act_params",
+      "result": "ActionReceipt"
+    },
+    {
+      "method": "wait",
+      "stage": "P0",
+      "mutation": false,
+      "params": "wait_params",
+      "result": "WaitResult"
+    },
+    {
+      "method": "run.start",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "RunStart",
+      "note": "not ledgered: the attach token it returns is a credential and must not be stored; a retry starts another Run, which ends with its connection"
+    },
+    {
+      "method": "run.attach",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_attach_params",
+      "result": "Run"
+    },
+    {
+      "method": "run.finish",
+      "stage": "P0",
+      "mutation": true,
+      "params": "run_finish_params",
+      "result": "Run"
+    },
+    {
+      "method": "run.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_ref_params",
+      "result": "Run"
+    },
+    {
+      "method": "run.events",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_events_params",
+      "result": "RunEvents"
+    },
+    {
+      "method": "run.wait",
+      "stage": "P0",
+      "mutation": false,
+      "params": "run_wait_params",
+      "result": "Run"
+    },
+    {
+      "method": "run.cancel",
+      "stage": "P0",
+      "mutation": true,
+      "params": "run_ref_params",
+      "result": "CancelReceipt"
     }
   ]
 }
@@ -1396,29 +2153,165 @@ enum RuntimeContractData {
   "status": "DRAFT_PR1",
   "note": "error.code is the stable machine interface; exitCode is the CLI's coarse class (CLI plan v1.2 §06). Codes marked reserved are named now so every client maps them the same way; no PR1 method returns them.",
   "codes": [
-    {"code": "invalid_argument",           "exitCode": 2, "phase": "local",     "description": "Command line or parameters refused before anything was sent."},
-    {"code": "schema_invalid",             "exitCode": 2, "phase": "request",   "description": "Request is not valid JSON of this API, or fails its schema."},
-    {"code": "frame_too_large",            "exitCode": 2, "phase": "request",   "description": "A message exceeded maxFrameBytes (LF included)."},
-    {"code": "not_found",                  "exitCode": 2, "phase": "handler",   "description": "The ID in the request names nothing this Runtime knows."},
-    {"code": "runtime_offline",            "exitCode": 3, "phase": "connect",   "description": "No Runtime accepted the connection; nothing was sent."},
-    {"code": "permission_denied",          "exitCode": 4, "phase": "connect",   "description": "Endpoint or caller is not the current user's, or an OS permission is missing."},
-    {"code": "approval_required",          "exitCode": 4, "phase": "handler",   "reserved": true, "description": "The operation waits for a person."},
-    {"code": "control_busy",               "exitCode": 5, "phase": "handler",   "reserved": true, "description": "Another controller holds the Desktop."},
-    {"code": "stale_observation",          "exitCode": 5, "phase": "handler",   "reserved": true, "description": "The snapshot no longer matches the target."},
-    {"code": "idempotency_conflict",       "exitCode": 5, "phase": "handler",   "reserved": true, "description": "Same requestId, different content."},
-    {"code": "conflict",                   "exitCode": 5, "phase": "handler",   "reserved": true, "description": "State does not allow the operation (e.g. destroy with active writes)."},
-    {"code": "handshake_required",         "exitCode": 6, "phase": "handshake", "description": "A connection sent a method before runtime.handshake."},
-    {"code": "version_mismatch",           "exitCode": 6, "phase": "handshake", "description": "No API version in common, or the request names another apiVersion."},
-    {"code": "instance_mismatch",          "exitCode": 6, "phase": "handshake", "description": "The endpoint answered, but not as the AgentDesktop Runtime."},
-    {"code": "capability_missing",         "exitCode": 6, "phase": "request",   "description": "Method or option is not implemented by this Runtime/backend."},
-    {"code": "model_unavailable",          "exitCode": 6, "phase": "handler",   "reserved": true, "description": "The operation needs a model that is not configured."},
-    {"code": "execution_failed",           "exitCode": 7, "phase": "handler",   "reserved": true, "description": "A known failure of a unit or task; side effects may exist."},
-    {"code": "internal_error",             "exitCode": 7, "phase": "handler",   "description": "The Runtime failed while handling a read-only request."},
-    {"code": "wait_timeout",               "exitCode": 8, "phase": "local",     "description": "A local wait ended before the wanted state; the server state is unchanged."},
-    {"code": "connection_lost",            "exitCode": 9, "phase": "transport", "description": "Connected and sent, but no complete response arrived."},
-    {"code": "request_acceptance_unknown", "exitCode": 9, "phase": "transport", "reserved": true, "description": "A write may or may not have been accepted."},
-    {"code": "action_delivery_unknown",    "exitCode": 9, "phase": "handler",   "reserved": true, "description": "Input may or may not have been delivered."},
-    {"code": "cancel_acceptance_unknown",  "exitCode": 9, "phase": "transport", "reserved": true, "description": "A cancel may or may not have been accepted."}
+    {
+      "code": "invalid_argument",
+      "exitCode": 2,
+      "phase": "local",
+      "description": "Command line or parameters refused before anything was sent."
+    },
+    {
+      "code": "schema_invalid",
+      "exitCode": 2,
+      "phase": "request",
+      "description": "Request is not valid JSON of this API, or fails its schema."
+    },
+    {
+      "code": "frame_too_large",
+      "exitCode": 2,
+      "phase": "request",
+      "description": "A message exceeded maxFrameBytes (LF included)."
+    },
+    {
+      "code": "not_found",
+      "exitCode": 2,
+      "phase": "handler",
+      "description": "The ID in the request names nothing this Runtime knows."
+    },
+    {
+      "code": "invalid_target",
+      "exitCode": 2,
+      "phase": "handler",
+      "description": "The action's target does not resolve inside the bound window of its snapshot; nothing was sent."
+    },
+    {
+      "code": "runtime_offline",
+      "exitCode": 3,
+      "phase": "connect",
+      "description": "No Runtime accepted the connection; nothing was sent."
+    },
+    {
+      "code": "permission_denied",
+      "exitCode": 4,
+      "phase": "connect",
+      "description": "Endpoint or caller is not the current user's, or an OS permission is missing."
+    },
+    {
+      "code": "approval_required",
+      "exitCode": 4,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The operation waits for a person."
+    },
+    {
+      "code": "control_busy",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "Another controller holds the Desktop."
+    },
+    {
+      "code": "stale_observation",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "The snapshot no longer matches the target."
+    },
+    {
+      "code": "idempotency_conflict",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "Same requestId, different content."
+    },
+    {
+      "code": "conflict",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "State does not allow the operation (e.g. destroy with active writes)."
+    },
+    {
+      "code": "run_not_active",
+      "exitCode": 5,
+      "phase": "handler",
+      "description": "The Run was cancelled or ended; it takes no new input."
+    },
+    {
+      "code": "handshake_required",
+      "exitCode": 6,
+      "phase": "handshake",
+      "description": "A connection sent a method before runtime.handshake."
+    },
+    {
+      "code": "version_mismatch",
+      "exitCode": 6,
+      "phase": "handshake",
+      "description": "No API version in common, or the request names another apiVersion."
+    },
+    {
+      "code": "instance_mismatch",
+      "exitCode": 6,
+      "phase": "handshake",
+      "description": "The endpoint answered, but not as the AgentDesktop Runtime."
+    },
+    {
+      "code": "capability_missing",
+      "exitCode": 6,
+      "phase": "request",
+      "description": "Method or option is not implemented by this Runtime/backend."
+    },
+    {
+      "code": "model_unavailable",
+      "exitCode": 6,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The operation needs a model that is not configured."
+    },
+    {
+      "code": "execution_failed",
+      "exitCode": 7,
+      "phase": "handler",
+      "description": "A known failure of a unit or task; side effects may exist."
+    },
+    {
+      "code": "internal_error",
+      "exitCode": 7,
+      "phase": "handler",
+      "description": "The Runtime failed while handling a read-only request."
+    },
+    {
+      "code": "wait_timeout",
+      "exitCode": 8,
+      "phase": "local",
+      "description": "A local wait ended before the wanted state; the server state is unchanged."
+    },
+    {
+      "code": "deadline_exceeded",
+      "exitCode": 8,
+      "phase": "handler",
+      "description": "The request's deadline passed before dispatch; nothing was sent."
+    },
+    {
+      "code": "connection_lost",
+      "exitCode": 9,
+      "phase": "transport",
+      "description": "Connected and sent, but no complete response arrived."
+    },
+    {
+      "code": "request_acceptance_unknown",
+      "exitCode": 9,
+      "phase": "transport",
+      "description": "A write may or may not have been accepted."
+    },
+    {
+      "code": "action_delivery_unknown",
+      "exitCode": 9,
+      "phase": "handler",
+      "description": "Input may or may not have been delivered."
+    },
+    {
+      "code": "cancel_acceptance_unknown",
+      "exitCode": 9,
+      "phase": "transport",
+      "reserved": true,
+      "description": "A cancel may or may not have been accepted."
+    }
   ]
 }
 """##

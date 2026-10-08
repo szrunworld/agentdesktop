@@ -93,6 +93,12 @@ import Testing
 /// A minimal platform for the end-to-end flow over a real socket.
 final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
     var placed: Set<UInt32> = []
+    var performed: [PlatformAction] = []
+    func quit(pid: Int32) -> Bool { true }
+    func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
+        performed.append(action)
+        return "ax.press"
+    }
     func createScreen(name: String, width: Int?, height: Int?) throws -> ScreenHandle {
         ScreenHandle(name: name, displayId: 5, frame: Rect(x: 3000, y: 0, width: 1000, height: 700), hiDPI: false)
     }

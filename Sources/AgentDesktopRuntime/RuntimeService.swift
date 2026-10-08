@@ -8,6 +8,10 @@ public final class ConnectionState: @unchecked Sendable {
     /// Set by a successful runtime.handshake; every other method needs it.
     public internal(set) var apiVersion: String?
     public internal(set) var clientName: String?
+    /// Runs this connection started; its loss stops them.
+    var ownedRuns: Set<String> = []
+    /// Exec Runs this connection joined with the Run's token.
+    var attachedRuns: Set<String> = []
 
     public init(peerUID: uid_t) {
         self.peerUID = peerUID
@@ -28,6 +32,9 @@ public final class RuntimeService: @unchecked Sendable {
     public let sessions = SessionManager()
     public let observations = ObservationStore()
     public let ledger: RequestLedger
+    public let runs: RunStore
+    let execution: ExecutionCoordinator
+    let conflicts = ConflictRegistry()
     public let artifacts: ArtifactStore
     public let contract: RuntimeContract
     let startedAt: Date
@@ -41,10 +48,11 @@ public final class RuntimeService: @unchecked Sendable {
     static let platformMethods: Set<RuntimeMethod> = [
         .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind,
         .sessionOpen, .sessionShow, .sessionClose, .observe,
+        .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
-                ledger: RequestLedger? = nil, artifacts: ArtifactStore? = nil,
+                ledger: RequestLedger? = nil, runs: RunStore? = nil, artifacts: ArtifactStore? = nil,
                 desktops: DesktopRegistry = DesktopRegistry(),
                 contract: RuntimeContract = .shared, now: @escaping @Sendable () -> Date = { Date() }) {
         self.identity = identity
@@ -53,6 +61,9 @@ public final class RuntimeService: @unchecked Sendable {
         self.desktops = desktops
         // In-memory defaults keep a Runtime without storage (tests) whole.
         self.ledger = ledger ?? (try! RequestLedger(path: nil, now: now))
+        let runStore = runs ?? (try! RunStore(path: nil, now: now))
+        self.runs = runStore
+        self.execution = ExecutionCoordinator(runs: runStore, now: now)
         self.artifacts = artifacts ?? (try! ArtifactStore(
             directory: NSTemporaryDirectory() + "agentdesktop-artifacts-\(getpid())-\(UUID().uuidString.prefix(8))"))
         self.contract = contract
@@ -111,6 +122,11 @@ public final class RuntimeService: @unchecked Sendable {
         }
     }
 
+    /// The connection is gone: Runs it owned take no further input.
+    public func connectionClosed(_ connection: ConnectionState) {
+        execution.ownerLost(connection)
+    }
+
     /// A write runs once per caller and requestId; a repeat gets the
     /// original outcome, other content under the same ID is refused.
     private func ledgered(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {
@@ -155,7 +171,8 @@ public final class RuntimeService: @unchecked Sendable {
             return .success(RuntimeStatus(
                 instanceId: identity.instanceId, state: "running", startedAt: identity.startedAt,
                 uptimeSeconds: max(0, now().timeIntervalSince(startedAt)),
-                connections: connectionCount(), desktops: desktops.count, sessions: sessions.openCount, runs: 0).json)
+                connections: connectionCount(), desktops: desktops.count, sessions: sessions.openCount,
+                runs: execution.activeCount).json)
 
         case .capabilities:
             let methods = contract.methods
@@ -200,6 +217,15 @@ public final class RuntimeService: @unchecked Sendable {
         case .sessionClose: return closeSession(p, connection)
         case .observe: return observe(request, connection)
         case .requestShow: return showRequest(p, connection)
+        case .act: return act(request, connection)
+        case .wait: return wait(request, connection)
+        case .runStart: return startRun(request, connection)
+        case .runAttach: return attachRun(p, connection)
+        case .runFinish: return finishRun(p, connection)
+        case .runShow: return showRun(p, connection)
+        case .runEvents: return runEvents(p, connection)
+        case .runWait: return waitRun(p, connection)
+        case .runCancel: return cancelRun(p, connection)
         }
     }
 }
