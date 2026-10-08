@@ -81,4 +81,25 @@ import Testing
             #expect(throws: ClipboardLease.LeaseError.self) { try ClipboardLease.acquire(at: live.leaseURL, timeout: 0) }
         })
     }
+
+    /// Codex on #127: the checks and the work run holding the lease, so a
+    /// paste cannot begin between the check and the capture or dispatch.
+    @Test func withoutPasteHoldsTheLeaseForTheWholeBody() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesktop-without-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var live = LiveIPhoneMirroringSystem()
+        live.leaseURL = directory.appendingPathComponent("clipboard.lock")
+        live.pendingMark = HostFlag(url: directory.appendingPathComponent("clipboard.pending"))
+        let value = try live.withoutPaste { () -> Int in
+            #expect(throws: ClipboardLease.LeaseError.self) { try ClipboardLease.acquire(at: live.leaseURL, timeout: 0) }
+            return 7
+        }
+        #expect(value == 7)
+        let held = try ClipboardLease.acquire(at: live.leaseURL, timeout: 1)
+        var ran = false
+        #expect(try live.withoutPaste { ran = true } == nil)
+        #expect(!ran)
+        held.release()
+    }
 }

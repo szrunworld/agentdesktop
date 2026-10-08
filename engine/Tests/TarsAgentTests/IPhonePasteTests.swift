@@ -147,6 +147,15 @@ func fast() -> PasteWatcher {
         #expect(PastePrompt.read([line("Don't Allow Paste", y: 0.5)], baseline: []) == .none)
     }
 
+    /// F9 / Codex on #127: page text "Allow Paste" elsewhere on the page does
+    /// not hide the system's own alert, which is then pressed.
+    @Test func pageTextElsewhereDoesNotHideTheRealAlert() {
+        let page = [line("Allow Paste", x: 0.04, y: 0.3, width: 0.15), line("Don't Allow Paste", x: 0.04, y: 0.33, width: 0.2)]
+        #expect(isAllow(PastePrompt.read(page + alert, baseline: page)))
+        // The same alert already on screen before ⌘V is still never pressed.
+        #expect(PastePrompt.read(page + alert, baseline: page + alert) == .none)
+    }
+
     @Test func readsProgress() {
         #expect(PastePrompt.read(pasting, baseline: []) == .pasting)
         #expect(PastePrompt.read([line("正在从“Mac”粘贴", y: 0.05)], baseline: []) == .pasting)
@@ -182,6 +191,24 @@ func fast() -> PasteWatcher {
         let fetched = ScriptedPhone(baseline: message + keyboard, [message + keyboard + pasting, message + keyboard])
         #expect(fast().paste("see you at 5", verify: true, driver: fetched)
             == .delivered("the text was not seen on screen"))
+    }
+
+    /// F10 (device, 2026-10-09): Vision read "R0" as "RO". Text seen only up
+    /// to OCR's confusions is delivered, never confirmed, and no Return.
+    @Test func ocrConfusionsAreDeliveredNotConfirmed() {
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard + [line("retest RO plain", y: 0.3)]])
+        #expect(fast().paste("retest R0 plain", verify: true, driver: phone) == .delivered(PasteWatcher.ocrSimilar))
+        // "PAY1OO" for "PAY100": seen, not confirmed, and Return withheld.
+        let pay = ScriptedPhone(baseline: keyboard, [keyboard + [line("PAY1OO", y: 0.3)]])
+        let outcome = fast().paste("PAY100", verify: true, driver: pay)
+        #expect(outcome == .delivered(PasteWatcher.ocrSimilar))
+        #expect(!outcome.allowsReturn)
+        // An exact reading still confirms.
+        let exact = ScriptedPhone(baseline: keyboard, [keyboard + [line("retest R0 plain", y: 0.3)]])
+        #expect(fast().paste("retest R0 plain", verify: true, driver: exact) == .confirmed)
+        // Nothing alike on screen: still unknown.
+        let none = ScriptedPhone(baseline: keyboard, [keyboard + [line("something else", y: 0.3)]])
+        #expect(fast().paste("retest R0 plain", verify: true, driver: none) == PasteFixtures.noTransfer)
     }
 
     /// A protected field shows dots.

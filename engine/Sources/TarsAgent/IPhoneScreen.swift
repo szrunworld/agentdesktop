@@ -110,12 +110,22 @@ public final class IPhoneAgentScreen: AgentScreen {
     }
 
     public func screenshot(size: CGSize) throws -> Data {
+        // Taken with no paste able to start or be under way in any process
+        // (the clipboard lease held across the capture, Codex on #127): a
+        // paste that began and ended between two samples would otherwise
+        // leave a frame of a field in flux to act on. This screen's own
+        // paste holds the lease itself, so it captures without it.
+        if ownPaste { return try takeScreenshot(size: size) }
+        guard let png = try system.withoutPaste({ try takeScreenshot(size: size) }) else {
+            throw Self.pasteInProgress
+        }
+        return png
+    }
+
+    private func takeScreenshot(size: CGSize) throws -> Data {
         // An input that turns uncertain while this capture is taken raises a
         // barrier this picture predates: only the one already up is lowered.
         let barrierSeen = system.inputBarrier.generation(now: system.now)
-        // Checked before the capture as well as after: a paste under way
-        // while the picture was taken leaves it showing a field in flux.
-        let pasteBefore = system.pasteInProgress
         let capture = try capturedWindow()
         let status = state(of: capture)
         guard status.state == .ready else {
@@ -126,23 +136,14 @@ public final class IPhoneAgentScreen: AgentScreen {
             throw IPhoneError("capture_failed", reason: "blank_frame",
                               "the capture of window \(capture.windowID) is one flat colour, not the phone")
         }
-        // Another process's paste overlapping the capture: the picture shows
-        // a field in flux, so it is not handed out to act on (Codex on #127).
-        if !ownPaste, pasteBefore || system.pasteInProgress {
-            throw Self.pasteInProgress
-        }
         let png = try Images.png(Images.scaled(capture.image, to: size))
         observation = IPhoneObservation(pid: binding?.pid ?? 0, windowID: capture.windowID, frame: capture.frame,
                                         pixelSize: size, capturedAt: system.now)
-        // Whoever took it can now see what an uncertain input left.
+        // Whoever took it can now see what an uncertain input left. With no
+        // paste under way (the lease is held), the barrier seen at the start
+        // can go; one raised since stays.
         invalidated = nil
-        // Nor while a paste is under way in any process: its outcome is not
-        // yet known, so this picture does not show what the field will hold.
-        // The last check and the lowering are one step under the clipboard
-        // lease, so no paste can begin between them and be left unguarded.
-        if let barrierSeen, !pasteBefore {
-            _ = system.whileNoPaste { system.inputBarrier.lower(ifStill: barrierSeen) }
-        }
+        if !ownPaste, let barrierSeen { system.inputBarrier.lower(ifStill: barrierSeen) }
         return png
     }
 
@@ -282,6 +283,18 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// window and geometry last read; a refusal sends nothing.
     private func send(_ action: InputAction, pid: pid_t) throws -> ControlResponse {
         if let stop = stopReason() { return .failure(stop.localizedDescription) }
+        // The checks and the delivery run with no paste able to start in any
+        // process (the clipboard lease held through dispatch, Codex on #127),
+        // so no input lands in a field another process is pasting into. This
+        // screen's own paste holds the lease and sends its presses itself.
+        if ownPaste { return try dispatch(action, pid: pid) }
+        guard let response = try system.withoutPaste({ try dispatch(action, pid: pid) }) else {
+            return .failure(Self.pasteInProgress.localizedDescription)
+        }
+        return response
+    }
+
+    private func dispatch(_ action: InputAction, pid: pid_t) throws -> ControlResponse {
         let window: IPhoneWindow
         do {
             window = try verifiedTarget(pid: pid)
@@ -351,7 +364,6 @@ public final class IPhoneAgentScreen: AgentScreen {
         }
         // Nor while another process is pasting: whatever this input was
         // planned on, the field is changing under it.
-        if !ownPaste, system.pasteInProgress { throw Self.pasteInProgress }
         guard let bound = binding else {
             throw IPhoneError("no_observation", "read iPhone Mirroring's window first (frame or screenshot)")
         }

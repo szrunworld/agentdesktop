@@ -122,6 +122,9 @@ public enum PastePrompt: Equatable {
     /// Where the system alert sits: the middle of the screen. Normal content
     /// up in a navigation bar or down on a keyboard is not it.
     static let alertRegion = CGRect(x: 0.1, y: 0.2, width: 0.8, height: 0.65)
+    /// How close (in window widths and heights) a label must be to one on
+    /// the screen before ⌘V to count as that same page text.
+    static let baselineTolerance: CGFloat = 0.02
     /// How far apart (in window heights) the alert's parts can be.
     static let alertSpan: CGFloat = 0.3
 
@@ -148,17 +151,27 @@ public enum PastePrompt: Equatable {
             let text = clean(line.text)
             return promptPhrases.contains { text.range(of: $0, options: .caseInsensitive) != nil } && centred(line)
         }
-        // Shown before ⌘V, it is not this paste's prompt (a page, a picture
-        // of one): never pressed, whatever it looks like.
-        let allowBefore = (baseline ?? []).contains { allowPasteLabels.contains(clean($0.text)) }
-        for allow in allows where centred(allow) && !allowBefore {
+        // The same label at the same place before ⌘V is page content (a page,
+        // a picture of one): never pressed. Matched one candidate at a time,
+        // so page text elsewhere does not hide a real alert (F9, Codex on
+        // #127: a note holding "Allow Paste" kept the system's own prompt
+        // from ever being accepted).
+        func wasThere(_ line: PhoneText) -> Bool {
+            (baseline ?? []).contains { old in
+                clean(old.text) == clean(line.text)
+                    && abs(old.center.x - line.center.x) <= baselineTolerance
+                    && abs(old.center.y - line.center.y) <= baselineTolerance
+            }
+        }
+        let fresh = allows.filter { !wasThere($0) }
+        for allow in fresh where centred(allow) {
             func near(_ part: PhoneText) -> Bool { abs(part.center.y - allow.center.y) <= alertSpan }
             if denies.contains(where: near), messages.contains(where: near) { return .allow(allow.center) }
         }
         if seen.contains(where: { line in isProgress(line, before: baseline) }) {
             return .pasting
         }
-        if !allows.isEmpty && !allowBefore { return .unverifiedAllow }
+        if !fresh.isEmpty { return .unverifiedAllow }
         return .none
     }
 
@@ -335,7 +348,9 @@ public struct PasteWatcher {
         // fetch seen to start and end does: quiet alone may come before a
         // slow fetch, which would then get the user's restored clipboard.
         let checked = verify ? Self.check(text, before: baseline, after: settled) : .delivered(nil)
-        if checked == .confirmed || sawTransfer { return checked }
+        // The text seen (exactly, or up to OCR's confusions) shows the fetch
+        // is over as well as a seen transfer does.
+        if checked == .confirmed || sawTransfer || checked == .delivered(Self.ocrSimilar) { return checked }
         return .unknown("no_transfer_seen: the phone was never seen fetching the clipboard and the text is not on "
             + "screen, so the fetch may still come")
     }
@@ -384,7 +399,38 @@ public struct PasteWatcher {
         guard let before else { return .delivered("the screen before the paste could not be read") }
         let was = occurrences(of: needle, in: before)
         let now = occurrences(of: needle, in: after)
-        return now > was ? .confirmed : .delivered("the text was not seen on screen")
+        if now > was { return .confirmed }
+        // F10 (device, 2026-10-09): Vision read "R0" as "RO", so a paste on
+        // screen failed the exact check. Reading it again with the characters
+        // OCR confuses folded together is evidence the text landed, not that
+        // it is right: it may as well be "PAY1OO" for "PAY100". So it is
+        // `.delivered` (no Return, never `.confirmed`), not `.unknown`.
+        // A field's own value would settle it, but iPhone Mirroring exposes no
+        // accessibility tree of the phone, so there is no exact source here.
+        let loose = fold(needle)
+        if occurrences(of: loose, in: before, folded: true) < occurrences(of: loose, in: after, folded: true) {
+            return .delivered(Self.ocrSimilar)
+        }
+        return .delivered("the text was not seen on screen")
+    }
+
+    /// The reason `check` gives for text seen only with OCR-confusable
+    /// characters folded together.
+    static let ocrSimilar = "ocr_similar: text matching the pasted text up to characters OCR confuses "
+        + "(0/O, 1/l/I, 5/S, 8/B, 2/Z) appeared on screen; not confirmed"
+
+    /// The characters OCR mixes up, folded to one of each kind.
+    static func fold(_ text: String) -> String {
+        String(text.map { character -> Character in
+            switch character {
+            case "0", "o": return "o"
+            case "1", "l", "i", "|": return "l"
+            case "5", "s": return "s"
+            case "8", "b": return "b"
+            case "2", "z": return "z"
+            default: return character
+            }
+        })
     }
 
     static func normalize(_ text: String) -> String {
@@ -393,11 +439,11 @@ public struct PasteWatcher {
 
     /// Non-overlapping occurrences of `needle` in the screen's text read top
     /// to bottom, left to right.
-    static func occurrences(of needle: String, in seen: [PhoneText]) -> Int {
+    static func occurrences(of needle: String, in seen: [PhoneText], folded: Bool = false) -> Int {
         let lines = seen.sorted { a, b in
             abs(a.box.midY - b.box.midY) > 0.01 ? a.box.midY < b.box.midY : a.box.minX < b.box.minX
         }
-        var haystack = Substring(lines.map { normalize($0.text) }.joined())
+        var haystack = Substring(lines.map { folded ? fold(normalize($0.text)) : normalize($0.text) }.joined())
         var count = 0
         while let range = haystack.range(of: needle) {
             count += 1

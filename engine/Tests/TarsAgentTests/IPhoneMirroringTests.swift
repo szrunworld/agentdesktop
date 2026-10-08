@@ -29,6 +29,10 @@ class FakeMirroring: IPhoneMirroringSystem {
     var onSleep: (() -> Void)?
     var createFails = false
     var pasteInProgress = false
+    func withoutPaste<T>(_ body: () throws -> T) throws -> T? {
+        guard !pasteInProgress else { return nil }
+        return try body()
+    }
     func whileNoPaste(_ body: () -> Void) -> Bool {
         guard !pasteInProgress else { return false }
         body()

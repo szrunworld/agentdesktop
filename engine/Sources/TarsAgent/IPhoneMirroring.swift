@@ -75,6 +75,10 @@ public protocol IPhoneMirroringSystem {
     /// clipboard lease), if none is under way; false, without running it,
     /// when one is.
     func whileNoPaste(_ body: () -> Void) -> Bool
+    /// `body`'s result, run holding the clipboard lease with no paste
+    /// pending, so none can start meanwhile; nil, without running it, when a
+    /// paste holds the lease or one is pending.
+    func withoutPaste<T>(_ body: () throws -> T) throws -> T?
 }
 
 // MARK: Observation
@@ -417,6 +421,13 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
         guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return true }
         lease.release()
         return false
+    }
+
+    public func withoutPaste<T>(_ body: () throws -> T) throws -> T? {
+        guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return nil }
+        defer { lease.release() }
+        guard pendingMark.reason() == nil else { return nil }
+        return try body()
     }
 
     public func whileNoPaste(_ body: () -> Void) -> Bool {
