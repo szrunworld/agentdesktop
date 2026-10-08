@@ -2229,6 +2229,273 @@ enum RuntimeContractData {
           "const": "enabled"
         }
       }
+    },
+    "Principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "role",
+        "connectionId"
+      ],
+      "description": "Who the Runtime holds responsible for this connection. Reserved for handshake results (PR2b); paired apps arrive in PR3.",
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "pattern": "^(local:[0-9]+|app:[A-Za-z0-9._-]{1,64})$"
+        },
+        "role": {
+          "enum": [
+            "owner",
+            "paired"
+          ]
+        },
+        "connectionId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "unit_run_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "mode",
+        "goal",
+        "verification",
+        "allowedActions"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "mode": {
+          "enum": [
+            "auto",
+            "replay_only",
+            "explore"
+          ]
+        },
+        "goal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "description"
+          ],
+          "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "params": {
+              "type": "object",
+              "maxProperties": 32,
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              }
+            }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "description": "GuiVerification predicates; the definition moves from ai-gui/v1 domain.schema.json in PR2d"
+        },
+        "allowedActions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "click",
+              "type",
+              "key",
+              "scroll",
+              "wait"
+            ]
+          }
+        },
+        "guiProfileId": {
+          "$ref": "#/$defs/Id"
+        },
+        "expectedProfileRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxSteps": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "maxSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600
+            }
+          }
+        }
+      },
+      "dependentRequired": {
+        "guiProfileId": [
+          "expectedProfileRevision"
+        ],
+        "expectedProfileRevision": [
+          "guiProfileId"
+        ]
+      }
+    },
+    "events_subscribe_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "after": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "EventSubscription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subscribed"
+      ],
+      "properties": {
+        "subscribed": {
+          "type": "boolean"
+        },
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "next": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "EventFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiVersion",
+        "event"
+      ],
+      "properties": {
+        "apiVersion": {
+          "$ref": "#/$defs/ApiVersion"
+        },
+        "event": {
+          "$ref": "#/$defs/RunEvent"
+        }
+      }
+    },
+    "artifact_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId"
+      ],
+      "properties": {
+        "artifactId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "artifact_read_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId"
+      ],
+      "properties": {
+        "artifactId": {
+          "$ref": "#/$defs/Id"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 524288
+        }
+      }
+    },
+    "Artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "mediaType",
+        "byteSize",
+        "sha256",
+        "createdAt"
+      ],
+      "properties": {
+        "artifactId": {
+          "$ref": "#/$defs/Id"
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "byteSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "runId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "ArtifactChunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "offset",
+        "length",
+        "eof",
+        "dataBase64"
+      ],
+      "properties": {
+        "artifactId": {
+          "$ref": "#/$defs/Id"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "eof": {
+          "type": "boolean"
+        },
+        "dataBase64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+        }
+      }
     }
   }
 }
@@ -2237,9 +2504,9 @@ enum RuntimeContractData {
     static let methods = ##"""
 {
   "apiVersion": "agentdesktop.runtime/1",
-  "status": "DRAFT_ADR_V2_2",
+  "status": "FROZEN_2026_10_08",
   "transport": {
-    "macOS": "owner-only Unix domain socket ~/Library/Application Support/AgentDesktop/runtime.sock",
+    "macOS": "owner-only Unix domain socket ~/Library/Application Support/AgentDesktop/control.sock (frozen; runtime.sock until PR2b moves it)",
     "windows": "current-user named pipe (W1)",
     "framing": "UTF-8 JSON, one message per LF-terminated line; requests on one connection are answered in order",
     "maxFrameBytes": 1048576,
@@ -2268,133 +2535,152 @@ enum RuntimeContractData {
       "stage": "P0",
       "mutation": false,
       "params": "runtime_handshake_params",
-      "result": "RuntimeIdentity"
+      "result": "RuntimeIdentity",
+      "status": "implemented"
     },
     {
       "method": "runtime.status",
       "stage": "P0",
       "mutation": false,
       "params": "empty_params",
-      "result": "RuntimeStatus"
+      "result": "RuntimeStatus",
+      "status": "implemented"
     },
     {
       "method": "runtime.capabilities",
       "stage": "P0",
       "mutation": false,
       "params": "empty_params",
-      "result": "Capabilities"
+      "result": "Capabilities",
+      "status": "implemented"
     },
     {
       "method": "desktop.list",
       "stage": "P0",
       "mutation": false,
       "params": "empty_params",
-      "result": "DesktopList"
+      "result": "DesktopList",
+      "status": "implemented"
     },
     {
       "method": "desktop.show",
       "stage": "P0",
       "mutation": false,
       "params": "desktop_show_params",
-      "result": "Desktop"
+      "result": "Desktop",
+      "status": "implemented"
     },
     {
       "method": "app.list",
       "stage": "P0",
       "mutation": false,
       "params": "app_list_params",
-      "result": "AppList"
+      "result": "AppList",
+      "status": "implemented"
     },
     {
       "method": "window.list",
       "stage": "P0",
       "mutation": false,
       "params": "window_list_params",
-      "result": "WindowList"
+      "result": "WindowList",
+      "status": "implemented"
     },
     {
       "method": "desktop.create",
       "stage": "P0",
       "mutation": true,
       "params": "desktop_create_params",
-      "result": "Desktop"
+      "result": "Desktop",
+      "status": "implemented"
     },
     {
       "method": "desktop.destroy",
       "stage": "P0",
       "mutation": true,
       "params": "desktop_destroy_params",
-      "result": "DestroyResult"
+      "result": "DestroyResult",
+      "status": "implemented"
     },
     {
       "method": "app.launch",
       "stage": "P0",
       "mutation": true,
       "params": "app_launch_params",
-      "result": "LaunchResult"
+      "result": "LaunchResult",
+      "status": "implemented"
     },
     {
       "method": "window.bind",
       "stage": "P0",
       "mutation": true,
       "params": "window_bind_params",
-      "result": "Desktop"
+      "result": "Desktop",
+      "status": "implemented"
     },
     {
       "method": "window.unbind",
       "stage": "P0",
       "mutation": true,
       "params": "window_unbind_params",
-      "result": "Desktop"
+      "result": "Desktop",
+      "status": "implemented"
     },
     {
       "method": "session.open",
       "stage": "P0",
       "mutation": true,
       "params": "session_open_params",
-      "result": "Session"
+      "result": "Session",
+      "status": "implemented"
     },
     {
       "method": "session.show",
       "stage": "P0",
       "mutation": false,
       "params": "session_ref_params",
-      "result": "Session"
+      "result": "Session",
+      "status": "implemented"
     },
     {
       "method": "session.close",
       "stage": "P0",
       "mutation": true,
       "params": "session_ref_params",
-      "result": "Session"
+      "result": "Session",
+      "status": "implemented"
     },
     {
       "method": "observe",
       "stage": "P0",
       "mutation": false,
       "params": "observe_params",
-      "result": "Observation"
+      "result": "Observation",
+      "status": "implemented"
     },
     {
       "method": "request.show",
       "stage": "P0",
       "mutation": false,
       "params": "request_show_params",
-      "result": "RequestRecord"
+      "result": "RequestRecord",
+      "status": "implemented"
     },
     {
       "method": "act",
       "stage": "P0",
       "mutation": true,
       "params": "act_params",
-      "result": "ActionReceipt"
+      "result": "ActionReceipt",
+      "status": "implemented"
     },
     {
       "method": "wait",
       "stage": "P0",
       "mutation": false,
       "params": "wait_params",
-      "result": "WaitResult"
+      "result": "WaitResult",
+      "status": "implemented"
     },
     {
       "method": "run.start",
@@ -2402,70 +2688,576 @@ enum RuntimeContractData {
       "mutation": false,
       "params": "run_start_params",
       "result": "RunStart",
-      "note": "not ledgered: the attach token it returns is a credential and must not be stored; a retry starts another Run, which ends with its connection"
+      "note": "not ledgered: the attach token it returns is a credential and must not be stored; a retry starts another Run, which ends with its connection",
+      "status": "implemented"
     },
     {
       "method": "run.attach",
       "stage": "P0",
       "mutation": false,
       "params": "run_attach_params",
-      "result": "Run"
+      "result": "Run",
+      "status": "implemented"
     },
     {
       "method": "run.finish",
       "stage": "P0",
       "mutation": true,
       "params": "run_finish_params",
-      "result": "Run"
+      "result": "Run",
+      "status": "implemented"
     },
     {
       "method": "run.show",
       "stage": "P0",
       "mutation": false,
       "params": "run_ref_params",
-      "result": "Run"
+      "result": "Run",
+      "status": "implemented"
     },
     {
       "method": "run.events",
       "stage": "P0",
       "mutation": false,
       "params": "run_events_params",
-      "result": "RunEvents"
+      "result": "RunEvents",
+      "status": "implemented"
     },
     {
       "method": "run.wait",
       "stage": "P0",
       "mutation": false,
       "params": "run_wait_params",
-      "result": "Run"
+      "result": "Run",
+      "status": "implemented"
     },
     {
       "method": "run.cancel",
       "stage": "P0",
       "mutation": true,
       "params": "run_ref_params",
-      "result": "CancelReceipt"
+      "result": "CancelReceipt",
+      "status": "implemented"
     },
     {
       "method": "run.list",
       "stage": "P0",
       "mutation": false,
       "params": "run_list_params",
-      "result": "RunList"
+      "result": "RunList",
+      "status": "implemented"
     },
     {
       "method": "runtime.stopAll",
       "stage": "P0",
       "mutation": true,
       "params": "stop_all_params",
-      "result": "StopAllResult"
+      "result": "StopAllResult",
+      "status": "implemented"
     },
     {
       "method": "runtime.enableInput",
       "stage": "P0",
       "mutation": true,
       "params": "empty_params",
-      "result": "EnableInputResult"
+      "result": "EnableInputResult",
+      "status": "implemented"
+    }
+  ],
+  "freeze": "docs/architecture/runtime-api-v1-freeze.md",
+  "catalog": [
+    {
+      "method": "unit.run",
+      "status": "frozen",
+      "pr": "PR2d",
+      "mutation": true,
+      "params": "unit_run_params",
+      "result": "Run",
+      "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process, never over the wire"
+    },
+    {
+      "method": "events.subscribe",
+      "status": "frozen",
+      "pr": "PR2e",
+      "mutation": false,
+      "params": "events_subscribe_params",
+      "result": "EventSubscription",
+      "note": "after the reply the server pushes EventFrame lines on the same connection; closing it never affects a Run"
+    },
+    {
+      "method": "events.unsubscribe",
+      "status": "frozen",
+      "pr": "PR2e",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "EventSubscription"
+    },
+    {
+      "method": "artifact.show",
+      "status": "frozen",
+      "pr": "PR2c",
+      "mutation": false,
+      "params": "artifact_ref_params",
+      "result": "Artifact"
+    },
+    {
+      "method": "artifact.read",
+      "status": "frozen",
+      "pr": "PR2c",
+      "mutation": false,
+      "params": "artifact_read_params",
+      "result": "ArtifactChunk"
+    },
+    {
+      "method": "ai.connections.list",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_list_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_list_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.connections.get",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_get_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.connections.create",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_create_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_create_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.connections.update",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_update_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_update_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.connections.disable",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_disable_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_disable_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.connections.delete",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_delete_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_delete_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.credentials.rotate",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_credentials_rotate_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_credentials_rotate_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.models.list",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_list_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_list_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.models.refresh",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_refresh_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_refresh_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.modelProfiles.list",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_list_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_list_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.modelProfiles.get",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_get_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.modelProfiles.create",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_create_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_create_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.modelProfiles.update",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_update_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_update_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.modelProfiles.disable",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_disable_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_disable_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.modelProfiles.delete",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_delete_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_delete_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.profiles.list",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_list_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_list_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.profiles.get",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_get_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.profiles.create",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_create_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_create_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.profiles.update",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_update_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_update_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.profiles.disable",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_disable_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_disable_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.profiles.delete",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_delete_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_delete_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.profiles.default.get",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_default_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_default_get_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.profiles.setDefault",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_setDefault_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_setDefault_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.tests.start",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_tests_start_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_tests_start_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.operations.get",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_get_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.operations.cancel",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_cancel_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_cancel_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "ai.usage.summary",
+      "status": "frozen",
+      "pr": "PR2b",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_usage_summary_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_usage_summary_result",
+      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
+    },
+    {
+      "method": "hub.pairing.start",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.pairing.status",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.pairing.approve",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.pairing.deny",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.clients.list",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.clients.show",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.clients.revoke",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.grants.list",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.grants.set",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.grants.revoke",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "hub.connections.list",
+      "status": "reserved",
+      "pr": "PR3",
+      "stage": "P0"
+    },
+    {
+      "method": "inbox.list",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "inbox.show",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "inbox.resolve",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "run.reconcile",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "diagnostics.export",
+      "status": "reserved",
+      "pr": "PR4",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.knowledge.get",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.knowledge.events",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.list",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.get",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.propose",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.revise",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.procedures.lifecycle",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.validations.start",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.validations.get",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.validations.cancel",
+      "status": "reserved",
+      "pr": "PR7",
+      "stage": "P0"
+    },
+    {
+      "method": "gui.demonstrations.start",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    },
+    {
+      "method": "gui.demonstrations.get",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    },
+    {
+      "method": "gui.demonstrations.stop",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    },
+    {
+      "method": "gui.learning.settings.get",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    },
+    {
+      "method": "gui.learning.settings.update",
+      "status": "reserved",
+      "pr": "PR7+",
+      "stage": "P1"
+    }
+  ],
+  "withdrawn": [
+    {
+      "method": "gui.runs.start",
+      "replacedBy": "unit.run + run.*"
+    },
+    {
+      "method": "gui.runs.get",
+      "replacedBy": "unit.run + run.*"
+    },
+    {
+      "method": "gui.runs.cancel",
+      "replacedBy": "unit.run + run.*"
+    },
+    {
+      "method": "gui.runs.events",
+      "replacedBy": "unit.run + run.*"
+    },
+    {
+      "method": "ai/1 runtime.capabilities",
+      "replacedBy": "runtime.capabilities"
     }
   ]
 }
@@ -2474,7 +3266,7 @@ enum RuntimeContractData {
     static let errors = ##"""
 {
   "apiVersion": "agentdesktop.runtime/1",
-  "status": "DRAFT_PR1",
+  "status": "FROZEN_2026_10_08",
   "note": "error.code is the stable machine interface; exitCode is the CLI's coarse class (CLI plan v1.2 §06). Codes marked reserved are named now so every client maps them the same way; no PR1 method returns them.",
   "codes": [
     {
@@ -2616,6 +3408,20 @@ enum RuntimeContractData {
       "exitCode": 7,
       "phase": "handler",
       "description": "The Runtime failed while handling a read-only request."
+    },
+    {
+      "code": "limit_exceeded",
+      "exitCode": 5,
+      "phase": "handler",
+      "reserved": true,
+      "description": "A configured limit (steps, time, budget, quota) refused or ended the work."
+    },
+    {
+      "code": "events_cursor_expired",
+      "exitCode": 5,
+      "phase": "handler",
+      "reserved": true,
+      "description": "The events cursor points before the retained range; read the current state with run.show."
     },
     {
       "code": "wait_timeout",

@@ -1,0 +1,15 @@
+{
+  "def": "unit_run_params",
+  "instance": {
+    "desktopId": "desk_A",
+    "mode": "auto",
+    "goal": {
+      "description": "x"
+    },
+    "verification": {},
+    "allowedActions": [
+      "click"
+    ],
+    "guiProfileId": "gp_gui_v1"
+  }
+}

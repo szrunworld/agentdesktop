@@ -1,0 +1,8 @@
+{
+  "def": "Principal",
+  "instance": {
+    "clientId": "app:remotedesk-boss",
+    "role": "paired",
+    "connectionId": "conn_0123456789abcdef"
+  }
+}

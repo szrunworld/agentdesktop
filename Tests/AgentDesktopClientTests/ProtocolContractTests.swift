@@ -118,3 +118,52 @@ let contract = RuntimeContract.shared
     #expect(reader.readLine() == .tooLarge)
 }
 
+
+// The frozen catalogue (docs/architecture/runtime-api-v1-freeze.md): names
+// the Runtime will serve but does not yet. None of them may be served before
+// it moves to "methods"; withdrawn names never come back.
+@Test func theFrozenCatalogueIsDisjointAndResolvable() throws {
+    let doc = try StrictJSON.parse(Data(RuntimeContract.embedded.methods.utf8))
+    let catalog = try #require(doc["catalog"]?.arrayValue)
+    let names = catalog.compactMap { $0["method"]?.stringValue }
+    #expect(names.count == catalog.count)
+    #expect(Set(names).count == names.count)
+    let served = Set(contract.methods.map(\.method))
+    #expect(Set(names).isDisjoint(with: served))
+    let withdrawn = Set((doc["withdrawn"]?.arrayValue ?? []).compactMap { $0["method"]?.stringValue })
+    #expect(withdrawn.contains("gui.runs.start"))
+    #expect(Set(names).isDisjoint(with: withdrawn))
+    #expect(served.isDisjoint(with: withdrawn))
+
+    let aiDefs = try StrictJSON.parse(Data(contentsOf: repoRoot.appendingPathComponent("contracts/ai-gui/v1/rpc.schema.json")))["$defs"]
+    for entry in catalog {
+        let name = entry["method"]?.stringValue ?? ""
+        let status = entry["status"]?.stringValue ?? ""
+        #expect(["frozen", "reserved"].contains(status), "\(name)")
+        #expect(entry["pr"]?.stringValue != nil, "\(name) names no PR")
+        guard status == "frozen" else { continue }
+        for key in ["params", "result"] {
+            let ref = try #require(entry[key]?.stringValue, "\(name) has no \(key)")
+            if let def = ref.components(separatedBy: "#/$defs/").last, ref.hasPrefix("ai-gui/v1") {
+                #expect(aiDefs?[def] != nil, "\(name): \(ref) is not in ai-gui/v1")
+            } else {
+                let holds = !(contract.validate(.obj([]), ref).contains { $0.contains("$ref") })
+                #expect(holds, "\(name): \(ref) is not in runtime.schema.json")
+            }
+        }
+    }
+}
+
+@Test func theFreezeDocumentNamesEveryMethodFamily() throws {
+    let text = try String(contentsOf: repoRoot.appendingPathComponent("docs/architecture/runtime-api-v1-freeze.md"),
+                          encoding: .utf8)
+    let doc = try StrictJSON.parse(Data(RuntimeContract.embedded.methods.utf8))
+    let catalogued = (doc["catalog"]?.arrayValue ?? []).compactMap { $0["method"]?.stringValue }
+    for name in contract.methods.map(\.method) + catalogued where name.contains(".") {
+        // Rows group siblings ("ai.connections.list / get"), so the family
+        // ("ai.connections", or "run" for "run.list") is what must appear.
+        let parts = name.components(separatedBy: ".")
+        let family = parts.count > 2 ? parts[0] + "." + parts[1] : parts[0]
+        #expect(text.contains(family + "."), "\(name)")
+    }
+}

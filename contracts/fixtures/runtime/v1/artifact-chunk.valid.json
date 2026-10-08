@@ -1,0 +1,10 @@
+{
+  "def": "ArtifactChunk",
+  "instance": {
+    "artifactId": "art_1",
+    "offset": 0,
+    "length": 3,
+    "eof": true,
+    "dataBase64": "iVBO"
+  }
+}
