@@ -136,16 +136,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let preview = self?.agentPreviews[name] else { return }
             Task { @MainActor in try? await preview.restartStream() }
         }
-        do {
-            // The endpoint is explicit for every role; the product never
-            // takes it from the environment (roadmap decision 2).
-            let endpoint = role.endpoint
-            try FileManager.default.createDirectory(
-                at: endpoint.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try runtime.start(socketPath: endpoint.path)
-        } catch {
-            presentError("Agents cannot reach \(Self.displayName): \(error.localizedDescription)")
-        }
+        // The engine serves this process only (A0): the Runtime below drives
+        // it in-process and is the one way in; the engine's own control
+        // socket is not opened.
+        runtime.startInProcess()
         startRuntimeServer()
     }
 

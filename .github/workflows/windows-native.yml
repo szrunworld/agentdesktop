@@ -1,0 +1,87 @@
+name: Windows native backend
+
+on:
+  push:
+    paths: ["engine/windows/**", ".github/workflows/windows-native.yml"]
+  pull_request:
+    paths: ["engine/windows/**", ".github/workflows/windows-native.yml"]
+  workflow_dispatch:
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Unit tests
+        run: dotnet test engine/windows/tests/SecondScreen.Tests -c Release
+      - name: Publish single-file executables
+        shell: pwsh
+        run: |
+          foreach ($project in "src/SecondScreen.App", "src/SecondScreen.Cli", "tests/TestTarget", "tests/TestTargetWpf") {
+            dotnet publish "engine/windows/$project" -c Release -r win-x64 --self-contained true `
+              -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o engine/windows/artifacts/publish
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          Copy-Item engine/windows/scripts/*.ps1 engine/windows/artifacts/publish/
+          Get-ChildItem engine/windows/artifacts/publish | Format-Table Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentdesktop-windows-backend-x64
+          path: engine/windows/artifacts/publish
+
+  e2e:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: agentdesktop-windows-backend-x64
+          path: publish
+      - name: Install the Virtual Display Driver
+        id: driver
+        continue-on-error: true
+        shell: pwsh
+        run: ./publish/install-driver.ps1
+      - name: Driver diagnostics
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          pnputil /enum-devices /class Display /drivers
+          Get-PnpDevice -Class Display | ForEach-Object {
+            $_.InstanceId
+            Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName DEVPKEY_Device_DriverInfPath, DEVPKEY_Device_Service, DEVPKEY_Device_ProblemCode, DEVPKEY_Device_DriverDesc -ErrorAction SilentlyContinue |
+              Format-Table KeyName, Data -AutoSize
+          }
+          Get-CimInstance Win32_VideoController | Format-Table Name, Status, AdapterCompatibility, DriverVersion -AutoSize
+          Get-WinEvent -LogName "Microsoft-Windows-DriverFrameworks-UserMode/Operational" -MaxEvents 30 -ErrorAction SilentlyContinue |
+            Format-Table TimeCreated, Id, Message -Wrap
+          Get-WinEvent -FilterHashtable @{ LogName = "System"; StartTime = (Get-Date).AddMinutes(-15) } -MaxEvents 40 -ErrorAction SilentlyContinue |
+            Where-Object { $_.Message -match "MttVDD|Virtual Display|UMDF|Wudf|IddCx" } | Format-Table TimeCreated, Id, ProviderName, Message -Wrap
+      - name: Display state
+        shell: pwsh
+        run: |
+          Get-PnpDevice -Class Display | Format-Table FriendlyName, Status, InstanceId -AutoSize
+          Add-Type -AssemblyName System.Windows.Forms
+          [System.Windows.Forms.Screen]::AllScreens | Format-Table DeviceName, Bounds, Primary -AutoSize
+          ./publish/agentdesktop.exe doctor
+      - name: End-to-end acceptance
+        shell: pwsh
+        # The vision agent's checks run only where the model's key is available.
+        env:
+          AGENT_MODEL_API_KEY: ${{ secrets.AGENT_MODEL_API_KEY }}
+          AGENT_MODEL: ${{ secrets.AGENT_MODEL }}
+          AGENT_MODEL_BASE_URL: ${{ secrets.AGENT_MODEL_BASE_URL }}
+        run: ./publish/e2e.ps1 -Bin publish -Out e2e-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: e2e-out

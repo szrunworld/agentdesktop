@@ -1,3 +1,5 @@
+> 2026-10-08 单仓校正：核心全部由 AgentDesktop 的仓内模块维护。旧仓固定依赖、旧 Bridge 与旧版本兼容要求撤销；以 [当前架构](architecture.md) 为准。
+
 # 产品基线（2026-10-07 晚，替代第三版路线的首发范围）
 
 这份文件是各条研发线程共同引用的基线。它来自 Kevin 在 2026-10-07 晚对两份最新方案（产品策略 HTML 第 3 版、BOSS Agent 架构 HTML 及其后关于 UI-TARS 的指令）与本仓库进展的对照结论。两份 HTML 原文尚未归档进本仓库；拿到后放在 docs/strategy/ 并在此补链接。
@@ -24,7 +26,7 @@ Agent Desktop 为外部 Agent 提供可创建、可观察、可操作、可停�
 1. Agent Desktop 首发聚焦桌面执行工具。
 2. 至少双 desktop 真并发、独立输入、宿主可用，是关键出口条件。
 3. 产品资源统一为 desktop / desktopId。
-4. UI-TARS 核心重写进 Runtime，模型能力按需调用。
+4. 复用原生视觉核心与新 AI/GUI 实现，接入受管 Runtime，模型能力按需调用。
 5. BOSS、微信等业务应用独立，通用能力共享，业务判断各自拥有。
 6. 所有实际输入经过同一执行控制入口，每个 desktop 分别管理顺序和控制权。
 7. 任务中心、审批预算等已有代码，不自动成为 Desktop 首发范围。
@@ -45,7 +47,7 @@ Agent Desktop 为外部 Agent 提供可创建、可观察、可操作、可停�
 | 概念 | 负责表达什么 |
 | --- | --- |
 | Desktop / desktopId | Agent 选择的执行环境：目标绑定、观察、输入状态、动作队列、控制者 |
-| Screen | Desktop 使用的底层显示资源（引擎的 `screen.*` 保留为底层接口与兼容路径） |
+| Screen | Desktop 使用的底层显示资源（引擎的 `screen.*` 保留为当前底层接口） |
 | 应用 Window | 应用进程拥有的窗口，由 Desktop 绑定并管理操作目标 |
 | Preview Window | Agent Desktop 提供的预览入口；关闭预览不等于关闭 Desktop |
 
@@ -63,7 +65,7 @@ Agent Desktop 为外部 Agent 提供可创建、可观察、可操作、可停�
 
 ## 接入顺序
 
-先有稳定的 JSON CLI，再用 MCP 暴露同一套桌面工具；确有调用方需要时再做 ACP 适配。`agent-jsonl/1` 继续服务通用 Runtime 的已有接入，不是 ACP。
+先有稳定的 JSON CLI，再用 MCP 暴露同一套桌面工具；确有调用方需要时再做 ACP 适配。采用明确的当前 Runtime 契约；不保留旧 JSONL 版本兼容义务。
 
 ## 里程碑
 

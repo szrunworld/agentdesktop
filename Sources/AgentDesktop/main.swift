@@ -12,8 +12,9 @@ let role = HostRole.current
 // One product host only: a second would try to create the same virtual
 // display (macOS refuses a duplicate) and add a second preview. Side
 // instances keep to the background on their own sockets and do not count.
-// (A listener check, not atomic ownership; see HostRole.)
-if case .product = role, ControlProtocol.isListening(role.endpoint) {
+// (A listener check, not atomic ownership; the Runtime server's lock file
+// is the atomic one.) The Runtime endpoint is the host's only listener.
+if case .product = role, ControlProtocol.isListening(role.runtimeEndpoint) {
     exit(0)
 }
 

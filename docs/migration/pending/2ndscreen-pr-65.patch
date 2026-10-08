@@ -1,0 +1,441 @@
+diff --git a/README.md b/README.md
+index c752564..c603ff8 100644
+--- a/README.md
++++ b/README.md
+@@ -419,6 +419,21 @@ To install it elsewhere:
+ export SECONDSCREEN_TASK_RUNTIME=/some/dir
+ ```
+ 
++The install has two variants, named in its `build.json`. The default,
++`--legacy`, is what 2ndscreen.app ships: the BOSS workflow compiled in and
++the skills beside it. `--generic` builds the runtime a product ships
++without any business package: no module under `src/boss` (the BOSS page
++workflow and its parsers) reaches the bundles, the build fails if one
++does, and there is no skills directory, so it registers no workflow until
++a business package is installed. The generic bundles still carry the
++legacy skill runner, its BOSS account check and the résumé manifest
++export (`runner.ts`, `artifacts.ts`): moving those out is the rest of
++roadmap C01, not done yet.
++
++```bash
++./scripts/install-task-runtime.sh /some/dir --generic
++```
++
+ Agents hosted by the runtime (RFC 0001, `docs/rfc/0001-agent-hub`) are
+ listed with the stuck ones first, each saying what it waits for: an
+ approval, an answer from the user, or something the agent reported.
+diff --git a/docs/task-runtime-contracts.md b/docs/task-runtime-contracts.md
+index 8cf5690..db46557 100644
+--- a/docs/task-runtime-contracts.md
++++ b/docs/task-runtime-contracts.md
+@@ -271,6 +271,10 @@ export function runCli(argv: readonly string[], io: CliIO, control: TaskControl)
+ - 账本里属于本 runtime 未安装的包的任务保持原状：不认领、不失败，控制事件 `skill_missing` 记录一次原因；装有该包的 worker 可以继续运行它。
+ - CLI 只在用户显式设置了 `SECONDSCREEN_SKILLS_DIR` 时才把它传给 worker；否则 worker 按自己的入口位置解析同一个默认目录。
+ 
++**通用构建（C01b，第一步）。** `scripts/build.mjs --generic`（`install-task-runtime.sh … --generic`）产出不含任何 `src/boss` 模块（BOSS 页面 workflow 与解析器）、不带 skills 目录的 runtime；构建固定 `absWorkingDir` 后用 esbuild metafile 核对依赖图，仍触及业务模块即失败，静态导入业务模块的符号也会失败；`build.json` 记录 `variant`、全部输入模块和被替换的业务 import。`--legacy`（默认）保持 2ndscreen.app 现在的打包方式；两个变体参数互斥，安装脚本在下载和构建前就拒绝。`tests/generic-build.test.ts` 覆盖多个工作目录、嵌套业务模块、绕过插件的模块、参数冲突，并用真实构建产物启动 worker、宿主空的 agent 配置、查询并停止。
++
++**尚未完成的 C01 部分。** 通用产物仍编入旧 skill runner（`runner.ts` 的候选人遍历与 `platform === 'boss'` 账号校验）和简历清单导出（`artifacts.ts`）：它们经公共 bootstrap 对 runner 与 artifact store 的引用进入 bundle。「通用发行物不含 BOSS 生产实现」要等这部分外置后才成立。
++
+ ### A8 本地视觉（协调者新增）
+ 
+ `packages/task-runtime/src/adapters/local-vision.ts`
+diff --git a/packages/task-runtime/scripts/build.mjs b/packages/task-runtime/scripts/build.mjs
+index 876d18b..a927dad 100644
+--- a/packages/task-runtime/scripts/build.mjs
++++ b/packages/task-runtime/scripts/build.mjs
+@@ -1,15 +1,25 @@
+-// Builds the task runtime as it ships inside 2ndscreen.app
++// Builds the task runtime as it ships inside an app
+ // (Contents/Resources/task-runtime): two self-contained ES modules for the
+-// bundled Node, with every import — this package, including the BOSS
+-// workflow and its parsers under src/boss — compiled in, and the skills.
+-// Nothing is loaded from node_modules, npx or the working directory at run
+-// time; Node's built-ins (node:sqlite among them) are the only imports left.
++// bundled Node, with every import compiled in. Nothing is loaded from
++// node_modules, npx or the working directory at run time; Node's built-ins
++// (node:sqlite among them) are the only imports left.
+ //
+-//   node scripts/build.mjs [OUT_DIR]      default dist/task-runtime
++//   node scripts/build.mjs [OUT_DIR] [--generic | --legacy]     default dist/task-runtime, --legacy
++//
++// Two variants (build.json says which):
++//   --legacy   as 2ndscreen.app ships it: the BOSS workflow and its parsers
++//              under src/boss compiled in, and the skills copied beside.
++//   --generic  the generic runtime a product ships (roadmap C01b): no
++//              module under src/boss is in the bundle (every import of one
++//              is replaced by an empty module and the build fails if the
++//              dependency graph still reaches one), and no skills directory.
++//              The runtime then registers no workflow and runs no business
++//              task until a business package is installed beside it.
+ //
+ // OUT_DIR gets main.mjs (the `2ndscreen task` command line), worker.mjs (the
+-// background daemon, which also hosts the agents), skills/ and build.json. bin/node is added by
+-// scripts/install-task-runtime.sh at the repository root.
++// background daemon, which also hosts the agents), skills/ (legacy only) and
++// build.json. bin/node is added by scripts/install-task-runtime.sh at the
++// repository root.
+ 
+ import { build } from 'esbuild';
+ import { createHash } from 'node:crypto';
+@@ -20,12 +30,35 @@ import { fileURLToPath } from 'node:url';
+ const here = dirname(fileURLToPath(import.meta.url));
+ const pkg = resolve(here, '..');
+ const repo = resolve(pkg, '../..');
+-const out = resolve(process.argv[2] ?? join(pkg, 'dist/task-runtime'));
++const flags = process.argv.slice(2).filter((a) => a.startsWith('--'));
++const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
++for (const flag of flags) if (flag !== '--generic' && flag !== '--legacy') throw new Error(`unknown option ${flag}`);
++if (flags.includes('--generic') && flags.includes('--legacy')) throw new Error('--generic and --legacy exclude each other');
++const variant = flags.includes('--generic') ? 'generic' : 'legacy';
++const out = resolve(positional[0] ?? join(pkg, 'dist/task-runtime'));
+ 
+ rmSync(out, { recursive: true, force: true });
+ mkdirSync(out, { recursive: true });
+ 
+-await build({
++/** Imports of business modules the generic build replaced, importer → module. */
++const excluded = [];
++// Any module under a boss/ directory, however deep: './boss/workflow.ts', '../boss/x/y.ts'.
++const BUSINESS = /(^|\/)boss\/.+\.ts$/;
++const noBusinessPackage = {
++  name: 'no-business-package',
++  setup(b) {
++    b.onResolve({ filter: BUSINESS }, (args) => {
++      excluded.push({ from: relative(pkg, args.importer), module: args.path });
++      return { path: args.path, namespace: 'business-excluded' };
++    });
++    b.onLoad({ filter: /.*/, namespace: 'business-excluded' }, () => ({ contents: 'export {};', loader: 'js' }));
++  },
++};
++
++const result = await build({
++  // Metafile paths are relative to the working directory: pin it, so the
++  // check below reads the same paths whatever directory the build runs from.
++  absWorkingDir: pkg,
+   entryPoints: { main: join(pkg, 'src/main.ts'), worker: join(pkg, 'src/worker.ts') },
+   outdir: out,
+   outExtension: { '.js': '.mjs' },
+@@ -39,12 +72,25 @@ await build({
+   legalComments: 'none',
+   sourcemap: false,
+   logLevel: 'warning',
+-  banner: { js: '// 2ndscreen task runtime, built by packages/task-runtime/scripts/build.mjs' },
++  metafile: true,
++  plugins: variant === 'generic' ? [noBusinessPackage] : [],
++  banner: { js: `// 2ndscreen task runtime (${variant}), built by packages/task-runtime/scripts/build.mjs` },
+ });
+ 
+-const skills = join(repo, 'skills');
+-for (const name of readdirSync(skills)) {
+-  if (existsSync(join(skills, name, 'task.json'))) cpSync(join(skills, name), join(out, 'skills', name), { recursive: true });
++// What the bundles are made of, as evidence: a generic build reaches no business module.
++// Metafile keys are relative to absWorkingDir (pkg); stubbed imports carry their namespace.
++const inputs = Object.keys(result.metafile.inputs)
++  .map((p) => (p.includes(':') ? p : relative(pkg, resolve(pkg, p))))
++  .sort();
++const business = inputs.filter((p) => !p.includes(':') && /(^|\/)src\/boss\//.test(p));
++if (variant === 'generic' && business.length) throw new Error(`the generic build still contains business modules: ${business.join(', ')}`);
++if (variant === 'generic' && excluded.length === 0) throw new Error('the generic build excluded nothing; the import of the business package moved');
++
++if (variant === 'legacy') {
++  const skills = join(repo, 'skills');
++  for (const name of readdirSync(skills)) {
++    if (existsSync(join(skills, name, 'task.json'))) cpSync(join(skills, name), join(out, 'skills', name), { recursive: true });
++  }
+ }
+ 
+ /** Every file with its size and sha256, so an install can be checked against its build. */
+@@ -60,6 +106,18 @@ function files(dir) {
+ const manifest = JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8'));
+ writeFileSync(
+   join(out, 'build.json'),
+-  JSON.stringify({ name: manifest.name, version: manifest.version, node: manifest.engines.node, files: files(out) }, null, 2) + '\n',
++  JSON.stringify(
++    {
++      name: manifest.name,
++      version: manifest.version,
++      variant,
++      node: manifest.engines.node,
++      files: files(out),
++      inputs,
++      ...(variant === 'generic' ? { excluded } : {}),
++    },
++    null,
++    2,
++  ) + '\n',
+ );
+-console.log(`built ${relative(process.cwd(), out) || out}`);
++console.log(`built ${relative(process.cwd(), out) || out} (${variant})`);
+diff --git a/packages/task-runtime/src/workflows.ts b/packages/task-runtime/src/workflows.ts
+index 2719766..6c72f78 100644
+--- a/packages/task-runtime/src/workflows.ts
++++ b/packages/task-runtime/src/workflows.ts
+@@ -38,8 +38,14 @@ export function createWorkflowRegistry(factories: Readonly<Record<string, Workfl
+ /** No business workflow at all: what a generic build registers. */
+ export const NO_WORKFLOWS: WorkflowRegistry = createWorkflowRegistry();
+ 
+-/** The BOSS résumé workflow this package still carries, for the entry points that opt in. */
++/**
++ * The BOSS résumé workflow this package still carries, for the entry points
++ * that opt in. A generic build (scripts/build.mjs --generic) replaces the
++ * business module with an empty one: then this registers nothing.
++ */
+ export async function legacyWorkflows(): Promise<WorkflowRegistry> {
+-  const { createBossResumesWorkflow } = await import('./boss/workflow.ts');
+-  return createWorkflowRegistry({ 'boss-resumes-v1': (deps) => createBossResumesWorkflow(deps) });
++  const business: Partial<typeof import('./boss/workflow.ts')> = await import('./boss/workflow.ts');
++  const create = business.createBossResumesWorkflow;
++  if (typeof create !== 'function') return NO_WORKFLOWS;
++  return createWorkflowRegistry({ 'boss-resumes-v1': (deps) => create(deps) });
+ }
+diff --git a/packages/task-runtime/tests/generic-build.test.ts b/packages/task-runtime/tests/generic-build.test.ts
+new file mode 100644
+index 0000000..01c27e2
+--- /dev/null
++++ b/packages/task-runtime/tests/generic-build.test.ts
+@@ -0,0 +1,183 @@
++// The generic runtime as scripts/build.mjs --generic ships it (roadmap
++// C01b): no business module in the bundles, no skills beside them, and the
++// built command line and worker really start, host an empty agent config,
++// answer and stop with no business package installed.
++
++import assert from 'node:assert/strict';
++import { spawn, spawnSync } from 'node:child_process';
++import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { after, before, test } from 'node:test';
++
++const PACKAGE = join(import.meta.dirname, '..');
++const REPO = join(PACKAGE, '../..');
++let runtime: string;
++const node = process.execPath;
++let build: { variant: string; inputs: string[]; excluded: { from: string; module: string }[]; files: { path: string }[] };
++
++before(() => {
++  runtime = join(mkdtempSync(join(tmpdir(), 'generic-built-')), 'task-runtime');
++  const built = spawnSync(node, [join(PACKAGE, 'scripts/build.mjs'), runtime, '--generic'], { encoding: 'utf8' });
++  assert.equal(built.status, 0, built.stderr);
++  build = JSON.parse(readFileSync(join(runtime, 'build.json'), 'utf8'));
++});
++
++test('the generic bundles reach no business module and ship no skills', () => {
++  assert.equal(build.variant, 'generic');
++  assert.deepEqual(build.inputs.filter((p) => p.startsWith('src/boss/')), []);
++  assert.ok(build.inputs.includes('src/bootstrap.ts') && build.inputs.includes('src/worker.ts'), 'the runtime itself is in');
++  assert.deepEqual(build.excluded.map((e) => e.module), ['./boss/workflow.ts']);
++  assert.deepEqual(build.files.map((f) => f.path), ['main.mjs', 'worker.mjs']);
++  assert.equal(existsSync(join(runtime, 'skills')), false);
++});
++
++test('the generic build reads the same dependency graph from any working directory', () => {
++  for (const cwd of [REPO, PACKAGE, tmpdir()]) {
++    const out = join(mkdtempSync(join(tmpdir(), 'generic-cwd-')), 'task-runtime');
++    const built = spawnSync(node, [join(PACKAGE, 'scripts/build.mjs'), out, '--generic'], { encoding: 'utf8', cwd });
++    assert.equal(built.status, 0, `${cwd}: ${built.stderr}`);
++    const b = JSON.parse(readFileSync(join(out, 'build.json'), 'utf8'));
++    assert.deepEqual(b.inputs.filter((p: string) => /src\/boss\//.test(p)), [], cwd);
++    assert.ok(b.inputs.includes('src/bootstrap.ts'), `${cwd}: paths are relative to the package: ${b.inputs.slice(0, 3)}`);
++  }
++});
++
++test('a nested business module imported by the entry fails the generic build, from any working directory', () => {
++  // An isolated copy of the package with one more business module, imported by the entry point.
++  const copy = join(mkdtempSync(join(tmpdir(), 'generic-nested-')), 'task-runtime');
++  mkdirSync(copy, { recursive: true });
++  for (const name of ['src', 'scripts', 'package.json', 'tsconfig.json']) cpSync(join(PACKAGE, name), join(copy, name), { recursive: true });
++  symlinkSync(join(PACKAGE, 'node_modules'), join(copy, 'node_modules'));
++  mkdirSync(join(copy, 'src/boss/nested'), { recursive: true });
++  writeFileSync(join(copy, 'src/boss/nested/deep.ts'), 'export const DEEP = 1;\n');
++  writeFileSync(join(copy, 'src/main.ts'), "import { DEEP } from './boss/nested/deep.ts';\nconsole.log(DEEP);\n" + readFileSync(join(copy, 'src/main.ts'), 'utf8'));
++  for (const cwd of [REPO, copy, tmpdir()]) {
++    const out = join(mkdtempSync(join(tmpdir(), 'generic-nested-out-')), 'task-runtime');
++    const built = spawnSync(node, [join(copy, 'scripts/build.mjs'), out, '--generic'], { encoding: 'utf8', cwd });
++    // The plugin replaces the module with an empty one, so a named import of it cannot resolve: the build
++    // fails and names the business module, from whichever directory it runs. Nothing is shipped silently.
++    assert.notEqual(built.status, 0, `${cwd}: a static import of a business module must fail the generic build`);
++    assert.match(built.stderr, /business-excluded:\.\/boss\/nested\/deep\.ts/, cwd);
++    assert.equal(existsSync(join(out, 'main.mjs')), false, `${cwd}: no bundle is left behind`);
++  }
++});
++
++test('the metafile check catches a business module the plugin did not replace', () => {
++  // Same copy, but the business module is reached through a path the plugin's pattern does not match.
++  const copy = join(mkdtempSync(join(tmpdir(), 'generic-slip-')), 'task-runtime');
++  mkdirSync(copy, { recursive: true });
++  for (const name of ['src', 'scripts', 'package.json', 'tsconfig.json']) cpSync(join(PACKAGE, name), join(copy, name), { recursive: true });
++  symlinkSync(join(PACKAGE, 'node_modules'), join(copy, 'node_modules'));
++  // A re-export outside boss/ that reaches into it by an absolute path the pattern still matches is stubbed; to slip
++  // past, the import must not end in .ts under boss/: a .js twin.
++  mkdirSync(join(copy, 'src/boss/nested'), { recursive: true });
++  writeFileSync(join(copy, 'src/boss/nested/deep.js'), 'export const DEEP = 1;\n');
++  writeFileSync(join(copy, 'src/main.ts'), "import { DEEP } from './boss/nested/deep.js';\nconsole.log(DEEP);\n" + readFileSync(join(copy, 'src/main.ts'), 'utf8'));
++  for (const cwd of [REPO, copy]) {
++    const out = join(mkdtempSync(join(tmpdir(), 'generic-slip-out-')), 'task-runtime');
++    const built = spawnSync(node, [join(copy, 'scripts/build.mjs'), out, '--generic'], { encoding: 'utf8', cwd });
++    assert.notEqual(built.status, 0, `${cwd}: a business module in the graph must fail the build`);
++    assert.match(built.stderr, /still contains business modules: src\/boss\/nested\/deep\.js/);
++  }
++});
++
++test('the installer refuses conflicting variant flags before fetching or building', () => {
++  for (const flags of [['--generic', '--legacy'], ['--legacy', '--generic']]) {
++    const out = join(mkdtempSync(join(tmpdir(), 'install-conflict-')), 'rt');
++    const run = spawnSync('/bin/bash', [join(REPO, 'scripts/install-task-runtime.sh'), out, ...flags], { encoding: 'utf8' });
++    assert.equal(run.status, 2, run.stderr);
++    assert.match(run.stderr, /exclude each other/);
++    assert.equal(existsSync(out), false);
++  }
++});
++
++test('the legacy build still carries the business package', () => {
++  const out = join(mkdtempSync(join(tmpdir(), 'legacy-built-')), 'task-runtime');
++  const built = spawnSync(node, [join(PACKAGE, 'scripts/build.mjs'), out], { encoding: 'utf8' });
++  assert.equal(built.status, 0, built.stderr);
++  const legacy = JSON.parse(readFileSync(join(out, 'build.json'), 'utf8'));
++  assert.equal(legacy.variant, 'legacy');
++  assert.ok(legacy.inputs.some((p: string) => p === 'src/boss/workflow.ts'));
++  assert.ok(existsSync(join(out, 'skills/boss-resumes/task.json')));
++});
++
++const started: number[] = [];
++after(() => {
++  for (const pid of started) {
++    try {
++      process.kill(-pid, 'SIGKILL');
++    } catch {}
++  }
++});
++
++function world() {
++  const root = mkdtempSync(join(tmpdir(), 'generic-world-'));
++  const env = {
++    ...process.env,
++    SECONDSCREEN_CLI: '/usr/bin/true',
++    SECONDSCREEN_SOCKET: join(root, 's.sock'),
++    SECONDSCREEN_APP: join(root, 'no-such.app'),
++    SECONDSCREEN_TASKS_DIR: join(root, 'tasks'),
++    SECONDSCREEN_WORKER_IDLE_MS: '120000',
++  };
++  delete (env as Record<string, string | undefined>).SECONDSCREEN_SKILLS_DIR;
++  return { root, env, tasks: join(root, 'tasks') };
++}
++
++async function cli(env: NodeJS.ProcessEnv, args: string[]): Promise<any> {
++  const child = spawn(node, ['--disable-warning=ExperimentalWarning', join(runtime, 'main.mjs'), ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
++  let stdout = '';
++  let stderr = '';
++  child.stdout.on('data', (c) => (stdout += c));
++  child.stderr.on('data', (c) => (stderr += c));
++  await new Promise<number | null>((r) => child.once('close', r));
++  const lines = stdout.trim().split('\n');
++  assert.equal(lines.length, 1, `one line from ${args.join(' ')}: ${stdout} ${stderr}`);
++  return JSON.parse(lines[0]!);
++}
++
++async function until<T>(what: string, probe: () => Promise<T | undefined | false>, ms = 20_000): Promise<T> {
++  const end = Date.now() + ms;
++  for (;;) {
++    const value = await probe();
++    if (value !== undefined && value !== false) return value;
++    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
++    await new Promise((r) => setTimeout(r, 200));
++  }
++}
++
++test('the built generic runtime starts its worker, hosts an empty agent config, answers and stops', async () => {
++  const w = world();
++  const status = await cli(w.env, ['host', 'status']);
++  assert.equal(status.ok, true);
++  assert.equal(status.result.running, false);
++
++  // No business package: the legacy skill is unknown, by name, not a crash.
++  const run = await cli(w.env, ['run', 'boss.collect-resumes', '--job', 'x', '--limit', '1', '--output', join(w.root, 'out')]);
++  assert.equal(run.ok, false);
++  assert.equal(run.error.code, 'not_found');
++
++  mkdirSync(join(w.tasks, 'agents'), { recursive: true, mode: 0o700 });
++  writeFileSync(join(w.tasks, 'agents', 'config.json'), JSON.stringify({ agents: [], providers: {} }) + '\n', { mode: 0o600 });
++  const start = await cli(w.env, ['host', 'start']);
++  assert.equal(start.ok, true, JSON.stringify(start));
++  if (start.result?.pid) started.push(start.result.pid);
++
++  const running = await until('the host to run', async () => {
++    const s = await cli(w.env, ['host', 'status']);
++    return s.result.running === true ? s : undefined;
++  });
++  assert.equal(running.result.running, true);
++  assert.equal(existsSync(join(w.tasks, 'tasks.db')), true, 'the worker opened the ledger');
++
++  const stop = await cli(w.env, ['host', 'stop']);
++  assert.equal(stop.ok, true, JSON.stringify(stop));
++  await until('the host to stop', async () => {
++    const s = await cli(w.env, ['host', 'status']);
++    return s.result.running === false ? s : undefined;
++  });
++  const log = readFileSync(join(w.tasks, 'worker.log'), 'utf8');
++  assert.match(log, /started; ledger/);
++  assert.doesNotMatch(log, /uncaught|unhandled/);
++});
+diff --git a/scripts/install-task-runtime.sh b/scripts/install-task-runtime.sh
+index 029bcf3..a0ba0ad 100755
+--- a/scripts/install-task-runtime.sh
++++ b/scripts/install-task-runtime.sh
+@@ -4,10 +4,17 @@
+ # 2ndscreen.app/Contents/Resources/task-runtime, where `2ndscreen task`
+ # finds it; any other DEST is used through SECONDSCREEN_TASK_RUNTIME=DEST.
+ #
++#   install-task-runtime.sh [DEST] [--generic]
++#
++# --generic installs the generic runtime (packages/task-runtime/scripts/build.mjs
++# --generic): no business module and no skills directory, for a product that
++# carries no business package. Without it the legacy runtime with the BOSS
++# workflow and the skills is installed, as 2ndscreen.app ships it.
++#
+ #   DEST/bin/node      the pinned Node (scripts/fetch-node.sh), with its license
+ #   DEST/main.mjs      `2ndscreen task …`
+ #   DEST/worker.mjs    the background worker
+-#   DEST/skills/       the skills (task.json, profiles, procedures, SKILL.md)
++#   DEST/skills/       the skills (task.json, profiles, procedures, SKILL.md); legacy only
+ #   DEST/build.json    every built file with its sha256
+ #
+ # Dependencies come from packages/task-runtime/package-lock.json through
+@@ -16,7 +23,22 @@
+ set -euo pipefail
+ 
+ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+-DEST="${1:-$ROOT/build/task-runtime}"
++VARIANT=()
++DEST=""
++for arg in "$@"; do
++    case "$arg" in
++        --generic|--legacy)
++            # One variant only; a second flag is refused here, before anything is fetched or built.
++            if [[ ${#VARIANT[@]} -gt 0 && "${VARIANT[0]}" != "$arg" ]]; then
++                echo "error: ${VARIANT[0]} and $arg exclude each other" >&2
++                exit 2
++            fi
++            VARIANT=("$arg") ;;
++        --*) echo "error: unknown option $arg" >&2; exit 2 ;;
++        *) DEST="$arg" ;;
++    esac
++done
++DEST="${DEST:-$ROOT/build/task-runtime}"
+ case "$DEST" in /*) ;; *) DEST="$PWD/$DEST" ;; esac
+ PKG="$ROOT/packages/task-runtime"
+ 
+@@ -30,7 +52,7 @@ export PATH="$NODE_DIR/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+ 
+ STAGE="$(mktemp -d "$(dirname "$DEST")/.task-runtime.XXXXXX" 2>/dev/null || { mkdir -p "$(dirname "$DEST")"; mktemp -d "$(dirname "$DEST")/.task-runtime.XXXXXX"; })"
+ trap 'rm -rf "$STAGE"' EXIT
+-"$NODE" "$PKG/scripts/build.mjs" "$STAGE/task-runtime" >/dev/null
++"$NODE" "$PKG/scripts/build.mjs" "$STAGE/task-runtime" "${VARIANT[@]}" >/dev/null
+ mkdir -p "$STAGE/task-runtime/bin"
+ cp "$NODE" "$STAGE/task-runtime/bin/node"
+ cp "$NODE_DIR/LICENSE" "$STAGE/task-runtime/bin/node.LICENSE"
+@@ -42,4 +64,4 @@ HELP="$("$STAGE/task-runtime/bin/node" --disable-warning=ExperimentalWarning "$S
+ rm -rf "$DEST"
+ mkdir -p "$(dirname "$DEST")"
+ mv "$STAGE/task-runtime" "$DEST"
+-echo "installed the task runtime (node $("$DEST/bin/node" --version)) at $DEST"
++echo "installed the $(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["variant"])' "$DEST/build.json") task runtime (node $("$DEST/bin/node" --version)) at $DEST"

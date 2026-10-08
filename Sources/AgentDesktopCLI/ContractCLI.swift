@@ -84,9 +84,10 @@ public struct ContractCLI {
           5 cancelled, 6 stopped waiting, 130 interrupted.
     """
 
-    /// The product endpoint, unless SECONDSCREEN_SOCKET names another.
+    /// The product endpoint, unless AGENTDESKTOP_SOCKET (the side-instance
+    /// variable HostRole reads) names another.
     public func defaultSocket() -> String {
-        if let p = environment["SECONDSCREEN_SOCKET"], !p.isEmpty { return p }
+        if let p = environment["AGENTDESKTOP_SOCKET"], !p.isEmpty { return p }
         let home = environment["HOME"] ?? NSHomeDirectory()
         return home + "/Library/Application Support/AgentDesktop/control.sock"
     }
