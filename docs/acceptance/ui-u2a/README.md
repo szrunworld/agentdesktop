@@ -67,6 +67,19 @@ Kevin 2026-10-08 裁决：实时预览不能用 `observe`。`observe` 每次都�
 | 截图目录（`a.runtime/artifacts`） | 开始 0 个，结束 0 个：预览期间没有写入任何文件 |
 | 收尾 | 先关闭所有窗口，再用 `desktop destroy` 销毁 Desktop，最后发送退出事件；进程退出，没有残留进程，显示器恢复为 1 块，WindowServer 正常 |
 
+### 审核修复后的真机复验（2026-10-08 21:14–21:17，612cfee）
+
+- 帧改为非延迟复制后，实时画面正常。
+- 总览 ↔ 详情来回切换 13 次（10 次 + 3 次，已确认详情页确实打开）：采集 start 0 / stop 0，宽限期内没有停下再重开。
+- CPU 2.9%，RSS 89 MB，截图目录 0 个文件。
+- 收尾时的一次意外：
+  - 这个分支基于的 main 已带旧版 U8，测试副本收到退出事件会先弹退出对话框。当时 Desktop 已经销毁，对话框找不到测试显示器，于是出现在用户主屏上，约 1 分钟，没有抢走焦点。
+  - 同时，我的收尾脚本在副本还没退出时就删掉了它的 /tmp 记录目录。退出流程因此报 `audit_unavailable`、拒绝退出——这个行为是正确的。
+  - 最后关闭对话框，用 SIGTERM 结束副本。没有残留进程，显示器 1 块，WindowServer 正常。
+  - 以后的收尾顺序：先确认进程已退出，再删目录；对话框选择由 #125 的测试副本规则处理（不抢焦点）。
+
+测试布置的副作用：`first-desktop` 开关把主窗口放到被预览的那块显示器上，所以画面里会看到应用自己的窗口（层层嵌套）；如果此时有 Agent 对这个 Desktop 执行 observe，也会拍到预览画面。这只影响测试副本的验收布置，正式产品没有这个开关。
+
 这一轮没有单独测：
 - 最小化和被遮挡时的暂停：只有单元测试 `streamLifecycle` 覆盖；
 - 已绑定窗口的 Desktop 在真机上的标注效果：需要一个中立的探针窗口，这轮没建；文字已由单元测试覆盖。
@@ -121,7 +134,7 @@ Kevin 2026-10-08 裁决：实时预览不能用 `observe`。`observe` 每次都�
 | [real-p05-failed](real-p05-failed.jpg)、[real-p05-retry-failed](real-p05-retry-failed.jpg) | P05 启动不存在的 .app：失败，保留错误，重试只重做这一步，没有启动任何程序 |
 | [real-p01-grid](real-p01-grid.jpg)、[real-p01-list](real-p01-list.jpg) | P01 网格 / 列表（UC21）；卡片画面来自 observe |
 | [real-uc19-no-result](real-uc19-no-result.jpg)、[real-uc20-cleared](real-uc20-cleared.jpg) | 搜索无结果、清除筛选（UC19、UC20） |
-| [real-p06-detail](real-p06-detail.jpg) | P06 详情：绑定窗口的实时画面（observe），控制者条，连接面板；停止 / 关闭禁用 |
+| [real-p06-detail](real-p06-detail.jpg) | （第一轮，已被第二轮取代）P06 详情：当时用 observe 截取画面；现在改为 ScreenCaptureKit 整个显示器预览并带范围标注。控制者条、连接面板；停止 / 关闭禁用 |
 | [real-p06-empty-desktop](real-p06-empty-desktop.jpg) | 空 Desktop 详情：等待接入，没有示例应用（UC06、UC52） |
 | [real-p06-observe-error](real-p06-observe-error.jpg) | Runtime 拒绝观察时的显示（见下方发现 2） |
 | [real-uc49-zoom-200](real-uc49-zoom-200.jpg) | 缩放切到 200%：点击前后读到的画面 ID 都是 `obs_8a11e7beab29`（UC49）。这个窗口高 775，画面 ID 那一行在滚动区下方，数值取自同一时刻的界面读数 |
