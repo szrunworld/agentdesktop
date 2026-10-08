@@ -106,6 +106,32 @@ struct QTestStackCapabilityTests {
         await ed.disconnect()
     }
 
+    /// ACP-P4-02 (06 G5-05): what an editor sees on a new session matches the
+    /// documented defaults (docs/acp/01 §安全, 08 §一.4, README §四.5):
+    /// screenshots off, page text off, Ask mode; and the three tiers.
+    @Test func privacyDefaultsAsTheEditorSeesThem() async throws {
+        let store = QTestStack.tempDir("p4-store"), cwd = QTestStack.tempDir("p4-cwd")
+        defer { try? FileManager.default.removeItem(at: store); try? FileManager.default.removeItem(at: cwd) }
+        let ed = QTestPipeEditor(port: QTestQuestionPort(), storeDir: store)
+        try await QTestStack.initialize(ed)
+        let r = try await ed.call("session/new", .obj([("cwd", .string(cwd.path)), ("mcpServers", .array([]))]))
+        QTestStack.keep("p4-session-new.json", Data(r.encoded().utf8))
+        let opts = r["result"]?["configOptions"]?.arrayValue ?? []
+        func current(_ id: String) -> String? { opts.first { $0["id"]?.stringValue == id }?["currentValue"]?.stringValue }
+        #expect(current("screenshots") == "off", "\(r.encoded())")
+        #expect(current("pageText") == "off")
+        #expect(current("mode") == "ask")
+        // The screenshot choices are exactly the documented three levels.
+        let shots = opts.first { $0["id"]?.stringValue == "screenshots" }?["options"]?.arrayValue?.compactMap { $0["value"]?.stringValue }
+        #expect(shots == ["off", "submit", "all"])
+        // The options feed the same policy as the documented default.
+        #expect(ACPSessionManagerOptions.policy(ACPSessionManagerOptions.defaults) == ACPPrivacyPolicy())
+        let p = ACPPrivacyPolicy()
+        #expect(p.screenshots == .off && p.pageText == false)
+        #expect(ACPEventTier.allCases.map(\.rawValue) == ["normal", "sensitive", "protected"])
+        await ed.disconnect()
+    }
+
     /// ACP-T05-04.
     @Test func withoutElicitationAQuestionStaysOpen() async throws {
         let store = QTestStack.tempDir("t05q-store"), cwd = QTestStack.tempDir("t05q-cwd")
