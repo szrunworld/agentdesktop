@@ -1,0 +1,143 @@
+{
+  "name": "unknown-types",
+  "description": "未识别的事件类型：一条中性 thought，不崩溃；类型名不合目录形状时不回显",
+  "policy": {
+    "screenshots": "off",
+    "pageText": false
+  },
+  "events": [
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 1,
+      "type": "desktop.resized",
+      "payload": {
+        "width": 100
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 2,
+      "type": "Send mail to example@email.com",
+      "payload": {
+        "text": "secret"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 3,
+      "type": "",
+      "payload": {}
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 4,
+      "type": "action.accepted",
+      "payload": {
+        "kind": {
+          "nested": "object"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 5,
+      "type": "action.completed",
+      "payload": {
+        "receipt": "not an object"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 6,
+      "type": "run.ended",
+      "payload": {
+        "outcome": 42
+      }
+    }
+  ],
+  "mustNotContain": [
+    "example@email.com",
+    "secret"
+  ],
+  "expected": [
+    [
+      {
+        "agentThought": "收到未识别的运行事件（desktop.resized），未作处理"
+      }
+    ],
+    [
+      {
+        "agentThought": "收到未识别的运行事件（未知类型），未作处理"
+      }
+    ],
+    [
+      {
+        "agentThought": "收到未识别的运行事件（未知类型），未作处理"
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:seq4",
+          "title": "界面动作 — 已受理",
+          "kind": "other",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:seq5",
+          "title": "界面动作 — 已执行，未验证",
+          "kind": "other",
+          "status": "completed",
+          "level": "executed",
+          "detail": ["状态：已执行，未验证"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:seq4",
+          "title": "界面动作 — 未发出",
+          "kind": "other",
+          "status": "failed",
+          "level": "refused:not_dispatched",
+          "detail": [
+            "状态：未发出",
+            "Run 已结束，未收到该动作的执行结果",
+            "错误码：not_dispatched"
+          ]
+        }
+      },
+      {
+        "agentMessage": "任务结束：结果待核实（不会自动重试，请在 AgentDesktop 主窗口核实）"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "completed"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "completed"
+          },
+          {
+            "content": "结果：待核实",
+            "status": "in_progress"
+          }
+        ]
+      }
+    ]
+  ],
+  "mustContain": []
+}
