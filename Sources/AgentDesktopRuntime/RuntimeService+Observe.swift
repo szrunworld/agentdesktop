@@ -39,25 +39,30 @@ extension RuntimeService {
                                            screen: d.screen, binding: d.binding, windowFrame: nil, transform: nil,
                                            imageSize: nil, elements: [:], readElements: false)
             var image: JSONValue = .null
-            if p["screenshot"]?.boolValue ?? true {
+            let wantsImage = p["screenshot"]?.boolValue ?? true
+            /// The screen, or with a binding only the bound window's frame.
+            func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
                 let artifactId = "art_" + snapshotId.dropFirst(4)
                 let path = artifacts.path(for: artifactId, ext: "png")
-                let size = try platform.screenshot(d.screen, to: path)
+                let size = try crop.map { try platform.screenshot(d.screen, cropTo: $0, to: path) }
+                    ?? platform.screenshot(d.screen, to: path)
+                let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
+                let scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
                 let info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
                                                   runId: request.context.runId, createdAt: nowString)
-                let scale = Double(size.width) / max(1, d.screen.frame.width)
-                stored.transform = (d.screen.frame.x, d.screen.frame.y, scale)
+                stored.transform = (origin.0, origin.1, scale)
                 stored.imageSize = size
                 image = .obj([
                     ("artifactId", .string(artifactId)), ("mediaType", .string("image/png")),
                     ("width", .int(size.width)), ("height", .int(size.height)),
                     ("byteSize", .int(info.byteSize)), ("sha256", .string(info.sha256)),
-                    ("transform", .obj([("originX", .double(d.screen.frame.x)), ("originY", .double(d.screen.frame.y)),
+                    ("transform", .obj([("originX", .double(origin.0)), ("originY", .double(origin.1)),
                                         ("scale", .double(scale))])),
                 ])
             }
             var targetJSON: JSONValue = .null
             var elementsJSON: [JSONValue] = []
+            if d.binding == nil, wantsImage { try capture(nil) }
             if let b = d.binding {
                 // The same launch of the same process, or the binding is stale.
                 let now = backend.processIdentity(b.process.pid)
@@ -66,10 +71,16 @@ extension RuntimeService {
                                        "the bound process \(b.process.pid) has exited or restarted; bind the window again",
                                        phase: .handler, details: .obj([("generation", .int(b.generation))]))
                 }
-                guard let window = platform.window(on: d.screen, pid: b.process.pid, windowId: b.windowId) else {
-                    throw RuntimeError("stale_observation",
-                                       "window \(b.windowId) is no longer on desktop \(d.desktopId); bind a window again",
-                                       phase: .handler, details: .obj([("generation", .int(b.generation))]))
+                // G0: only the bound window is shown, and only while nothing
+                // else could be seen or reached in its place.
+                let exposed = try exposedTarget(d, b, notSent: false)
+                let window = exposed.window
+                if wantsImage {
+                    // A window reaching past the screen edge is cut at the edge.
+                    let s = d.screen.frame, f = window.frame
+                    let x0 = max(f.x, s.x), y0 = max(f.y, s.y)
+                    try capture(AgentDesktopProtocol.Rect(x: x0, y: y0, width: min(f.x + f.width, s.x + s.width) - x0,
+                                                          height: min(f.y + f.height, s.y + s.height) - y0))
                 }
                 var frame = window.frame
                 var title = window.title
@@ -89,6 +100,15 @@ extension RuntimeService {
                             ("actions", .array(e.actions.map(JSONValue.string))),
                             ("frame", e.frame?.json ?? .null),
                         ]))
+                    }
+                }
+                // Nothing moved in front of it while it was read.
+                if wantsImage || stored.readElements {
+                    let after = try exposedTarget(d, b, notSent: false)
+                    guard after.stack == exposed.stack, Self.sameFrame(after.window.frame, window.frame) else {
+                        throw RuntimeError("stale_observation", "the windows on desktop \(d.desktopId) changed while it was observed; observe again",
+                                           phase: .handler, details: .obj([("reason", .string("changed_during_capture")),
+                                                                           ("generation", .int(b.generation))]))
                     }
                 }
                 stored.windowFrame = frame

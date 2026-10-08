@@ -70,12 +70,12 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
 
 @Test func anImagePointIsMappedThroughTheSnapshotTransform() throws {
     let sc = try scene()
-    // Window at (2100,100) 400x300 on a screen at x=2000, scale 2.
-    let r = try #require(data(act(sc, #"{"kind":"click","target":{"imagePoint":{"x":300,"y":300}}}"#)))
+    // The image is the bound window at (2100,100) 400x300, scale 2 (G0).
+    let r = try #require(data(act(sc, #"{"kind":"click","target":{"imagePoint":{"x":100,"y":100}}}"#)))
     #expect(r["target"]?["point"]?["x"]?.doubleValue == 2150)
     #expect(r["target"]?["point"]?["y"]?.doubleValue == 150)
     #expect(sc.platform.performed.last?.point?.x == 2150)
-    #expect(code(act(sc, #"{"kind":"click","target":{"imagePoint":{"x":10,"y":10}}}"#)) == "invalid_target")
+    #expect(code(act(sc, #"{"kind":"click","target":{"imagePoint":{"x":900,"y":10}}}"#)) == "invalid_target")
     #expect(code(act(sc, #"{"kind":"click","target":{"imagePoint":{"x":99999,"y":10}}}"#)) == "invalid_target")
     #expect(code(act(sc, #"{"kind":"click","target":{"elementRef":"el_42"}}"#)) == "invalid_target")
     #expect(sc.platform.performed.count == 1)

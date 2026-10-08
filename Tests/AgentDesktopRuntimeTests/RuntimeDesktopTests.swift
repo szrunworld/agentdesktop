@@ -144,9 +144,11 @@ func created(_ s: RuntimeService, _ c: ConnectionState, name: String? = nil) thr
     #expect(els.compactMap { $0["id"]?.stringValue } == ["el_0", "el_1"])
     #expect(els.first?["label"]?.stringValue == "继续")
     let image = try #require(o["image"])
-    #expect(image["width"]?.intValue == 2560)
+    // Only the bound window (2100,100) 400x300 is shown (G0).
+    #expect(image["width"]?.intValue == 800)
     #expect(image["transform"]?["scale"]?.doubleValue == 2)
-    #expect(image["transform"]?["originX"]?.doubleValue == screen.frame.x)
+    #expect(image["transform"]?["originX"]?.doubleValue == 2100)
+    #expect(image["transform"]?["originY"]?.doubleValue == 100)
     #expect(s.artifacts.file(of: try #require(image["artifactId"]?.stringValue)) != nil)
     let snap = try #require(o["snapshotId"]?.stringValue)
     #expect(s.observations.isLatestElementRead(snap, desktopId: id))
