@@ -56,10 +56,10 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
     #expect(o.stamp.desktopId == d && o.stamp.runGeneration == 7 && o.stamp.bindingEpoch == 1)
     #expect(o.target.windowId == "11" && o.target.processId == 101 && o.target.backendId == "2ndscreen-engine")
     let shot = try #require(o.screenshots.first)
-    // Window (2100,100) 400x300 on a 2x screen at x=2000 → crop (200,200) 800x600 px.
-    #expect(shot.transform.crop == AgentDesktopContracts.Rect(x: 200, y: 200, width: 800, height: 600))
+    // The Runtime's image already is the window (2100,100) 400x300 at 2x (G0).
+    #expect(shot.transform.crop == AgentDesktopContracts.Rect(x: 0, y: 0, width: 800, height: 600))
     #expect(shot.transform.modelInputSize == Size(width: 800, height: 600))
-    let corner = shot.sourceToDesktop.apply(Point(x: 200, y: 200))
+    let corner = shot.sourceToDesktop.apply(Point(x: 0, y: 0))
     #expect(corner == Point(x: 2100, y: 100))
     let image = try #require(bundle.currentImage)
     #expect(pngSize(image.bytes).map { $0 == (800, 600) } == true)
@@ -74,8 +74,8 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
     _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
     let bundle = try await ports.observe(runId: "r1", expectedGeneration: 1)
     let shot = bundle.observation.screenshots[0].screenshotId
-    // Source pixel (300,300) → (2150,150) in points, inside the window.
-    let p = proposal(.action(.click(sourcePixel: Point(x: 300, y: 300))), run: "r1", stamp: bundle.observation.stamp, shot: shot)
+    // Source pixel (100,100) → (2150,150) in points, inside the window.
+    let p = proposal(.action(.click(sourcePixel: Point(x: 100, y: 100))), run: "r1", stamp: bundle.observation.stamp, shot: shot)
     let r = try await ports.execute(p, actionId: "act-1")
     #expect(r.deliveryState == .confirmed)
     #expect(r.executionTarget?.windowId == "11")
@@ -108,7 +108,7 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
     #expect(unknown.reasonCode == "ACTION_OUTCOME_UNKNOWN")
 
     // Outside the window: refused before any input.
-    let outside = try await ports.execute(proposal(.action(.click(sourcePixel: Point(x: 5, y: 5))), run: "r1", stamp: stamp, shot: shot), actionId: "act-o")
+    let outside = try await ports.execute(proposal(.action(.click(sourcePixel: Point(x: 900, y: 5))), run: "r1", stamp: stamp, shot: shot), actionId: "act-o")
     #expect(outside.deliveryState == .rejected && outside.reasonCode == "COORDINATE_OUT_OF_BOUNDS")
 
     // Rebinding makes the proposal's snapshot stale.

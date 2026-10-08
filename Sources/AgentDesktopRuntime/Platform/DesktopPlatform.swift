@@ -82,6 +82,21 @@ public struct PlatformAction: Equatable, Sendable {
     }
 }
 
+/// One read of a window's accessibility elements.
+public struct ElementRead: Sendable {
+    public var window: PlatformWindow
+    public var elements: [PlatformElement]
+    /// Why the read stopped before the whole tree ("deadline", "limits");
+    /// nil when it is complete.
+    public var truncated: String?
+
+    public init(window: PlatformWindow, elements: [PlatformElement], truncated: String? = nil) {
+        self.window = window
+        self.elements = elements
+        self.truncated = truncated
+    }
+}
+
 /// A refusal by the platform, already classified for the Runtime API.
 public struct PlatformError: Error, Equatable, Sendable, CustomStringConvertible {
     public enum Kind: String, Sendable {
@@ -132,10 +147,20 @@ public protocol DesktopPlatform: Sendable {
     func window(on screen: ScreenHandle, pid: Int32, windowId: UInt32) -> PlatformWindow?
     /// Write a PNG of the whole screen; its size in pixels.
     func screenshot(_ screen: ScreenHandle, to path: String) throws -> (width: Int, height: Int)
+    /// Write a PNG of only `frame` (global points) of the screen; its size
+    /// in pixels. The Runtime asks for the bound window's frame after
+    /// proving nothing covers it, so the pixels are that window's.
+    func screenshot(_ screen: ScreenHandle, cropTo frame: Rect, to path: String) throws -> (width: Int, height: Int)
+    /// On-screen normal windows that overlap the screen, front to back, as
+    /// the window server orders them now.
+    func stack(on screen: ScreenHandle) -> [PlatformWindow]
     /// Read the window's accessibility elements. The read replaces the
-    /// backend's numbering for that window.
-    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?) throws
-        -> (window: PlatformWindow, elements: [PlatformElement])
+    /// backend's numbering for that window. Past `deadline` the backend
+    /// reads no further node and returns what it has, marked truncated.
+    /// Called on the Runtime's AX threads (AXReader), never with a
+    /// Desktop's lock held.
+    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?, deadline: Date) throws
+        -> ElementRead
     /// Ask an app to quit (normal quit, never forced); false if it is gone
     /// or declined.
     func quit(pid: Int32) -> Bool

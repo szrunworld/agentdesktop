@@ -279,6 +279,9 @@ public struct ControlResponse: Codable {
     /// `window.state`: the elements, and the tree they come from.
     public var elements: [AXElementInfo]?
     public var tree: String?
+    /// windowState: why the element walk stopped early ("deadline",
+    /// "limits"); absent when it read the whole tree.
+    public var elementsTruncated: String?
     /// `input`: how the action was delivered, such as `ax.press` or
     /// `event.pid`, and the element it went to, if any.
     public var route: String?

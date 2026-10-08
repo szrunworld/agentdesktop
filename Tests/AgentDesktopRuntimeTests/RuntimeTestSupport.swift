@@ -30,8 +30,12 @@ struct FixedBackend: RuntimeBackend {
     func processIdentity(_ pid: Int32) -> ProcessIdentity {
         ProcessIdentity(pid: pid, startedAt: restarted.contains(pid) ? "2026-10-08T09:00:00.000Z" : "2026-10-08T01:00:00.000Z")
     }
+    /// Windows a test opens later, in front of every other (a reference, so
+    /// a test can change it after the Runtime took its copy of the backend).
+    final class Opened: @unchecked Sendable { var windows: [WindowSummary] = [] }
+    var opened = Opened()
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
-        wins.filter { (pid == nil || $0.process.pid == pid) && (bundleId == nil || $0.bundleId == bundleId)
+        (opened.windows + wins).filter { (pid == nil || $0.process.pid == pid) && (bundleId == nil || $0.bundleId == bundleId)
             && (includeOffscreen || $0.onScreen) }
     }
 }
@@ -179,10 +183,55 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         return (Int(screen.frame.width) * 2, Int(screen.frame.height) * 2)
     }
 
-    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?) throws -> (window: PlatformWindow, elements: [PlatformElement]) {
+    /// Windows the test puts in front of everything on a screen, front first.
+    var inFront: [String: [PlatformWindow]] = [:]
+    /// Runs right after an input is "sent" or a window is captured.
+    var onPerform: (() -> Void)?
+    var onCapture: (() -> Void)?
+
+    func stack(on screen: ScreenHandle) -> [PlatformWindow] {
+        lock.withLock {
+            (inFront[screen.name] ?? [])
+                + windows.values.flatMap { $0 }.filter { onScreen[$0.windowId] == screen.name }.sorted { $0.windowId < $1.windowId }
+        }
+    }
+
+    func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
+        note("screenshot \(screen.name) window")
+        defer { lock.withLock { onCapture }?() }
+        guard screenRecordingGranted else {
+            throw PlatformError(.permission, "needs the Screen Recording permission to take screenshots")
+        }
+        let w = Int(frame.width) * 2, h = Int(frame.height) * 2
+        if realImages {
+            try pngData(width: w, height: h).write(to: URL(fileURLWithPath: path))
+        } else {
+            try Data("PNG".utf8).write(to: URL(fileURLWithPath: path))
+        }
+        lock.withLock { lastScreenshot = path }
+        return (w, h)
+    }
+
+    /// Makes an element read hang until signalled (a stuck app), or end
+    /// truncated like a walk out of time.
+    var axGate: DispatchSemaphore?
+    var axTruncated: String?
+    var axFailure: PlatformError?
+    /// Element reads running now, and the most at once.
+    var axRunning = 0, axPeak = 0
+    var axThreads: Set<String> = []
+
+    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?, deadline: Date) throws -> ElementRead {
         note("elements \(pid)/\(windowId)")
+        lock.withLock {
+            axRunning += 1; axPeak = max(axPeak, axRunning)
+            axThreads.insert(Thread.isMainThread ? "main" : (Thread.current.name ?? "?"))
+        }
+        defer { lock.withLock { axRunning -= 1 } }
+        lock.withLock { axGate }?.wait()
+        if let f = lock.withLock({ axFailure }) { throw f }
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "the window is gone") }
-        return (w, elements)
+        return ElementRead(window: w, elements: elements, truncated: lock.withLock { axTruncated })
     }
 
     var quit: [Int32] = []
@@ -200,6 +249,7 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         gate?.wait()
         if let f = lock.withLock({ () -> PlatformError? in defer { failNext = nil }; return failNext }) { throw f }
         lock.withLock { performed.append(action) }
+        lock.withLock { onPerform }?()
         return action.elementIndex != nil ? "ax.press" : "event.click"
     }
 

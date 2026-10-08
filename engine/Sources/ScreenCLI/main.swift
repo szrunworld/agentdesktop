@@ -50,7 +50,8 @@ usage:
   agentdesktop android adb ARGS...   run the bundled adb with these arguments
 
   agentdesktop iphone show [--screen NAME]   iPhone Mirroring on an agent screen ("phone")
-  agentdesktop iphone hide
+  agentdesktop iphone hide [--timeout S] [--no-wait]
+  agentdesktop iphone status|reconnect [--screen NAME]
   agentdesktop iphone screenshot [--screen NAME] --output FILE.png
   agentdesktop iphone tap  [--screen NAME] --x X --y Y
   agentdesktop iphone type [--screen NAME] --text TEXT
@@ -61,10 +62,13 @@ mirror open, tap, swipe and key go through it at once; without it, through
 adb. type pastes through the phone's clipboard, so it takes any text and a
 Chinese keyboard on the phone cannot turn it into pinyin.
 
-iPhone points are the screenshot's pixels, two to a window point. tap and
-key reach iPhone Mirroring in the background; type pastes, bringing it to
-the front for about a second once you leave the Mac idle. It cannot swipe or
-scroll. hide quits iPhone Mirroring, handing the phone back.
+iPhone points are the screenshot's pixels, two to a window point. None of
+these moves the real pointer. tap borrows key focus for a moment and gives
+it back; key home, switcher and spotlight (cmd-1/2/3) make iPhone Mirroring
+front for the instant the shortcut is queued; type pastes through the Mac's
+clipboard and puts it back. This backend has no reliable background swipe,
+scroll, drag or long press (a person's mouse or trackpad can do them), so
+it offers none. hide quits iPhone Mirroring, handing the phone back.
 
 state, click, type, key, scroll and drag act in the background, through
 accessibility or input events posted to the app, and only on a window that is
@@ -130,7 +134,8 @@ struct Arguments {
                                       "--modifiers", "--ttl", "--idle-timeout", "--owner-pid",
                                       "--serial", "--max-size", "--duration",
                                       "--direction", "--amount", "--by", "--from-x", "--from-y",
-                                      "--to-x", "--to-y", "--duration-ms", "--max-steps"]
+                                      "--to-x", "--to-y", "--duration-ms", "--max-steps",
+                                      "--geometry", "--timeout"]
 
     init(_ words: [String]) {
         var iterator = words.makeIterator()
