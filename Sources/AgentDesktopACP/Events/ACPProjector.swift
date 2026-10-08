@@ -12,9 +12,14 @@ public struct ACPProjector: ACPEventProjector {
     public init() {}
 
     /// Verification values that mean the Runtime checked and it matched.
-    public static let verifiedValues: Set<String> = ["matched", "verified", "passed", "confirmed", "succeeded"]
-    /// Verification values that mean the Runtime checked and it did not match.
-    public static let contradictedValues: Set<String> = ["contradicted", "mismatched", "not_matched", "failed", "rejected"]
+    /// Empty on purpose until the verification values are frozen in the
+    /// catalogue (f1 E-1): today `ActionReceipt.verification` is the const
+    /// `not_requested`, and Kevin's ruling forbids showing 「已验证」 before
+    /// verification exists. Any other value is shown as executed, unverified.
+    public static let verifiedValues: Set<String> = []
+    /// Verification values that mean the Runtime checked and it did not
+    /// match. Empty for the same reason.
+    public static let contradictedValues: Set<String> = []
 
     public func project(_ event: ACPRuntimeEvent, policy: ACPPrivacyPolicy) -> [ACPSessionUpdate] {
         project(event, policy: policy, context: ACPEventContext())

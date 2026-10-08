@@ -149,8 +149,7 @@ toolCallId = `act:<runId>:<requestId>`，两段都经 `ACPRedactor.identifier`�
 | `action.accepted` | 目录 | accepted | pending | 已受理（发 `toolCall`） |
 | `action.dispatched` | 目录 | dispatched | in_progress | 已发出，等待执行结果 |
 | `action.completed`，回执 dispatched + completed | 目录 | executed | completed | 已执行，未验证 |
-| 回执 verification ∈ {matched, verified, passed, confirmed, succeeded} | 目录字段，但今天是 const `not_requested`（E-1） | verified | completed | 已验证成功 |
-| 回执 verification ∈ {contradicted, mismatched, not_matched, failed, rejected} | 同上 | contradicted | failed | 验证未通过 |
+| 回执 verification 为 `not_requested` 以外的任何值 | 目录字段今天是 const `not_requested`（E-1 未冻结） | executed | completed | 已执行，未验证（详情「验证：未得出结论」）。投影器本身不产生「已验证」或「验证未通过」：两个取值集合在 E-1 冻结前为空（独立审核 C-1，Kevin 裁决：验证结果落地前不得显示「已验证」） |
 | `action.failed`，回执 not_dispatched | 目录 | refused(`receipt.reason.code`) | failed | 未发出 |
 | `action.failed`，回执 dispatched + failed | 目录 | failed(`receipt.reason.code`，缺省 execution_failed) | failed | 执行失败 |
 | `action.unknown`，或任何回执 delivery / execution 为 unknown（Run 进行中） | 目录 | unknown | in_progress | 结果待核实（详情带 `receipt.reason.code`） |

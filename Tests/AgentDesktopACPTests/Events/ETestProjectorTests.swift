@@ -44,13 +44,17 @@ import Testing
         #expect(nb.level == .executed)
         #expect(nb.detail.contains("业务结果：未评估"))
 
+        // Until the catalogue freezes verification values (E-1), even a
+        // value outside the catalogue such as "matched" stays executed:
+        // 「已验证」 must be unreachable from the projector itself.
         let verified = try #require(call(p.project(ETest.event("action.completed", [("receipt", ETest.receipt(verification: "matched"))]),
                                                    policy: strict)))
-        #expect(verified.level == .verified)
+        #expect(verified.level == .executed)
 
         // All three ids line up, all three titles differ.
         #expect(Set([accepted.toolCallId, dispatched.toolCallId, executed.toolCallId]).count == 1)
-        #expect(Set([accepted.title, dispatched.title, executed.title, verified.title]).count == 4)
+        #expect(Set([accepted.title, dispatched.title, executed.title]).count == 3)
+        #expect(verified.title == executed.title)
     }
 
     @Test(arguments: ["not_requested", "pending", "inconclusive", "not_evaluated", "", "MATCHED"])
