@@ -284,6 +284,8 @@ public final class ACPWireV1: ACPWireAdapter, @unchecked Sendable {
     public func encodeUpdate(sessionId: String, _ update: ACPSessionUpdate) -> (method: String, params: JSONValue)? {
         let body: JSONValue
         switch update {
+        case let .userMessage(text):
+            body = .obj([("sessionUpdate", .string("user_message_chunk")), ("content", textBlock(text))])
         case let .agentMessage(text):
             body = .obj([("sessionUpdate", .string("agent_message_chunk")), ("content", textBlock(text))])
         case let .agentThought(text):

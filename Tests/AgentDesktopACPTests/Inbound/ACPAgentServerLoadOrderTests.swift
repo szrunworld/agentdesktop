@@ -29,6 +29,7 @@ import Testing
 
     private func text(_ u: ACPSessionUpdate) -> String? {
         switch u {
+        case let .userMessage(t): return "› 你：" + t  // user lines tagged for these assertions
         case let .agentMessage(t), let .agentThought(t): return t
         default: return nil
         }

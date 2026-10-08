@@ -388,6 +388,7 @@ public struct ACPProjector: ACPEventProjector {
             return c
         }
         switch u {
+        case let .userMessage(s): return .userMessage(g(s))
         case let .agentMessage(s): return .agentMessage(g(s))
         case let .agentThought(s): return .agentThought(g(s))
         case let .plan(es): return .plan(es.map { ACPPlanEntry(content: g($0.content), status: $0.status) })

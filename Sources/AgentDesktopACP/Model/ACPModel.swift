@@ -184,6 +184,8 @@ public struct ACPPlanEntry: Equatable, Sendable {
 }
 
 public enum ACPSessionUpdate: Equatable, Sendable {
+    /// The user's own words, replayed on session/load (already redacted).
+    case userMessage(String)
     case agentMessage(String)
     case agentThought(String)
     case plan([ACPPlanEntry])

@@ -464,12 +464,11 @@ public actor ACPAgentServer {
             kind: kind, text: redact(sid, text), runId: runId, at: timestamp())])
     }
 
-    /// How a stored line is shown again. TODO(interface request): a user
-    /// line should be `user_message_chunk`; the model has no such update
-    /// yet, so it is replayed as a marked agent message.
+    /// How a stored line is shown again: the user's words as
+    /// `user_message_chunk`, the server's as agent messages.
     static func replayUpdate(_ e: ACPSessionManagerHistoryEntry) -> ACPSessionUpdate {
         switch e.kind {
-        case .user: return .agentMessage("› 你：\(e.text)")
+        case .user: return .userMessage(e.text)
         case .agent: return .agentMessage(e.text)
         }
     }
