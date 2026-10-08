@@ -2,7 +2,7 @@
   "apiVersion": "agentdesktop.runtime/1",
   "status": "FROZEN_2026_10_08",
   "transport": {
-    "macOS": "owner-only Unix domain socket ~/Library/Application Support/AgentDesktop/control.sock (frozen; runtime.sock until PR2b moves it)",
+    "macOS": "owner-only Unix domain socket: the product host serves runtime/1 on one endpoint (runtime.sock today; renamed control.sock when nothing else uses that name); ai.sock is gone (A2)",
     "windows": "current-user named pipe (W1)",
     "framing": "UTF-8 JSON, one message per LF-terminated line; requests on one connection are answered in order",
     "maxFrameBytes": 1048576,
@@ -292,6 +292,320 @@
       "params": "empty_params",
       "result": "EventSubscription",
       "status": "implemented"
+    },
+    {
+      "method": "ai.connections.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_list_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_list_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.connections.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.connections.create",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_create_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_create_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.connections.update",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_update_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_update_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.connections.disable",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_disable_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_disable_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.connections.delete",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_delete_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_delete_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.credentials.rotate",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_credentials_rotate_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_credentials_rotate_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.models.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_list_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_list_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.models.refresh",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_refresh_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_refresh_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.modelProfiles.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_list_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_list_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.modelProfiles.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.modelProfiles.create",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_create_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_create_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.modelProfiles.update",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_update_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_update_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.modelProfiles.disable",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_disable_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_disable_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.modelProfiles.delete",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_delete_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_delete_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.profiles.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_list_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_list_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.profiles.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.profiles.create",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_create_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_create_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.profiles.update",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_update_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_update_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.profiles.disable",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_disable_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_disable_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.profiles.delete",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_delete_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_delete_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.profiles.default.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_default_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_default_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.profiles.setDefault",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_setDefault_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_setDefault_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.tests.start",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_tests_start_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_tests_start_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.operations.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_get_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.operations.cancel",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_cancel_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_cancel_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "ai.usage.summary",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_usage_summary_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_usage_summary_result",
+      "status": "implemented",
+      "servedBy": "ai-service",
+      "note": "answered by the AI service inside the host; params and results are validated against the ai-gui/v1 definitions named here; requestId is the idempotency key (8–128 characters for writes)"
+    },
+    {
+      "method": "gui.runs.start",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_start_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_start_result",
+      "status": "transitional",
+      "servedBy": "ai-service",
+      "removedBy": "A6 (unit.run + run.*)",
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias"
+    },
+    {
+      "method": "gui.runs.get",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_get_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_get_result",
+      "status": "transitional",
+      "servedBy": "ai-service",
+      "removedBy": "A6 (unit.run + run.*)",
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias"
+    },
+    {
+      "method": "gui.runs.cancel",
+      "stage": "P0",
+      "mutation": true,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_cancel_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_cancel_result",
+      "status": "transitional",
+      "servedBy": "ai-service",
+      "removedBy": "A6 (unit.run + run.*)",
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias"
+    },
+    {
+      "method": "gui.runs.events",
+      "stage": "P0",
+      "mutation": false,
+      "params": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_events_params",
+      "result": "ai-gui/v1 rpc.schema.json#/$defs/gui_runs_events_result",
+      "status": "transitional",
+      "servedBy": "ai-service",
+      "removedBy": "A6 (unit.run + run.*)",
+      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -304,249 +618,6 @@
       "params": "unit_run_params",
       "result": "Run",
       "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process, never over the wire"
-    },
-    {
-      "method": "ai.connections.list",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_list_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_list_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.connections.get",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_get_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.connections.create",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_create_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_create_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.connections.update",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_update_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_update_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.connections.disable",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_disable_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_disable_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.connections.delete",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_delete_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_connections_delete_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.credentials.rotate",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_credentials_rotate_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_credentials_rotate_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.models.list",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_list_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_list_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.models.refresh",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_refresh_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_models_refresh_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.modelProfiles.list",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_list_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_list_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.modelProfiles.get",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_get_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.modelProfiles.create",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_create_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_create_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.modelProfiles.update",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_update_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_update_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.modelProfiles.disable",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_disable_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_disable_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.modelProfiles.delete",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_delete_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_modelProfiles_delete_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.profiles.list",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_list_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_list_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.profiles.get",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_get_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.profiles.create",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_create_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_create_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.profiles.update",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_update_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_update_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.profiles.disable",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_disable_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_disable_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.profiles.delete",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_delete_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_delete_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.profiles.default.get",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_default_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_default_get_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.profiles.setDefault",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_setDefault_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_profiles_setDefault_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.tests.start",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_tests_start_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_tests_start_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.operations.get",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_get_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_get_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.operations.cancel",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": true,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_cancel_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_operations_cancel_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
-    },
-    {
-      "method": "ai.usage.summary",
-      "status": "frozen",
-      "pr": "PR2b",
-      "mutation": false,
-      "params": "ai-gui/v1 rpc.schema.json#/$defs/ai_usage_summary_params",
-      "result": "ai-gui/v1 rpc.schema.json#/$defs/ai_usage_summary_result",
-      "note": "served by the Runtime under the runtime/1 envelope; schema moves into runtime.schema.json in PR2b"
     },
     {
       "method": "hub.pairing.start",
@@ -794,19 +865,23 @@
   "withdrawn": [
     {
       "method": "gui.runs.start",
-      "replacedBy": "unit.run + run.*"
+      "replacedBy": "unit.run + run.*",
+      "until": "A6: served as transitional on the single endpoint until unit.run lands"
     },
     {
       "method": "gui.runs.get",
-      "replacedBy": "unit.run + run.*"
+      "replacedBy": "unit.run + run.*",
+      "until": "A6: served as transitional on the single endpoint until unit.run lands"
     },
     {
       "method": "gui.runs.cancel",
-      "replacedBy": "unit.run + run.*"
+      "replacedBy": "unit.run + run.*",
+      "until": "A6: served as transitional on the single endpoint until unit.run lands"
     },
     {
       "method": "gui.runs.events",
-      "replacedBy": "unit.run + run.*"
+      "replacedBy": "unit.run + run.*",
+      "until": "A6: served as transitional on the single endpoint until unit.run lands"
     },
     {
       "method": "ai/1 runtime.capabilities",

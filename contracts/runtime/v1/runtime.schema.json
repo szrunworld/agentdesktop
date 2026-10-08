@@ -486,6 +486,10 @@
               }
             }
           }
+        },
+        "gui": {
+          "type": "object",
+          "description": "what the GUI execution backend supports, as the AI service reports it (ai-gui/v1 runtime_capabilities_result); absent while that service is not running"
         }
       }
     },

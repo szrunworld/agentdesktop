@@ -63,9 +63,13 @@ public final class RuntimeContract: Sendable {
         public let method: String
         public let stage: String
         public let mutation: Bool
-        /// `$defs` names in runtime.schema.json.
+        /// `$defs` names in runtime.schema.json, or for a method served by
+        /// another service an `ai-gui/v1 …` reference it validates itself.
         public let params: String
         public let result: String
+        /// The service that answers it inside the Runtime ("ai-service"),
+        /// nil for the Runtime's own methods.
+        public var servedBy: String? = nil
     }
 
     public struct ErrorSpec: Equatable, Sendable {
@@ -104,7 +108,8 @@ public final class RuntimeContract: Sendable {
                   let mutation = v["mutation"]?.boolValue, let params = v["params"]?.stringValue,
                   let result = v["result"]?.stringValue
             else { throw SchemaError.invalidSchema("methods.json entry \(v.encoded())") }
-            return MethodSpec(method: method, stage: stage, mutation: mutation, params: params, result: result)
+            return MethodSpec(method: method, stage: stage, mutation: mutation, params: params, result: result,
+                              servedBy: v["servedBy"]?.stringValue)
         }
         let e = try StrictJSON.parse(errors)
         self.errors = try (e["codes"]?.arrayValue ?? []).map { v in

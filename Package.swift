@@ -141,7 +141,7 @@ let package = Package(
         // 32 handlers. Takes input only through an injected backend.
         .target(
             name: "AgentDesktopService",
-            dependencies: ["AgentDesktopContracts", "AgentDesktopAI", "AgentDesktopGUI"]
+            dependencies: ["AgentDesktopContracts", "AgentDesktopProtocol", "AgentDesktopAI", "AgentDesktopGUI"]
         ),
         .testTarget(
             name: "AgentDesktopServiceTests",
