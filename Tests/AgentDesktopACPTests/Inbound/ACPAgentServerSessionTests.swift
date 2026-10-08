@@ -207,6 +207,11 @@ import Testing
         h.connection.request(9, .closeSession(sessionId: sid))
         guard case .closed? = await h.connection.waitReply(9) else { Issue.record("not closed"); return }
         #expect(rt.cancels.get().map(\.0) == [scoped])
+        // Closed sessions leave the list and cannot be loaded again.
+        h.connection.request(10, .listSessions(cwd: nil))
+        guard case let .sessions(list)? = await h.connection.waitReply(10) else { Issue.record("no list"); return }
+        #expect(!list.map(\.sessionId).contains(sid))
+        #expect(try h.store.load(sessionId: sid) == nil)
     }
 
     @Test func configOptionsValidateAndFeedPolicy() async throws {

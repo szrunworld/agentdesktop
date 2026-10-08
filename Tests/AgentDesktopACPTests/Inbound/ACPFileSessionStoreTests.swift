@@ -73,6 +73,32 @@ import Testing
         #expect(try store.list(principalId: "bob").map(\.acpSessionId) == ["b1"])
     }
 
+    @Test func removeForgetsOneSession() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent().deletingLastPathComponent()) }
+        let store = ACPFileSessionStore(directory: dir)
+        try store.remove(sessionId: "nothing") // missing directory and file: no error
+        try store.save(binding("s1"))
+        try store.save(binding("s2"))
+        try store.remove(sessionId: "s1")
+        try store.remove(sessionId: "s1")
+        #expect(try store.load(sessionId: "s1") == nil)
+        #expect(try store.list(principalId: "alice").map(\.acpSessionId) == ["s2"])
+        // A new session may take the id again from revision 1.
+        try store.save(binding("s1"))
+        #expect(throws: ACPFileSessionStoreError.invalidSessionId) { try store.remove(sessionId: "../s2") }
+    }
+
+    @Test func pendingSubmissionKeyRoundTrips() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent().deletingLastPathComponent()) }
+        let store = ACPFileSessionStore(directory: dir)
+        var b = binding("s1")
+        b.pendingSubmissionKey = "acp1-abc"
+        try store.save(b)
+        #expect(try store.load(sessionId: "s1")?.pendingSubmissionKey == "acp1-abc")
+    }
+
     @Test func invalidIdsAreRefused() throws {
         let dir = tempDir()
         defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent().deletingLastPathComponent()) }

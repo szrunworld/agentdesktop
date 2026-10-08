@@ -54,7 +54,11 @@ public actor ACPAgentServer {
             switch event {
             case let .request(id, incoming): dispatch(id: id, incoming)
             case let .notification(incoming): notify(incoming)
-            case let .closed(reason): await connectionClosed(reason: reason)
+            case let .closed(reason):
+                // The connection is gone; a stream that is never finished
+                // must not keep the server alive.
+                await connectionClosed(reason: reason)
+                return
             }
         }
         await connectionClosed(reason: "event stream ended")
@@ -98,10 +102,10 @@ public actor ACPAgentServer {
                 answer = .initialized(version: connection.version, agent: config.agentInfo, capabilities: caps)
             case let .newSession(cwd):
                 answer = try await newSession(cwd: cwd)
-            case .listSessions:  // TODO(lane S): filter by cwd
-                answer = try await listSessions()
-            case let .resumeSession(sid, _, _):  // TODO(lane S): honour replay=false and cwd
-                try await resumeSession(id: id, sessionId: sid)
+            case let .listSessions(cwd):
+                answer = try await listSessions(cwd: cwd)
+            case let .resumeSession(sid, cwd, replay):
+                try await resumeSession(id: id, sessionId: sid, cwd: cwd, replay: replay)
                 return
             case let .closeSession(sid):
                 answer = try await closeSession(sid)
@@ -116,7 +120,17 @@ public actor ACPAgentServer {
             answer = .error(ACPAgentServerErrors.storeFailed)
         }
         await reply(id, answer)
-        if case let .sessionCreated(sid, _) = answer { await sendCommands(sid) }
+        if case let .sessionCreated(sid, _) = answer {
+            await sendCommands(sid)
+            await sayIdentity(sid)
+        }
+    }
+
+    /// Until A4 the Runtime does not authenticate the caller; the session is
+    /// owned by a local-owner placeholder. Say so instead of implying more.
+    func sayIdentity(_ sid: String) async {
+        guard let c = cachedCaller, !c.verified else { return }
+        await say(sid, "身份说明：Runtime 尚未认证调用方身份，本会话暂按本机所有者占位身份（\(redact(sid, c.principalId))）归属。")
     }
 
     // MARK: Sessions
@@ -141,53 +155,71 @@ public actor ACPAgentServer {
                                         options: ACPSessionManagerOptions.defaults,
                                         createdAt: ts, updatedAt: ts, revision: 1)
         do { try store.save(binding) } catch { throw ACPAgentServerErrors.storeFailed }
-        live[sid] = LiveSession(binding: binding)
+        live[sid] = LiveSession(binding: binding, projector: projector)
         return .sessionCreated(sessionId: sid, options: binding.options)
     }
 
-    private func listSessions() async throws -> ACPReply {
+    private func listSessions(cwd: String?) async throws -> ACPReply {
         let c = try await caller()
         let all: [ACPSessionBinding]
         do { all = try store.list(principalId: c.principalId) } catch { throw ACPAgentServerErrors.storeFailed }
         // The store filters already; filter again so a store bug cannot
         // show another principal's session.
-        let mine = all.filter { $0.principalId == c.principalId }
+        let mine = all.filter { $0.principalId == c.principalId && (cwd == nil || $0.cwd == cwd) }
             .sorted { $0.updatedAt > $1.updatedAt }
         return .sessions(mine.map { ACPSessionSummary(sessionId: $0.acpSessionId, title: $0.title, updatedAt: $0.updatedAt, cwd: $0.cwd) })
     }
 
-    /// Rebind a stored session to this connection and replay its visible
-    /// history from the Runtime's events. Never submits, never restarts a
-    /// Run: a connection-scoped Run stopped with its old connection stays
-    /// stopped.
-    private func resumeSession(id: ACPRequestId, sessionId sid: String) async throws {
+    /// Rebind a stored session to this connection; with `replay`, stream
+    /// its visible history from the Runtime's events first. Never submits,
+    /// never restarts a Run: a connection-scoped Run stopped with its old
+    /// connection stays stopped (K1). Session resume is not Run resume.
+    private func resumeSession(id: ACPRequestId, sessionId sid: String, cwd: String?, replay: Bool) async throws {
         let c = try await caller()
         let stored: ACPSessionBinding?
         do { stored = try store.load(sessionId: sid) } catch { stored = nil }
-        guard let binding = stored, binding.principalId == c.principalId else {
+        guard let binding = stored, binding.principalId == c.principalId,
+              cwd == nil || binding.cwd == cwd else {
             throw ACPAgentServerErrors.sessionNotFound
         }
         if let old = live[sid] {
             old.followers.values.forEach { $0.task.cancel() }
             old.turn?.cancelRequested = true
         }
-        live[sid] = LiveSession(binding: binding)
+        live[sid] = LiveSession(binding: binding, projector: projector)
         try persist(sid) { $0.clientId = c.clientId }
 
-        // Ended Runs replay fully before the answer (v1 `session/load`
-        // streams history first); live Runs follow after it.
+        // replay: history (everything up to the snapshot's lastCursor, all
+        // of an ended Run) is streamed before the answer, as v1
+        // `session/load` requires; live events follow after it.
+        // no replay: nothing old is sent; open Runs are followed from their
+        // current cursor on.
         var following: [(String, ACPRunSnapshot?)] = []
         for runId in binding.runIds {
             let snap = try? await runtime.snapshot(runId: runId)
+            if !replay {
+                if snap?.phase == "ended" { continue }
+                if let base = snap?.lastCursor ?? binding.lastCursor[runId] { live[sid]?.seen[runId] = base }
+                following.append((runId, snap))
+                continue
+            }
             if snap?.phase == "ended" {
                 startFollower(sid, runId)
                 await drain(sid, runId, timeout: nil)
+            } else if let snap, let last = snap.lastCursor {
+                startFollower(sid, runId)
+                await waitSeen(sid, runId, upTo: last, timeout: config.drainTimeout)
+                following.append((runId, snap))
             } else {
                 following.append((runId, snap))
             }
         }
         await reply(id, .resumed(options: live[sid]?.binding.options ?? binding.options))
         await sendCommands(sid)
+        await sayIdentity(sid)
+        if live[sid]?.binding.pendingSubmissionKey != nil {
+            await say(sid, "上次有一条提交没有收到 Runtime 的确认，结果待核实；原样重发那条 prompt 只会查询原请求，不会重复执行。")
+        }
         for (runId, snap) in following {
             if let snap {
                 await say(sid, "任务 \(runId)：\(Self.describe(snap))")
@@ -198,11 +230,24 @@ public actor ACPAgentServer {
         }
     }
 
+    /// Wait until events up to `cursor` were delivered (bounded).
+    func waitSeen(_ sid: String, _ runId: String, upTo cursor: Int, timeout: Duration) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while !closed, let s = live[sid], (s.seen[runId] ?? Int.min) < cursor, s.followers[runId] != nil {
+            if clock.now >= deadline { return }
+            do { try await Task.sleep(for: .milliseconds(5)) } catch { return }
+        }
+    }
+
     private func closeSession(_ sid: String) async throws -> ACPReply {
         let c = try await caller()
         guard let s = live[sid] else {
             let stored = try? store.load(sessionId: sid)
             guard let b = stored ?? nil, b.principalId == c.principalId else { throw ACPAgentServerErrors.sessionNotFound }
+            if let removable = store as? any ACPSessionManagerRemovableStore {
+                do { try removable.remove(sessionId: sid) } catch { throw ACPAgentServerErrors.storeFailed }
+            }
             return .closed
         }
         guard s.binding.principalId == c.principalId else { throw ACPAgentServerErrors.sessionNotFound }
@@ -215,8 +260,11 @@ public actor ACPAgentServer {
             _ = try? await runtime.cancel(runId: runId, requestId: "acp-close-\(sid)-\(runId)")
         }
         live[sid]?.followers.values.forEach { $0.task.cancel() }
-        try? flushCursors(sid)
         live[sid] = nil
+        // A closed session leaves the list; its Runs stay in the Runtime.
+        if let removable = store as? any ACPSessionManagerRemovableStore {
+            do { try removable.remove(sessionId: sid) } catch { throw ACPAgentServerErrors.storeFailed }
+        }
         return .closed
     }
 
@@ -299,7 +347,16 @@ public actor ACPAgentServer {
             live[sid]?.cursorsDirty = true
         }
         let policy = ACPSessionManagerOptions.policy(s.binding.options)
-        for update in projector.project(event, policy: policy) {
+        let updates: [ACPSessionUpdate]
+        if var ps = live[sid]?.projectorSession {
+            // One projector session per ACP session, fed in arrival order
+            // (cursor order per Run), so later events know earlier ones.
+            updates = ps.project(event, policy: policy)
+            live[sid]?.projectorSession = ps
+        } else {
+            updates = projector.project(event, policy: policy)
+        }
+        for update in updates {
             await send(sid, update)
         }
     }
@@ -364,8 +421,12 @@ public actor ACPAgentServer {
         await send(sid, .agentMessage(text))
     }
 
+    /// Every editor-visible or stored text that did not come out of the
+    /// projector's `project`: the projector's redaction, then lane E's
+    /// `ACPRedactor` (docs/acp/08-event-mapping.md: summaries, questions).
     func redact(_ sid: String, _ text: String) -> String {
-        projector.redact(text, policy: ACPSessionManagerOptions.policy(live[sid]?.binding.options ?? []))
+        let policy = ACPSessionManagerOptions.policy(live[sid]?.binding.options ?? [])
+        return ACPRedactor.redact(projector.redact(text, policy: policy), policy: policy)
     }
 
     func timestamp() -> String {
@@ -403,10 +464,14 @@ struct LiveSession {
     /// prompt reuses its key while the Run is still open or unconfirmed.
     var lastSubmission: (material: String, key: String, runId: String?)?
 
-    init(binding: ACPSessionBinding) {
+    /// Lane E's stateful projection, when the server runs with `ACPProjector`.
+    var projectorSession: ACPProjectorSession?
+
+    init(binding: ACPSessionBinding, projector: any ACPEventProjector) {
         var b = binding
         b.options = ACPSessionManagerOptions.normalized(binding.options)
         self.binding = b
+        projectorSession = projector is ACPProjector ? ACPProjectorSession() : nil
     }
 }
 
@@ -416,6 +481,7 @@ final class ACPPromptTurn: @unchecked Sendable {
     var runId: String?
     var cancelRequested = false
     var cancelSent = false
+    var pendingUnknownSaid = false
     var closing = false
     var stopAnnounced = false
     /// Approvals currently shown to the editor.

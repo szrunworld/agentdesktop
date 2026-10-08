@@ -1,5 +1,12 @@
 import Foundation
 
+/// A store that can forget a session (`session/close`). Kept in lane S
+/// so the frozen `ACPSessionStore` does not change; a store without it
+/// keeps closed sessions listed.
+public protocol ACPSessionManagerRemovableStore: ACPSessionStore {
+    func remove(sessionId: String) throws
+}
+
 public enum ACPFileSessionStoreError: Error, Equatable, Sendable {
     /// `binding.revision` was not the stored revision + 1.
     case conflict(sessionId: String, stored: Int, attempted: Int)
@@ -11,7 +18,7 @@ public enum ACPFileSessionStoreError: Error, Equatable, Sendable {
 /// §3, lane S). Directory 0700, files 0600, atomic replace, a revision
 /// check on every save. It stores what the server hands it: ids, cursors,
 /// options and a title the projector already redacted. Never Run state.
-public final class ACPFileSessionStore: ACPSessionStore, @unchecked Sendable {
+public final class ACPFileSessionStore: ACPSessionManagerRemovableStore, @unchecked Sendable {
     public let directory: URL
     private let lock = NSLock()
 
@@ -69,6 +76,21 @@ public final class ACPFileSessionStore: ACPSessionStore, @unchecked Sendable {
         let data: Data
         do { data = try encoder.encode(Record(binding)) } catch { throw ACPFileSessionStoreError.io("encode") }
         try writeAtomically(data, to: target)
+    }
+
+    /// Forget a closed session. Missing is not an error.
+    public func remove(sessionId: String) throws {
+        try Self.checkId(sessionId)
+        lock.lock(); defer { lock.unlock() }
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        let lockFd = open(directory.appendingPathComponent(".lock").path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
+        guard lockFd >= 0 else { throw ACPFileSessionStoreError.io("lock open errno \(errno)") }
+        defer { close(lockFd) }
+        guard flock(lockFd, LOCK_EX) == 0 else { throw ACPFileSessionStoreError.io("flock errno \(errno)") }
+        defer { flock(lockFd, LOCK_UN) }
+        if unlink(fileURL(sessionId).path) != 0, errno != ENOENT {
+            throw ACPFileSessionStoreError.io("unlink errno \(errno)")
+        }
     }
 
     // MARK: Files
@@ -143,12 +165,14 @@ public final class ACPFileSessionStore: ACPSessionStore, @unchecked Sendable {
         var options: [Option]
         var createdAt, updatedAt: String
         var revision: Int
+        var pendingSubmissionKey: String?
 
         init(_ b: ACPSessionBinding) {
             acpSessionId = b.acpSessionId; principalId = b.principalId; clientId = b.clientId
             cwd = b.cwd; title = b.title; runIds = b.runIds; lastCursor = b.lastCursor
             options = b.options.map { Option(id: $0.id, name: $0.name, value: $0.value, choices: $0.choices) }
             createdAt = b.createdAt; updatedAt = b.updatedAt; revision = b.revision
+            pendingSubmissionKey = b.pendingSubmissionKey
         }
 
         var binding: ACPSessionBinding {
@@ -156,7 +180,8 @@ public final class ACPFileSessionStore: ACPSessionStore, @unchecked Sendable {
                               title: title, runIds: runIds, lastCursor: lastCursor,
                               options: options.map { ACPConfigOption(id: $0.id, name: $0.name, value: $0.value,
                                                                       choices: $0.choices) },
-                              createdAt: createdAt, updatedAt: updatedAt, revision: revision)
+                              createdAt: createdAt, updatedAt: updatedAt, revision: revision,
+                              pendingSubmissionKey: pendingSubmissionKey)
         }
     }
 }
