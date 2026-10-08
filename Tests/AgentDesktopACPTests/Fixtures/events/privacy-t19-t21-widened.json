@@ -1,0 +1,391 @@
+{
+  "name": "privacy-t19-t21-widened",
+  "description": "T19～T21 放宽策略（screenshots=all、pageText=true）：显示截图引用与脱敏后的标题/标签/摘要；邮箱、电话、证件号、链接、凭据、输入内容、截图字节仍不出现",
+  "policy": {
+    "screenshots": "all",
+    "pageText": true
+  },
+  "events": [
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 1,
+      "type": "run.started",
+      "payload": {
+        "kind": "act",
+        "origin": "agent_hub",
+        "ownership": "external_client",
+        "lifetime": "connection_scoped",
+        "desktopId": "desk_000000aaaaaa",
+        "sessionId": "sess_000000bbbbbb",
+        "at": "2026-10-08T12:00:00.000Z"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 2,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "send-to-13800138000",
+        "kind": "type",
+        "text": "Hi Alice, my password: hunter2-secret, call 13800138000",
+        "title": "Click send to candidate: example@email.com"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 3,
+      "type": "action.dispatched",
+      "payload": {
+        "requestId": "send-to-13800138000"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 4,
+      "type": "action.completed",
+      "payload": {
+        "requestId": "send-to-13800138000",
+        "receipt": {
+          "receiptId": "rcpt_00aa11bb22cc",
+          "requestId": "send-to-13800138000",
+          "runId": "run_0a1b2c3d4e5f",
+          "desktopId": "desk_000000aaaaaa",
+          "sessionId": "sess_000000bbbbbb",
+          "snapshotId": "snap_000000cccccc",
+          "delivery": "dispatched",
+          "execution": "completed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "ax",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 4242,
+              "startedAt": null
+            },
+            "windowId": 813,
+            "elementRef": "row-example-at-email-com-13800138000",
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T12:00:00.000Z",
+            "dispatchedAt": "2026-10-08T12:00:00.120Z",
+            "completedAt": "2026-10-08T12:00:00.350Z"
+          },
+          "windowTitle": "Inbox – alice.zhang@example.com – Mail"
+        },
+        "url": "https://mail.example.com/inbox?token=abcdef0123456789abcdef0123456789",
+        "screenshot": {
+          "artifactId": "art_3f9c1a7be2d4",
+          "mediaType": "image/png",
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          "windowId": 813
+        },
+        "summary": "Sent offer to example@email.com, card 6222 0212 3456 7890, Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        "elements": [
+          {
+            "id": "el_7",
+            "role": "AXStaticText",
+            "label": "Resume of 张三",
+            "value": "phone 13800138000",
+            "actions": [],
+            "frame": null
+          }
+        ],
+        "target": {
+          "windowId": 813,
+          "elementRef": "el_7",
+          "windowTitle": "候选人 张三 简历 11010519491231002X",
+          "label": "联系电话 +86 138-0013-8000"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 5,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_0007dddd3333",
+        "kind": "submit"
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 6,
+      "type": "action.failed",
+      "payload": {
+        "receipt": {
+          "receiptId": "rcpt_00aa11bb22cc",
+          "requestId": "req_0007dddd3333",
+          "runId": "run_0a1b2c3d4e5f",
+          "desktopId": "desk_000000aaaaaa",
+          "sessionId": "sess_000000bbbbbb",
+          "snapshotId": "snap_000000cccccc",
+          "delivery": "not_dispatched",
+          "execution": "failed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "ax",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 4242,
+              "startedAt": null
+            },
+            "windowId": 813,
+            "elementRef": "el_7",
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T12:00:00.000Z",
+            "dispatchedAt": null,
+            "completedAt": "2026-10-08T12:00:00.350Z"
+          }
+        },
+        "error": {
+          "code": "stale_observation",
+          "message": "window 813 (Mail: example@email.com) covers ...",
+          "details": {
+            "reason": "occluded",
+            "coveringWindowId": 901,
+            "coveringPid": 4243
+          }
+        },
+        "screenshot": {
+          "artifactId": "art_8e2d5c0fa1b7",
+          "mediaType": "image/png",
+          "windowId": 813
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 7,
+      "type": "action.accepted",
+      "payload": {
+        "requestId": "req_0008eeee4444",
+        "kind": "click",
+        "target": {
+          "windowId": 813,
+          "elementRef": "el_9",
+          "title": null,
+          "sensitive": true,
+          "label": "13800138000"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 8,
+      "type": "action.failed",
+      "payload": {
+        "requestId": "req_0008eeee4444",
+        "error": {
+          "code": "Leaked example@email.com",
+          "message": "x"
+        }
+      }
+    },
+    {
+      "runId": "run_0a1b2c3d4e5f",
+      "cursor": 9,
+      "type": "run.ended",
+      "payload": {
+        "phase": "ended",
+        "outcome": "failed",
+        "reason": "user example@email.com"
+      }
+    }
+  ],
+  "mustNotContain": [
+    "example@email.com",
+    "alice.zhang@example.com",
+    "13800138000",
+    "138-0013-8000",
+    "11010519491231002X",
+    "hunter2",
+    "Hi Alice",
+    "https://",
+    "token=",
+    "iVBORw0KGgo",
+    "6222 0212",
+    "eyJhbGciOiJIUzI1NiJ9",
+    "mail.example.com"
+  ],
+  "mustContain": [
+    "截图：art_",
+    "窗口：",
+    "[邮箱]",
+    "[电话]",
+    "[证件号]",
+    "[凭据]"
+  ],
+  "expected": [
+    [
+      {
+        "agentMessage": "任务已开始（Run run_0a1b2c3d4e5f）；编辑器断开后将停止输入"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "in_progress"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "pending"
+          },
+          {
+            "content": "结果",
+            "status": "pending"
+          }
+        ]
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:ref-civehitc",
+          "title": "输入文字 — 已受理",
+          "kind": "execute",
+          "status": "pending",
+          "level": "accepted",
+          "detail": [
+            "状态：已受理",
+            "说明：Click send to candidate: [邮箱]"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:ref-civehitc",
+          "title": "输入文字 — 已发出，等待执行结果",
+          "kind": "execute",
+          "status": "in_progress",
+          "level": "dispatched",
+          "detail": ["状态：已发出，等待执行结果"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:ref-civehitc",
+          "title": "输入文字 — 已执行，未验证",
+          "kind": "execute",
+          "status": "completed",
+          "level": "executed",
+          "detail": [
+            "状态：已执行，未验证",
+            "投递：已发出",
+            "执行：已完成",
+            "验证：未请求",
+            "业务结果：未评估",
+            "耗时：350 毫秒",
+            "目标：ref-cfdqznsg",
+            "窗口：候选人 张三 简历 [证件号]",
+            "元素：联系电话 [电话]",
+            "摘要：Sent offer to [邮箱], card [数字], [凭据]",
+            "截图：art_3f9c1a7be2d4（在 AgentDesktop 主窗口查看）"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0007dddd3333",
+          "title": "提交 — 已受理",
+          "kind": "other",
+          "status": "pending",
+          "level": "accepted",
+          "detail": ["状态：已受理"]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0007dddd3333",
+          "title": "提交 — 未发出",
+          "kind": "other",
+          "status": "failed",
+          "level": "refused:stale_observation",
+          "detail": [
+            "状态：未发出",
+            "投递：未发出",
+            "执行：失败",
+            "验证：未请求",
+            "业务结果：未评估",
+            "耗时：350 毫秒",
+            "目标：ref-uqfnsihz",
+            "错误码：stale_observation",
+            "原因：目标窗口被其他窗口遮挡",
+            "截图：art_8e2d5c0fa1b7（在 AgentDesktop 主窗口查看）"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCall": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0008eeee4444",
+          "title": "点击 — 已受理",
+          "kind": "execute",
+          "status": "pending",
+          "level": "accepted",
+          "detail": [
+            "状态：已受理",
+            "目标：ref-qthclzur"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "toolCallUpdate": {
+          "toolCallId": "act:run_0a1b2c3d4e5f:req_0008eeee4444",
+          "title": "点击 — 执行失败",
+          "kind": "execute",
+          "status": "failed",
+          "level": "failed:unlisted_error",
+          "detail": [
+            "状态：执行失败",
+            "错误码：unlisted_error"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "agentMessage": "任务结束：失败"
+      },
+      {
+        "plan": [
+          {
+            "content": "受理任务",
+            "status": "completed"
+          },
+          {
+            "content": "执行",
+            "status": "completed"
+          },
+          {
+            "content": "停止输入并收尾",
+            "status": "completed"
+          },
+          {
+            "content": "结果：失败",
+            "status": "completed"
+          }
+        ]
+      }
+    ]
+  ]
+}
