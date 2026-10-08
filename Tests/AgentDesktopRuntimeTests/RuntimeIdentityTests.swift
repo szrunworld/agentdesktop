@@ -281,7 +281,16 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     #expect(platform.performed.isEmpty)
 }
 
-@Test func aRevokedAppsEventStreamStopsAndCloses() throws {
+@Test func aRevokedAppsEventStreamStopsAndCloses() async throws {
+    // Blocking socket reads: off the cooperative pool.
+    try await withCheckedThrowingContinuation { (k: CheckedContinuation<Void, Error>) in
+        Thread {
+            do { try revokedStreamBody(); k.resume() } catch { k.resume(throwing: error) }
+        }.start()
+    }
+}
+
+private func revokedStreamBody() throws {
     let platform = FakePlatform()
     let s = platformService(platform)
     let owner = handshaken(s)
