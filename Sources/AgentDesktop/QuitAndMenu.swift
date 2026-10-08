@@ -15,6 +15,8 @@ final class QuitController: NSObject, NSWindowDelegate {
     var keepInBackground: () -> Void = {}
     /// NSApp.reply(toApplicationShouldTerminate:), injectable for tests.
     var reply: (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
+    /// NSApp.terminate, injectable for tests.
+    var terminate: () -> Void = { NSApp.terminate(nil) }
     var clock: PollClock = SystemPollClock()
     private(set) var flow: QuitFlow?
     /// Reading the active count; tests wait on it.
@@ -30,6 +32,23 @@ final class QuitController: NSObject, NSWindowDelegate {
     }
 
     var isAsking: Bool { !answered }
+
+    /// Every quit request of the host (the menu bar panel, the Dock, the
+    /// idle timer) comes here. While the dialog waits for an answer, a
+    /// second NSApp.terminate makes AppKit force an immediate termination
+    /// ("Unexpected call to terminate: while still determining whether to
+    /// terminate"), which skips stopping input and waiting for quiet Runs.
+    /// So a request then only brings the dialog forward.
+    func requestQuit() {
+        guard isAsking else { terminate(); return }
+        guard let window else { return }
+        if testDisplay != nil {
+            window.orderFrontRegardless()
+        } else {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+        }
+    }
 
     /// Show the dialog; the app waits (terminateLater) for the answer. The
     /// dialog appears at once: the in-process port answers in order, so a
