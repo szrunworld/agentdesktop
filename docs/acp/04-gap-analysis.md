@@ -8,6 +8,7 @@
 | 第二轮（本稿） | `acp-skeleton`@34ae2c5：七条工作线 #54（D）、#62（S）、#63（R）、#65（E）、#66（O）、#67（T）、#68（Q）已合入，基线含 b2831ca。外部 PR 状态于 2026-10-08 用 `gh pr view` 核对：#29 草案未合入、#50 未合入、#60（AX 隔离）未合入、#69（SEC-01 记录文件权限）未合入 |
 
 | 第三轮 | `acp-skeleton`@8f57c1d：已合入 main@134b451（#2）与 A2（#84 → 29d8f9b、#94 → f0f3827）；七条线经第三至第六轮。main 之后又合入 #102（fa2222f，事件目录），`acp-skeleton` 尚未包含。外部 PR 状态于 2026-10-08 核对：#29 草案（并入 #111 待审）、#50 未合入、#111（整合剩余分支，含 #53）未合入 |
+| 第四轮 | main@914b8c9：#111 于 2026-10-08 11:46:40Z 合入 main，带入 #29 MCP/SDK、#102 事件目录（fa2222f，11:41Z 合入）与整个 `acp-skeleton`（#53 显示 MERGED）。ACP 工作改为 main → 功能分支 → PR → main，`acp-skeleton` 退役（Kevin 第四次裁决）。本节只更新下列条目，其余同第三轮 |
 
 每条都在代码里核对过。Runtime 侧行号对应 2837bd4（34ae2c5 未改 Runtime、Client、Protocol、CLI）；ACP 侧行号对应 34ae2c5。
 
@@ -26,9 +27,9 @@
 | GAP-05 握手 principal | 未关闭，P0 契约增量 | f1 接受 R4（PR2b），但 main 的 `runtime.schema.json` 里 `principal` 为 0 处。`caller.verified` 仍为 false |
 | GAP-06 身份与授权（A4） | 未关闭 | A4 未开始 |
 | GAP-07 审批与提问方法 | 未关闭 | PR4（07 R2，f1 已接受形状）；在此之前 `capability_missing` 即拒绝 |
-| GAP-08 事件目录（F1-01） | 部分，P0 契约增量 | #102 在 main（fa2222f）冻结 `PlatformRunEvent` 10 种事件、回执带 `reason`、新增 `action.refused`。`acp-skeleton` 未合入；E 未对齐。**与 f1 在 08 第〇节的结论不一致两处**：f1 说 E-2「不新增 `action.refused`」，#102 新增了；f1 说目录放 `methods.json` 的 `events` 段，#102 放在 `runtime.schema.json`（main 的 methods.json 没有 `events` 键）。级别字段（E-10）未见 |
+| GAP-08 事件目录（F1-01） | 部分，P0 契约增量 | #102 在 main（fa2222f）冻结 `PlatformRunEvent` 10 种事件、回执带 `reason`、新增 `action.refused`。已随 #111 进入 main；E 未对齐。**与 f1 在 08 第〇节的结论不一致两处**：f1 说 E-2「不新增 `action.refused`」，#102 新增了；f1 说目录放 `methods.json` 的 `events` 段，#102 放在 `runtime.schema.json`（main 的 methods.json 没有 `events` 键）。级别字段（E-10）未见 |
 | GAP-09 CLI `acp` 子命令 | 未关闭，按 f1 R9 延后 | 过 G1 且 #53 离开草案后再接 |
-| GAP-10 MCP #29 | 未关闭 | 仍为草案；被 #111 收入，待审 |
+| GAP-10 MCP #29 | 部分：已合入，验收待做 | 随 #111 合入 main（914b8c9）：`AgentDesktopMCP` 目标（`Package.swift:23,121`），工具经 RuntimeClient 走 runtime/1。T18-04（`agentdesktop mcp` 一次 `act` 在账本可查）尚未取证（06 G0-02） |
 | GAP-11 Windows | 未关闭 | 无变化 |
 | GAP-12 真编辑器 | 部分 | Zed 已装；真实首帧要 Kevin 手工做一次（Z1） |
 | GAP-13 幂等键是 uid | 部分 | 无变化；R7 部分接受：`request.show` 的 not_found 带 `oldestAcceptedAt`、`instanceId`，未在 main 的 schema 中出现（`oldestAcceptedAt` 0 处） |
