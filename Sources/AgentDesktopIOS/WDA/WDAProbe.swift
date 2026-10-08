@@ -78,6 +78,12 @@ public struct WDAProbeReport: Sendable, Codable, Equatable {
     public let status: WDAStatus?
     /// The observation's geometry (image bytes are not kept in the report).
     public let observation: ProbeObservation?
+    /// Whether a screenshot plus its geometry (window size, scale,
+    /// orientation) was read from one session. Separate from the
+    /// `screenshot` capability: a runner can serve screenshots and still miss
+    /// a geometry route, which leaves only this `unverified`.
+    public let observationState: IOSCapabilityState
+    public let observationEvidence: [String]
     public let capabilities: [IOSCapability]
     public let hostEffects: IOSHostEffects
     public let probedAt: Date
@@ -121,26 +127,71 @@ extension WDAClient {
         basis: "by design: commands run in the on-device XCTest runner over HTTP; real-device check I04 NOT_RUN"
     )
 
-    /// Screenshot plus the geometry needed to interpret it.
+    /// Screenshot plus the geometry needed to interpret it, all read from
+    /// one session.
+    ///
+    /// The four reads are pinned to that session: none of them silently
+    /// moves to a new one. If the session is invalidated or replaced part
+    /// way, the whole observation is taken again once; a second change
+    /// fails with `sessionInvalid` instead of mixing two sessions' data.
     public func observe(deadline: ContinuousClock.Instant? = nil) async throws -> WDAObservation {
-        let shot = try await screenshot(deadline: deadline)
-        let size = try await windowSize(deadline: deadline)
-        let scale = try await screenScale(deadline: deadline)
-        let orientation = try await orientation(deadline: deadline)
-        let version = "\(shot.pixelWidth)x\(shot.pixelHeight)@\(scale)/\(size.width)x\(size.height)/\(orientation)"
-        return WDAObservation(
-            observationId: UUID(), targetId: target.targetId, capturedAt: shot.capturedAt,
-            imagePixelSize: IOSPixelSize(width: shot.pixelWidth, height: shot.pixelHeight),
-            contentRect: IOSRect(x: 0, y: 0, width: size.width, height: size.height),
-            orientation: orientation, screenScale: scale, geometryVersion: version,
-            backendSessionId: currentSessionId, png: shot.png
-        )
+        try await observe(deadline: deadline, use: .createIfNeeded)
+    }
+
+    func observe(deadline: ContinuousClock.Instant?, use: SessionUse) async throws -> WDAObservation {
+        var decoded: WDAScreenshot?
+        return try await observe(deadline: deadline, use: use, decodedScreenshot: &decoded)
+    }
+
+    /// As `observe(deadline:use:)`, and leaves the last screenshot it decoded
+    /// in `decodedScreenshot` even when a later geometry read fails, so the
+    /// probe can credit the screenshot route without fetching it again.
+    func observe(deadline: ContinuousClock.Instant?, use: SessionUse,
+                 decodedScreenshot: inout WDAScreenshot?) async throws -> WDAObservation {
+        var lastChange = ""
+        for _ in 0 ..< 2 {
+            let id = try await session(use, deadline: deadline)
+            let generation = sessionGeneration
+            let shot: WDAScreenshot
+            let size: WDASize
+            let scale: Double
+            let orientation: String
+            do {
+                shot = try await screenshot(deadline: deadline, use: .pinned(id))
+                decodedScreenshot = shot
+                size = try await windowSize(deadline: deadline, use: .pinned(id))
+                scale = try await screenScale(deadline: deadline, use: .pinned(id))
+                orientation = try await self.orientation(deadline: deadline, use: .pinned(id))
+            } catch let error as WDAError where error.kind == .sessionInvalid {
+                lastChange = "session \(id) became invalid at \(error.endpoint)"
+                continue
+            }
+            guard sessionGeneration == generation, currentSessionId == id else {
+                lastChange = "session changed from \(id) (generation \(generation)) to "
+                    + "\(currentSessionId ?? "none") (generation \(sessionGeneration)) during the observation"
+                continue
+            }
+            let version = "\(shot.pixelWidth)x\(shot.pixelHeight)@\(scale)/\(size.width)x\(size.height)/\(orientation)"
+            return WDAObservation(
+                observationId: UUID(), targetId: target.targetId, capturedAt: shot.capturedAt,
+                imagePixelSize: IOSPixelSize(width: shot.pixelWidth, height: shot.pixelHeight),
+                contentRect: IOSRect(x: 0, y: 0, width: size.width, height: size.height),
+                orientation: orientation, screenScale: scale, geometryVersion: version,
+                backendSessionId: id, png: shot.png
+            )
+        }
+        throw WDAError(kind: .sessionInvalid, delivery: .rejected, endpoint: "observe",
+                       message: "no consistent observation after one retry: \(lastChange)")
     }
 
     /// Builds a per-capability report from `/status` and from routes the
     /// runner actually serves. Never sends a command that can change the
     /// phone: gestures are checked with an empty W3C action list (a no-op),
-    /// text and Home are not sent at all.
+    /// text and Home are not sent at all, and no session is created
+    /// (`POST /session` can launch or foreground an app). Session-scoped
+    /// checks use the client's current session, or the runner's when
+    /// `adoptRunnerSession` is on; without one they stay `unverified`. Call
+    /// `ensureSession()` first to probe them, accepting what it may do.
     ///
     /// A capability is `supported` only when the runner serves it and either
     /// the probe observed it directly (screenshot, element tree) or
@@ -176,39 +227,64 @@ extension WDAClient {
                 entry($0, .unverified, [why], ["runner must be running and reachable"])
             }
             return WDAProbeReport(target: target, runnerReady: false, status: status, observation: nil,
+                                  observationState: .unverified, observationEvidence: [why],
                                   capabilities: unknown + [audio], hostEffects: Self.hostEffects, probedAt: Date())
         }
 
         var capabilities: [IOSCapability] = []
         let ready = "GET /status ready=true (\(status.message ?? "no message"))"
 
-        // Observation: screenshot + geometry.
+        // Observation: screenshot + geometry from one existing session.
+        // The screenshot capability is judged on the screenshot route alone;
+        // a missing geometry route only leaves the combined observation
+        // unverified. A screenshot decoded inside a failed observation is
+        // kept: asking again could only spend the same, possibly expired,
+        // deadline and would hide that the route already answered.
         var observation: WDAProbeReport.ProbeObservation?
+        var observationState = IOSCapabilityState.unverified
+        var observationEvidence: [String] = []
+        var decodedShot: WDAScreenshot?
         do {
-            let seen = try await observe(deadline: deadline)
+            let seen = try await observe(deadline: deadline, use: .existingOnly, decodedScreenshot: &decodedShot)
             observation = .init(observationId: seen.observationId, targetId: seen.targetId,
                                 capturedAt: seen.capturedAt, imagePixelSize: seen.imagePixelSize,
                                 contentRect: seen.contentRect, orientation: seen.orientation,
                                 geometryVersion: seen.geometryVersion, backendSessionId: seen.backendSessionId)
+            observationState = .supported
+            observationEvidence = ["screenshot, window size, scale and orientation read from session "
+                                   + "\(seen.backendSessionId ?? "?"): \(seen.geometryVersion)"]
             capabilities.append(entry(.screenshot, .supported,
                                       [ready, "GET screenshot decoded PNG \(seen.imagePixelSize.width)x\(seen.imagePixelSize.height)"]))
-        } catch let error as WDAError {
-            capabilities.append(entry(.screenshot, error.kind == .unsupportedEndpoint ? .unsupported : .unverified,
-                                      [ready, "observe failed: \(error.kind.rawValue): \(error.message)"]))
         } catch {
-            capabilities.append(entry(.screenshot, .unverified, [ready, "observe failed: \(error)"]))
+            observationEvidence = ["observe failed: \(Self.describe(error))"]
+            if let shot = decodedShot {
+                capabilities.append(entry(.screenshot, .supported,
+                                          [ready, "GET screenshot decoded PNG \(shot.pixelWidth)x\(shot.pixelHeight) "
+                                           + "(during the observation; geometry failed afterwards)"]))
+            } else {
+                do {
+                    let shot = try await screenshot(deadline: deadline, use: .existingOnly)
+                    capabilities.append(entry(.screenshot, .supported,
+                                              [ready, "GET screenshot decoded PNG \(shot.pixelWidth)x\(shot.pixelHeight)"]))
+                } catch let error as WDAError {
+                    capabilities.append(entry(.screenshot, error.kind == .unsupportedEndpoint ? .unsupported : .unverified,
+                                              [ready, "GET screenshot failed: \(Self.describe(error))"]))
+                } catch {
+                    capabilities.append(entry(.screenshot, .unverified, [ready, "GET screenshot failed: \(error)"]))
+                }
+            }
         }
 
         // Element tree.
         do {
-            let tree = try await source(format: .xml, deadline: deadline)
+            let tree = try await source(format: .xml, deadline: deadline, use: .existingOnly)
             let nodes = tree.text.components(separatedBy: "<XCUIElementType").count - 1
             capabilities.append(entry(.elementTree, .supported,
                                       ["GET source returned \(tree.text.utf8.count) bytes, \(nodes) XCUIElementType nodes"],
                                       ["self-drawn views (games, canvas, some WebViews) may expose few nodes"]))
         } catch let error as WDAError {
             capabilities.append(entry(.elementTree, error.kind == .unsupportedEndpoint ? .unsupported : .unverified,
-                                      ["GET source failed: \(error.kind.rawValue): \(error.message)"]))
+                                      ["GET source failed: \(Self.describe(error))"]))
         } catch {
             capabilities.append(entry(.elementTree, .unverified, ["GET source failed: \(error)"]))
         }
@@ -217,7 +293,7 @@ extension WDAClient {
         let gestures: [IOSCapabilityName] = [.tap, .swipe, .drag, .longPress]
         let actionsRoute = await routeServed {
             _ = try await self.sessionSend("POST", "/actions", body: ["actions": [Any]()],
-                                           deadline: deadline, isAction: false)
+                                           deadline: deadline, isAction: false, use: .existingOnly)
         }
         for name in gestures {
             let conditions = name == .tap ? [] : ["W3C Actions touch pointer; acceptance I12 confirms screen change"]
@@ -245,7 +321,17 @@ extension WDAClient {
         capabilities.append(audio)
 
         return WDAProbeReport(target: target, runnerReady: true, status: status, observation: observation,
+                              observationState: observationState, observationEvidence: observationEvidence,
                               capabilities: capabilities, hostEffects: Self.hostEffects, probedAt: Date())
+    }
+
+    private static func describe(_ error: Error) -> String {
+        guard let error = error as? WDAError else { return "\(error)" }
+        if error.kind == .noSession {
+            return "noSession: the probe does not create a WDA session (POST /session may launch or "
+                + "foreground an app); call ensureSession() first or enable adoptRunnerSession"
+        }
+        return "\(error.kind.rawValue) at \(error.endpoint): \(error.message)"
     }
 
     private enum RouteEvidence {
@@ -266,7 +352,7 @@ extension WDAClient {
                 // The runner routed the request and judged its arguments.
                 return .served("route answered \(error.wdaErrorCode ?? error.kind.rawValue)")
             default:
-                return .unknown("\(error.kind.rawValue): \(error.message)")
+                return .unknown(Self.describe(error))
             }
         } catch {
             return .unknown("\(error)")

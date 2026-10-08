@@ -94,7 +94,11 @@ extension WDAClient {
 
     /// `GET /session/:id/screenshot` — PNG of the device screen.
     public func screenshot(deadline: ContinuousClock.Instant? = nil) async throws -> WDAScreenshot {
-        let reply = try await sessionSend("GET", "/screenshot", deadline: deadline, isAction: false)
+        try await screenshot(deadline: deadline, use: .createIfNeeded)
+    }
+
+    func screenshot(deadline: ContinuousClock.Instant?, use: SessionUse) async throws -> WDAScreenshot {
+        let reply = try await sessionSend("GET", "/screenshot", deadline: deadline, isAction: false, use: use)
         guard let base64 = reply.answer.value as? String,
               let png = Data(base64Encoded: base64, options: [.ignoreUnknownCharacters]),
               let size = PNGHeader.pixelSize(png) else {
@@ -102,14 +106,19 @@ extension WDAClient {
                            httpStatus: reply.answer.httpStatus, message: "screenshot is not a base64 PNG")
         }
         return WDAScreenshot(png: png, pixelWidth: size.width, pixelHeight: size.height,
-                             capturedAt: reply.answeredAt, sessionId: currentSessionId)
+                             capturedAt: reply.answeredAt, sessionId: reply.sessionId)
     }
 
     /// `GET /session/:id/source` — the accessibility element tree.
     public func source(format: WDASourceFormat = .xml,
                        deadline: ContinuousClock.Instant? = nil) async throws -> WDASource {
+        try await source(format: format, deadline: deadline, use: .createIfNeeded)
+    }
+
+    func source(format: WDASourceFormat, deadline: ContinuousClock.Instant?,
+                use: SessionUse) async throws -> WDASource {
         let reply = try await sessionSend("GET", "/source", query: [URLQueryItem(name: "format", value: format.rawValue)],
-                                          deadline: deadline, isAction: false)
+                                          deadline: deadline, isAction: false, use: use)
         let text: String?
         switch reply.answer.value {
         case let string as String:
@@ -129,7 +138,11 @@ extension WDAClient {
 
     /// `GET /session/:id/window/size` — logical points, current orientation.
     public func windowSize(deadline: ContinuousClock.Instant? = nil) async throws -> WDASize {
-        let reply = try await sessionSend("GET", "/window/size", deadline: deadline, isAction: false)
+        try await windowSize(deadline: deadline, use: .createIfNeeded)
+    }
+
+    func windowSize(deadline: ContinuousClock.Instant?, use: SessionUse) async throws -> WDASize {
+        let reply = try await sessionSend("GET", "/window/size", deadline: deadline, isAction: false, use: use)
         guard let value = reply.answer.value as? [String: Any],
               let width = (value["width"] as? NSNumber)?.doubleValue,
               let height = (value["height"] as? NSNumber)?.doubleValue else {
@@ -141,7 +154,11 @@ extension WDAClient {
 
     /// `GET /session/:id/wda/screen` — screen scale (pixels per point).
     public func screenScale(deadline: ContinuousClock.Instant? = nil) async throws -> Double {
-        let reply = try await sessionSend("GET", "/wda/screen", deadline: deadline, isAction: false)
+        try await screenScale(deadline: deadline, use: .createIfNeeded)
+    }
+
+    func screenScale(deadline: ContinuousClock.Instant?, use: SessionUse) async throws -> Double {
+        let reply = try await sessionSend("GET", "/wda/screen", deadline: deadline, isAction: false, use: use)
         guard let scale = ((reply.answer.value as? [String: Any])?["scale"] as? NSNumber)?.doubleValue, scale > 0 else {
             throw WDAError(kind: .invalidResponse, delivery: .rejected, endpoint: reply.endpoint,
                            httpStatus: reply.answer.httpStatus, message: "screen scale missing")
@@ -151,7 +168,11 @@ extension WDAClient {
 
     /// `GET /session/:id/orientation` — `PORTRAIT`, `LANDSCAPE`, ...
     public func orientation(deadline: ContinuousClock.Instant? = nil) async throws -> String {
-        let reply = try await sessionSend("GET", "/orientation", deadline: deadline, isAction: false)
+        try await orientation(deadline: deadline, use: .createIfNeeded)
+    }
+
+    func orientation(deadline: ContinuousClock.Instant?, use: SessionUse) async throws -> String {
+        let reply = try await sessionSend("GET", "/orientation", deadline: deadline, isAction: false, use: use)
         guard let value = reply.answer.value as? String else {
             throw WDAError(kind: .invalidResponse, delivery: .rejected, endpoint: reply.endpoint,
                            httpStatus: reply.answer.httpStatus, message: "orientation missing")
@@ -166,7 +187,7 @@ extension WDAClient {
                                           deadline: deadline, isAction: false)
         let value = reply.answer.value as? [String: Any]
         guard let id = value?["element-6066-11e4-a52e-4f735466cecf"] as? String ?? value?["ELEMENT"] as? String,
-              let session = currentSessionId else {
+              let session = reply.sessionId ?? currentSessionId else {
             throw WDAError(kind: .invalidResponse, delivery: .rejected, endpoint: reply.endpoint,
                            httpStatus: reply.answer.httpStatus, message: "element answer has no id")
         }

@@ -284,6 +284,8 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
     @Test func aStatusPageIsNotAScreenshot() throws {
         let fake = FakeMirroring()
         fake.ocr = ["连接暂停"]
+        // The page's own Resume button, through accessibility.
+        fake.ax = ["继续"]
         let phone = IPhoneAgentScreen(screen: "phone", system: fake)
         _ = try phone.frame()
         do {
@@ -323,7 +325,12 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
     ] as [([String], IPhoneConnectionState)])
     func classifiesStatusPagesInEnglishAndChinese(texts: [String], state: IPhoneConnectionState) {
         #expect(IPhoneConnection.classify(texts).state == state)
-        #expect(IPhoneConnection.classify([], ocr: texts).state == state)
+        // Read off the picture, a title counts when the page's own controls
+        // show through accessibility that it is a status page...
+        #expect(IPhoneConnection.classify(["Try Again"], ocr: texts).state == state)
+        #expect(IPhoneConnection.classify(["重试"], ocr: texts).state == state)
+        // ...and never on OCR alone: it could be the phone's own screen.
+        #expect(IPhoneConnection.classify([], ocr: texts).state == .ready)
     }
 
     @Test func aPhoneAppSentenceIsNotAStatusPage() {
@@ -331,6 +338,53 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(IPhoneConnection.classify([], ocr: [line]).state == .ready)
         // Mirroring's own text counts however long.
         #expect(IPhoneConnection.classify([line]).state == .reconnecting)
+    }
+
+    /// Codex on #126: with the status page's control showing through
+    /// accessibility, its full message read by OCR matches the rules that
+    /// are sentence fragments. Requiring the phrase at the start of the line
+    /// called these pages ready, so their picture went out as the phone's.
+    @Test(arguments: [
+        ("iPhone Mirroring has ended due to iPhone use", IPhoneConnectionState.phoneInUse),
+        ("Your iPhone is no longer in use", IPhoneConnectionState.disconnected),
+        ("Your macOS user password or Touch ID is required to access your iPhone", IPhoneConnectionState.authRequired),
+    ] as [(String, IPhoneConnectionState)])
+    func aStatusPagesFullMessageCountsWithItsControl(message: String, state: IPhoneConnectionState) {
+        #expect(IPhoneConnection.classify(["OK"], ocr: [message]).state != .ready)
+        // Without the page's control the same words could be a phone app's.
+        #expect(IPhoneConnection.classify([], ocr: [message]).state == .ready)
+    }
+
+    /// Codex review of #61 / #95: a phone app showing one short line that
+    /// reads like a status title is the phone's screen, not a status page.
+    @Test(arguments: [
+        "Connecting to Wi-Fi", "Timed Out", "Unlock iPhone", "已超时", "正在连接", "解锁iPhone",
+        "Connection Interrupted", "iPhone in Use",
+    ])
+    func aPhoneAppsShortLineIsNotAStatusPage(line: String) throws {
+        #expect(IPhoneConnection.classify([], ocr: [line]).state == .ready)
+        #expect(IPhoneConnection.classify([], ocr: ["9:41", line, "Settings"]).state == .ready)
+        // So the screenshot is handed out, and a paste's look at the phone
+        // (which uses the same check) is not taken for a status page.
+        let fake = FakeMirroring()
+        fake.ocr = ["9:41", line]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.frame()
+        #expect(try phone.connectionState().state == .ready)
+        #expect(throws: Never.self) { try phone.screenshot(size: CGSize(width: 330, height: 720)) }
+    }
+
+    @Test func aStatusTitleInThePictureCountsWithTheStatusPagesControls() throws {
+        let fake = FakeMirroring()
+        fake.ocr = ["Timed Out"]
+        fake.ax = ["Try Again"]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.frame()
+        #expect(try phone.connectionState().state == .disconnected)
+        // Controls of another window of the app are no evidence (F6).
+        fake.ax = []
+        fake.axOtherWindows = ["Try Again"]
+        #expect(try phone.connectionState().state == .ready)
     }
 
     /// F6 (device, 2026-10-08): Mirroring's Settings window, open beside
@@ -388,6 +442,30 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(report.timedOut && report.state == .disconnected)
         #expect(fake.pressed == ["Try Again"])
         #expect(fake.sleeps <= 4)
+    }
+
+    /// Codex review of #61: once stopped, reconnect presses nothing.
+    @Test func aReconnectAlreadyCancelledPressesNothing() throws {
+        let fake = FakeMirroring()
+        fake.ax = ["Connection Paused"]
+        fake.buttons = ["Resume"]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.isCancelled = { true }
+        #expect(throws: IPhoneError("cancelled", "stopped; nothing more is sent")) { try phone.reconnect(timeout: 20) }
+        #expect(fake.pressed.isEmpty)
+        #expect(fake.sleeps == 0)
+    }
+
+    @Test func aReconnectPastItsDeadlinePressesNothing() throws {
+        let fake = FakeMirroring()
+        fake.ax = ["Connection Interrupted"]
+        fake.buttons = ["Try Again"]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.deadline = fake.clock
+        #expect(throws: IPhoneError("deadline_exceeded", "the deadline passed; nothing more is sent")) {
+            try phone.reconnect(timeout: 20)
+        }
+        #expect(fake.pressed.isEmpty)
     }
 
     @Test func aCancelledReconnectStopsWaiting() throws {

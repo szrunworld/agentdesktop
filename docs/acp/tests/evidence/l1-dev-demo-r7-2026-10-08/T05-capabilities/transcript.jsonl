@@ -1,0 +1,24 @@
+{"ms":0,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":1,"dir":"step","step":"initialize","at":{"op":"initialize","expect":{"protocolVersionIn":"[1]"}}}
+{"ms":1,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"clientInfo":{"name":"agentdesktop-fake-editor","version":"0.1.0"}}}}
+{"ms":9,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"mcpCapabilities":{"http":false,"sse":false},"sessionCapabilities":{"list":{},"close":{},"resume":{}}},"authMethods":[],"agentInfo":{"name":"agentdesktop","version":"0.1.0-dev"}}}}
+{"ms":9,"dir":"step","step":"newSession","at":{"op":"newSession","as":"s1"}}
+{"ms":9,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"<repo>/docs/acp/tests/evidence/l1-dev-demo-r7-2026-10-08/T05-capabilities/run","mcpServers":[]}}}
+{"ms":16,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"sessionId":"acps_e9b09909-c17d-42a5-a89d-0a930150b60d","configOptions":[{"id":"mode","name":"执行确认","category":"mode","type":"select","currentValue":"ask","options":[{"value":"ask","name":"ask"},{"value":"auto","name":"auto"}]},{"id":"screenshots","name":"截图","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"submit","name":"submit"},{"value":"all","name":"all"}]},{"id":"pageText","name":"页面文字","type":"select","currentValue":"off","options":[{"value":"off","name":"off"},{"value":"on","name":"on"}]}]}}}
+{"ms":16,"dir":"step","step":"probeCapabilities","at":{"op":"probeCapabilities","imageSession":"s1"}}
+{"ms":16,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/load","params":{"sessionId":"qtest-no-such-session","cwd":"<repo>/docs/acp/tests/evidence/l1-dev-demo-r7-2026-10-08/T05-capabilities/run","mcpServers":[]}}}
+{"ms":16,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_e9b09909-c17d-42a5-a89d-0a930150b60d","update":{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"demo-echo","description":"演示：三步进度后结束","input":{"hint":"<text>"}},{"name":"help","description":"列出可用命令"},{"name":"status","description":"查看本会话任务的状态","input":{"hint":"[runId]"}},{"name":"runs","description":"列出本会话的任务"},{"name":"cancel","description":"请求停止本会话正在运行的任务","input":{"hint":"[runId]"}}]}}}}
+{"ms":17,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acps_e9b09909-c17d-42a5-a89d-0a930150b60d","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"身份说明：Runtime 尚未认证调用方身份，本会话暂按本机所有者占位身份（[已隐藏]）归属。"}}}}}
+{"ms":17,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":2,"error":{"code":-32002,"message":"没有这个会话，或当前身份无权访问","data":{"reason":"session_not_found"}}}}
+{"ms":17,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/list","params":{}}}
+{"ms":19,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":3,"result":{"sessions":[{"sessionId":"acps_e9b09909-c17d-42a5-a89d-0a930150b60d","cwd":"<repo>/docs/acp/tests/evidence/l1-dev-demo-r7-2026-10-08/T05-capabilities/run","title":"AgentDesktop 会话","updatedAt":"2026-10-08T12:52:24.725Z"}]}}}
+{"ms":19,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"session/resume","params":{"sessionId":"qtest-no-such-session","cwd":"<repo>/docs/acp/tests/evidence/l1-dev-demo-r7-2026-10-08/T05-capabilities/run","mcpServers":[]}}}
+{"ms":20,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":4,"error":{"code":-32002,"message":"没有这个会话，或当前身份无权访问","data":{"reason":"session_not_found"}}}}
+{"ms":21,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":5,"method":"session/close","params":{"sessionId":"qtest-no-such-session"}}}
+{"ms":21,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":5,"error":{"code":-32002,"message":"没有这个会话，或当前身份无权访问","data":{"reason":"session_not_found"}}}}
+{"ms":22,"conn":1,"dir":"out","msg":{"jsonrpc":"2.0","id":6,"method":"session/prompt","params":{"sessionId":"acps_e9b09909-c17d-42a5-a89d-0a930150b60d","prompt":[{"type":"image","mimeType":"image/png","data":"iVBORw0KGgo="}]}}}
+{"ms":22,"conn":1,"dir":"in","msg":{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"prompt[0]: image content is not supported"}}}
+{"ms":22,"dir":"step","step":"disconnect","at":{"op":"disconnect"}}
+{"ms":22,"conn":1,"dir":"disconnect","mode":"close-stdin"}
+{"ms":22,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000}}
+{"ms":24,"conn":1,"dir":"exit","code":0,"signal":null}

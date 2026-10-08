@@ -41,10 +41,10 @@ struct FixedBackend: RuntimeBackend {
 
 func makeService(backend: RuntimeBackend = FixedBackend(), endpoint: String = "/tmp/t.sock",
                  desktops: DesktopRegistry = DesktopRegistry()) -> RuntimeService {
-    RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(),
+    { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(),
                                              startedAt: Timestamp.string(Date()), endpoint: endpoint,
                                              buildSource: "unknown"),
-                   backend: backend, desktops: desktops)
+                   backend: backend, desktops: desktops); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
 }
 
 /// A short private directory for sockets (sun_path holds 104 bytes).
@@ -127,6 +127,20 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         }
     }
 
+    /// The user's own displays a physical Desktop may attach, by ID.
+    var physicalDisplays: [UInt32: ScreenHandle] = [
+        1: ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1512, height: 982), hiDPI: true),
+    ]
+
+    func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle {
+        let id = displayId ?? 1
+        note("attach \(id)")
+        guard let h = lock.withLock({ physicalDisplays[id] }) else {
+            throw PlatformError(.notFound, "display \(id) is not one of the user's physical displays")
+        }
+        return h
+    }
+
     func destroyScreen(name: String) throws {
         note("destroy \(name)")
         try lock.withLock {
@@ -193,6 +207,12 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
             (inFront[screen.name] ?? [])
                 + windows.values.flatMap { $0 }.filter { onScreen[$0.windowId] == screen.name }.sorted { $0.windowId < $1.windowId }
         }
+    }
+
+    /// Test double: the window alone, as the window's crop of this double's screen.
+    func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
+        return try screenshot(screen, cropTo: w.frame, to: path)
     }
 
     func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
@@ -265,9 +285,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
 
 func platformService(_ platform: FakePlatform = FakePlatform(), backend: FixedBackend = FixedBackend(),
                      ledger: RequestLedger? = nil) -> RuntimeService {
-    RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+    { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                              endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                   backend: backend, platform: platform, ledger: ledger)
+                   backend: backend, platform: platform, ledger: ledger); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
 }
 
 import CoreGraphics

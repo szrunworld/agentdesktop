@@ -2,7 +2,7 @@ import AgentDesktopUI
 import AppKit
 import SwiftUI
 
-/// P32: what quitting does. Quit (⌘Q, the Dock, the menu bar panel) asks
+/// P32: what quitting does. Quit (the Dock, the menu bar panel) asks
 /// first: cancel, hide the main window, keep running in the background, or
 /// stop all input and quit once every Run is quiet (UC51). Nothing here
 /// decides that a Run has stopped; QuitFlow reads it from the Runtime.
@@ -15,6 +15,11 @@ final class QuitController: NSObject, NSWindowDelegate {
     var keepInBackground: () -> Void = {}
     /// NSApp.reply(toApplicationShouldTerminate:), injectable for tests.
     var reply: (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
+    /// Whether showing the dialog may activate the app; a test copy only
+    /// orders it front, leaving focus where the user has it.
+    var activates = true
+    /// NSApp.terminate, injectable for tests.
+    var terminate: () -> Void = { NSApp.terminate(nil) }
     var clock: PollClock = SystemPollClock()
     private(set) var flow: QuitFlow?
     /// Reading the active count; tests wait on it.
@@ -30,6 +35,27 @@ final class QuitController: NSObject, NSWindowDelegate {
     }
 
     var isAsking: Bool { !answered }
+
+    /// Every quit request of the host (the menu bar panel, the Dock, the
+    /// idle timer) comes here. While the dialog waits for an answer, a
+    /// second NSApp.terminate makes AppKit force an immediate termination
+    /// ("Unexpected call to terminate: while still determining whether to
+    /// terminate"), which skips stopping input and waiting for quiet Runs.
+    /// So a request then only brings the dialog forward.
+    func requestQuit() {
+        guard isAsking else { terminate(); return }
+        guard let window else { return }
+        bringForward(window)
+    }
+
+    private func bringForward(_ w: NSWindow) {
+        if testDisplay != nil || !activates {
+            w.orderFrontRegardless()
+        } else {
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+        }
+    }
 
     /// Show the dialog; the app waits (terminateLater) for the answer. The
     /// dialog appears at once: the in-process port answers in order, so a
@@ -55,12 +81,10 @@ final class QuitController: NSObject, NSWindowDelegate {
         }) {
             let f = screen.visibleFrame
             w.setFrameOrigin(NSPoint(x: f.midX - 300, y: f.midY - 120))
-            w.orderFrontRegardless()
         } else {
             w.center()
-            w.makeKeyAndOrderFront(nil)
-            NSApp.activate()
         }
+        bringForward(w)
     }
 
     func choose(_ choice: QuitChoice) {
@@ -79,10 +103,11 @@ final class QuitController: NSObject, NSWindowDelegate {
             guard let flow else { return }
             flow.stopAndWait()
             Task { [weak self] in
-                while let self, !Task.isCancelled {
+                // Only this dialog's flow, and only while it still waits
+                // for an answer, may approve the quit.
+                while let self, !Task.isCancelled, self.flow === flow, self.isAsking {
                     switch flow.phase {
                     case .quiet:
-                        self.approved = true
                         self.finish(quit: true)
                         return
                     case .cancelled:
@@ -98,8 +123,39 @@ final class QuitController: NSObject, NSWindowDelegate {
     private func finish(quit: Bool) {
         guard !answered else { return }
         answered = true
+        counting?.cancel()
+        flow?.close()
+        if quit { approved = true }
         window?.orderOut(nil)
+        resumeQuitEvents(quit: quit)
         reply(quit)
+    }
+
+    /// Quit Apple events (the Dock, a logout, `quit app`) wait for the
+    /// user's answer, as AppKit's own handler would: the sender learns the
+    /// quit was refused when the answer is no.
+    private var suspendedQuitEvents: [NSAppleEventManager.SuspensionID] = []
+
+    func holdQuitEvent() {
+        if let id = NSAppleEventManager.shared().suspendCurrentAppleEvent() { suspendedQuitEvents.append(id) }
+    }
+
+    private func resumeQuitEvents(quit: Bool) {
+        let manager = NSAppleEventManager.shared()
+        for id in suspendedQuitEvents {
+            if !quit {
+                manager.replyAppleEvent(forSuspensionID: id)
+                    .setParam(NSAppleEventDescriptor(int32: Int32(userCanceledErr)), forKeyword: keyErrorNumber)
+            }
+            manager.resume(withSuspensionID: id)
+        }
+        suspendedQuitEvents = []
+    }
+
+    /// Called from applicationShouldTerminate before the dialog is built,
+    /// so a request arriving meanwhile already sees a pending decision.
+    func markAsking() {
+        answered = false
     }
 }
 

@@ -1,0 +1,272 @@
+{
+  "probe": "physical-desktop e2e (Calculator)",
+  "at": "2026-10-08T20:50:33+0800",
+  "displaysBefore": 2,
+  "displaysAfter": 2,
+  "steps": [
+    {
+      "id": "P1",
+      "title": "handshake",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "build": {
+          "source": "e1e4f9f03b80437cca213899e4f00b2ba569482f-dirty",
+          "builtAt": "2026-10-08T12:48:34Z"
+        }
+      }
+    },
+    {
+      "id": "P2",
+      "title": "desktop.create physical: kind physical, nothing created",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "response": {
+          "apiVersion": "agentdesktop.runtime/1",
+          "requestId": "e2e_9397e5641672",
+          "ok": true,
+          "data": {
+            "desktopId": "d_e3395545eb07",
+            "name": "e2e-physical",
+            "kind": "physical",
+            "state": "ready",
+            "createdAt": "2026-10-08T12:50:29.121Z",
+            "screen": {
+              "displayId": 1,
+              "frame": {
+                "x": 0,
+                "y": 0,
+                "width": 1512,
+                "height": 982
+              },
+              "hiDPI": true
+            },
+            "binding": null,
+            "openSessions": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "P3",
+      "title": "window.list finds Calculator",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "windows": [
+          {
+            "windowId": 987,
+            "process": {
+              "pid": 71728,
+              "startedAt": "2026-10-08T12:48:47.293Z"
+            },
+            "appName": "Calculator",
+            "bundleId": "com.apple.calculator",
+            "title": "Calculator",
+            "frame": {
+              "x": 0,
+              "y": 38,
+              "width": 198,
+              "height": 350
+            },
+            "onScreen": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "P4",
+      "title": "window.bind: bound, window not moved",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "binding": {
+          "generation": 1,
+          "process": {
+            "pid": 71728,
+            "startedAt": "2026-10-08T12:48:47.293Z"
+          },
+          "windowId": 987,
+          "appName": "Calculator",
+          "boundAt": "2026-10-08T12:50:29.800Z"
+        },
+        "frameBefore": {
+          "x": 0,
+          "y": 38,
+          "width": 198,
+          "height": 350
+        },
+        "frameAfter": {
+          "x": 0,
+          "y": 38,
+          "width": 198,
+          "height": 350
+        },
+        "error": null
+      }
+    },
+    {
+      "id": "P5",
+      "title": "session.open + run.start (Delegated, connection_scoped)",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "sessionId": "s_624465a53a28",
+        "run": {
+          "runId": "run_684465f95a79",
+          "kind": "exec",
+          "ownership": "external_client",
+          "lifetime": "connection_scoped",
+          "phase": "running"
+        }
+      }
+    },
+    {
+      "id": "P6",
+      "title": "observe: the image is the bound window (origin = window frame)",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "target": {
+          "generation": 1,
+          "process": {
+            "pid": 71728,
+            "startedAt": "2026-10-08T12:48:47.293Z"
+          },
+          "windowId": 987,
+          "windowFrame": {
+            "x": 0,
+            "y": 38,
+            "width": 198,
+            "height": 350
+          },
+          "title": "Calculator"
+        },
+        "image": {
+          "artifactId": "art_a5a6f598e09e",
+          "width": 396,
+          "height": 700,
+          "sha256": "f5cbce55d749750a71059ea4f3a2f9fc0f2197cc2476389d0bf6bd5ea2f274a1",
+          "transform": {
+            "originX": 0,
+            "originY": 38,
+            "scale": 2
+          }
+        },
+        "elements": 27,
+        "coverage": {
+          "screenshot": "complete",
+          "ax": "complete"
+        }
+      }
+    },
+    {
+      "id": "P7",
+      "title": "act click 7 on the bound window: delivered",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "receipt": {
+          "receiptId": "rcpt_40ec7fa26fce",
+          "requestId": "e2e_c4b06e2ae2da",
+          "runId": "run_684465f95a79",
+          "desktopId": "d_e3395545eb07",
+          "sessionId": "s_624465a53a28",
+          "snapshotId": "obs_a5a6f598e09e",
+          "delivery": "dispatched",
+          "execution": "completed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "ax.press",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 71728,
+              "startedAt": "2026-10-08T12:48:47.293Z"
+            },
+            "windowId": 987,
+            "elementRef": "el_7",
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T12:50:30.759Z",
+            "dispatchedAt": "2026-10-08T12:50:30.765Z",
+            "completedAt": "2026-10-08T12:50:31.193Z"
+          }
+        },
+        "error": null
+      }
+    },
+    {
+      "id": "P8",
+      "title": "observe again: the display shows 7 (effect verified by observation, not by the receipt)",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "staticTexts": [
+          "‎7"
+        ],
+        "error": null
+      }
+    },
+    {
+      "id": "P9",
+      "title": "unbind/rebind: generation grows, older snapshots are stale",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "generation": 3
+      }
+    },
+    {
+      "id": "P10",
+      "title": "an act on a snapshot from before the rebind is refused, not sent",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "the binding changed since snapshot obs_a5a6f598e09e; observe again",
+          "phase": "handler",
+          "retryable": false,
+          "notSent": true,
+          "details": {
+            "generation": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "P11",
+      "title": "run.finish, session.close, desktop.destroy: display stays, Calculator keeps running",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "destroy": {
+          "desktopId": "d_e3395545eb07",
+          "destroyed": true,
+          "quitApps": []
+        },
+        "calculatorAlive": true
+      }
+    }
+  ],
+  "summary": {
+    "passed": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6",
+      "P7",
+      "P8",
+      "P9",
+      "P10",
+      "P11"
+    ],
+    "failed": [],
+    "blocked": []
+  }
+}

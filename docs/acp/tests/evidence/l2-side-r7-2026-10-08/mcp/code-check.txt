@@ -1,0 +1,20 @@
+# MCP code check (main @ cbe7772)
+$ grep -n "^import" Sources/AgentDesktopMCP/*.swift
+Sources/AgentDesktopMCP/MCPTools.swift:1:import AgentDesktopProtocol
+Sources/AgentDesktopMCP/MCPTools.swift:2:import Foundation
+Sources/AgentDesktopMCP/MCPServer.swift:1:import AgentDesktopClient
+Sources/AgentDesktopMCP/MCPServer.swift:2:import AgentDesktopProtocol
+Sources/AgentDesktopMCP/MCPServer.swift:3:import CoreGraphics
+Sources/AgentDesktopMCP/MCPServer.swift:4:import Foundation
+Sources/AgentDesktopMCP/MCPServer.swift:5:import ImageIO
+Sources/AgentDesktopMCP/MCPServer.swift:6:import UniformTypeIdentifiers
+$ grep -n AgentDesktopMCP Package.swift
+23:        .library(name: "AgentDesktopMCP", targets: ["AgentDesktopMCP"]),
+24-        .library(name: "AgentDesktopAI", targets: ["AgentDesktopAI"]),
+--
+121:            name: "AgentDesktopMCP",
+122-            dependencies: ["AgentDesktopClient", "AgentDesktopProtocol"]
+$ grep -c "method: \." Sources/AgentDesktopMCP/MCPTools.swift
+20
+$ grep -rn "socket(\|connect(\|ai.sock\|control.sock\|SecondScreen\|AgentDesktopRuntime" Sources/AgentDesktopMCP
+(no match)

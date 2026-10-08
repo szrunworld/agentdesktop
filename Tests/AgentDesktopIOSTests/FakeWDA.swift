@@ -10,6 +10,8 @@ final class FakeWDA: @unchecked Sendable {
         let path: String
         let query: [String: String]
         let body: Data?
+        /// The URLRequest's own timeout: which limit the client applied.
+        var timeout: TimeInterval = 0
         var json: [String: Any]? {
             body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         }
@@ -21,6 +23,10 @@ final class FakeWDA: @unchecked Sendable {
         case fail(URLError.Code)
         /// Never answers; the client has to give up.
         case hang
+        /// Answers after a pause.
+        indirect case delayed(TimeInterval, Reply)
+        /// Answers only when the test releases the gate.
+        indirect case held(WDAReplyGate, Reply)
     }
 
     let host = "wda-\(UUID().uuidString.lowercased()).test"
@@ -31,6 +37,7 @@ final class FakeWDA: @unchecked Sendable {
     private var validSessions: Set<String> = []
     private var sessionCounter = 0
     private var overrides: [String: Reply] = [:]
+    private var hook: ((Request) -> Void)?
     var screenshotSize = (width: 1170, height: 2532)
 
     init() { StubURLProtocol.register(self) }
@@ -41,8 +48,14 @@ final class FakeWDA: @unchecked Sendable {
         requests.filter { $0.method == method && $0.path.hasSuffix(suffix) }
     }
 
+    /// Makes the runner hold a session it did not create through this fake.
+    func addSession(_ id: String) { _ = lock.withLock { validSessions.insert(id) } }
+
     /// Makes the runner forget a session, as after a runner restart.
     func killSession(_ id: String) { _ = lock.withLock { validSessions.remove(id) } }
+
+    /// Runs `action` for every request before it is routed.
+    func onRequest(_ action: ((Request) -> Void)?) { lock.withLock { hook = action } }
 
     /// Overrides the answer for `"METHOD suffix"` (path suffix match).
     func override(_ method: String, _ suffix: String, _ reply: Reply?) {
@@ -50,11 +63,12 @@ final class FakeWDA: @unchecked Sendable {
     }
 
     func client(timeout: Duration = .seconds(5), udid: String? = nil,
-                adopt: Bool = false) -> WDAClient {
+                adopt: Bool = false, capabilities: [String: WDAJSONValue] = [:]) -> WDAClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         return WDAClient(configuration: WDAConfiguration(baseURL: baseURL, requestTimeout: timeout,
                                                          sessionCreateTimeout: timeout, deviceUDID: udid,
+                                                         sessionCapabilities: capabilities,
                                                          adoptRunnerSession: adopt),
                          urlSessionConfiguration: configuration)
     }
@@ -62,7 +76,11 @@ final class FakeWDA: @unchecked Sendable {
     // MARK: - Routing
 
     func handle(_ request: Request) -> Reply {
-        lock.withLock { _requests.append(request) }
+        let action = lock.withLock { () -> ((Request) -> Void)? in
+            _requests.append(request)
+            return hook
+        }
+        action?(request)
         let forced = lock.withLock { () -> Reply? in
             overrides.first { key, _ in
                 let parts = key.split(separator: " ", maxSplits: 1).map(String.init)
@@ -179,9 +197,18 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         var query: [String: String] = [:]
         for item in components?.queryItems ?? [] { query[item.name] = item.value ?? "" }
-        let recorded = FakeWDA.Request(method: request.httpMethod ?? "GET", path: url.path, query: query,
+        var recorded = FakeWDA.Request(method: request.httpMethod ?? "GET", path: url.path, query: query,
                                        body: Self.body(of: request))
-        switch fake.handle(recorded) {
+        recorded.timeout = request.timeoutInterval
+        deliver(fake.handle(recorded))
+    }
+
+    private func deliver(_ reply: FakeWDA.Reply) {
+        switch reply {
+        case let .held(gate, inner):
+            gate.hold { self.deliver(inner) }
+        case let .delayed(seconds, inner):
+            DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { self.deliver(inner) }
         case let .json(status, object):
             let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
             respond(status, data)
@@ -218,5 +245,31 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             data.append(buffer, count: count)
         }
         return data
+    }
+}
+
+/// A deterministic response barrier; tests can prove a deadline expires
+/// before session creation completes without depending on scheduler speed.
+final class WDAReplyGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var released = false
+    private var pending: [() -> Void] = []
+
+    func hold(_ response: @escaping () -> Void) {
+        let ready = lock.withLock {
+            if released { return true }
+            pending.append(response)
+            return false
+        }
+        if ready { response() }
+    }
+
+    func release() {
+        let responses = lock.withLock {
+            released = true
+            defer { pending.removeAll() }
+            return pending
+        }
+        responses.forEach { $0() }
     }
 }

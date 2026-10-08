@@ -9,7 +9,8 @@
     "AGENTDESKTOP_ENDPOINT": "/tmp/adt-acp/side.runtime.sock"
   },
   "features": [
-    "frame.survivesOversize"
+    "frame.survivesOversize",
+    "protocol.strict"
   ],
   "vars": {
     "SUPPORTED_VERSIONS": "[1]",

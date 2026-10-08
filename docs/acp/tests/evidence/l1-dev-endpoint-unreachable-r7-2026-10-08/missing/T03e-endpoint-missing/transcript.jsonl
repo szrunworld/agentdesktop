@@ -1,0 +1,5 @@
+{"ms":1,"dir":"step","step":"connect","at":{"op":"connect"}}
+{"ms":4,"dir":"step","step":"expectExit","at":{"op":"expectExit","withinMs":5000,"code":2}}
+{"ms":9,"conn":1,"dir":"stderr","text":"agentdesktop-acp-dev: /tmp/adt-q-unreachable/none.runtime.sock: nothing is listening: /tmp/adt-q-unreachable/none.runtime.sock does not exist\n"}
+{"ms":11,"conn":1,"dir":"exit","code":2,"signal":null}
+{"ms":11,"dir":"step","step":"assert","at":{"op":"assert","noFrameContains":["Fatal error"]}}

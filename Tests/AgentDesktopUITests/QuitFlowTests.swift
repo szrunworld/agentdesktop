@@ -13,7 +13,7 @@ struct QuitFlowTests {
     @Test func uc51_quitWaitsForQuiescence() async throws {
         let m = MockRuntime.sample()
         let flow = QuitFlow(runtime: m, clock: FastClock(), pollMs: 1)
-        #expect(await flow.activeNow().count == 2)
+        #expect(await flow.activeNow()?.count == 2)
         flow.stopAndWait()
         await waitFor("stop accepted") { flow.stoppedIds.count == 2 }
         await waitFor("several checks") { flow.checks >= 3 }
@@ -79,5 +79,61 @@ struct QuitFlowTests {
         #expect((SnapshotRenderer.png(QuitDialogView(flow: flow) { _ in }, size: CGSize(width: 600, height: 320))?.count ?? 0) > 5_000)
         await store.stopAllInput()
         #expect(MenuBarPanelView.status(store) == StatusText("输入已停止", .attention))
+    }
+
+    // A Runtime that cannot be reached: the count says so (never zero) and
+    // fills in once the Runtime is back.
+    @Test func countWhileDisconnectedThenRecovered() async throws {
+        let m = MockRuntime.sample()
+        m.offline = true
+        let flow = QuitFlow(runtime: m, clock: FastClock(), pollMs: 1)
+        let counting = Task { await flow.countActive() }
+        await waitFor("unavailable") { if case .unavailable = flow.activeCount { return true }; return false }
+        #expect(QuitDialogView.activeLine(flow.activeCount).contains("暂时读不到"))
+        m.offline = false
+        await counting.value
+        #expect(flow.activeCount == .known(2))
+    }
+
+    // Stopping while the Runtime cannot be reached fails visibly and never
+    // reports quiet; it can be retried once the Runtime is back.
+    @Test func stopWhileDisconnectedNeverReportsQuiet() async throws {
+        let m = MockRuntime.sample()
+        m.offline = true
+        let flow = QuitFlow(runtime: m, clock: FastClock(), pollMs: 1)
+        flow.stopAndWait()
+        await waitFor("failed") { if case .failed = flow.phase { return true }; return false }
+        m.offline = false
+        flow.stopAndWait()
+        await waitFor("stopping") { flow.stoppedIds.count == 2 }
+        #expect(flow.phase == .stopping)
+        for id in flow.stoppedIds { m.confirmQuiescence(id) }
+        await waitFor("quiet") { flow.phase == .quiet }
+    }
+
+    // An ended Run whose quiescence is unknown or not confirmed is not
+    // quiet: quitting never treats an unknown state as finished.
+    @Test func unknownQuiescenceIsNotQuiet() {
+        for q in ["unknown", "not_confirmed", "pending"] {
+            #expect(!QuitFlow.isQuiet(.obj([("phase", .string("ended")), ("quiescence", .string(q))])), "\(q)")
+        }
+        #expect(!QuitFlow.isQuiet(.obj([("phase", .string("stopping")), ("quiescence", .string("confirmed"))])))
+        #expect(QuitFlow.isQuiet(.obj([("phase", .string("ended")), ("quiescence", .string("confirmed"))])))
+    }
+
+    // Review of #101: an answer without a list of Runs is not "no Runs".
+    @Test func anAnswerWithoutRunsIsUnavailableNotZero() async {
+        final class NoRuns: RuntimePort, @unchecked Sendable {
+            let isSample = false
+            func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue { .obj([]) }
+            func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> { AsyncThrowingStream { $0.finish() } }
+        }
+        let flow = QuitFlow(runtime: NoRuns(), clock: FastClock(), pollMs: 1)
+        let counting = Task { await flow.countActive() }
+        await waitFor("unavailable") { if case .unavailable = flow.activeCount { return true }; return false }
+        #expect(!QuitDialogView.activeLine(flow.activeCount).contains("没有进行中的运行"))
+        #expect(await flow.activeNow() == nil)
+        flow.close()
+        await counting.value
     }
 }

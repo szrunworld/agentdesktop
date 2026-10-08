@@ -12,7 +12,8 @@
     "session.list",
     "session.close",
     "task.slow",
-    "frame.survivesOversize"
+    "frame.survivesOversize",
+    "protocol.strict"
   ],
   "vars": {
     "SUPPORTED_VERSIONS": "[1]",

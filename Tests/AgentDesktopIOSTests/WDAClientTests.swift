@@ -211,13 +211,24 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         let fake = FakeWDA()
         fake.override("POST", "/actions", .hang)
         let client = fake.client(timeout: .milliseconds(200))
-        let started = ContinuousClock.now
+        try await client.ensureSession()
+        let before = fake.requests.count
         let error = await expectWDAError { try await client.tap(WDAPoint(x: 1, y: 1)) }
+        // The call ends in the timeout state, never in success...
         #expect(error?.kind == .timeout)
         #expect(error?.delivery == .unknown)  // may have run: never replay
-        // The 200 ms timeout applied, not the 30 s default; generous, since a
-        // loaded machine stretched a 3 s bound to 3.3 s.
-        #expect(ContinuousClock.now - started < .seconds(10))
+        // ...after exactly one attempt: no retry of the tap, no session
+        // rebuilt behind it, nothing else sent.
+        let during = Array(fake.requests.dropFirst(before))
+        #expect(during.count == 1)
+        #expect(during.first.map { $0.method == "POST" && $0.path.hasSuffix("/actions") } == true)
+        // The 200 ms timeout applied, not the 30 s default. Read off the
+        // request, not the wall clock: with one cooperative thread shared by
+        // the whole suite (LIBDISPATCH_COOPERATIVE_POOL_STRICT=1) the timeout
+        // can be reported seconds late, which a time bound mistook for a bug.
+        let sent = fake.requests("POST", suffix: "/actions")
+        #expect(sent.count == 1)
+        #expect(sent.allSatisfy { abs($0.timeout - 0.2) < 0.001 })
     }
 
     @Test func deadlineShortensTheRequestTimeout() async throws {
@@ -404,7 +415,9 @@ private func shape(_ items: [[String: Any]]) -> [String] {
 @Suite struct WDAProbeTests {
     @Test func readyRunnerReportsPerCapability() async throws {
         let fake = FakeWDA()
-        let report = await fake.client(udid: "UDID-1").probe()
+        let client = fake.client(udid: "UDID-1")
+        try await client.ensureSession()
+        let report = await client.probe()
         #expect(report.runnerReady)
         #expect(report.target == IOSTarget(targetId: "ios:wda:UDID-1", kind: "ios", backend: "wda",
                                            deviceIdentity: "UDID-1", identityConfidence: "configured_udid"))
@@ -416,6 +429,8 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         #expect(report.capability(.audio)?.state == .unsupported)
         #expect(report.capability(.tap)?.version == "wda 9.0.0 / iOS 18.6")
         #expect(report.observation?.imagePixelSize == IOSPixelSize(width: 1170, height: 2532))
+        #expect(report.observationState == .supported)
+        #expect(fake.requests("POST", suffix: "/session").count == 1)  // only ensureSession's
         let effects = report.hostEffects
         #expect(!effects.usesPhysicalPointer && !effects.mayTemporarilyActivateApp)
         #expect(!effects.borrowsHostFocus && !effects.usesHostClipboard)
@@ -424,8 +439,11 @@ private func shape(_ items: [[String: Any]]) -> [String] {
 
     @Test func probeNeverSendsInput() async throws {
         let fake = FakeWDA()
-        _ = await fake.client().probe()
+        let client = fake.client()
+        try await client.ensureSession()
+        _ = await client.probe()
         let paths = fake.requests.map { "\($0.method) \($0.path)" }
+        #expect(paths.filter { $0 == "POST /session" }.count == 1)
         #expect(!paths.contains { $0.hasSuffix("/wda/keys") || $0.hasSuffix("/wda/homescreen")
                 || $0.hasSuffix("/apps/launch") || $0.hasSuffix("/value") || $0.hasSuffix("/click") })
         for request in fake.requests("POST", suffix: "/actions") {
@@ -435,7 +453,9 @@ private func shape(_ items: [[String: Any]]) -> [String] {
 
     @Test func deviceAcceptanceUpgradesToSupported() async throws {
         let fake = FakeWDA()
-        let report = await fake.client().probe(acceptedOnDevice: [.swipe: "I12 PASS (example)"])
+        let client = fake.client()
+        try await client.ensureSession()
+        let report = await client.probe(acceptedOnDevice: [.swipe: "I12 PASS (example)"])
         #expect(report.capability(.swipe)?.state == .supported)
         #expect(report.capability(.swipe)?.evidence.contains { $0.contains("I12 PASS") } == true)
         #expect(report.capability(.tap)?.state == .unverified)
@@ -445,7 +465,9 @@ private func shape(_ items: [[String: Any]]) -> [String] {
     @Test func missingActionsRouteIsUnsupported() async throws {
         let fake = FakeWDA()
         fake.override("POST", "/actions", .json(404, ["value": ["error": "unknown command", "message": "no route"]]))
-        let report = await fake.client().probe(acceptedOnDevice: [.tap: "would not matter"])
+        let client = fake.client()
+        try await client.ensureSession()
+        let report = await client.probe(acceptedOnDevice: [.tap: "would not matter"])
         #expect(report.capability(.tap)?.state == .unsupported)
         #expect(report.capability(.swipe)?.state == .unsupported)
     }
@@ -467,5 +489,212 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         #expect(object?["hostEffects"] != nil)
         #expect(object?["capabilities"] is [Any])
+    }
+}
+
+/// Review follow-ups on PR #56: probe without session creation, POST /session
+/// delivery, per-waiter deadlines, one-session observations, screenshot vs
+/// geometry in the probe.
+@Suite struct WDAReviewFollowUpTests {
+    static let launching: [String: WDAJSONValue] = ["bundleId": .string("com.apple.Preferences")]
+
+    // 1. probe() never creates a session.
+
+    @Test func probeWithoutSessionCreatesNone() async throws {
+        let fake = FakeWDA()
+        let client = fake.client(capabilities: Self.launching)
+        let report = await client.probe()
+        #expect(report.runnerReady)
+        #expect(fake.requests("POST", suffix: "/session").isEmpty)
+        #expect(!fake.requests.contains { $0.path.hasPrefix("/session") })
+        #expect(await client.currentSessionId == nil)
+        for name in [IOSCapabilityName.screenshot, .elementTree, .tap, .swipe, .drag, .longPress] {
+            #expect(report.capability(name)?.state == .unverified, "\(name)")
+            #expect(report.capability(name)?.evidence.contains { $0.contains("noSession") } == true, "\(name)")
+        }
+        #expect(report.observation == nil)
+        #expect(report.observationState == .unverified)
+        #expect(report.capability(.appLaunch)?.state == .unverified)  // activeAppInfo needs no session
+    }
+
+    @Test func probeAdoptsTheRunnerSessionWhenConfigured() async throws {
+        let fake = FakeWDA()
+        fake.override("GET", "/status", .json(200, ["value": ["ready": true], "sessionId": "RUNNER"]))
+        fake.addSession("RUNNER")
+        let client = fake.client(adopt: true, capabilities: Self.launching)
+        let report = await client.probe()
+        #expect(fake.requests("POST", suffix: "/session").isEmpty)
+        #expect(report.capability(.screenshot)?.state == .supported)
+        #expect(report.observation?.backendSessionId == "RUNNER")
+    }
+
+    @Test func probeDoesNotReplaceAnInvalidSession() async throws {
+        let fake = FakeWDA()
+        let client = fake.client(capabilities: Self.launching)
+        try await client.ensureSession()
+        fake.killSession("S1")
+        let report = await client.probe()
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+        #expect(report.capability(.screenshot)?.state == .unverified)
+        #expect(report.observation == nil)
+        #expect(await client.currentSessionId == nil)
+    }
+
+    // 2. POST /session counts as a command that may have run.
+
+    @Test func lostSessionCreateAnswerIsUnknown() async throws {
+        let fake = FakeWDA()
+        fake.override("POST", "/session", .fail(.networkConnectionLost))
+        let client = fake.client(capabilities: Self.launching)
+        let error = await expectWDAError { try await client.ensureSession() }
+        #expect(error?.kind == .runnerUnreachable)
+        #expect(error?.delivery == .unknown)
+        #expect(error?.endpoint == "POST /session")
+    }
+
+    @Test func hangingSessionCreateIsUnknown() async throws {
+        let fake = FakeWDA()
+        fake.override("POST", "/session", .hang)
+        let client = fake.client(timeout: .milliseconds(200), capabilities: Self.launching)
+        let error = await expectWDAError { try await client.screenshot() }
+        #expect(error?.kind == .timeout)
+        #expect(error?.delivery == .unknown)
+    }
+
+    @Test func refusedSessionCreateIsNotSent() async throws {
+        let fake = FakeWDA()
+        fake.override("POST", "/session", .fail(.cannotConnectToHost))
+        let client = fake.client(capabilities: Self.launching)
+        let error = await expectWDAError { try await client.ensureSession() }
+        #expect(error?.delivery == .notSent)
+    }
+
+    // 3. Each waiter on a session creation keeps its own deadline.
+
+    @Test func shortDeadlineDoesNotLeakToAnotherWaiter() async throws {
+        let fake = FakeWDA()
+        let gate = WDAReplyGate()
+        defer { gate.release() }
+        fake.override("POST", "/session", .held(gate, .json(200, ["value": ["sessionId": "S1"], "sessionId": "S1"])))
+        fake.addSession("S1")
+        let client = fake.client(timeout: .seconds(30))
+        let patient = Task { try await client.screenshot() }
+        defer { patient.cancel() }
+        for _ in 0..<200 where fake.requests("POST", suffix: "/session").isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+        let shortError = await expectWDAError {
+            try await client.screenshot(deadline: .now + .milliseconds(100))
+        }
+        #expect(shortError?.kind == .timeout)
+        #expect(await client.currentSessionId == nil, "the shared creation is still waiting at the barrier")
+        // Timing out one waiter must not cancel or restart shared creation.
+        gate.release()
+        let shot = try await patient.value
+        #expect(shot.sessionId == "S1")
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+    }
+
+    @Test func waiterIsBoundedByItsOwnDeadline() async throws {
+        let fake = FakeWDA()
+        fake.override("POST", "/session", .hang)
+        let client = fake.client(timeout: .seconds(2))
+        let first = Task { try await client.ensureSession() }  // no deadline; bounded by the config
+        try await Task.sleep(for: .milliseconds(50))
+        let started = ContinuousClock.now
+        let error = await expectWDAError { try await client.ensureSession(deadline: .now + .milliseconds(150)) }
+        #expect(error?.kind == .timeout)
+        #expect(ContinuousClock.now - started < .seconds(1))
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+        first.cancel()
+    }
+
+    // 4. An observation never mixes two sessions.
+
+    @Test func sessionLostMidObservationRetakesTheWholeObservation() async throws {
+        let fake = FakeWDA()
+        let client = fake.client()
+        var killed = false
+        let lock = NSLock()
+        fake.onRequest { [unowned fake] request in
+            guard request.method == "GET", request.path.hasSuffix("/window/size") else { return }
+            let first = lock.withLock { () -> Bool in defer { killed = true }; return !killed }
+            if first { fake.killSession(request.path.split(separator: "/")[1].description) }
+        }
+        let seen = try await client.observe()
+        #expect(seen.backendSessionId == "S2")
+        #expect(fake.requests("GET", suffix: "/screenshot").map(\.path) ==
+            ["/session/S1/screenshot", "/session/S2/screenshot"])
+        for suffix in ["/wda/screen", "/orientation"] {
+            #expect(fake.requests("GET", suffix: suffix).allSatisfy { $0.path.hasPrefix("/session/S2/") })
+        }
+    }
+
+    @Test func repeatedSessionLossFailsTheObservation() async throws {
+        let fake = FakeWDA()
+        let client = fake.client()
+        fake.onRequest { [unowned fake] request in
+            guard request.method == "GET", request.path.hasSuffix("/orientation") else { return }
+            fake.killSession(request.path.split(separator: "/")[1].description)
+        }
+        let error = await expectWDAError { try await client.observe() }
+        #expect(error?.kind == .sessionInvalid)
+        #expect(fake.requests("POST", suffix: "/session").count == 2)
+    }
+
+    // 5. A missing geometry route does not make screenshots unsupported.
+
+    @Test func missingGeometryRouteLeavesScreenshotSupported() async throws {
+        let fake = FakeWDA()
+        fake.override("GET", "/wda/screen", .json(404, ["value": ["error": "unknown command", "message": "no route"]]))
+        let client = fake.client()
+        try await client.ensureSession()
+        let report = await client.probe()
+        #expect(report.capability(.screenshot)?.state == .supported)
+        #expect(report.observation == nil)
+        #expect(report.observationState == .unverified)
+        #expect(report.observationEvidence.contains { $0.contains("wda/screen") })
+    }
+
+    @Test func geometryTimeoutKeepsTheDecodedScreenshot() async throws {
+        let fake = FakeWDA()
+        let geometry = ["value": ["width": 390, "height": 844], "sessionId": "S1"] as [String: Any]
+        // The geometry never answers; the deadline is generous so that the
+        // screenshot, which answers at once, is in hand well before it even
+        // when the suite shares one cooperative thread.
+        _ = geometry
+        fake.override("GET", "/window/size", .hang)
+        let client = fake.client()
+        try await client.ensureSession()
+        let before = fake.requests.count
+        let report = await client.probe(deadline: .now + .seconds(5))
+        let during = Array(fake.requests.dropFirst(before))
+        // The geometry was asked once, within the probe's deadline, and timed
+        // out rather than being retried; the probe sent no input and opened
+        // no session (it only reads).
+        let sizes = during.filter { $0.path.hasSuffix("/window/size") }
+        #expect(sizes.count == 1)
+        #expect(sizes.allSatisfy { $0.timeout > 0 && $0.timeout <= 5 })
+        #expect(during.allSatisfy { $0.method == "GET" })
+        #expect(report.capability(.screenshot)?.state == .supported)
+        #expect(report.capability(.screenshot)?.evidence.contains { $0.contains("decoded PNG 1170x2532") } == true)
+        #expect(report.observation == nil)
+        #expect(report.observationState == .unverified)
+        // Classified as a timeout of the geometry request, not as any other
+        // failure (Codex on #146): "<kind> at <endpoint>: …".
+        #expect(report.observationEvidence.contains { $0.contains("timeout at") && $0.contains("window/size") })
+        // The screenshot is not fetched again with the spent deadline.
+        #expect(fake.requests("GET", suffix: "/screenshot").count == 1)
+    }
+
+    @Test func missingScreenshotRouteIsUnsupported() async throws {
+        let fake = FakeWDA()
+        fake.override("GET", "/screenshot", .json(404, ["value": ["error": "unknown command", "message": "no route"]]))
+        let client = fake.client()
+        try await client.ensureSession()
+        let report = await client.probe()
+        #expect(report.capability(.screenshot)?.state == .unsupported)
+        #expect(report.observationState == .unverified)
     }
 }

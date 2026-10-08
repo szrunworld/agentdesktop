@@ -122,41 +122,26 @@ struct DesktopsU2aTests {
         #expect(f2.isDone)
     }
 
-    // The picture comes from observe + artifact.read; UC49: zooming never
-    // observes again, so the snapshotId stays.
-    @Test func uc49_framesAndZoom() async throws {
+    // UC49: zooming only changes the display: the capture is not
+    // restarted and the Runtime is not called.
+    @Test func uc49_zoomNeverRestartsTheCapture() async throws {
         let m = MockRuntime.sample()
-        let loader = DesktopFrameLoader(runtime: m, desktopId: "desk_001")
-        await loader.load()
-        #expect(loader.state == .loaded)
-        #expect(loader.image != nil)
-        let snap = try #require(loader.snapshotId)
-        #expect(loader.pixelSize?.width == 800 && loader.scale == 2)
-        #expect(m.callLog.contains("artifact.read"))
-        let observed = m.observations
-        var zoom = PreviewZoom.fit
-        for z in PreviewZoom.allCases { zoom = z; _ = z.factor(imageScale: loader.scale) }
-        #expect(zoom == .double)
-        #expect(m.observations == observed && loader.snapshotId == snap)
+        let fake = FakeDesktopFrames()
+        let lease = DesktopFrameLease()
+        lease.attach(fake.hub, displayId: 501)
+        try #require(fake.running(501)).push(width: 1600, height: 1000, scale: 2)
+        #expect(lease.status == .live && lease.frame?.pixelWidth == 1600)
         #expect(PreviewZoom.actual.factor(imageScale: 2) == 0.5)
         #expect(PreviewZoom.fit.factor(imageScale: 2) == nil)
-        // A render with each zoom does not observe either.
+        #expect(DesktopFrameView.sizeText(lease.frame) == "整个显示器 · 1600 × 1000 px · scale 2x")
+        let calls = m.callLog.count
         for z in PreviewZoom.allCases {
-            _ = SnapshotRenderer.png(DesktopFrameView(loader: loader, zoom: .constant(z)), size: CGSize(width: 600, height: 400))
+            let png = SnapshotRenderer.png(DesktopFrameView(lease: lease, zoom: .constant(z)), size: CGSize(width: 600, height: 400))
+            #expect(png != nil)
         }
-        #expect(m.observations == observed && loader.snapshotId == snap)
-        // A failed observation keeps the last picture and says why.
-        m.failNext("observe", code: "stale_observation")
-        await loader.load()
-        guard case .failed(let p) = loader.state else { Issue.record("not failed"); return }
-        #expect(p.code == "stale_observation")
-        #expect(loader.image != nil && loader.snapshotId == snap)
-        // refreshIfStale observes only when the picture is old.
-        await loader.refreshIfStale(interval: 60)
-        #expect(m.observations == observed)
-        await loader.refreshIfStale(interval: 0)
-        #expect(m.observations == observed + 1)
-        #expect(loader.state == .loaded && loader.snapshotId != snap)
+        #expect(fake.hub.startedCount == 1 && fake.made.count == 1, "one capture for all zoom levels")
+        #expect(m.callLog.count == calls && m.observations == 0)
+        lease.detach()
     }
 
     // UC14: hiding or closing a preview never touches the Desktop.

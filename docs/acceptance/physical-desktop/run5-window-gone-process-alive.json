@@ -1,0 +1,173 @@
+{
+  "probe": "physical-desktop target loss",
+  "at": "2026-10-08T21:00:17+0800",
+  "displaysBefore": 2,
+  "displaysAfter": 2,
+  "steps": [
+    {
+      "id": "L1",
+      "title": "bound and observed before the loss",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "error": null,
+        "windowId": 1302,
+        "pid": 4413
+      }
+    },
+    {
+      "id": "L2",
+      "title": "cmd+M sent to the bound window through the Runtime",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "receipt": {
+          "receiptId": "rcpt_9afce3bbd537",
+          "requestId": "e2e_bce9334c8085",
+          "runId": "run_f21b388de549",
+          "desktopId": "d_d8009ae340c7",
+          "sessionId": "s_32d9174779cd",
+          "snapshotId": "obs_882da3e6a764",
+          "delivery": "dispatched",
+          "execution": "completed",
+          "verification": "not_requested",
+          "businessResult": "not_evaluated",
+          "route": "event.key.menu",
+          "target": {
+            "generation": 1,
+            "process": {
+              "pid": 4413,
+              "startedAt": "2026-10-08T13:00:10.284Z"
+            },
+            "windowId": 1302,
+            "elementRef": null,
+            "point": null
+          },
+          "timing": {
+            "acceptedAt": "2026-10-08T13:00:14.293Z",
+            "dispatchedAt": "2026-10-08T13:00:14.306Z",
+            "completedAt": "2026-10-08T13:00:14.334Z"
+          }
+        },
+        "error": null
+      }
+    },
+    {
+      "id": "L3",
+      "title": "the process is still alive",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "pid": 4413
+      }
+    },
+    {
+      "id": "L4",
+      "title": "observe after the loss: refused (stale_observation)",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "window 1302 is no longer on desktop d_d8009ae340c7; bind a window again",
+          "phase": "handler",
+          "retryable": false,
+          "notSent": false,
+          "details": {
+            "reason": "window_gone",
+            "generation": 1,
+            "windowId": 1302
+          }
+        },
+        "reason": "window_gone"
+      }
+    },
+    {
+      "id": "L5.1",
+      "title": "input after the loss (attempt 1): refused, not sent",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "window 1302 is no longer on desktop d_d8009ae340c7; bind a window again",
+          "phase": "handler",
+          "retryable": false,
+          "notSent": true,
+          "details": {
+            "reason": "window_gone",
+            "generation": 1,
+            "windowId": 1302
+          }
+        }
+      }
+    },
+    {
+      "id": "L5.2",
+      "title": "input after the loss (attempt 2): refused, not sent",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "window 1302 is no longer on desktop d_d8009ae340c7; bind a window again",
+          "phase": "handler",
+          "retryable": false,
+          "notSent": true,
+          "details": {
+            "reason": "window_gone",
+            "generation": 1,
+            "windowId": 1302
+          }
+        }
+      }
+    },
+    {
+      "id": "L6",
+      "title": "the Run is still running; action.refused records each refusal",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "phase": "running",
+        "unknownActions": 0,
+        "eventTypes": [
+          "run.started",
+          "action.accepted",
+          "action.dispatched",
+          "action.completed",
+          "action.accepted",
+          "action.refused",
+          "action.accepted",
+          "action.refused"
+        ]
+      }
+    },
+    {
+      "id": "L7",
+      "title": "run.finish and desktop.destroy; display count unchanged",
+      "result": "passed",
+      "displays": 2,
+      "detail": {
+        "run": "ended",
+        "destroy": {
+          "desktopId": "d_d8009ae340c7",
+          "destroyed": true,
+          "quitApps": []
+        }
+      }
+    }
+  ],
+  "summary": {
+    "passed": [
+      "L1",
+      "L2",
+      "L3",
+      "L4",
+      "L5.1",
+      "L5.2",
+      "L6",
+      "L7"
+    ],
+    "failed": []
+  }
+}

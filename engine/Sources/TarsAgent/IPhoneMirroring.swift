@@ -237,22 +237,38 @@ public enum IPhoneConnection {
     /// on a disconnected page.
     public static let reconnectButtons: Set<String> = ["Connect", "Try Again", "Resume", "连接", "重试", "继续"]
 
+    /// Controls that only iPhone Mirroring's own status pages carry. Seen
+    /// through accessibility in the phone's window, they show the window is
+    /// a status page and not the phone: the phone's picture carries no
+    /// accessibility elements at all.
+    static let statusControls: Set<String> = reconnectButtons.union(["Cancel", "取消", "OK", "好"])
+
     /// The state the texts show, and the status text that says so; ready
     /// when none is a status page. OCR spacing, case and hyphen variants do
     /// not matter.
     ///
+    /// `texts` are accessibility texts of the phone's window: Mirroring's
+    /// own, never the phone's (the phone's picture has no accessibility
+    /// elements), so a status phrase counts wherever it appears.
+    ///
     /// `ocr` texts come from the picture, which is the phone's own screen
-    /// when connected: a line counts only when it is about as short as a
-    /// status title, so a phone app's sentence that mentions "Connecting
-    /// to" does not. Accessibility texts are Mirroring's own and count
-    /// wherever the phrase appears.
+    /// when connected: a phone app showing "Connecting to Wi-Fi", "Timed
+    /// Out" or "Unlock iPhone" is not a status page. An OCR line counts only
+    /// with evidence that the window is Mirroring's status page: one of its
+    /// status controls (`statusControls`) among the accessibility texts.
+    /// With that evidence the window is known to be a status page, so a
+    /// status phrase counts anywhere in a line, as the rules hold sentence
+    /// fragments ("has ended due to iPhone use") that OCR reads inside the
+    /// page's full message. Without that evidence OCR alone never makes the
+    /// window anything but ready.
     public static func classify(_ texts: [String], ocr: [String] = []) -> (state: IPhoneConnectionState, label: String?) {
         let own = texts.map(normalize)
-        let seen = ocr.map(normalize)
+        let controls = Set(statusControls.map(normalize))
+        let corroborated = own.contains(where: controls.contains)
+        let seen = corroborated ? ocr.map(normalize) : []
         for (label, state) in rules {
             let key = normalize(label)
-            if own.contains(where: { $0.contains(key) })
-                || seen.contains(where: { $0.contains(key) && $0.count <= key.count * 2 + 16 }) {
+            if own.contains(where: { $0.contains(key) }) || seen.contains(where: { $0.contains(key) }) {
                 return (state, label)
             }
         }

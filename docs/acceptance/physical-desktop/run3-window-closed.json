@@ -1,0 +1,43 @@
+{
+  "probe": "physical-desktop window closed",
+  "displaysBefore": 2,
+  "displaysAfter": 2,
+  "steps": [
+    {
+      "id": "C1",
+      "title": "the bound window closed: observe refused (window_gone)",
+      "result": "failed",
+      "detail": {
+        "code": "stale_observation",
+        "message": "the bound process 71728 has exited or restarted; bind the window again",
+        "phase": "handler",
+        "retryable": false,
+        "details": {
+          "generation": 1
+        }
+      }
+    },
+    {
+      "id": "C2",
+      "title": "input after the window closed: refused, not sent",
+      "result": "passed",
+      "detail": {
+        "code": "stale_observation",
+        "message": "snapshot obs_000000000000 is unknown or expired on desktop d_4152bc994a11; observe again",
+        "phase": "handler",
+        "retryable": false,
+        "notSent": true
+      }
+    },
+    {
+      "id": "C3",
+      "title": "destroy after the window closed: record dropped, display stays",
+      "result": "passed",
+      "detail": {
+        "desktopId": "d_4152bc994a11",
+        "destroyed": true,
+        "quitApps": []
+      }
+    }
+  ]
+}

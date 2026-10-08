@@ -1,0 +1,161 @@
+{
+  "probe": "physical-desktop e2e (Calculator)",
+  "at": "2026-10-08T20:48:56+0800",
+  "displaysBefore": 1,
+  "displaysAfter": 1,
+  "steps": [
+    {
+      "id": "P1",
+      "title": "handshake",
+      "result": "passed",
+      "displays": 1,
+      "detail": {
+        "build": {
+          "source": "e1e4f9f03b80437cca213899e4f00b2ba569482f-dirty",
+          "builtAt": "2026-10-08T12:48:34Z"
+        }
+      }
+    },
+    {
+      "id": "P2",
+      "title": "desktop.create physical: kind physical, nothing created",
+      "result": "passed",
+      "displays": 1,
+      "detail": {
+        "response": {
+          "apiVersion": "agentdesktop.runtime/1",
+          "requestId": "e2e_7b9cb48a411c",
+          "ok": true,
+          "data": {
+            "desktopId": "d_4b4df8e24e1b",
+            "name": "e2e-physical",
+            "kind": "physical",
+            "state": "ready",
+            "createdAt": "2026-10-08T12:48:55.441Z",
+            "screen": {
+              "displayId": 1,
+              "frame": {
+                "x": 0,
+                "y": 0,
+                "width": 1512,
+                "height": 982
+              },
+              "hiDPI": true
+            },
+            "binding": null,
+            "openSessions": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "P3",
+      "title": "window.list finds Calculator",
+      "result": "passed",
+      "displays": 1,
+      "detail": {
+        "windows": [
+          {
+            "windowId": 987,
+            "process": {
+              "pid": 71728,
+              "startedAt": "2026-10-08T12:48:47.293Z"
+            },
+            "appName": "Calculator",
+            "bundleId": "com.apple.calculator",
+            "title": "Calculator",
+            "frame": {
+              "x": 0,
+              "y": 38,
+              "width": 198,
+              "height": 350
+            },
+            "onScreen": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "P4",
+      "title": "window.bind: bound, window not moved",
+      "result": "passed",
+      "displays": 1,
+      "detail": {
+        "binding": {
+          "generation": 1,
+          "process": {
+            "pid": 71728,
+            "startedAt": "2026-10-08T12:48:47.293Z"
+          },
+          "windowId": 987,
+          "appName": "Calculator",
+          "boundAt": "2026-10-08T12:48:56.069Z"
+        },
+        "frameBefore": {
+          "x": 0,
+          "y": 38,
+          "width": 198,
+          "height": 350
+        },
+        "frameAfter": {
+          "x": 0,
+          "y": 38,
+          "width": 198,
+          "height": 350
+        },
+        "error": null
+      }
+    },
+    {
+      "id": "P5",
+      "title": "session.open + run.start (Delegated, connection_scoped)",
+      "result": "passed",
+      "displays": 1,
+      "detail": {
+        "sessionId": "s_3b74e636d7f2",
+        "run": {
+          "runId": "run_5d40b593b328",
+          "kind": "exec",
+          "ownership": "external_client",
+          "lifetime": "connection_scoped",
+          "phase": "running"
+        }
+      }
+    },
+    {
+      "id": "P6",
+      "title": "observe refused (occluded): fail closed",
+      "result": "blocked",
+      "displays": 1,
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "window 877 (WeChat) covers the bound window 987; bind the window you mean, or move it away",
+          "phase": "handler",
+          "retryable": false,
+          "notSent": false,
+          "details": {
+            "reason": "occluded",
+            "generation": 1,
+            "windowId": 987,
+            "coveringWindowId": 877,
+            "coveringPid": 21046
+          }
+        }
+      }
+    }
+  ],
+  "summary": {
+    "passed": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5"
+    ],
+    "failed": [],
+    "blocked": [
+      "P6"
+    ]
+  }
+}

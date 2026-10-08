@@ -97,6 +97,14 @@ public struct ElementRead: Sendable {
     }
 }
 
+extension DesktopPlatform {
+    /// Platforms without the user's displays (test doubles, other backends)
+    /// refuse physical Desktops.
+    public func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle {
+        throw PlatformError(.refused, "this platform cannot attach the user's displays")
+    }
+}
+
 /// A refusal by the platform, already classified for the Runtime API.
 public struct PlatformError: Error, Equatable, Sendable, CustomStringConvertible {
     public enum Kind: String, Sendable {
@@ -138,6 +146,10 @@ public struct PlatformError: Error, Equatable, Sendable, CustomStringConvertible
 public protocol DesktopPlatform: Sendable {
     func createScreen(name: String, width: Int?, height: Int?) throws -> ScreenHandle
     func destroyScreen(name: String) throws
+    /// One of the user's own displays, by ID (nil: the main display), for a
+    /// physical Desktop. Nothing is created: the handle only names the
+    /// display, and destroyScreen must never be called with it.
+    func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle
     /// Launch an app onto the screen; its process and windows there.
     func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws
         -> (pid: Int32, windows: [PlatformWindow])
@@ -154,6 +166,10 @@ public protocol DesktopPlatform: Sendable {
     /// On-screen normal windows that overlap the screen, front to back, as
     /// the window server orders them now.
     func stack(on screen: ScreenHandle) -> [PlatformWindow]
+    /// Write a PNG of the window alone, rendered by the window server
+    /// without anything in front of it, at the display's scale; its size in
+    /// pixels. Nothing else of the screen is captured or written.
+    func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int)
     /// Read the window's accessibility elements. The read replaces the
     /// backend's numbering for that window. Past `deadline` the backend
     /// reads no further node and returns what it has, marked truncated.

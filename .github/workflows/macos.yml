@@ -36,7 +36,18 @@ jobs:
         run: swift test
       - name: Native core unit tests
         timeout-minutes: 8
-        run: swift test --package-path engine
+        run: |
+          swift test --package-path engine
+          # Reproduce executor starvation even on runners with many cores.
+          # Apply strict mode to the test runner only; SwiftPM's own manifest
+          # evaluation can stall under it on the CI toolchain.
+          swift_bin="$(xcrun --find swift)"
+          test_runner="$(dirname "$swift_bin")/../libexec/swift/pm/swiftpm-testing-helper"
+          framework_dir="$(xcrun --show-sdk-platform-path)/Developer/Library/Frameworks"
+          DYLD_FRAMEWORK_PATH="$framework_dir${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}" \
+          LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 "$test_runner" \
+            --test-bundle-path engine/.build/debug/AgentDesktopEnginePackageTests.xctest/Contents/MacOS/AgentDesktopEnginePackageTests \
+            --testing-library swift-testing --filter ControlServerTests
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -44,6 +55,8 @@ jobs:
         run: |
           (cd sdks/python && python3 -m unittest discover -s tests -v)
           (cd sdks/typescript && node --test test/*.test.ts)
+      - name: CoreDevice probe regression tests
+        run: python3 -m unittest discover -s experiments/ios-coredevice -p 'test_*.py' -v
       - name: Bundle the app
         run: ./scripts/bundle-app.sh
       - name: Bundle contents

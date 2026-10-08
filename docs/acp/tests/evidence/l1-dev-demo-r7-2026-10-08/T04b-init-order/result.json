@@ -1,0 +1,81 @@
+{
+  "id": "T04b-init-order",
+  "cases": [
+    "ACP-T04-04",
+    "ACP-T04-05"
+  ],
+  "title": "initialize 之前的 session/new 被拒且不建会话；同一连接第二次 initialize 被拒，已有会话不受影响",
+  "status": "PASS",
+  "durationMs": 344,
+  "failures": [],
+  "steps": [
+    {
+      "op": "initialize",
+      "ms": 8,
+      "ok": true
+    },
+    {
+      "op": "session/list",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": "raw-pre",
+          "error": {
+            "code": -32600,
+            "message": "connection not initialized: send initialize first"
+          }
+        }
+      }
+    },
+    {
+      "op": "initialize",
+      "ms": 1,
+      "ok": true
+    },
+    {
+      "op": "session/list",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "op": "session/new",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "op": "session/list",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "op": "raw",
+      "got": {
+        "kind": "response",
+        "m": {
+          "jsonrpc": "2.0",
+          "id": "raw-init2",
+          "error": {
+            "code": -32600,
+            "message": "connection already initialized"
+          }
+        }
+      }
+    },
+    {
+      "op": "prompt",
+      "text": "/help",
+      "outcome": "end_turn"
+    },
+    {
+      "op": "session/list",
+      "ms": 1,
+      "ok": true
+    }
+  ]
+}

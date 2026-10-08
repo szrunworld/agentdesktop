@@ -7,6 +7,7 @@
 // stays in engine/ as history.
 
 import AppKit
+import Combine
 import SecondScreenCore
 import SecondScreenRuntime
 import AgentDesktopAI
@@ -36,6 +37,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// the host, so closing the window changes nothing in the Runtime.
     private(set) var store: ShellStore!
     private(set) var mainWindow: MainWindowController!
+    private var showOnFirstDesktop: AnyCancellable?
 
     init(role: HostRole) {
         self.role = role
@@ -58,24 +60,31 @@ final class AppController: NSObject, NSApplicationDelegate {
         // The engine serves this process only (A0): the Runtime below drives
         // it in-process and is the one way in; the engine's own control
         // socket is not opened.
+        // The user's own displays, so a physical Desktop can attach one
+        // instead of creating a virtual display.
+        runtime.hostScreens = { PhysicalDisplays.screens() }
         runtime.startInProcess()
         startRuntimeServer()
 
         // In process, polling for now (U1b-1); event push is U1b-2.
-        let port: RuntimePort = runtimeService.map(InProcessRuntimePort.init(service:))
-            ?? UnavailableRuntimePort(reason: "the Runtime did not start in this host")
+        let port: RuntimePort = TestFaultRuntimePort.wrap(
+            runtimeService.map(InProcessRuntimePort.init(service:))
+                ?? UnavailableRuntimePort(reason: "the Runtime did not start in this host"), role: role)
         store = ShellStore(runtime: port, allowSubscription: false)
-        mainWindow = MainWindowController(store: store)
+        mainWindow = MainWindowController(store: store, frames: ScreenCaptureFrameSource.hub())
         Task { await store.start() }
 
         quit = QuitController(store: store)
+        // A test copy never takes focus from the app the user is in.
+        quit.activates = !role.isSideInstance
+        handleQuitEvents()
         quit.hideMainWindow = { [weak self] in self?.mainWindow.close() }
         quit.keepInBackground = { [weak self] in self?.enterBackground() }
         let panel = MenuBarPanel(store: store, actions: MenuBarActions(
             openMain: { [weak self] in self?.openMain(section: nil) },
             openPreview: { [weak self] id in self?.mainWindow.previews.show(id) },
             openSettings: { [weak self] in self?.openMain(section: .settings) },
-            quit: { NSApp.terminate(nil) }))
+            quit: { [weak self] in self?.quit.requestQuit() }))
         menuPanel = panel
 
         if !role.isSideInstance {
@@ -83,7 +92,18 @@ final class AppController: NSObject, NSApplicationDelegate {
             mainWindow.show()
         } else if let request = role.mainWindowForTest {
             quit.testDisplay = request.displayID
-            mainWindow.showInBackground(onDisplay: request.displayID)
+            if request.onFirstDesktop {
+                showOnFirstDesktop = store.$desktops.sink { [weak self] list in
+                    guard let self, let id = list.first.flatMap(DesktopFrameHub.displayId(of:)) else { return }
+                    self.showOnFirstDesktop = nil
+                    DispatchQueue.main.async {
+                        self.quit.testDisplay = id
+                        self.mainWindow.showInBackground(onDisplay: id)
+                    }
+                }
+            } else {
+                mainWindow.showInBackground(onDisplay: request.displayID)
+            }
             if let d = request.displayID, ProcessInfo.processInfo.environment["AGENTDESKTOP_MENU_PANEL"] == "1" {
                 panel.showTestWindow(onDisplay: d)
             }
@@ -112,15 +132,33 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     /// Quit asks first (P32). An idle test copy without windows quits
     /// straight away.
+    /// The Dock's Quit and other quit Apple events: AppKit's own handler
+    /// calls terminate directly, which forces termination while the quit
+    /// dialog is open; this one goes through the same gate as the panel.
+    private func handleQuitEvents() {
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(quitEvent(_:withReply:)),
+                                                     forEventClass: AEEventClass(kCoreEventClass),
+                                                     andEventID: AEEventID(kAEQuitApplication))
+    }
+
+    @objc private func quitEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        guard let quit else { return }
+        quit.holdQuitEvent()
+        quit.requestQuit()
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quit == nil || quit.approved { return .terminateNow }
-        if role.isSideInstance, role.mainWindowForTest == nil { return .terminateNow }
+        if role.isSideInstance, role.mainWindowForTest == nil, !role.quitDialogForTest { return .terminateNow }
         if quit.isAsking { return .terminateLater }
+        quit.markAsking()
+        quit.markAsking()
         Task { await quit.begin() }
         return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        mainWindow?.frames.stopAll()
         store?.stop()
         runtimeServer?.stop()
         runtime.stop()
@@ -212,8 +250,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, Date().timeIntervalSince(self.runtime.lastRequest) > Self.sideInstanceIdleQuit,
-                      self.agentScreens.screens.isEmpty else { return }
-                NSApp.terminate(nil)
+                      self.agentScreens.screens.isEmpty, self.quit?.isAsking != true else { return }
+                self.quit.requestQuit()
             }
         }
     }

@@ -198,23 +198,28 @@ public enum IPhoneCapabilities {
 
     /// What `action` does to the Mac. Pointer and front-app effects were
     /// watched on 2026-10-04/07 and not seen to change for tap, key or paste;
-    /// the flags below follow the code paths, which is what may happen.
+    /// the flags below follow the code paths, which is what may happen: a
+    /// path that puts the user's app back in front after Mirroring came
+    /// forward means Mirroring may be the front app for a moment.
     public static func hostEffects(for action: Action) -> HostEffects {
         switch action {
         case .tap:
             HostEffects(
-                usesPhysicalPointer: false, mayTemporarilyActivateApp: false, borrowsKeyFocus: true,
+                usesPhysicalPointer: false, mayTemporarilyActivateApp: true, borrowsKeyFocus: true,
                 usesHostClipboard: false,
                 basis: "BackgroundInput.click: SkyLight.focusWithoutRaise makes the window key without raising "
-                    + "it, posts the click, then restoreFocus gives focus back; if the click itself brings "
-                    + "Mirroring forward, the user's app is reactivated")
+                    + "it, posts the click, then restoreFocus gives focus back; the click itself may bring "
+                    + "Mirroring forward, in which case the user's app is reactivated afterwards, so Mirroring "
+                    + "may be the front app for a moment")
         case .typeText:
             HostEffects(
-                usesPhysicalPointer: false, mayTemporarilyActivateApp: false, borrowsKeyFocus: true,
+                usesPhysicalPointer: false, mayTemporarilyActivateApp: true, borrowsKeyFocus: true,
                 usesHostClipboard: true,
-                basis: "IPhoneAgentScreen.paste writes NSPasteboard.general, sends ⌘V with holdModifiers "
-                    + "(no activation), restores the clipboard; pressing Allow Paste is a tap, which borrows "
-                    + "key focus; a trailing newline adds Return")
+                basis: "IPhoneAgentScreen.paste writes NSPasteboard.general (after saving every item and type, "
+                    + "or refuses), sends ⌘V with holdModifiers (no activation) and puts the clipboard back, "
+                    + "later if the phone may still fetch it; pressing Allow Paste is the same click as a tap, "
+                    + "which borrows key focus and may bring Mirroring forward for a moment; a trailing "
+                    + "newline adds Return")
         case .pressReturn, .pressDelete:
             HostEffects(
                 usesPhysicalPointer: false, mayTemporarilyActivateApp: false, borrowsKeyFocus: false,

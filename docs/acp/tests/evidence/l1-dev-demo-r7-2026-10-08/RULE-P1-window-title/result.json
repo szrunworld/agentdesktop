@@ -1,0 +1,14 @@
+{
+  "id": "RULE-P1-window-title",
+  "cases": [
+    "ACP-RULE-P1-01",
+    "ACP-RULE-P1-02"
+  ],
+  "title": "裁决 P1：放宽截图与页面文字后，绑定窗口标题里的人名不出现在任何帧（实时与回放）",
+  "status": "BLOCKED",
+  "durationMs": 0,
+  "failures": [
+    "blocked: profile agentdesktop-acp-dev-demo lacks runtime.events.windowTitle"
+  ],
+  "steps": []
+}

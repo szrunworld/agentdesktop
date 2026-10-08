@@ -4,8 +4,9 @@ import SwiftUI
 
 /// One window per previewed Desktop (P08), keyed by desktopId. Closing a
 /// preview closes only the window: the Desktop, its input and its Runs are
-/// untouched (UC14). The picture comes from the Runtime's observations of
-/// that Desktop, not from a screen stream.
+/// untouched (UC14). The picture is the live capture of the Desktop's
+/// display, shared through the registry's DesktopFrameHub; closing the
+/// window lets go of it, and it pauses while the window cannot be seen.
 @MainActor
 final class PreviewWindows: NSObject, NSWindowDelegate {
     let store: ShellStore
@@ -36,7 +37,8 @@ final class PreviewWindows: NSObject, NSWindowDelegate {
         w.contentView = NSHostingView(rootView: DesktopPreviewView(
             store: store, desktopId: desktopId,
             hide: { [weak self] in self?.registry.hide(desktopId) },
-            openDetail: { [weak self] in self?.openDetail?(desktopId) }))
+            openDetail: { [weak self] in self?.openDetail?(desktopId) })
+            .environment(\.desktopFrames, registry.frames))
         w.cascadeTopLeft(from: NSPoint(x: 80 + 24 * CGFloat(windows.count), y: 700 - 24 * CGFloat(windows.count)))
         windows[desktopId] = w
         return w
@@ -63,5 +65,12 @@ final class PreviewWindows: NSObject, NSWindowDelegate {
         guard let w = notification.object as? NSWindow, let id = w.identifier?.rawValue else { return }
         windows.removeValue(forKey: id)
         registry.closed(id)
+        // Drop the hosted views now rather than whenever the window is freed.
+        w.contentView = nil
+    }
+
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard let w = notification.object as? NSWindow, let id = w.identifier?.rawValue, windows[id] === w else { return }
+        registry.setVisible(id, w.isVisible && w.occlusionState.contains(.visible))
     }
 }
