@@ -291,6 +291,9 @@ func fast() -> PasteWatcher {
     }
 }
 
+// Private AppKit pasteboards must be exercised on the main thread: a read
+// may synchronously ask the writing process to supply promised data.
+@MainActor
 @Suite struct PasteTransactions {
     func transaction(_ pasteboard: NSPasteboard, _ lock: URL) -> PasteTransaction {
         var transaction = PasteTransaction()
