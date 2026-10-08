@@ -17,11 +17,23 @@ extension RuntimeService {
     }
 
     /// Run `body` with the Desktop locked; a destroyed Desktop is not found.
-    func withDesktop(_ id: JSONValue?, _ body: (DesktopRecord) throws -> JSONValue) -> Result<JSONValue, RuntimeError> {
+    /// How long a request without a deadline waits for a busy Desktop.
+    static let desktopLockWait: TimeInterval = 30
+
+    /// Run `body` holding the Desktop's lock. The wait for the lock ends at
+    /// `until` (the request's deadline) or after `desktopLockWait`: a
+    /// Desktop held by a slow operation delays its callers only that long,
+    /// and nothing is done when the wait ends.
+    func withDesktop(_ id: JSONValue?, until: Date? = nil, _ body: (DesktopRecord) throws -> JSONValue) -> Result<JSONValue, RuntimeError> {
         switch desktop(id) {
         case let .failure(e): return .failure(e)
         case let .success(d):
-            d.lock.lock()
+            let limit = until ?? now().addingTimeInterval(Self.desktopLockWait)
+            guard d.lock.lock(before: limit) else {
+                return .failure(RuntimeError("deadline_exceeded",
+                                             "desktop \(d.desktopId) stayed busy past the deadline; nothing was done",
+                                             phase: .handler, notSent: true))
+            }
             defer { d.lock.unlock() }
             guard d.state != "destroyed" else { return .failure(.notFound("no desktop \(d.desktopId)")) }
             do {

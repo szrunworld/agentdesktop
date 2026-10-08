@@ -30,14 +30,19 @@
 | A4 Hub Core 身份与授权 | PR3 | 未开始 |
 | A5、A7 | 无 | 未开始 |
 | U9 Inbox、核实、诊断 | PR4 | 未开始 |
-| U1a 界面库 | PR6-1（#52） | **已合入 614ea7e**：AgentDesktopUI（token、组件、页面四态、导航、RuntimePort、Mock、Store、离屏出图），398 项测试，与 A0/G0 后基线合并 404 项通过 |
-| U1b 主窗口接线 | PR6 | 可以开工（A0、#52 已合入）；进程内事件唤醒等 PR2b（F1-11），在那之前用轮询 |
+| U1a 界面库 | PR6-1（#52） | **已合入 614ea7e，组件验收通过**：AgentDesktopUI（token、组件、页面四态、导航、RuntimePort、Mock、Store、离屏出图），398 项测试，与 A0/G0 后基线合并 404 项通过。P01、P06、P19、P21 只是组件样张，**不计正式页面交付**；页面以端到端验收为准 |
+| U1b-1 主窗口结构与页面接线 | PR6-2 | **进行中**（后台 UI 代理，分支 ui-u1b-main-window）：唯一主窗口、六个入口、Desktops 与 Runs 接真实 Runtime，先用轮询，页面层不感知轮询或推送 |
+| U1b-2 事件驱动集成 | PR6-3 | 等 PR2b：切到事件推送、状态同步、断连与重连 |
 | U2–U5、U8 | PR6 | 按 2.4 依赖逐项开工 |
 | U6 设置 | PR6 | 等 PR2b |
 | U7 Explorer 标签 | PR6 | 等 A6、X1 |
 | L1–L4 学习层 | PR7 | P2 |
 
-执行顺序（Kevin 确认）：A0 → G0 → AX → PR2b → A6。UI 只消费 Runtime 的状态和能力。
+执行顺序（Kevin 确认）：A0 → G0 → AX → PR2b → A6。UI 只消费 Runtime 的状态和能力；UI 与 Runtime 独立演进，页面层只依赖冻结接口。
+
+**foundation → main（Kevin 2026-10-08 批准）**：先修 SEC-01（`ai.sqlite` 0600、已有文件的权限修复、敏感目录 0700，在干净实例上验证）→ 重跑全量 CI、契约测试与 macOS 冒烟 → 集成负责人通过 PR #2 合入 main（不直接推送 main）→ 之后新分支从 main 创建，foundation 不再作为长期主线，进行中的 AX、PR2b、A6、U1b 在合适节点对齐 main。
+
+**验收口径**：组件验收（单元测试、离屏样张）与端到端页面验收（真实 Runtime、真实 macOS 窗口截图、交互验证、Wireframes 对照）分开记录；只有后者计为页面交付。
 
 ## 2.3 阶段与依赖
 

@@ -32,14 +32,21 @@ public final class AXSnapshot {
     /// answers accessibility actions there with success while the page,
     /// in a background window, never sees them; such elements take events.
     let web: Set<Int>
+    /// Why the walk stopped before the whole tree: "deadline" (out of time)
+    /// or "limits" (too deep or too many nodes). Nil for a complete walk.
+    public let truncated: String?
 
     /// Deep apps (Electron, web views) have thousands of nodes; these bound
     /// the walk so a snapshot stays fast and the tree readable.
     static let maxDepth = 40
     static let maxNodes = 4000
 
+    /// One AX query waits at most this long for a busy app.
+    static let queryTimeout: Float = 1
+
     private init(windowID: CGWindowID, elements: [AXElementInfo], tree: String, handles: [Int: AXUIElement],
-                 web: Set<Int>) {
+                 web: Set<Int>, truncated: String?) {
+        self.truncated = truncated
         self.windowID = windowID
         self.elements = elements
         self.tree = tree
@@ -49,7 +56,9 @@ public final class AXSnapshot {
 
     /// Walk `window`'s tree. Fails without the Accessibility permission or
     /// when the app does not expose the window.
-    public static func capture(_ window: WindowInfo, query: String? = nil) throws -> AXSnapshot {
+    /// `deadline` bounds the whole walk: past it no new node is read and
+    /// the snapshot is what was read so far, marked truncated.
+    public static func capture(_ window: WindowInfo, query: String? = nil, deadline: Date? = nil) throws -> AXSnapshot {
         guard AXIsProcessTrusted() else {
             throw AccessibilityError("Agent Desktop needs the Accessibility permission to read and drive apps")
         }
@@ -58,22 +67,24 @@ public final class AXSnapshot {
         }
         // A busy app can block an AX call for its full default timeout (6 s).
         let app = AXUIElementCreateApplication(window.pid)
-        AXUIElementSetMessagingTimeout(app, 2)
+        AXUIElementSetMessagingTimeout(app, queryTimeout)
+        AXUIElementSetMessagingTimeout(root, queryTimeout)
         let justEnabled = enableWebAccessibility(app, pid: window.pid)
 
-        var walker = Walker(query: query?.lowercased())
+        var walker = Walker(query: query?.lowercased(), deadline: deadline)
         walker.visit(root, depth: 0, inWeb: false)
         // Right after asking, the renderer is still building the page's tree: read again
         // for up to two seconds until web content shows up.
         if justEnabled {
-            for _ in 0..<8 where walker.web.isEmpty {
+            for _ in 0..<8 where walker.web.isEmpty && !walker.pastDeadline {
                 Thread.sleep(forTimeInterval: 0.25)
-                walker = Walker(query: query?.lowercased())
+                walker = Walker(query: query?.lowercased(), deadline: deadline)
                 walker.visit(root, depth: 0, inWeb: false)
             }
         }
         return AXSnapshot(windowID: window.windowID, elements: walker.elements,
-                          tree: walker.lines.joined(separator: "\n"), handles: walker.handles, web: walker.web)
+                          tree: walker.lines.joined(separator: "\n"), handles: walker.handles, web: walker.web,
+                          truncated: walker.truncated)
     }
 
     /// Chromium and Electron expose a page's tree only once a client asks for it; until then
@@ -148,6 +159,8 @@ public final class AXSnapshot {
 
     private struct Walker {
         let query: String?
+        var deadline: Date? = nil
+        var truncated: String?
         var elements: [AXElementInfo] = []
         var lines: [String] = []
         var handles: [Int: AXUIElement] = [:]
@@ -163,8 +176,18 @@ public final class AXSnapshot {
             "AXSecureTextField", "AXDateField", "AXStepper", "AXSegmentedControl",
         ]
 
+        var pastDeadline: Bool { deadline.map { Date() >= $0 } ?? false }
+
         mutating func visit(_ element: AXUIElement, depth: Int, inWeb: Bool) {
-            guard depth <= AXSnapshot.maxDepth, visited < AXSnapshot.maxNodes else { return }
+            guard truncated != "deadline" else { return }
+            if pastDeadline {
+                truncated = "deadline"
+                return
+            }
+            guard depth <= AXSnapshot.maxDepth, visited < AXSnapshot.maxNodes else {
+                truncated = truncated ?? "limits"
+                return
+            }
             visited += 1
             let role: String = attribute(element, kAXRoleAttribute) ?? "AXUnknown"
             let subrole: String? = attribute(element, kAXSubroleAttribute)

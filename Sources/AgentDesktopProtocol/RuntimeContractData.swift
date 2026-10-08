@@ -1221,6 +1221,39 @@ enum RuntimeContractData {
           "items": {
             "$ref": "#/$defs/Element"
           }
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "screenshot",
+            "ax"
+          ],
+          "description": "what this observation could see: the element read may be partial (truncated walk) or unavailable (deadline passed, a read of the Desktop still running) while the screenshot is complete",
+          "properties": {
+            "screenshot": {
+              "enum": [
+                "complete",
+                "not_requested"
+              ]
+            },
+            "ax": {
+              "enum": [
+                "complete",
+                "partial",
+                "unavailable",
+                "not_requested"
+              ]
+            },
+            "axReason": {
+              "enum": [
+                "deadline",
+                "limits",
+                "busy",
+                "error"
+              ]
+            }
+          }
         }
       }
     },

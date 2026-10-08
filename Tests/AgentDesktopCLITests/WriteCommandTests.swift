@@ -160,9 +160,10 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
         placed.contains(3) ? [PlatformWindow(windowId: 3, pid: 4, appName: "备忘录", title: "购物清单",
                                              frame: Rect(x: 3010, y: 10, width: 500, height: 400))] : []
     }
-    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?) throws -> (window: PlatformWindow, elements: [PlatformElement]) {
-        (window(on: screen, pid: pid, windowId: windowId)!,
-         [PlatformElement(index: 2, role: "AXButton", label: "完成", value: nil, actions: ["AXPress"], frame: Rect(x: 3100, y: 50, width: 60, height: 24))])
+    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?, deadline: Date) throws -> ElementRead {
+        ElementRead(window: window(on: screen, pid: pid, windowId: windowId)!,
+                    elements: [PlatformElement(index: 2, role: "AXButton", label: "完成", value: nil, actions: ["AXPress"],
+                                               frame: Rect(x: 3100, y: 50, width: 60, height: 24))])
     }
 }
 

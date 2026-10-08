@@ -65,9 +65,9 @@ final class FormPlatform: DesktopPlatform, @unchecked Sendable {
         CGImageDestinationFinalize(dest)
         return (2560, 1600)
     }
-    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?) throws -> (window: PlatformWindow, elements: [PlatformElement]) {
+    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?, deadline: Date) throws -> ElementRead {
         let st = lock.withLock { status }
-        return (window, [
+        return ElementRead(window: window, elements: [
             PlatformElement(index: 0, role: "AXButton", label: "保存", value: nil, actions: ["AXPress"], frame: button),
             PlatformElement(index: 1, role: "AXStaticText", label: nil, value: st, actions: [], frame: nil),
         ])
