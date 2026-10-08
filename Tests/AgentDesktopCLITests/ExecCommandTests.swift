@@ -28,7 +28,9 @@ import Testing
         _ = h.cli.run(args + ["--format", "json"])
         #expect(h.requests == [method], "\(args)")
         #expect(h.clients.first?.calls.first?.params == params, "\(args)")
-        #expect(RuntimeContract.shared.validate(h.clients.first?.calls.first?.json ?? .null, "Request").isEmpty, "\(args)")
+        let sent = h.clients.first?.calls.first?.json ?? .null
+        let violations = RuntimeContract.shared.validate(sent, "Request")
+        #expect(violations.isEmpty, "\(args): \(violations)")
     }
 }
 
