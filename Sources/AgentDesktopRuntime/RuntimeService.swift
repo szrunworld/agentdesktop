@@ -156,12 +156,30 @@ public final class RuntimeService: @unchecked Sendable {
         do {
             begin = try ledger.begin(caller: connection.peerUID, request)
         } catch {
-            return .failure(RuntimeError("internal_error", "the request ledger is unavailable: \(error)", phase: .request))
+            execution.auditStorageFailed()
+            return .failure(ExecutionCoordinator.auditError(notSent: true))
         }
         switch begin {
         case .fresh:
-            let result = handle(request, on: connection)
-            ledger.finish(caller: connection.peerUID, requestId: request.requestId, result)
+            var result: Result<JSONValue, RuntimeError> = execution.auditUnavailable
+                ? .failure(ExecutionCoordinator.auditError(notSent: true))
+                : handle(request, on: connection)
+            do { try runs.checkWritable() } catch {
+                execution.auditStorageFailed()
+                if case .success = result { result = .failure(ExecutionCoordinator.auditError()) }
+            }
+            do {
+                try ledger.finish(caller: connection.peerUID, requestId: request.requestId, result)
+            } catch {
+                execution.auditStorageFailed()
+                // A failure before dispatch can still say notSent. After
+                // dispatch, never turn an unsaved outcome into permission to retry.
+                let notSent: Bool? = {
+                    if case let .failure(e) = result, e.notSent == true { return true }
+                    return nil
+                }()
+                return .failure(ExecutionCoordinator.auditError(notSent: notSent))
+            }
             return result
         case let .existing(record):
             return RequestLedger.replay(record)

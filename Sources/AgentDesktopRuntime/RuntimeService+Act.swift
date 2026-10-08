@@ -88,9 +88,16 @@ extension RuntimeService {
                 if let stopped = execution.beginAction(runId: runId) { throw stopped }
 
                 // Delivery boundary: from here an interruption is unknown.
-                ledger.markDispatching(caller: c.peerUID, requestId: request.requestId)
+                do {
+                    try ledger.markDispatching(caller: c.peerUID, requestId: request.requestId)
+                    runs.appendEvent(runId, "action.dispatched", .obj([("requestId", .string(request.requestId))]))
+                    try runs.checkWritable()
+                } catch {
+                    self.execution.endAction(runId: runId, receiptId: nil, deliveryUnknown: false)
+                    self.execution.auditStorageFailed()
+                    throw ExecutionCoordinator.auditError(notSent: true)
+                }
                 let dispatchedAt = nowString
-                runs.appendEvent(runId, "action.dispatched", .obj([("requestId", .string(request.requestId))]))
                 let receiptId = DesktopRegistry.newId(prefix: "rcpt")
                 var delivery = "dispatched", execution = "completed"
                 var route: String?
