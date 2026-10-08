@@ -65,7 +65,7 @@ public final class RuntimeContract: Sendable {
         public let stage: String
         public let mutation: Bool
         /// `$defs` names in runtime.schema.json, or for a method served by
-        /// another service an `ai-gui/v1 …` reference it validates itself.
+        /// another service a `service.schema.json#/$defs/…` reference.
         public let params: String
         public let result: String
         /// The service that answers it inside the Runtime ("ai-service"),
