@@ -245,9 +245,7 @@ public actor ACPAgentServer {
         guard let s = live[sid] else {
             let stored = try? store.load(sessionId: sid)
             guard let b = stored ?? nil, b.principalId == c.principalId else { throw ACPAgentServerErrors.sessionNotFound }
-            if let removable = store as? any ACPSessionManagerRemovableStore {
-                do { try removable.remove(sessionId: sid) } catch { throw ACPAgentServerErrors.storeFailed }
-            }
+            do { try store.remove(sessionId: sid) } catch { throw ACPAgentServerErrors.storeFailed }
             return .closed
         }
         guard s.binding.principalId == c.principalId else { throw ACPAgentServerErrors.sessionNotFound }
@@ -262,9 +260,7 @@ public actor ACPAgentServer {
         live[sid]?.followers.values.forEach { $0.task.cancel() }
         live[sid] = nil
         // A closed session leaves the list; its Runs stay in the Runtime.
-        if let removable = store as? any ACPSessionManagerRemovableStore {
-            do { try removable.remove(sessionId: sid) } catch { throw ACPAgentServerErrors.storeFailed }
-        }
+        do { try store.remove(sessionId: sid) } catch { throw ACPAgentServerErrors.storeFailed }
         return .closed
     }
 

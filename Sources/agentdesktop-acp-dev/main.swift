@@ -6,8 +6,9 @@
 //   AGENTDESKTOP_ENDPOINT=PATH agentdesktop-acp-dev
 //   agentdesktop-acp-dev --demo              stdio ⇄ server ⇄ built-in scripted port (no Runtime)
 //
-// The product endpoint (~/Library/Application Support/AgentDesktop/
-// runtime.sock) is refused unless --allow-product-endpoint is given. No GUI
+// Every socket inside the product directory (~/Library/Application Support/
+// AgentDesktop/: control.sock, runtime.sock, ai.sock, …, symlinks resolved)
+// is refused unless --allow-product-endpoint is given. No GUI
 // input happens here: the server only talks to ACPRuntimePort.
 import AgentDesktopACP
 // AgentDesktopClient is a dependency of AgentDesktopACP; the dev target
@@ -61,11 +62,17 @@ if demo {
     store = ACPFileSessionStore(directory: URL(fileURLWithPath: dir).appendingPathComponent("sessions", isDirectory: true))
 } else {
     let endpoint = EndpointResolver.resolve(option: endpointOption, environment: ProcessInfo.processInfo.environment)
-    let product = EndpointResolver.productEndpoint(home: home)
-    let isProduct = URL(fileURLWithPath: endpoint.path).standardizedFileURL.path
-        == URL(fileURLWithPath: product).standardizedFileURL.path
+    // Any socket inside the product directory is the product (control.sock
+    // after A2, runtime.sock, ai.sock, …), after resolving symlinks.
+    // Checked against both the HOME the process was given and the account's
+    // real home (tilde expansion uses the latter), and against both the
+    // path as typed and as resolved.
+    let guards = Set([home, NSHomeDirectory()]).map { ACPAgentServerEndpointGuard(home: $0) }
+    let typed = [endpointOption, ProcessInfo.processInfo.environment[EndpointResolver.environmentKey]]
+        .compactMap { $0 }.filter { !$0.isEmpty }
+    let isProduct = guards.contains { g in ([endpoint.path] + typed).contains { g.isProductPath($0) } }
     if isProduct, !allowProduct {
-        fail("refusing the product endpoint \(endpoint.path); pass --endpoint/AGENTDESKTOP_ENDPOINT for a side instance, or --allow-product-endpoint")
+        fail("refusing \(endpoint.path): it is inside the product directory \(guards[0].productDirectory); use a side instance (--endpoint / AGENTDESKTOP_ENDPOINT), or pass --allow-product-endpoint")
     }
     if let problem = EndpointResolver.inspect(endpoint.path) { fail("\(endpoint.path): \(problem.message)") }
     let state: String
