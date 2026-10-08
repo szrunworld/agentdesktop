@@ -174,6 +174,8 @@ public final class IPhoneAgentScreen: AgentScreen {
         case .ready, .phoneInUse, .authRequired, .needsUser:
             return ReconnectReport(state: state, label: label, pressed: nil, timedOut: false)
         case .disconnected:
+            // Stopped already: press nothing, not even Connect or Resume.
+            if let stop = stopReason() { throw stop }
             guard let pid = binding?.pid,
                   let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid, windowID: binding?.windowID)
             else { return ReconnectReport(state: state, label: label, pressed: nil, timedOut: false) }

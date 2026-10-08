@@ -139,6 +139,15 @@ extension WDAClient {
     }
 
     func observe(deadline: ContinuousClock.Instant?, use: SessionUse) async throws -> WDAObservation {
+        var decoded: WDAScreenshot?
+        return try await observe(deadline: deadline, use: use, decodedScreenshot: &decoded)
+    }
+
+    /// As `observe(deadline:use:)`, and leaves the last screenshot it decoded
+    /// in `decodedScreenshot` even when a later geometry read fails, so the
+    /// probe can credit the screenshot route without fetching it again.
+    func observe(deadline: ContinuousClock.Instant?, use: SessionUse,
+                 decodedScreenshot: inout WDAScreenshot?) async throws -> WDAObservation {
         var lastChange = ""
         for _ in 0 ..< 2 {
             let id = try await session(use, deadline: deadline)
@@ -149,6 +158,7 @@ extension WDAClient {
             let orientation: String
             do {
                 shot = try await screenshot(deadline: deadline, use: .pinned(id))
+                decodedScreenshot = shot
                 size = try await windowSize(deadline: deadline, use: .pinned(id))
                 scale = try await screenScale(deadline: deadline, use: .pinned(id))
                 orientation = try await self.orientation(deadline: deadline, use: .pinned(id))
@@ -227,12 +237,15 @@ extension WDAClient {
         // Observation: screenshot + geometry from one existing session.
         // The screenshot capability is judged on the screenshot route alone;
         // a missing geometry route only leaves the combined observation
-        // unverified.
+        // unverified. A screenshot decoded inside a failed observation is
+        // kept: asking again could only spend the same, possibly expired,
+        // deadline and would hide that the route already answered.
         var observation: WDAProbeReport.ProbeObservation?
         var observationState = IOSCapabilityState.unverified
         var observationEvidence: [String] = []
+        var decodedShot: WDAScreenshot?
         do {
-            let seen = try await observe(deadline: deadline, use: .existingOnly)
+            let seen = try await observe(deadline: deadline, use: .existingOnly, decodedScreenshot: &decodedShot)
             observation = .init(observationId: seen.observationId, targetId: seen.targetId,
                                 capturedAt: seen.capturedAt, imagePixelSize: seen.imagePixelSize,
                                 contentRect: seen.contentRect, orientation: seen.orientation,
@@ -244,15 +257,21 @@ extension WDAClient {
                                       [ready, "GET screenshot decoded PNG \(seen.imagePixelSize.width)x\(seen.imagePixelSize.height)"]))
         } catch {
             observationEvidence = ["observe failed: \(Self.describe(error))"]
-            do {
-                let shot = try await screenshot(deadline: deadline, use: .existingOnly)
+            if let shot = decodedShot {
                 capabilities.append(entry(.screenshot, .supported,
-                                          [ready, "GET screenshot decoded PNG \(shot.pixelWidth)x\(shot.pixelHeight)"]))
-            } catch let error as WDAError {
-                capabilities.append(entry(.screenshot, error.kind == .unsupportedEndpoint ? .unsupported : .unverified,
-                                          [ready, "GET screenshot failed: \(Self.describe(error))"]))
-            } catch {
-                capabilities.append(entry(.screenshot, .unverified, [ready, "GET screenshot failed: \(error)"]))
+                                          [ready, "GET screenshot decoded PNG \(shot.pixelWidth)x\(shot.pixelHeight) "
+                                           + "(during the observation; geometry failed afterwards)"]))
+            } else {
+                do {
+                    let shot = try await screenshot(deadline: deadline, use: .existingOnly)
+                    capabilities.append(entry(.screenshot, .supported,
+                                              [ready, "GET screenshot decoded PNG \(shot.pixelWidth)x\(shot.pixelHeight)"]))
+                } catch let error as WDAError {
+                    capabilities.append(entry(.screenshot, error.kind == .unsupportedEndpoint ? .unsupported : .unverified,
+                                              [ready, "GET screenshot failed: \(Self.describe(error))"]))
+                } catch {
+                    capabilities.append(entry(.screenshot, .unverified, [ready, "GET screenshot failed: \(error)"]))
+                }
             }
         }
 
