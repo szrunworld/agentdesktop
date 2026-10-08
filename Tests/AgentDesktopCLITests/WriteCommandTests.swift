@@ -176,6 +176,7 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
     let service = RuntimeService(identity: identity, backend: StubBackend(), platform: TinyPlatform(),
                                  ledger: try RequestLedger(path: dir + "/requests.sqlite"),
                                  artifacts: try ArtifactStore(directory: dir + "/artifacts"))
+    try writeOwnerCredential(service, endpoint: path)
     let server = RuntimeServer(path: path, service: service)
     try server.start()
     defer { server.stop() }

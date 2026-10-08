@@ -182,9 +182,8 @@ func runJSON(_ sc: Scene, _ id: String, on c: ConnectionState? = nil) -> JSONVal
     let ids = (page1["runs"]?.arrayValue ?? []) + (page2["runs"]?.arrayValue ?? [])
     #expect(Set(ids.compactMap { $0["runId"]?.stringValue }).count == 4)
     #expect(page2["next"] == .null)
-    // A paired client (future AgentHub principal) sees its own Runs only.
-    let client = handshaken(sc.s)
-    client.clientId = "client:paired-app"
+    // A paired client sees its own Runs only, and cannot stop everyone's.
+    let (client, _) = try pairedConnection(sc.s, capabilities: ["run"])
     #expect(data(call(sc.s, client, "run.list"))?["runs"]?.arrayValue?.isEmpty == true)
     #expect(code(call(sc.s, client, "run.show", params: #"{"runId":"\#(d.runId)"}"#)) == "not_found")
     #expect(code(call(sc.s, client, "runtime.stopAll", params: #"{"scope":"all_platform_runs"}"#)) == "permission_denied")

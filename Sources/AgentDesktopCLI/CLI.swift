@@ -15,7 +15,18 @@ struct CLI {
     var environment: [String: String] = ProcessInfo.processInfo.environment
     /// Path of this executable, to find the app bundle it ships in.
     var executablePath: String = CommandLine.arguments.first.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } ?? ""
-    var makeClient: (Endpoint) -> RuntimeClient = { SocketRuntimeClient(endpoint: $0, info: CLI.clientInfo) }
+    var makeClient: (Endpoint) -> RuntimeClient = {
+        SocketRuntimeClient(endpoint: $0, info: CLI.clientInfo, credential: CLI.ownerCredential(for: $0))
+    }
+
+    /// The user's own CLI acts as the owner: AGENTDESKTOP_CREDENTIAL_FILE if
+    /// set, else the owner credential beside the endpoint (A4).
+    static func ownerCredential(for endpoint: Endpoint) -> ClientCredential? {
+        if let f = ProcessInfo.processInfo.environment["AGENTDESKTOP_CREDENTIAL_FILE"], !f.isEmpty {
+            return try? ClientCredential.load(file: f)
+        }
+        return try? ClientCredential.load(file: ClientCredential.ownerFile(forEndpoint: endpoint.path))
+    }
     /// Ask the OS to start the product; returns an error message on failure.
     var launchProduct: (_ appPath: String?) -> String? = CLI.openProduct
     /// Note a write's requestId, method and endpoint before it is sent, so
@@ -111,9 +122,23 @@ struct CLI {
             return runWait(runId: runId, timeout: timeout, out, endpoint: endpoint)
         case let .runCancel(runId, requestId, wait, timeout):
             return runCancel(runId: runId, requestId: requestId, wait: wait, timeout: timeout, out, endpoint: endpoint)
-        case .mcp:
+        case let .agentsPair(name, publisher, grant, outFile, timeout):
+            return agentsPair(name: name, publisher: publisher, grant: grant, outFile: outFile, timeout: timeout, out, endpoint: endpoint)
+        case let .mcp(credentialFile):
+            // An MCP host is an external agent: it acts as a paired app with
+            // its own credential, never as the owner (A4). Without one it
+            // can only see that it must pair.
+            let file = credentialFile ?? environment["AGENTDESKTOP_CREDENTIAL_FILE"]
+            let credential: ClientCredential?
+            do { credential = try file.map { try ClientCredential.load(file: $0) } } catch let e as RuntimeError {
+                stderr("agentdesktop: \(e.message)")
+                return ExitStatus.of(e)
+            } catch { return ExitStatus.unclassified }
+            if credential == nil { stderr("agentdesktop mcp: no --credential-file; pair first with `agentdesktop agents pair`") }
             // stdout carries only MCP messages; diagnostics go to stderr.
-            let server = MCPServer(makeClient: { [makeClient] in makeClient(endpoint) })
+            let server = MCPServer(makeClient: {
+                SocketRuntimeClient(endpoint: endpoint, info: CLI.clientInfo, credential: credential)
+            })
             server.serve(readLine: { Swift.readLine(strippingNewline: true) }, write: { line in
                 FileHandle.standardOutput.write(Data((line + "\n").utf8))
             })

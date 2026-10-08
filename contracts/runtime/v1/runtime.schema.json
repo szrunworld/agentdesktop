@@ -200,6 +200,9 @@
               "maxLength": 64
             }
           }
+        },
+        "credential": {
+          "$ref": "#/$defs/Credential"
         }
       }
     },
@@ -336,6 +339,9 @@
               "type": "string"
             }
           }
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
         }
       }
     },
@@ -2288,16 +2294,17 @@
         "role",
         "connectionId"
       ],
-      "description": "Who the Runtime holds responsible for this connection. Reserved for handshake results (PR2b); paired apps arrive in PR3.",
+      "description": "who the Runtime holds this connection to be (A4): from the credential shown in runtime.handshake, never from params",
       "properties": {
         "clientId": {
           "type": "string",
-          "pattern": "^(local:[0-9]+|app:[A-Za-z0-9._-]{1,64})$"
+          "pattern": "^(local:[0-9]+|app:[A-Za-z0-9._-]{1,64}|unpaired:conn_[0-9a-f]{16})$"
         },
         "role": {
           "enum": [
             "owner",
-            "paired"
+            "paired",
+            "unpaired"
           ]
         },
         "connectionId": {
@@ -3053,6 +3060,537 @@
           "maxItems": 8,
           "items": {
             "$ref": "service.schema.json#/$defs/GuiVerification"
+          }
+        }
+      }
+    },
+    "Credential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "token"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "pattern": "^(local:[0-9]+|app:[A-Za-z0-9._-]{1,64})$"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200
+        }
+      }
+    },
+    "GrantRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilities"
+      ],
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "desktop.manage",
+              "run",
+              "unit.run"
+            ]
+          }
+        },
+        "desktops": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "apps": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 604800
+        }
+      }
+    },
+    "HubGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "capabilities",
+        "desktops",
+        "apps",
+        "expiresAt",
+        "revision",
+        "state"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "desktop.manage",
+              "run",
+              "unit.run"
+            ]
+          }
+        },
+        "desktops": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "apps": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "active",
+            "revoked"
+          ]
+        }
+      }
+    },
+    "HubClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "agentName",
+        "state",
+        "registeredAt"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string"
+        },
+        "agentName": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "callerFacts": {
+          "type": "object"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "revoked"
+          ]
+        },
+        "registeredAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "revokedAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "grant": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HubGrant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "HubPairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "shortCode",
+        "state",
+        "expiresAt"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "shortCode": {
+          "type": "string",
+          "pattern": "^[0-9]{6}$"
+        },
+        "agentName": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requested": {
+          "type": "object"
+        },
+        "callerFacts": {
+          "type": "object"
+        },
+        "state": {
+          "enum": [
+            "requested",
+            "approved",
+            "denied",
+            "expired"
+          ]
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "clientId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "hub_pairing_start_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agentName",
+        "requested"
+      ],
+      "properties": {
+        "agentName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "publisher": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "requested": {
+          "$ref": "#/$defs/GrantRequest"
+        }
+      }
+    },
+    "PairingStarted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "shortCode",
+        "state",
+        "expiresAt"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "shortCode": {
+          "type": "string",
+          "pattern": "^[0-9]{6}$"
+        },
+        "state": {
+          "const": "requested"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "pairing_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "PairingStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "state",
+        "expiresAt"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "enum": [
+            "requested",
+            "approved",
+            "denied",
+            "expired"
+          ]
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "credential": {
+          "$ref": "#/$defs/Credential"
+        },
+        "grant": {
+          "$ref": "#/$defs/HubGrant"
+        }
+      }
+    },
+    "hub_pairing_approve_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "grant"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "grant": {
+          "$ref": "#/$defs/GrantRequest"
+        }
+      }
+    },
+    "PairingApproved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client",
+        "grant"
+      ],
+      "properties": {
+        "client": {
+          "$ref": "#/$defs/HubClient"
+        },
+        "grant": {
+          "$ref": "#/$defs/HubGrant"
+        }
+      }
+    },
+    "PairingDenied": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "state"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "const": "denied"
+        }
+      }
+    },
+    "HubClientList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clients",
+        "pairings"
+      ],
+      "properties": {
+        "clients": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubClient"
+          }
+        },
+        "pairings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubPairing"
+          }
+        }
+      }
+    },
+    "client_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "pattern": "^app:[A-Za-z0-9._-]{1,64}$"
+        }
+      }
+    },
+    "hub_grants_set_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "capabilities"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "pattern": "^app:[A-Za-z0-9._-]{1,64}$"
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "desktop.manage",
+              "run",
+              "unit.run"
+            ]
+          }
+        },
+        "desktops": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "apps": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 604800
+        }
+      }
+    },
+    "HubGrantList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grants"
+      ],
+      "properties": {
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubGrant"
+          }
+        }
+      }
+    },
+    "HubConnectionList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connections"
+      ],
+      "properties": {
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "connectionId",
+              "clientId",
+              "role",
+              "since"
+            ],
+            "properties": {
+              "connectionId": {
+                "type": "string"
+              },
+              "clientId": {
+                "type": "string"
+              },
+              "role": {
+                "enum": [
+                  "owner",
+                  "paired",
+                  "unpaired"
+                ]
+              },
+              "clientName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "callerFacts": {
+                "type": "object"
+              },
+              "since": {
+                "$ref": "#/$defs/Timestamp"
+              }
+            }
           }
         }
       }

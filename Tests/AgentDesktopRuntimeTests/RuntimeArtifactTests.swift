@@ -43,8 +43,7 @@ import Testing
     let sc = try scene()
     let o = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)))
     let id = try #require(o["image"]?["artifactId"]?.stringValue)
-    let other = handshaken(sc.s)
-    other.clientId = "app:someone-else"
+    let (other, _) = try pairedConnection(sc.s, capabilities: ["observe"])
     #expect(code(call(sc.s, other, "artifact.show", params: #"{"artifactId":"\#(id)"}"#)) == "not_found")
     #expect(code(call(sc.s, other, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) == "not_found")
     // The owner sees every artifact.

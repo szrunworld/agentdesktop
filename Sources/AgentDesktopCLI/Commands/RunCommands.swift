@@ -179,6 +179,11 @@ extension CLI {
             var env = environment
             env[ExecContext.environmentKey] = file
             env[EndpointResolver.environmentKey] = endpoint.path
+            // The child is this caller's own program: it speaks with the
+            // same credential (A4), whichever SDK it uses.
+            if (env["AGENTDESKTOP_CREDENTIAL_FILE"] ?? "").isEmpty {
+                env["AGENTDESKTOP_CREDENTIAL_FILE"] = ClientCredential.ownerFile(forEndpoint: endpoint.path)
+            }
             let status = spawnChild(argv, env)
 
             let wasInterrupted = interrupted()
@@ -187,8 +192,18 @@ extension CLI {
                 _ = try? client.call(RuntimeRequest(.runCancel, params: .obj([("runId", .string(runId))])))
                 final = (try? client.call(RuntimeRequest(.runWait, params: .obj([("runId", .string(runId)), ("timeoutMs", .int(10000))])))) ?? run
             } else {
-                final = (try? client.call(RuntimeRequest(.runFinish, requestId: RuntimeRequest.newId(prefix: "exec-finish"),
-                                                         params: .obj([("runId", .string(runId)), ("exitCode", .int(Int(status)))])))) ?? run
+                do {
+                    final = try client.call(RuntimeRequest(.runFinish, requestId: RuntimeRequest.newId(prefix: "exec-finish"),
+                                                           params: .obj([("runId", .string(runId)), ("exitCode", .int(Int(status)))])))
+                } catch let e as RuntimeError where Self.accessLost.contains(e.code) {
+                    // The owner revoked or narrowed this app meanwhile: the
+                    // Runtime stopped the Run; say so instead of a stale state.
+                    stderr("run \(runId) was stopped by the Runtime: \(e.code); child exit \(status)")
+                    out.failure(requestId: nil, e)
+                    return ExitStatus.of(e)
+                } catch {
+                    final = run
+                }
             }
             out.success(requestId: nil, data: .obj([("run", final), ("exitCode", .int(Int(status)))])) {
                 Self.runText(final) + "\nchild exit \(status)"
@@ -196,6 +211,9 @@ extension CLI {
             return wasInterrupted ? 130 : status
         }
     }
+
+    /// Errors meaning this caller lost its access (A4).
+    static let accessLost: Set<String> = ["client_revoked", "grant_expired", "grant_missing", "pairing_required", "permission_denied"]
 
     static func runChild(_ argv: [String], _ environment: [String: String]) -> Int32 {
         let p = Process()

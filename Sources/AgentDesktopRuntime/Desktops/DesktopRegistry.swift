@@ -32,6 +32,10 @@ public final class DesktopRecord: @unchecked Sendable {
     /// Apps app.launch started here: the agent's, closed with the Desktop.
     public internal(set) var launched: [ProcessIdentity] = []
 
+    /// The principal that created it; a paired app's grant can cover
+    /// "the Desktops I created".
+    public internal(set) var createdBy: String?
+
     init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle) {
         self.desktopId = desktopId
         self.name = name

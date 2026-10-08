@@ -32,7 +32,7 @@ func startServer(_ path: String, backend: RuntimeBackend = FixedBackend()) throw
     defer { first.stop() }
     let second = RuntimeServer(path: path, service: makeService(endpoint: path))
     #expect(throws: RuntimeServer.StartError.alreadyServed(path: path, holderPID: getpid())) { try second.start() }
-    let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"))
+    let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"), credential: testOwner)
     defer { c.close() }
     #expect(try c.handshake().instanceId == "rt_test")
 }
@@ -61,7 +61,7 @@ func startServer(_ path: String, backend: RuntimeBackend = FixedBackend()) throw
     let server = try startServer(dir + "/r.sock")
     defer { server.stop() }
     let conn = try RawConnection(dir + "/r.sock")
-    conn.send(handshakeLine + "\n" + requestLine("desktop.list", id: "a1") + "\n" + requestLine("runtime.status", id: "a2") + "\n")
+    conn.send(ownerHandshakeLine + "\n" + requestLine("desktop.list", id: "a1") + "\n" + requestLine("runtime.status", id: "a2") + "\n")
     #expect(try conn.read()["requestId"]?.stringValue == "hs_1")
     #expect(try conn.read()["requestId"]?.stringValue == "a1")
     let status = try conn.read()
@@ -91,7 +91,7 @@ func startServer(_ path: String, backend: RuntimeBackend = FixedBackend()) throw
         let conn = try RawConnection(dir + "/r.sock")
         conn.send(handshakeLine)  // no LF, then gone
     }
-    let c = SocketRuntimeClient(endpoint: Endpoint(path: dir + "/r.sock", source: .option), info: ClientInfo(name: "t", version: "1"))
+    let c = SocketRuntimeClient(endpoint: Endpoint(path: dir + "/r.sock", source: .option), info: ClientInfo(name: "t", version: "1"), credential: testOwner)
     defer { c.close() }
     #expect(try c.call(RuntimeRequest(.desktopList))["desktops"] == .array([]))
 }
@@ -105,7 +105,7 @@ func startServer(_ path: String, backend: RuntimeBackend = FixedBackend()) throw
     let results = await withTaskGroup(of: Bool.self) { group in
         for _ in 0..<16 {
             group.addTask {
-                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"))
+                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"), credential: testOwner)
                 defer { c.close() }
                 return (try? c.call(RuntimeRequest(.windowList))["windows"]?.arrayValue?.count) == 2
             }

@@ -109,7 +109,19 @@ test("inside session exec the context attaches and acts in the Run", async () =>
 });
 
 test("live flow against a real Runtime", { skip: !process.env.AGENTDESKTOP_SDK_LIVE_ENDPOINT }, async () => {
-  const c = new RuntimeClient(process.env.AGENTDESKTOP_SDK_LIVE_ENDPOINT, 10_000, {});
+  // A4: an external app pairs first; the Swift harness plays the owner and
+  // approves. Unpaired, everything but pairing is refused.
+  const endpoint = process.env.AGENTDESKTOP_SDK_LIVE_ENDPOINT;
+  const anon = new RuntimeClient(endpoint, 10_000, {});
+  await assert.rejects(anon.desktops(), (e: RuntimeApiError) => e.code === "pairing_required");
+  anon.close();
+  const codes: string[] = [];
+  const cred = await new RuntimeClient(endpoint, 10_000, {}).pair("ts-live", ["observe", "act", "desktop.manage", "run"],
+    { desktops: ["created"], apps: ["com.apple.Notes"], onCode: (code) => codes.push(code), timeoutMs: 30_000, pollMs: 100 });
+  assert.ok(cred.clientId.startsWith("app:"));
+  assert.equal(codes[0].length, 6);
+  const c = new RuntimeClient(endpoint, 10_000, {}, cred);
+  assert.equal(((await c.handshake()).principal as Obj).role, "paired");
   const d = (await c.createDesktop({ name: "ts" }, "ts-live-create")).desktopId as string;
   assert.equal((await c.createDesktop({ name: "ts" }, "ts-live-create")).desktopId, d);
   await c.launch(d, "com.apple.Notes");

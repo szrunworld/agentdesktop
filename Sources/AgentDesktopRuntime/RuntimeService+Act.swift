@@ -87,6 +87,8 @@ extension RuntimeService {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
                                        phase: .handler, notSent: true)
                 }
+                // A4: the grant as it is now, at the last moment before input.
+                if let revoked = recheckAct(c, desktopId: d.desktopId) { throw revoked }
                 if let stopped = execution.beginAction(runId: runId) { throw stopped }
 
                 // Delivery boundary: from here an interruption is unknown.

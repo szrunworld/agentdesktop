@@ -33,7 +33,9 @@ final class LiveRuntime {
         path = dir + "/runtime.sock"
         let identity = RuntimeIdentity(instanceId: "rt_live", pid: getpid(), startedAt: Timestamp.string(Date()),
                                        endpoint: path, buildSource: "unknown")
-        server = RuntimeServer(path: path, service: RuntimeService(identity: identity, backend: backend))
+        let service = RuntimeService(identity: identity, backend: backend)
+        try writeOwnerCredential(service, endpoint: path)
+        server = RuntimeServer(path: path, service: service)
         try server.start()
     }
 
@@ -119,4 +121,13 @@ final class LiveRuntime {
     #expect(out.isEmpty)
     #expect(err.joined().contains("runtime_offline"))
     #expect(err.joined().contains("agentdesktop runtime start"))
+}
+
+/// Where the host keeps the owner credential for a Runtime at `endpoint`,
+/// so the CLI under test acts as the owner, as on a real install (A4).
+func writeOwnerCredential(_ s: RuntimeService, endpoint: String) throws {
+    let file = ClientCredential.ownerFile(forEndpoint: endpoint)
+    try FileManager.default.createDirectory(atPath: (file as NSString).deletingLastPathComponent,
+                                            withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    FileManager.default.createFile(atPath: file, contents: Data(s.ownerCredential.utf8), attributes: [.posixPermissions: 0o600])
 }

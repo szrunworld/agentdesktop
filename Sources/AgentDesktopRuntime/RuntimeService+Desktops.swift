@@ -47,7 +47,7 @@ extension RuntimeService {
         }
     }
 
-    func createDesktop(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
+    func createDesktop(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         createLock.lock()
         defer { createLock.unlock() }
@@ -59,6 +59,7 @@ extension RuntimeService {
         do {
             let screen = try platform.createScreen(name: id, width: p["width"]?.intValue, height: p["height"]?.intValue)
             let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString)
+            d.createdBy = c.clientId
             return .success(desktopJSON(d))
         } catch let e as PlatformError {
             return .failure(e.runtimeError)

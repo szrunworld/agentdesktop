@@ -202,6 +202,7 @@ import Testing
     let service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_exec", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
                                  backend: StubBackend(), platform: platform)
+    try writeOwnerCredential(service, endpoint: path)
     let server = RuntimeServer(path: path, service: service)
     try server.start()
     defer { server.stop() }

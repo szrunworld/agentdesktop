@@ -5,6 +5,7 @@ import os
 import re
 import socket
 import stat
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional
@@ -108,8 +109,15 @@ class RuntimeClient:
     """
 
     def __init__(self, endpoint: Optional[str] = None, *, timeout: float = 10.0,
-                 client_name: str = "agentdesktop-python", env: Optional[dict] = None):
+                 client_name: str = "agentdesktop-python", env: Optional[dict] = None,
+                 credential: Optional[dict] = None):
         env = os.environ if env is None else env
+        # Who this app is to the Runtime (A4): {"clientId": "app:…", "token": …},
+        # from pair() or AGENTDESKTOP_CREDENTIAL_FILE. Without one the
+        # connection is unpaired and may only pair.
+        if credential is None and env.get("AGENTDESKTOP_CREDENTIAL_FILE"):
+            credential = load_credential(env["AGENTDESKTOP_CREDENTIAL_FILE"])
+        self.credential = credential
         self.context = ExecContext.load(env)
         if endpoint is None and self.context and not env.get("AGENTDESKTOP_ENDPOINT"):
             endpoint = self.context.endpoint
@@ -119,6 +127,37 @@ class RuntimeClient:
         self._buf = b""
         self.identity: Optional[dict] = None
         self._attached = False
+
+    # -- pairing (A4) ---------------------------------------------------
+    def pair(self, agent_name: str, capabilities, *, desktops=(), apps=(), duration_seconds: Optional[int] = None,
+             publisher: Optional[str] = None, timeout: float = 600.0, on_code=None, poll: float = 1.0) -> dict:
+        """Ask the owner to pair this app; return its credential once approved.
+
+        `on_code(short_code, pairing_id)` is called so the app can show the
+        code the owner compares. Waits on this connection (only it can
+        collect the credential), then reconnects as the paired app.
+        """
+        requested = {"capabilities": list(capabilities), "desktops": list(desktops), "apps": list(apps)}
+        if duration_seconds:
+            requested["durationSeconds"] = int(duration_seconds)
+        params = {"agentName": agent_name, "requested": requested}
+        if publisher:
+            params["publisher"] = publisher
+        started = self.call("hub.pairing.start", params, request_id=new_request_id("pair"))
+        if on_code:
+            on_code(started["shortCode"], started["pairingId"])
+        deadline = time.monotonic() + timeout
+        while True:
+            st = self.call("hub.pairing.status", {"pairingId": started["pairingId"]})
+            if st["state"] == "approved" and "credential" in st:
+                self.credential = st["credential"]
+                self.close()
+                return self.credential
+            if st["state"] in ("denied", "expired"):
+                raise RuntimeError_("permission_denied", f"pairing {started['pairingId']} was {st['state']}", "handler")
+            if time.monotonic() >= deadline:
+                raise RuntimeError_("wait_timeout", "the owner has not answered the pairing request", "local")
+            time.sleep(poll)
 
     # -- connection -----------------------------------------------------
     def __enter__(self) -> "RuntimeClient":
@@ -187,9 +226,11 @@ class RuntimeClient:
             return self.identity
         self._connect()
         try:
+            params = {"apiVersions": [API_VERSION], "client": {"name": self.client_name, "version": "0.1.0"}}
+            if self.credential:
+                params["credential"] = {"clientId": self.credential["clientId"], "token": self.credential["token"]}
             ident = self._exchange({"apiVersion": API_VERSION, "requestId": new_request_id("hs"), "method": "runtime.handshake",
-                                    "params": {"apiVersions": [API_VERSION],
-                                               "client": {"name": self.client_name, "version": "0.1.0"}}})
+                                    "params": params})
         except RuntimeError_:
             self.close()
             raise
@@ -338,3 +379,28 @@ class Session:
         if label is not None: cond["label"] = label
         if label_contains: cond["labelContains"] = label_contains
         return self.client.call("wait", {"condition": cond, "timeoutMs": timeout_ms}, context=self._ctx())
+
+
+def load_credential(path: str) -> dict:
+    """A credential file written by save_credential or `agentdesktop agents pair`,
+    or the owner's (a bare token, handed to a `session exec` child)."""
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+    try:
+        v = json.loads(text)
+    except ValueError:
+        token = text.strip()
+        if not token or "{" in token:
+            raise RuntimeError_("invalid_argument", f"{path} holds no credential", "local", not_sent=True)
+        return {"clientId": f"local:{os.getuid()}", "token": token}
+    if not isinstance(v, dict) or "clientId" not in v or "token" not in v:
+        raise RuntimeError_("invalid_argument", f"{path} holds no credential", "local", not_sent=True)
+    return {"clientId": v["clientId"], "token": v["token"]}
+
+
+def save_credential(credential: dict, path: str) -> None:
+    """Write a credential owner-only (0600)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump({"clientId": credential["clientId"], "token": credential["token"]}, f)
+    os.chmod(path, 0o600)

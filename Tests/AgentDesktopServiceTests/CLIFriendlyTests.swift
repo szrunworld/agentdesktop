@@ -1,3 +1,4 @@
+import AgentDesktopClient
 import AgentDesktopCLI
 import AgentDesktopProtocol
 import AgentDesktopRuntime
@@ -58,6 +59,11 @@ func runtimeEndpoint(for service: AgentDesktopService, at path: String) throws -
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
     runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
+    // The CLI under test acts as the owner, as on a real install (A4).
+    let file = ClientCredential.ownerFile(forEndpoint: path)
+    try FileManager.default.createDirectory(atPath: (file as NSString).deletingLastPathComponent,
+                                            withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    FileManager.default.createFile(atPath: file, contents: Data(runtime.ownerCredential.utf8), attributes: [.posixPermissions: 0o600])
     let server = RuntimeServer(path: path, service: runtime)
     try server.start()
     return server

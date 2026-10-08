@@ -3,7 +3,7 @@
 // (scope, leases, snapshot checks, the request ledger, stopping) is the
 // Runtime's. Contract: contracts/runtime/v1 in the repository.
 import { randomUUID } from "node:crypto";
-import { lstatSync, readFileSync } from "node:fs";
+import { chmodSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 
@@ -122,21 +122,84 @@ export function loadExecContext(env: NodeJS.ProcessEnv = process.env): ExecConte
   return strictParse(readFileSync(path, "utf8")) as unknown as ExecContext;
 }
 
+export interface Credential { clientId: string; token: string }
+
+/**
+ * A credential file written by saveCredential or `agentdesktop agents pair`,
+ * or the owner's (a bare token, handed to a `session exec` child).
+ */
+export function loadCredential(path: string): Credential {
+  const text = readFileSync(path, "utf8");
+  let v: Obj;
+  try { v = strictParse(text) as Obj; } catch {
+    const token = text.trim();
+    if (!token || token.includes("{")) throw new RuntimeApiError("invalid_argument", `${path} holds no credential`, "local", false, true);
+    return { clientId: `local:${process.getuid!()}`, token };
+  }
+  if (!v || typeof v !== "object" || typeof v.clientId !== "string" || typeof v.token !== "string") {
+    throw new RuntimeApiError("invalid_argument", `${path} holds no credential`, "local", false, true);
+  }
+  return { clientId: v.clientId, token: v.token };
+}
+
+/** Write a credential owner-only (0600). */
+export function saveCredential(credential: Credential, path: string): void {
+  writeFileSync(path, JSON.stringify({ clientId: credential.clientId, token: credential.token }), { mode: 0o600 });
+  chmodSync(path, 0o600);
+}
+
+export interface PairOptions {
+  desktops?: string[]; apps?: string[]; durationSeconds?: number; publisher?: string;
+  timeoutMs?: number; pollMs?: number; onCode?: (shortCode: string, pairingId: string) => void;
+}
+
 export class RuntimeClient {
   readonly endpoint: string;
   readonly context?: ExecContext;
   identity?: Obj;
+  credential?: Credential;
   private socket?: Socket;
   private buffer = "";
   private waiting?: { resolve: (line: string) => void; reject: (e: Error) => void };
   private attached = false;
   private timeoutMs: number;
 
-  constructor(endpoint?: string, timeoutMs = 10_000, env: NodeJS.ProcessEnv = process.env) {
+  constructor(endpoint?: string, timeoutMs = 10_000, env: NodeJS.ProcessEnv = process.env, credential?: Credential) {
     this.timeoutMs = timeoutMs;
+    if (!credential && env.AGENTDESKTOP_CREDENTIAL_FILE) credential = loadCredential(env.AGENTDESKTOP_CREDENTIAL_FILE);
+    this.credential = credential;
     this.context = loadExecContext(env);
     if (!endpoint && this.context && !env.AGENTDESKTOP_ENDPOINT) endpoint = this.context.endpoint;
     this.endpoint = resolveEndpoint(endpoint, env);
+  }
+
+  /**
+   * Ask the owner to pair this app; resolve with its credential once approved.
+   * Waits on this connection (only it can collect the credential), then
+   * reconnects as the paired app.
+   */
+  async pair(agentName: string, capabilities: string[], opts: PairOptions = {}): Promise<Credential> {
+    const requested: Obj = { capabilities, desktops: opts.desktops ?? [], apps: opts.apps ?? [] };
+    if (opts.durationSeconds) requested.durationSeconds = Math.trunc(opts.durationSeconds);
+    const params: Obj = { agentName, requested };
+    if (opts.publisher) params.publisher = opts.publisher;
+    const started = await this.call("hub.pairing.start", params, { requestId: newRequestId("pair") });
+    opts.onCode?.(String(started.shortCode), String(started.pairingId));
+    const deadline = Date.now() + (opts.timeoutMs ?? 600_000);
+    for (;;) {
+      const st = await this.call("hub.pairing.status", { pairingId: started.pairingId });
+      if (st.state === "approved" && st.credential) {
+        const c = st.credential as Obj;
+        this.credential = { clientId: String(c.clientId), token: String(c.token) };
+        this.close();
+        return this.credential;
+      }
+      if (st.state === "denied" || st.state === "expired") {
+        throw new RuntimeApiError("permission_denied", `pairing ${started.pairingId} was ${st.state}`, "handler");
+      }
+      if (Date.now() >= deadline) throw new RuntimeApiError("wait_timeout", "the owner has not answered the pairing request", "local");
+      await new Promise((r) => setTimeout(r, opts.pollMs ?? 1000));
+    }
   }
 
   close(): void {
@@ -208,11 +271,17 @@ export class RuntimeClient {
     return v.data as Obj;
   }
 
+  private handshakeParams(): Obj {
+    const params: Obj = { apiVersions: [API_VERSION], client: { name: "agentdesktop-typescript", version: "0.1.0" } };
+    if (this.credential) params.credential = { clientId: this.credential.clientId, token: this.credential.token };
+    return params;
+  }
+
   async handshake(): Promise<Obj> {
     if (this.identity) return this.identity;
     await this.connect();
     const id = await this.exchange({ apiVersion: API_VERSION, requestId: newRequestId("hs"), method: "runtime.handshake",
-      params: { apiVersions: [API_VERSION], client: { name: "agentdesktop-typescript", version: "0.1.0" } } });
+      params: this.handshakeParams() });
     if (id.product !== "AgentDesktop") { this.close(); throw new RuntimeApiError("instance_mismatch", `${this.endpoint} is not an AgentDesktop Runtime`, "handshake"); }
     this.identity = id;
     return id;

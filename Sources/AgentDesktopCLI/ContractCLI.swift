@@ -237,10 +237,15 @@ public enum RuntimeTransport {
             return .unreachable(e.message)
         } catch { return .unreachable("\(error)") }
         defer { transport.close() }
-        let hello = RuntimeRequest(.handshake, params: .obj([
+        var params: [(String, JSONValue)] = [
             ("apiVersions", .array(RuntimeAPI.supportedVersions.map(JSONValue.string))),
             ("client", .obj([("name", .string("agentdesktop-cli")), ("version", .string(RuntimeAPI.productVersion))])),
-        ]))
+        ]
+        // The user's own CLI acts as the owner (A4).
+        if let credential = CLI.ownerCredential(for: Endpoint(path: path, source: .option)) {
+            params.append(("credential", credential.json))
+        }
+        let hello = RuntimeRequest(.handshake, params: .obj(params))
         do {
             let ack = try StrictJSON.parse(transport.exchange(hello.json.encodedData()))
             guard ack["ok"]?.boolValue == true else { return .reply(ack.setting("requestId", request["requestId"] ?? .null)) }

@@ -1,14 +1,25 @@
 import AgentDesktopProtocol
 import Foundation
 
+/// Who a connection speaks for (A4). The owner is the user: the main window
+/// in this process, or a local client that showed the owner credential.
+/// A paired app showed its own credential. Anything else is unpaired.
+public enum PrincipalRole: String, Sendable {
+    case owner, paired, unpaired
+}
+
 /// What the Runtime knows about one connection.
 public final class ConnectionState: @unchecked Sendable {
     public let peerUID: uid_t
     /// Issued by the Runtime for this channel; changes on every reconnect.
     public let connectionId: String
-    /// The principal behind the connection. Until AgentHub pairing issues
-    /// clientIds, every local connection of the user is "local:<uid>".
+    /// The principal behind the connection: "local:<uid>" for the owner,
+    /// "app:<id>" for a paired app, "unpaired:<connectionId>" otherwise.
+    /// Set only by the Runtime, from a credential; never from params.
     public internal(set) var clientId: String
+    public internal(set) var role: PrincipalRole
+    /// What the server saw of the peer (pid, executable), for pairing.
+    public internal(set) var callerFacts: JSONValue = .obj([])
     /// Set by a successful runtime.handshake; every other method needs it.
     public internal(set) var apiVersion: String?
     public internal(set) var clientName: String?
@@ -20,10 +31,25 @@ public final class ConnectionState: @unchecked Sendable {
     var subscription: EventSubscription?
     public var isSubscribed: Bool { subscription != nil }
 
+    /// A connection inside this process (the main window, the GUI ports):
+    /// the owner.
     public init(peerUID: uid_t) {
         self.peerUID = peerUID
         connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
         clientId = "local:\(peerUID)"
+        role = .owner
+    }
+
+    /// A socket connection: unpaired until its handshake shows a credential.
+    public init(socketPeer uid: uid_t, pid: pid_t?, executable: String?) {
+        peerUID = uid
+        connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
+        clientId = "unpaired:" + connectionId
+        role = .unpaired
+        var facts: [(String, JSONValue)] = []
+        if let pid { facts.append(("pid", .int(Int(pid)))) }
+        if let executable { facts.append(("executable", .string(executable))) }
+        callerFacts = .obj(facts)
     }
 }
 
@@ -50,6 +76,13 @@ public final class RuntimeService: @unchecked Sendable {
     public let axReader = AXReader()
     /// Methods other in-process services answer on this endpoint (ai.*).
     let extensions = ExtensionRegistry()
+    /// Paired clients, grants, pairing requests and the authorization audit (A4).
+    public let hub: HubStore
+    /// What a local client shows in runtime.handshake to act as the owner
+    /// (the CLI reads it from `owner.credential` in the records directory).
+    public let ownerCredential: String
+    /// Open socket connections, for hub.connections.list.
+    let openConnections = ConnectionRegistry()
     /// How long one element read may take before an observation goes on
     /// with the screenshot alone (RT-23A).
     public var elementReadBudget: TimeInterval = 5
@@ -71,9 +104,11 @@ public final class RuntimeService: @unchecked Sendable {
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
                 ledger: RequestLedger? = nil, runs: RunStore? = nil, artifacts: ArtifactStore? = nil,
-                desktops: DesktopRegistry = DesktopRegistry(),
+                desktops: DesktopRegistry = DesktopRegistry(), hub: HubStore? = nil, ownerCredential: String? = nil,
                 contract: RuntimeContract = .shared, now: @escaping @Sendable () -> Date = { Date() }) {
         self.identity = identity
+        self.hub = hub ?? (try! HubStore(path: nil, now: now))
+        self.ownerCredential = ownerCredential ?? HubStore.newToken()
         self.backend = backend
         self.platform = platform
         self.desktops = desktops
@@ -124,6 +159,7 @@ public final class RuntimeService: @unchecked Sendable {
                     "conflict", "this connection carries an event subscription; use another connection or send events.unsubscribe",
                     phase: .handler, details: .obj([("reason", .string("subscribed"))])))
             }
+            if let denied = authorization(request, connection) { return .failure(request.requestId, denied) }
             guard let handler = extensions.handler(request.method) else {
                 return .failure(request.requestId, .capabilityMissing("\(request.method) is not available: the \(spec.servedBy!) is not running"))
             }
@@ -147,6 +183,9 @@ public final class RuntimeService: @unchecked Sendable {
                 "conflict", "this connection carries an event subscription; use another connection or send events.unsubscribe",
                 phase: .handler, details: .obj([("reason", .string("subscribed"))])))
         }
+        if method != .handshake, let denied = authorization(request, connection) {
+            return .failure(request.requestId, denied)
+        }
         let paramViolations = contract.validate(request.params, spec.params)
         guard paramViolations.isEmpty else {
             return .failure(request.requestId, .schemaInvalid("params break \(spec.params)", violations: paramViolations))
@@ -167,6 +206,7 @@ public final class RuntimeService: @unchecked Sendable {
 
     /// The connection is gone: Runs it owned take no further input.
     public func connectionClosed(_ connection: ConnectionState) {
+        openConnections.remove(connection)
         execution.ownerLost(connection)
     }
 
@@ -222,11 +262,13 @@ public final class RuntimeService: @unchecked Sendable {
                     "version_mismatch", "no common API version; this Runtime speaks \(RuntimeAPI.supportedVersions.joined(separator: ", "))",
                     phase: .handshake, details: .obj([("supported", .array(RuntimeAPI.supportedVersions.map(JSONValue.string)))])))
             }
+            if let refused = authenticate(p["credential"], connection) { return .failure(refused) }
             connection.apiVersion = chosen
             connection.clientName = p["client"]?["name"]?.stringValue
+            openConnections.add(connection, at: nowString)
             var id = identity
             id.apiVersion = chosen
-            return .success(id.json)
+            return .success(id.json.setting("principal", principalJSON(connection)))
 
         case .status:
             return .success(RuntimeStatus(
@@ -254,22 +296,27 @@ public final class RuntimeService: @unchecked Sendable {
             ] + extensions.capabilitySections()))
 
         case .desktopList:
-            return .success(.obj([("desktops", .array(desktops.list().map(desktopJSON)))]))
+            // A paired app sees only the Desktops its grant covers.
+            let visible = desktops.list().filter { desktopAllowed(connection, $0.desktopId) }
+            return .success(.obj([("desktops", .array(visible.map(desktopJSON)))]))
 
         case .desktopShow:
             return desktop(p["desktopId"]).map(desktopJSON)
 
         case .appList:
+            // A paired app sees only the apps its grant names, not the user's others.
             let apps = backend.applications(includeBackground: p["includeBackground"]?.boolValue ?? false)
+                .filter { appAllowed(connection, bundleId: $0.bundleId) }
             return .success(.obj([("apps", .array(apps.map(\.json)))]))
 
         case .windowList:
             let pid = p["pid"]?.intValue.map(Int32.init)
             let windows = backend.windows(pid: pid, bundleId: p["bundleId"]?.stringValue,
                                           includeOffscreen: p["includeOffscreen"]?.boolValue ?? false)
+                .filter { appAllowed(connection, bundleId: $0.bundleId) }
             return .success(.obj([("windows", .array(windows.map(\.json)))]))
 
-        case .desktopCreate: return createDesktop(p)
+        case .desktopCreate: return createDesktop(p, connection)
         case .desktopDestroy: return destroyDesktop(p)
         case .appLaunch: return launchApp(p)
         case .windowBind: return bindWindow(p)
@@ -295,6 +342,17 @@ public final class RuntimeService: @unchecked Sendable {
         case .artifactRead: return readArtifact(p, connection)
         case .eventsSubscribe: return subscribe(p, connection)
         case .eventsUnsubscribe: return unsubscribe(connection)
+        case .pairingStart: return startPairing(p, connection)
+        case .pairingStatus: return pairingStatus(p, connection)
+        case .pairingApprove: return approvePairing(p, connection)
+        case .pairingDeny: return denyPairing(p, connection)
+        case .clientsList: return listClients()
+        case .clientsShow: return showClient(p)
+        case .clientsRevoke: return revokeClient(p, connection)
+        case .grantsList: return listGrants()
+        case .grantsSet: return setGrant(p, connection)
+        case .grantsRevoke: return revokeGrant(p, connection)
+        case .connectionsList: return listConnections()
         }
     }
 }

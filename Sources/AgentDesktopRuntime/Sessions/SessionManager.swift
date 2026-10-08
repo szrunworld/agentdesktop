@@ -33,6 +33,24 @@ public final class SessionManager: @unchecked Sendable {
         return s
     }
 
+    /// Close every open session of `caller` (its access was revoked).
+    @discardableResult
+    func closeAll(caller: String, at: String) -> [String] {
+        lock.withLock {
+            var closed: [String] = []
+            for (id, var s) in sessions where s.caller == caller && s.state == "open" {
+                s.state = "closed"
+                s.closedAt = at
+                sessions[id] = s
+                closed.append(id)
+            }
+            return closed
+        }
+    }
+
+    /// Whether a session of this id exists at all, whoever's.
+    func exists(_ id: String) -> Bool { lock.withLock { sessions[id] != nil } }
+
     /// The session if `caller` may use it.
     public func find(_ id: String, caller: String) -> RuntimeSession? {
         lock.withLock { sessions[id].flatMap { $0.caller == caller ? $0 : nil } }

@@ -195,7 +195,14 @@ public final class RuntimeServer: @unchecked Sendable {
         }
         lock.withLock { open += 1 }
         defer { lock.withLock { open -= 1 } }
-        let connection = ConnectionState(peerUID: uid)
+        // Unpaired until its handshake shows a credential (A4). What the
+        // kernel says about the peer is kept as the caller's facts.
+        var pid: pid_t = 0
+        var len = socklen_t(MemoryLayout<pid_t>.size)
+        let gotPid = getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) == 0 && pid > 0
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        let executable = gotPid && proc_pidpath(pid, &path, UInt32(path.count)) > 0 ? String(cString: path) : nil
+        let connection = ConnectionState(socketPeer: uid, pid: gotPid ? pid : nil, executable: executable)
         defer { service.connectionClosed(connection) }
         while true {
             switch channel.readLine() {

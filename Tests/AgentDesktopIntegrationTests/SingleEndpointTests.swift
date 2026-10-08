@@ -24,7 +24,7 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
     let path = dir + "/runtime.sock"
     let runtime = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_a2", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: Backend())
+                                 backend: Backend(), ownerCredential: "adt1_test-owner-credential")
     let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
         databasePath: dir + "/ai.sqlite", credentials: InMemoryCredentialStore()))
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
@@ -32,7 +32,8 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
     let server = RuntimeServer(path: path, service: runtime)
     try server.start()
-    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"))
+    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+                                      credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
     return (server, client, runtime, dir)
 }
 
@@ -169,7 +170,8 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
     let ids = try await withThrowingTaskGroup(of: String.self) { group in
         for _ in 0..<6 {
             group.addTask { try await offPool {
-                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"))
+                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+                                      credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
                 defer { c.close() }
                 return try c.call(RuntimeRequest(requestId: "idem-race-0001", method: "ai.connections.create",
                                                  params: connParams))["connectionId"]?.stringValue ?? ""

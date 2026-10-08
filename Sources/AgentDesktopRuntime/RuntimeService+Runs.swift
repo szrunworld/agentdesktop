@@ -5,7 +5,6 @@ extension RuntimeService {
     /// Until AgentHub pairing exists every local connection of the user is
     /// the owner: it sees and controls all Runs. A paired client will see
     /// only its own (clientId match).
-    func isOwner(_ c: ConnectionState) -> Bool { c.clientId.hasPrefix("local:") }
 
     func ownRun(_ p: JSONValue, _ c: ConnectionState) -> Result<RunRecord, RuntimeError> {
         let id = p["runId"]?.stringValue ?? ""
