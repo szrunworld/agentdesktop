@@ -3,6 +3,18 @@ import Darwin
 import Foundation
 import SecondScreenCore
 
+/// A process an open returned: its pid, and the system's handle to it
+/// (nil in tests). Quitting uses the handle, never a pid looked up again.
+public struct LaunchedProcess: @unchecked Sendable, Equatable {
+    public let pid: pid_t
+    public let app: NSRunningApplication?
+    public init(pid: pid_t, app: NSRunningApplication? = nil) {
+        self.pid = pid
+        self.app = app
+    }
+    public static func == (a: LaunchedProcess, b: LaunchedProcess) -> Bool { a.pid == b.pid && a.app === b.app }
+}
+
 /// What a launch needs from the system, so the ownership rules can be
 /// tested without starting, moving or binding real apps.
 public struct AppLaunching: Sendable {
@@ -16,18 +28,21 @@ public struct AppLaunching: Sendable {
     public var frontmost: @Sendable () -> pid_t?
     /// Open the app as a new instance without activating it, with
     /// `environment` added to the new process's environment.
-    public var open: @Sendable (URL, [String: String]) async -> Result<pid_t, Error>
+    public var open: @Sendable (URL, [String: String]) async -> Result<LaunchedProcess, Error>
     /// The environment the kernel holds for a process (nil: unreadable).
     public var environment: @Sendable (pid_t) -> [String: String]?
     /// The bundle a running process was started from.
     public var bundleURL: @Sendable (pid_t) -> URL?
-    /// Give the foreground back to `previous` for a few seconds whenever an
-    /// app with this bundle ID takes it (a refused launch may have woken the
-    /// user's own instance).
-    public var returnFocus: @Sendable (_ previous: pid_t, _ bundleId: String) -> Void
+    /// Give the foreground back to `previous` for a few seconds whenever the
+    /// process the open returned takes it.
+    public var returnFocus: @Sendable (_ previous: pid_t, _ opened: LaunchedProcess) -> Void
     /// Quit a process this launch created (normal quit, forced after a
-    /// second). Only called once the launch token proved the process ours.
-    public var quit: @Sendable (pid_t) async -> Void
+    /// second), through the handle the open returned. Only called once the
+    /// launch token proved the process ours.
+    public var quit: @Sendable (LaunchedProcess) async -> Void
+    /// Whether the app is on the list of apps verified to carry a launch
+    /// token into the environment the kernel records. Only those are opened.
+    public var verifiedProvable: @Sendable (String) -> Bool = { LaunchOwnership.verifiedApps.contains($0) }
     /// Whether windows may be placed (the Accessibility permission).
     public var canPlaceWindows: @Sendable () -> Bool
     /// The process's first window, waiting up to the timeout.
@@ -50,7 +65,7 @@ public struct AppLaunching: Sendable {
             await withCheckedContinuation { continuation in
                 NSWorkspace.shared.openApplication(at: url, configuration: LaunchOwnership.configuration(environment)) { app, error in
                     if let app {
-                        continuation.resume(returning: .success(app.processIdentifier))
+                        continuation.resume(returning: .success(LaunchedProcess(pid: app.processIdentifier, app: app)))
                     } else {
                         continuation.resume(returning: .failure(error ?? CocoaError(.executableLoad)))
                     }
@@ -59,20 +74,20 @@ public struct AppLaunching: Sendable {
         },
         environment: { LaunchOwnership.kernelEnvironment(of: $0) },
         bundleURL: { NSRunningApplication(processIdentifier: $0)?.bundleURL },
-        returnFocus: { previous, bundleId in
+        returnFocus: { previous, opened in
             DispatchQueue.main.async {
                 guard let back = NSRunningApplication(processIdentifier: previous) else { return }
                 let center = NSWorkspace.shared.notificationCenter
                 let token = center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { note in
                     let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-                    if app?.bundleIdentifier == bundleId { back.activate() }
+                    if app?.processIdentifier == opened.pid { back.activate() }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { center.removeObserver(token) }
-                if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleId { back.activate() }
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier == opened.pid { back.activate() }
             }
         },
-        quit: { pid in
-            guard let app = NSRunningApplication(processIdentifier: pid) else { return }
+        quit: { opened in
+            guard let app = opened.app, !app.isTerminated else { return }
             app.terminate()
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             if !app.isTerminated { app.forceTerminate() }
@@ -97,10 +112,21 @@ public enum LaunchOwnership {
     /// The environment variable carrying a launch's one-time token.
     public static let tokenVariable = "AGENTDESKTOP_LAUNCH_TOKEN"
 
-    /// Always a new instance, never activated, carrying `environment`.
+    /// Apps verified on a real machine to carry the launch token into the
+    /// environment the kernel records, when opened through LaunchServices.
+    /// Empty until each is verified: Apple's own apps never qualify (macOS
+    /// hides their environment), and some third-party apps (Google Chrome)
+    /// rewrite theirs. An app not on the list is refused before it is
+    /// opened, so no unowned window is ever left on the user's screen.
+    public static let verifiedApps: Set<String> = []
+
+    /// Always a new instance, never activated, not added to recent items,
+    /// never prompting the user, carrying `environment`.
     public static func configuration(_ environment: [String: String] = [:]) -> NSWorkspace.OpenConfiguration {
         let c = NSWorkspace.OpenConfiguration()
         c.activates = false
+        c.addsToRecentItems = false
+        c.promptsUserIfNeeded = false
         c.createsNewApplicationInstance = true
         c.environment = environment
         return c
@@ -118,13 +144,17 @@ public enum LaunchOwnership {
     ///   (`newInstance` is kept for the protocol; no app is on a list of
     ///   apps verified to isolate a second instance yet.)
     ///
+    /// - an app not on the verified list (`verifiedApps`): only those are
+    ///   known to carry the token, so no other app is ever opened.
+    ///
     /// Refused after opening (foreground handed back, nothing moved, bound
     /// or quit):
     /// - the process does not carry this launch's one-time token in its
     ///   environment (read from the kernel, not from the app);
-    /// - it ran before the launch, or it is not the requested bundle.
+    /// - it ran before the launch, it is not the requested bundle, or another
+    ///   instance of the app appeared at the same time.
     public static func openOwnedProcess(_ url: URL, newInstance: Bool, using system: AppLaunching,
-                                        token: String = UUID().uuidString) async -> Result<pid_t, LaunchRefusal> {
+                                        token: String = UUID().uuidString) async -> Result<LaunchedProcess, LaunchRefusal> {
         let info = system.bundleInfo(url)
         guard let id = info.id else {
             return .failure(LaunchRefusal("\(url.lastPathComponent) has no bundle ID; a new process cannot be told apart from a running one"))
@@ -132,30 +162,39 @@ public enum LaunchOwnership {
         guard !info.singleInstance else {
             return .failure(LaunchRefusal("\(id) allows one instance only; its windows are not moved automatically"))
         }
+        guard system.verifiedProvable(id) else {
+            return .failure(LaunchRefusal("\(id) is not on the list of apps verified to prove a launch; it was not opened"))
+        }
         guard system.processes(id).isEmpty else {
             return .failure(LaunchRefusal("\(id) is already running; an app the user has open is not launched again for an agent"))
         }
         let before = system.runningPIDs()
         let previous = system.frontmost()
-        func refuseAfterOpening(_ message: String) -> Result<pid_t, LaunchRefusal> {
-            if let previous { system.returnFocus(previous, id) }
+        func refuseAfterOpening(_ opened: LaunchedProcess?, _ message: String) -> Result<LaunchedProcess, LaunchRefusal> {
+            if let previous, let opened { system.returnFocus(previous, opened) }
             return .failure(LaunchRefusal(message, opened: true))
         }
-        let pid: pid_t
+        let opened: LaunchedProcess
         switch await system.open(url, [tokenVariable: token]) {
-        case let .success(p): pid = p
-        case let .failure(error): return refuseAfterOpening("launch failed: \(error.localizedDescription)")
+        case let .success(p): opened = p
+        case let .failure(error): return refuseAfterOpening(nil, "launch failed: \(error.localizedDescription)")
         }
+        let pid = opened.pid
         guard system.environment(pid)?[tokenVariable] == token else {
-            return refuseAfterOpening("process \(pid) does not carry this launch's token; nothing was moved")
+            return refuseAfterOpening(opened, "process \(pid) does not carry this launch's token; nothing was moved")
         }
         guard isNewProcess(pid, runningBefore: before) else {
-            return refuseAfterOpening("the app handed back a process that was already running; nothing was moved")
+            return refuseAfterOpening(opened, "the app handed back a process that was already running; nothing was moved")
         }
         guard let started = system.bundleURL(pid), sameBundle(started, url) else {
-            return refuseAfterOpening("process \(pid) is not the requested app; nothing was moved")
+            return refuseAfterOpening(opened, "process \(pid) is not the requested app; nothing was moved")
         }
-        return .success(pid)
+        // The user may start the same app while it opens: then which window
+        // is whose is not certain, so nothing is moved.
+        guard system.processes(id) == [pid] else {
+            return refuseAfterOpening(opened, "another instance of \(id) started at the same time; nothing was moved")
+        }
+        return .success(opened)
     }
 
     /// Whether `pid` was not running before the launch.

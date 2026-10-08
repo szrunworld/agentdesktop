@@ -22,7 +22,8 @@ final class ScriptedSystem: @unchecked Sendable {
     var opened = 0, moves = 0
     var binds: [pid_t] = []
     var quitPIDs: [pid_t] = []
-    var focusReturned: [(pid_t, String)] = []
+    var focusReturned: [(pid_t, pid_t)] = []
+    var verified = true
 
     var launching: AppLaunching {
         var l = AppLaunching(
@@ -32,7 +33,7 @@ final class ScriptedSystem: @unchecked Sendable {
             frontmost: { 77 },
             open: { _, env in
                 self.lock.withLock { self.opened += 1 }
-                return .success(self.onOpen(self, env))
+                return .success(LaunchedProcess(pid: self.onOpen(self, env)))
             },
             environment: { pid in self.lock.withLock { self.environments[pid] } },
             bundleURL: { pid in
@@ -41,12 +42,13 @@ final class ScriptedSystem: @unchecked Sendable {
                     return self.bundles.first { $0.value.id == id }.map { URL(fileURLWithPath: $0.key) }
                 }
             },
-            returnFocus: { previous, id in self.lock.withLock { self.focusReturned.append((previous, id)) } },
-            quit: { pid in self.lock.withLock { self.quitPIDs.append(pid); self.running[pid] = nil } },
+            returnFocus: { previous, opened in self.lock.withLock { self.focusReturned.append((previous, opened.pid)) } },
+            quit: { opened in self.lock.withLock { self.quitPIDs.append(opened.pid); self.running[opened.pid] = nil } },
             canPlaceWindows: { true },
             firstWindow: { pid, _ in self.lock.withLock { self.window.map { WindowInfo(pid: pid, windowID: $0.windowID, appName: $0.appName, title: $0.title, frame: $0.frame) } } },
             move: { _, _, _ in self.lock.withLock { self.moves += 1 }; return true })
         l.bound = { pid in self.lock.withLock { self.binds.append(pid) } }
+        l.verifiedProvable = { _ in self.lock.withLock { self.verified } }
         return l
     }
 
@@ -126,12 +128,16 @@ func touchedNothing(_ sys: ScriptedSystem, _ screens: AgentScreens) -> Bool {
     #expect(!r.ok)
     #expect(touchedNothing(sys, screens))
     #expect(sys.focusReturned.map(\.0) == [77])
-    // When the system makes our instance next to the user's, the token picks ours.
+    #expect(sys.focusReturned.map(\.1) == [500], "focus watch is on the returned process only")
+    // Our instance carries the token, but the user started one at the same
+    // time: which window is whose is not certain, so nothing is moved.
     let both = ScriptedSystem()
     let (app2, cleanup2) = try tempApp(both)
     defer { cleanup2() }
     both.onOpen = { s, env in s.userStarts(500); return s.launchStarts(600, env) }
-    #expect(try await LaunchOwnership.openOwnedProcess(app2, newInstance: true, using: both.launching).get() == 600)
+    let (r2, screens2) = await launch(both, app2)
+    #expect(!r2.ok)
+    #expect(touchedNothing(both, screens2))
 }
 
 // ③ The system reuses a process: no token, refused untouched. Apps that
@@ -168,6 +174,33 @@ func touchedNothing(_ sys: ScriptedSystem, _ screens: AgentScreens) -> Bool {
     sys.onOpen = { s, _ in s.launchStarts(700, [LaunchOwnership.tokenVariable: "someone-else"]) }
     let r = await LaunchOwnership.openOwnedProcess(app, newInstance: true, using: sys.launching, token: "mine")
     #expect(r.isRefused)
+}
+
+// b9's third review: an app not verified to carry the token is never
+// opened (Apple's own apps, Google Chrome): no unowned window is left on
+// the user's screen.
+@MainActor
+@Test func anAppNotVerifiedToProveALaunchIsNeverOpened() async throws {
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    sys.verified = false
+    sys.onOpen = { s, env in s.launchStarts(900, env) }
+    let (r, screens) = await launch(sys, app)
+    #expect(!r.ok)
+    #expect(sys.opened == 0, "never opened")
+    #expect(touchedNothing(sys, screens))
+    #expect(sys.focusReturned.isEmpty)
+    // The shipped list is empty until apps are verified one by one.
+    #expect(LaunchOwnership.verifiedApps.isEmpty)
+    #expect(!AppLaunching.system.verifiedProvable("com.google.Chrome"))
+    #expect(!AppLaunching.system.verifiedProvable("com.apple.Notes"))
+}
+
+@Test func theOpenAddsNoRecentItemAndNeverPrompts() {
+    let c = LaunchOwnership.configuration()
+    #expect(!c.addsToRecentItems)
+    #expect(!c.promptsUserIfNeeded)
 }
 
 // ④ A process proved by the token is moved and bound.

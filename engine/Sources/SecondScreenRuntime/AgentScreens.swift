@@ -249,11 +249,12 @@ public final class AgentScreens {
         let previousFront = NSWorkspace.shared.frontmostApplication
         // Only a process this launch provably created is the agent's;
         // every refusal comes before anything is moved or bound.
-        let pid: pid_t
+        let owned: LaunchedProcess
         switch await LaunchOwnership.openOwnedProcess(url, newInstance: newInstance, using: launching) {
-        case let .success(owned): pid = owned
+        case let .success(o): owned = o
         case let .failure(refusal): return .failure(refusal.message)
         }
+        let pid = owned.pid
 
         // Many apps activate themselves once launched despite `activates`;
         // hand the foreground straight back to whoever had it.
@@ -262,7 +263,7 @@ public final class AgentScreens {
         guard let window = await launching.firstWindow(pid, 15) else {
             // Started for the agent but nothing to place: left running it
             // would stay on the user's display, owned by no Desktop.
-            await launching.quit(pid)
+            await launching.quit(owned)
             var response = ControlResponse.failure("the app launched but showed no window within 15 seconds; it was quit")
             response.pid = pid
             return response
@@ -277,7 +278,7 @@ public final class AgentScreens {
         guard moved else {
             // The app was started for the agent; left running, its window
             // would stay on the user's display. End it instead.
-            await launching.quit(pid)
+            await launching.quit(owned)
             var response = ControlResponse.failure(
                 "the app refused to move its window to the agent screen; it was quit so it does not stay on the user's display")
             response.pid = pid
@@ -292,7 +293,7 @@ public final class AgentScreens {
         response.windows = await Self.settledSummaries(of: pid, on: target.displayID)
         if moved, !fitScreen, let clipped = await Self.keepWithinScreen([window.windowID], of: pid, on: target, fill: fill) {
             // A failed launch belongs to no Desktop: quit what it started.
-            await launching.quit(pid)
+            await launching.quit(owned)
             response = .failure(clipped + "; it was quit")
             response.pid = pid
             response.screen = target
