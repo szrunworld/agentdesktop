@@ -2,8 +2,10 @@ import AgentDesktopContracts
 import Foundation
 
 public struct ACPStdioConnectionOptions: Sendable {
-    /// Largest frame accepted from the editor. A longer line ends the
-    /// connection: a peer that sends one is not speaking ACP.
+    /// Largest frame accepted from the editor. A longer line is answered
+    /// with a JSON-RPC error (id null) and skipped up to the next newline;
+    /// the connection stays up, so the Runs it controls keep going
+    /// (docs/acp/README.md §6). Memory stays bounded by this size.
     public var maxFrameBytes = 16 * 1024 * 1024
     /// Unparseable frames tolerated (each answered with a JSON-RPC error)
     /// before the connection is ended.
@@ -21,9 +23,11 @@ public struct ACPStdioConnectionOptions: Sendable {
 /// Pipelining is allowed: anything that arrives after an accepted
 /// `initialize` but before its answer is held and processed, in order,
 /// right after that answer is written (docs/acp/02-protocol-version.md §4).
-/// Input end, a write failure, an oversized frame or too many malformed
-/// frames end it with `.closed(reason:)`; pending agent→editor requests then
-/// resolve to `.unavailable`.
+/// Input end, a write failure or too many malformed frames end it with
+/// `.closed(reason:)`; pending agent→editor requests then resolve to
+/// `.unavailable`. An oversized frame is refused and skipped, never fatal.
+/// Frames go out in call order: a caller that awaits `send` and then
+/// `reply` gets them on the wire in that order.
 public final class ACPStdioConnection: ACPConnection, @unchecked Sendable {
     public let events: AsyncStream<ACPConnectionEvent>
     private let eventsContinuation: AsyncStream<ACPConnectionEvent>.Continuation
@@ -293,12 +297,13 @@ public final class ACPStdioConnection: ACPConnection, @unchecked Sendable {
         for await chunk in transport.chunks {
             for unit in splitter.feed(chunk) {
                 switch unit {
-                case let .oversized(seen):
-                    await write(.errorResponse(id: .null, error: .init(
+                case let .oversized(seen, head):
+                    // Answer under the request's own id when its head shows
+                    // one, so the editor is not left waiting; else id null.
+                    let id = ACPFrameSplitter.peekRequestId(head) ?? .null
+                    await write(.errorResponse(id: id, error: .init(
                         code: ACPJsonRpcErrorCode.invalidRequest,
-                        message: "frame exceeds \(options.maxFrameBytes) bytes (saw \(seen))")))
-                    finish(reason: "frame_too_large")
-                    return
+                        message: "frame exceeds \(options.maxFrameBytes) bytes (saw at least \(seen)); skipped to the next line")))
                 case let .frame(data):
                     await handle(frame: data)
                 }

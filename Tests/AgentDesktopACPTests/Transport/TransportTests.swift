@@ -19,15 +19,32 @@ import Testing
         let first = s.feed(Data(repeating: 0x61, count: 6))
         #expect(first == [])
         let crossed = s.feed(Data(repeating: 0x61, count: 100))
-        #expect(crossed == [.oversized(bytesSeen: 106)])
+        #expect(crossed == [.oversized(bytesSeen: 106, head: Data(repeating: 0x61, count: 106))])
         #expect(s.pendingByteCount == 0)
         // The rest of the long line is dropped; the next line is intact.
         #expect(s.feed(Data(repeating: 0x61, count: 1000) + Data("\n{}\n".utf8)) == [.frame(Data("{}".utf8))])
     }
 
+    @Test func requestIdIsReadFromTheHeadOfACutOffLine() {
+        func peek(_ t: String) -> JSONValue? { ACPFrameSplitter.peekRequestId(Data(t.utf8)) }
+        #expect(peek(#"{"jsonrpc":"2.0","id":"raw-big","method":"session/prompt","params":{"prompt":"aaaa"#) == .string("raw-big"))
+        #expect(peek(#" { "jsonrpc" : "2.0" , "id" : 42 , "method":"x","params":{"t":"aaa"#) == .int(42))
+        #expect(peek(#"{"params":{"id":7,"x":[1,{"id":8}]},"id":9,"method":"x","p":"#) == .int(9))
+        #expect(peek(#"{"method":"x","params":{"text":"he said "id":3 }","id":5},"id":"s","q":"#) == .string("s"))
+        // Not determinable: cut inside the id, no id yet, nested only, bad ids.
+        #expect(peek(#"{"jsonrpc":"2.0","id":12"#) == nil)
+        #expect(peek(#"{"jsonrpc":"2.0","id":"ab"#) == nil)
+        #expect(peek(#"{"jsonrpc":"2.0","method":"x","params":{"id":1,"t":"aaaa"#) == nil)
+        #expect(peek(#"{"id":1.5,"x":1}"#) == nil)
+        #expect(peek(#"{"id":null,"x":1}"#) == nil)
+        #expect(peek(#"{"id":{"a":1},"x":1}"#) == nil)
+        #expect(peek("aaaaaaaa") == nil)
+        #expect(peek(#"["id",1]"#) == nil)
+    }
+
     @Test func lineOfExactlyTheLimitPasses() {
         var s = ACPFrameSplitter(maxFrameBytes: 4)
-        #expect(s.feed(Data("abcd\r\nabcde\n".utf8)) == [.frame(Data("abcd".utf8)), .oversized(bytesSeen: 5)])
+        #expect(s.feed(Data("abcd\r\nabcde\n".utf8)) == [.frame(Data("abcd".utf8)), .oversized(bytesSeen: 5, head: Data("abcde".utf8))])
     }
 }
 
@@ -230,17 +247,51 @@ import Testing
         #expect(await ed.nextFrame()?["error"]?["message"] == .string("connection already initialized"))
     }
 
-    @Test func t02OversizedFrameClosesTheConnection() async throws {
+    // README §6: an oversized frame is refused (id null) and skipped; the
+    // connection, and the Runs it controls, stay up.
+    @Test func t02OversizedFrameIsRefusedAndSkipped() async throws {
         var opts = ACPStdioConnectionOptions()
         opts.maxFrameBytes = 1024
+        opts.maxMalformedFrames = 1
         let ed = TTestEditor(options: opts)
         await ed.initialize()
+        // A huge line arriving in pieces, then a valid request on the next line.
         await ed.sendRaw("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{\"cwd\":\""
                          + String(repeating: "a", count: 4096))
+        await ed.sendRaw(String(repeating: "b", count: 64 * 1024))
+        // Answered under its own id (read from the line's head), so the editor
+        // is not left waiting; the error is the frame-level one.
         let f = await ed.nextFrame()
-        #expect(f?["id"] == .null && f?["error"]?["code"] == .int(ACPJsonRpcErrorCode.invalidRequest))
-        #expect(await ed.nextEvent() == .closed(reason: "frame_too_large"))
-        #expect(await ed.nextEvent() == nil)  // the stream ended
+        #expect(f?["id"] == .int(1) && f?["error"]?["code"] == .int(ACPJsonRpcErrorCode.invalidRequest))
+        await ed.sendRaw("\"}}\n")  // end of the oversized line: dropped, not parsed
+        // Several oversized frames do not count as malformed (limit is 1 here).
+        for _ in 0..<3 { await ed.sendRaw(String(repeating: "c", count: 2048) + "\n") }
+        for _ in 0..<3 { #expect(await ed.nextFrame()?["error"]?["code"] == .int(ACPJsonRpcErrorCode.invalidRequest)) }
+        // Still alive, nothing reached the server, next line is processed.
+        #expect(await ed.probeEventIsNext())
+        #expect(await ed.probeFrameIsNext())
+        #expect(ed.schemaProblems == [])
+    }
+
+    // README §6: updates and a later reply reach stdout in call order
+    // (session/load replays history before it answers).
+    @Test func t01UpdatesThenReplyKeepCallOrder() async throws {
+        let ed = TTestEditor()
+        var caps = TTestEditor.defaultCaps
+        caps.resumeSessions = true
+        await ed.initialize(agentCaps: caps)
+        await ed.request(1, "session/load", .obj([("sessionId", .string("s")), ("cwd", .string("/w")),
+                                                  ("mcpServers", .array([]))]))
+        guard case let .request(id, .resumeSession(sessionId: "s", cwd: "/w", replay: true))? = await ed.nextEvent()
+        else { Issue.record("load"); return }
+        for i in 0..<200 { await ed.connection.send(sessionId: "s", .agentMessage("history \(i)")) }
+        await ed.connection.reply(to: id, .resumed(options: []))
+        for i in 0..<200 {
+            let f = await ed.nextFrame()
+            #expect(f?["params"]?["update"]?["content"]?["text"] == .string("history \(i)"))
+        }
+        #expect(await ed.nextFrame()?["id"] == .int(1))
+        #expect(await ed.probeFrameIsNext())
         #expect(ed.schemaProblems == [])
     }
 
