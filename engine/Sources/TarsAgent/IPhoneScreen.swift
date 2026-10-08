@@ -17,7 +17,14 @@ import Vision
 ///   keyboard turns every character into "a". Text is pasted instead: ⌘V
 ///   with ⌘ pressed as a key of its own, in the background (a ⌘V through
 ///   the menus, even with Mirroring in front, types "v"). The phone may ask
-///   to "Allow Paste", which is pressed. The user's clipboard is put back.
+///   to "Allow Paste", pressed only when it is the system's alert, then
+///   fetches the clipboard over the air for seconds. The whole paste holds
+///   a clipboard lease against other agent processes, saves every item and
+///   type on the clipboard (or refuses to paste if it cannot) and puts them
+///   back. It reports `paste.confirmed` only when the text is read back off
+///   the screen, `paste.delivered` when the phone went quiet but the text
+///   was not seen, and fails as `paste.unknown` when the paste never
+///   settled. A trailing newline presses Return only after a confirmed paste.
 /// - Without the phone the window shows a status page ("iPhone in Use",
 ///   "连接暂停", …); see `IPhoneConnectionState`.
 ///
@@ -219,12 +226,10 @@ public final class IPhoneAgentScreen: AgentScreen {
             guard var text = action.value, !text.isEmpty else { return ControlResponse() }
             let submit = text.hasSuffix("\n")
             if submit { text.removeLast() }
-            if !text.isEmpty {
-                if let failure = try paste(text, pid: pid) { return .failure(failure) }
+            if text.isEmpty { return try send(key("return", []), pid: pid) }
+            return try paste(text, pid: pid).response(submit: submit) {
+                try send(key("return", []), pid: pid)
             }
-            if submit { return try send(key("return", []), pid: pid) }
-            Thread.sleep(forTimeInterval: 0.4)
-            return ControlResponse()
         default:
             return try send(action, pid: pid)
         }
@@ -314,70 +319,49 @@ public final class IPhoneAgentScreen: AgentScreen {
         return IPhoneObservation.sameFrame(now.frame, window.frame) ? nil : "moved"
     }
 
-    /// Paste `text` into the phone's focused field. Returns why not, if not.
-    private func paste(_ text: String, pid: pid_t) throws -> String? {
-        let pasteboard = NSPasteboard.general
-        let backup = pasteboard.string(forType: .string)
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        let ours = pasteboard.changeCount
-        defer {
-            // Put the user's clipboard back, unless they copied something
-            // meanwhile.
-            if pasteboard.changeCount == ours {
-                pasteboard.clearContents()
-                if let backup { pasteboard.setString(backup, forType: .string) }
-            }
-        }
-        var paste = key("v", ["cmd"])
-        paste.holdModifiers = true
-        let response = try send(paste, pid: pid)
-        guard response.ok else { return response.error ?? "⌘V failed" }
-        // The phone asks whether to allow the paste, then fetches the
-        // clipboard over the air, which can take seconds; it stays ours
-        // until the phone stops saying it is pasting.
-        var quiet = 0
-        for _ in 0..<25 where quiet < 2 {
-            Thread.sleep(forTimeInterval: 0.5)
-            switch try pastePrompt() {
-            case .allow(let point):
-                quiet = 0
-                var tap = InputAction(.click)
-                tap.x = point.x
-                tap.y = point.y
-                _ = try send(tap, pid: pid)
-            case .pasting:
-                quiet = 0
-            case .none:
-                quiet += 1
-            }
-        }
-        return nil
+    /// Paste `text` into the phone's focused field (see `PasteTransaction`).
+    private func paste(_ text: String, pid: pid_t) throws -> PasteOutcome {
+        PasteTransaction().paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
     }
 
-    private enum PastePrompt { case allow(CGPoint), pasting, none }
+    /// The phone for a paste: Vision reads the window, input goes to Mirroring.
+    private struct PhoneDriver: PhonePasteDriver {
+        let phone: IPhoneAgentScreen
+        let pid: pid_t
 
-    /// What the phone shows of a paste from the Mac: its "Allow Paste"
-    /// button, in global points, or its "Pasting from" progress.
-    private func pastePrompt() throws -> PastePrompt {
+        func look() throws -> [PhoneText] {
+            try phone.pastePrompt()
+        }
+
+        func pressPaste() throws -> ControlResponse {
+            var paste = phone.key("v", ["cmd"])
+            paste.holdModifiers = true
+            return try phone.send(paste, pid: pid)
+        }
+
+        func tap(_ point: CGPoint) throws -> ControlResponse {
+            let frame = phone.windowFrame
+            var tap = InputAction(.click)
+            tap.x = frame.minX + point.x * frame.width
+            tap.y = frame.minY + point.y * frame.height
+            return try phone.send(tap, pid: pid)
+        }
+
+        func pause(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+    }
+
+    /// The text on the mirroring window, for `PastePrompt.read` and for
+    /// checking the pasted text, boxes normalised with the origin top left.
+    private func pastePrompt() throws -> [PhoneText] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["zh-Hans", "en-US"]
         try VNImageRequestHandler(cgImage: windowImage()).perform([request])
-        var pasting = false
-        for observation in request.results ?? [] {
-            guard let text = observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespaces)
-            else { continue }
-            if Self.allowPasteLabels.contains(text) {
-                let box = observation.boundingBox  // normalised, bottom-left origin
-                return .allow(CGPoint(x: windowFrame.minX + box.midX * windowFrame.width,
-                                      y: windowFrame.minY + (1 - box.midY) * windowFrame.height))
-            }
-            if Self.pastingLabels.contains(where: text.hasPrefix) { pasting = true }
+        return (request.results ?? []).compactMap { observation in
+            guard let text = observation.topCandidates(1).first?.string else { return nil }
+            let box = observation.boundingBox  // normalised, bottom-left origin
+            return PhoneText(text, CGRect(x: box.minX, y: 1 - box.maxY, width: box.width, height: box.height))
         }
-        return pasting ? .pasting : .none
     }
 
-    static let pastingLabels = ["Pasting from", "正在从"]
-    static let allowPasteLabels: Set<String> = ["Allow Paste", "允许粘贴"]
 }
