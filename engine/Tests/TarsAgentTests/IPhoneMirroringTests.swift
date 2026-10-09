@@ -550,6 +550,55 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(report.outcome == .needsUser)
     }
 
+    /// Codex on #189: the same page read only through OCR's message ("…is
+    /// no longer in use"), with Connect the one control, is pressed too.
+    @Test func theInUseMessageReadByOCRIsConnectedOnTheUsersWord() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connect"]
+        fake.ocr = ["Connect when your iPhone is no longer in use."]
+        fake.buttons = ["Connect"]
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = []; fake.ocr = [] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .ready)
+    }
+
+    /// #189 review: a camera page that also says "iPhone in Use" is the
+    /// camera page, and not pressed.
+    @Test func aCameraPageThatAlsoSaysInUseIsNotPressed() throws {
+        let fake = FakeMirroring()
+        fake.ax = ["iPhone Camera in Use", "Your iPhone in Use by the camera", "Connect"]
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(report.label == "iPhone Camera in Use")
+        #expect(fake.pressed.isEmpty && report.outcome == .needsUser)
+    }
+
+    /// Codex on #189: after Connect, a page a lock does not end (the camera
+    /// in use) ends the wait at once as needing the user.
+    @Test func aCameraPageAfterConnectNeedsTheUser() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["iPhone in Use", "Connect"]
+        fake.buttons = ["Connect"]
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = ["iPhone Camera in Use", "Connect"] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .needsUser && !report.timedOut)
+        #expect(fake.sleeps == 1)
+    }
+
+    /// Codex on #189: the lock flow is offered only where a lock ends it.
+    @Test func theHintOffersTheLockFlowOnlyWhereALockEndsIt() {
+        #expect(IPhoneConnectionState.phoneInUse.hint(shown: "iPhone in Use").contains("--phone-locked"))
+        #expect(IPhoneConnectionState.phoneInUse.hint(shown: "is no longer in use").contains("--phone-locked"))
+        for page in ["iPhone Camera in Use", "iPhone相机使用中", "iPhone Microphone in Use", "iPhone麦克风使用中"] {
+            let hint = IPhoneConnectionState.phoneInUse.hint(shown: page)
+            #expect(!hint.contains("--phone-locked") && !hint.contains("lock it"), "\(page): \(hint)")
+        }
+    }
+
     @Test func reconnectGivesUpAtItsTimeout() throws {
         let fake = FakeMirroring()
         fake.ax = ["Connection Interrupted"]

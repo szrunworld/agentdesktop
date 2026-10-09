@@ -139,7 +139,7 @@ public final class IPhoneAgentScreen: AgentScreen {
         let status = state(of: capture)
         guard status.state == .ready else {
             throw IPhoneError("not_connected", reason: status.state.rawValue,
-                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint)")
+                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint(shown: status.label))")
         }
         guard !IPhoneFrames.isBlank(capture.image) else {
             throw IPhoneError("capture_failed", reason: "blank_frame",
@@ -366,7 +366,7 @@ public final class IPhoneAgentScreen: AgentScreen {
             let seen = look()
             connection.record(seen)
             switch seen.state {
-            case .phoneInUse where fromInUse && pressed != nil:
+            case .phoneInUse where fromInUse && pressed != nil && IPhoneConnection.endsOnLock(seen.label):
                 // The page may stay a moment after Connect; if the phone was
                 // not locked after all it stays, and the wait ends unconfirmed.
                 break
@@ -693,7 +693,7 @@ public final class IPhoneAgentScreen: AgentScreen {
                                                ocr: system.recognizedText(in: capture.image))
         guard status.state == .ready else {
             throw IPhoneError("not_connected", reason: status.state.rawValue,
-                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint)")
+                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint(shown: status.label))")
         }
         // A reconnect pressed a button and the phone was not seen ready for
         // long enough since: a moment of "ready" may still turn into a lock

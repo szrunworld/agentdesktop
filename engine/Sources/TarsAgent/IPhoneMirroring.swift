@@ -270,12 +270,30 @@ public enum IPhoneConnectionState: String, CaseIterable {
     /// or sent until a look shows the phone for certain.
     case uncertain
 
+    /// The hint for this state as `label` shows it: the "iPhone in Use"
+    /// page a lock ends names `iphone reconnect --phone-locked`; a camera or
+    /// microphone in use, which a lock does not end, does not (#189).
+    public func hint(shown label: String?) -> String {
+        guard self == .phoneInUse else { return hint }
+        if IPhoneConnection.endsOnLock(label) {
+            return "the phone is in use; lock it and leave it near the Mac, then click Connect in the iPhone Mirroring "
+                + "window or run `agentdesktop iphone reconnect --phone-locked`"
+        }
+        if let label, label.localizedCaseInsensitiveContains("camera") || label.contains("相机") {
+            return "the phone's camera is in use; stop using it, then click Connect in the iPhone Mirroring window"
+        }
+        if let label, label.localizedCaseInsensitiveContains("microphone") || label.contains("麦克风") {
+            return "the phone's microphone is in use; stop using it, then click Connect in the iPhone Mirroring window"
+        }
+        return hint
+    }
+
     public var hint: String {
         switch self {
         case .ready: return "the phone's screen is showing"
         case .phoneInUse:
-            return "the phone is in use; lock it and leave it near the Mac, then click Connect in the iPhone Mirroring "
-                + "window or run `agentdesktop iphone reconnect --phone-locked`"
+            return "the phone is in use; lock it, or stop using its camera or microphone, then click Connect in the "
+                + "iPhone Mirroring window"
         case .disconnected: return "iPhone Mirroring is disconnected; run `agentdesktop iphone reconnect`"
         case .authRequired: return "unlock the iPhone or authenticate on the Mac (Touch ID or password)"
         case .reconnecting: return "iPhone Mirroring is connecting; wait and look again"
@@ -293,7 +311,7 @@ public enum IPhoneConnection {
     /// pressed), as against a camera or microphone in use, which a lock does
     /// not end.
     static let endsOnLockLabels: Set<String> = ["iPhone in Use", "iPhone使用中", "has ended due to iPhone use",
-                                                "因iPhone被使用"]
+                                                "因iPhone被使用", "is no longer in use", "不再处于使用状态时连接"]
 
     static func endsOnLock(_ label: String?) -> Bool {
         guard let label else { return false }
@@ -305,10 +323,12 @@ public enum IPhoneConnection {
     /// contains wins, so the specific ones come first ("正在解锁iPhone"
     /// contains "解锁iPhone").
     static let rules: [(String, IPhoneConnectionState)] = [
-        // Phone in use.
-        ("iPhone in Use", .phoneInUse), ("iPhone使用中", .phoneInUse),
+        // Phone in use. Camera and microphone first: their pages are not
+        // ended by a lock, and must not be read as the plain "iPhone in Use"
+        // when that phrase is also on them (#189 review).
         ("iPhone Camera in Use", .phoneInUse), ("iPhone相机使用中", .phoneInUse),
         ("iPhone Microphone in Use", .phoneInUse), ("iPhone麦克风使用中", .phoneInUse),
+        ("iPhone in Use", .phoneInUse), ("iPhone使用中", .phoneInUse),
         ("has ended due to iPhone use", .phoneInUse), ("因iPhone被使用", .phoneInUse),
         ("is no longer in use", .phoneInUse), ("不再处于使用状态时连接", .phoneInUse),
         // Connecting.

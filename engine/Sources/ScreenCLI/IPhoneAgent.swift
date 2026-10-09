@@ -84,7 +84,7 @@ enum IPhoneCommands {
         do {
             let phone = IPhoneAgentScreen(screen: name)
             let (state, label) = try phone.connectionState()
-            var output: [String: Any] = ["ok": true, "state": state.rawValue, "hint": state.hint]
+            var output: [String: Any] = ["ok": true, "state": state.rawValue, "hint": state.hint(shown: label)]
             if let label { output["shows"] = label }
             if let binding = phone.binding { output["windowID"] = Int(binding.windowID) }
             DriverCommands.emit(output)
@@ -103,7 +103,7 @@ enum IPhoneCommands {
             var output: [String: Any] = ["ok": report.isReady, "outcome": report.outcome.rawValue,
                                          "phase": report.phase.rawValue, "generation": report.generation,
                                          "readyReadings": report.readyReadings,
-                                         "state": report.state.rawValue, "hint": report.state.hint,
+                                         "state": report.state.rawValue, "hint": report.state.hint(shown: report.label),
                                          "timedOut": report.timedOut]
             if let label = report.label { output["shows"] = label }
             if let pressed = report.pressed { output["pressed"] = pressed }
