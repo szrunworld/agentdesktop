@@ -243,5 +243,32 @@ class WatchdogTests(unittest.TestCase):
             bystander.wait()
 
 
+    def test_children_started_while_stopping_are_stopped_too(self):
+        # Codex on #188: a leftover that keeps starting detached children
+        # (each carries the run's marker) until it is killed; every one of
+        # them must be gone and the diagnosis must say the stop succeeded.
+        tag = f"spawner-{uuid.uuid4().hex[:8]}"
+        child = (f"import time; time.sleep(60) # {tag}-child")
+        spawner = ("import subprocess, sys, time\n"
+                   "while True:\n"
+                   f"    subprocess.Popen([sys.executable, '-c', {child!r}], start_new_session=True, "
+                   "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+                   "    time.sleep(0.05)\n"
+                   f"# {tag}")
+        code, log, _, out = self.run_watchdog(
+            [sys.executable, "-c",
+             f"import subprocess, sys; subprocess.Popen([sys.executable, '-c', {spawner!r}], start_new_session=True, "
+             "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"])
+        try:
+            self.assertEqual(code, 124, log)
+            time.sleep(0.5)
+            self.assertFalse(alive(tag), "a process of the run survived the stop")
+            with open(os.path.join(out, "diagnosis.json")) as f:
+                report = json.load(f)
+            self.assertEqual([s["status"] for s in report["steps"] if s["step"] == "stop"], ["ok"])
+        finally:
+            subprocess.run(["pkill", "-f", tag], capture_output=True)
+
+
 if __name__ == "__main__":
     unittest.main()

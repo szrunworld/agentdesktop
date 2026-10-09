@@ -191,6 +191,7 @@ class Run:
         # unrelated processes: from then on neither is used to find or stop
         # anything (Codex on #188).
         self.root_alive = True
+        self.not_stopped = {}  # what stop() could not end
 
     def snapshot(self, force=False):
         now = time.monotonic()
@@ -295,7 +296,13 @@ class Run:
                 os.killpg(self.root, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
-        for _ in range(2):
+        # Up to five rounds of kill, wait, look again: a leftover may start a
+        # detached child just before it dies, and the last look must be acted
+        # on (Codex on #188). Each round kills only confirmed processes, as
+        # members() gives them; no group signal once the command has exited.
+        for _ in range(5):
+            if not targets:
+                break
             for pid in targets:
                 try:
                     os.kill(pid, signal.SIGKILL)
@@ -303,6 +310,8 @@ class Run:
                     pass
             time.sleep(0.2)
             targets = self.members()
+        self.not_stopped = targets
+        return targets
 
 
 def summarise(sample_text, limit=400):
@@ -399,6 +408,28 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
         step("spindump", "ok" if ok else "unavailable", detail)
     missing = [s["step"] for s in report["steps"] if s["status"] != "ok"]
     print(f"=== reports in {out_dir}; incomplete steps: {', '.join(missing) or 'none'} ===", flush=True)
+
+
+def record_stop(run, out_dir):
+    """Add the outcome of stop() to the log and to diagnosis.json."""
+    path = os.path.join(out_dir, "diagnosis.json")
+    try:
+        with open(path) as f:
+            report = json.load(f)
+    except (OSError, ValueError):
+        report = {"steps": []}
+    if run.not_stopped:
+        report["not_stopped"] = [{"pid": pid, "command": cmd} for pid, cmd in run.not_stopped.items()]
+        report.setdefault("steps", []).append(
+            {"step": "stop", "status": "failed", "detail": f"{len(run.not_stopped)} process(es) still running"})
+        print(f"test-watchdog: could not stop {len(run.not_stopped)} process(es) of the run:", flush=True)
+        for pid, cmd in run.not_stopped.items():
+            print(f"  still running (not stopped): {pid} {cmd[:160]}", flush=True)
+    else:
+        report.setdefault("steps", []).append({"step": "stop", "status": "ok", "detail": "nothing of the run left"})
+    os.makedirs(out_dir, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(report, f, indent=1, ensure_ascii=False)
 
 
 def report_unverifiable(run, out_dir, exit_status, last_output):
@@ -518,6 +549,7 @@ def main():
                          f"the command exited ({child.returncode}) but {len(left)} process(es) of its run remain",
                          "leftover processes", output.last, child.returncode)
                 run.stop()
+                record_stop(run, args.out)
                 print("test-watchdog: stopped processes left behind by the run (exit 124)", flush=True)
                 return 124
             return child.returncode
@@ -527,6 +559,7 @@ def main():
                      f"output stalled for {args.stall:.0f} s (waiting on something, not necessarily a deadlock)",
                      "output stalled", output.last, None)
             run.stop()
+            record_stop(run, args.out)
             child.wait()
             print(f"test-watchdog: stopped after output stalled for {args.stall:.0f} s (exit 124)", flush=True)
             return 124
