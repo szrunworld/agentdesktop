@@ -82,7 +82,8 @@ public final class IPhoneAgentScreen: AgentScreen {
 
     /// Bind Mirroring's phone window on the screen and return its frame.
     /// Only a window titled exactly as the phone's window
-    /// (`IPhoneWindow.phoneWindowTitles`) is bound, never its Settings or
+    /// (`IPhoneWindow.phoneWindowTitles`, or the app's name in the Mac's
+    /// language) is bound, never its Settings or
     /// another window however large; with none, nothing is bound. Keeps the
     /// window already bound while it is there. Only reads: it presses
     /// nothing, even on a status page.
@@ -93,7 +94,8 @@ public final class IPhoneAgentScreen: AgentScreen {
         screenFrame = bounds
         let pid = try currentPID()
         let onScreen = system.windows(pid: pid).filter { bounds.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
-        let candidates = onScreen.filter(\.isPhoneWindow)
+        let appName = system.appName(pid: pid)
+        let candidates = onScreen.filter { $0.isPhoneWindow(appName: appName) }
         let window: IPhoneWindow
         if let bound = binding, bound.pid == pid, let same = candidates.first(where: { $0.windowID == bound.windowID }) {
             window = same
@@ -585,6 +587,11 @@ public final class IPhoneAgentScreen: AgentScreen {
         }
         guard capture.windowID == bound.windowID, IPhoneObservation.sameFrame(capture.frame, bound.frame) else {
             throw IPhoneError.stale("moved", "window \(bound.windowID) moved or resized since it was read")
+        }
+        // A flat, undrawn frame shows nothing to judge by, as for a screenshot.
+        guard !IPhoneFrames.isBlank(capture.image) else {
+            throw IPhoneError("not_connected", reason: IPhoneConnectionState.uncertain.rawValue,
+                              "the capture of window \(bound.windowID) before input is one flat colour, not the phone")
         }
         let status = IPhoneConnection.classify(system.accessibilityLabels(pid: pid, windowID: bound.windowID),
                                                ocr: system.recognizedText(in: capture.image))

@@ -31,8 +31,17 @@ public struct IPhoneWindow: Equatable {
 
     /// Whether this is the window that shows the phone: its title is
     /// exactly one of `phoneWindowTitles`.
-    public var isPhoneWindow: Bool {
-        title.map(Self.phoneWindowTitles.contains) ?? false
+    public var isPhoneWindow: Bool { isPhoneWindow(appName: nil) }
+
+    /// Whether this is the window that shows the phone: its title is
+    /// exactly one of `phoneWindowTitles`, or exactly the app's name in the
+    /// Mac's language (`appName`, as the phone window is titled in every
+    /// language). Its other windows ("… Settings") are not.
+    public func isPhoneWindow(appName: String?) -> Bool {
+        guard let title else { return false }
+        if Self.phoneWindowTitles.contains(title) { return true }
+        guard let appName, !appName.isEmpty else { return false }
+        return title == appName
     }
 }
 
@@ -90,6 +99,10 @@ public protocol IPhoneMirroringSystem {
     /// confirmed ready: input is refused while it is up, and while its
     /// record cannot be read.
     var reconnectGate: HostFlag { get }
+    /// The app's name as the Mac's language shows it ("Recopie de
+    /// l’iPhone" in French), nil when not known: its phone window carries
+    /// this title.
+    func appName(pid: pid_t) -> String?
 }
 
 /// Changes to a `HostFlag` made by one process at a time: an exclusive
@@ -656,6 +669,10 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     /// barrier.
     public var inputBarrier: HostFlag { .named("iphone-input-barrier") }
     public var reconnectGate: HostFlag { .named("iphone-reconnect-unconfirmed") }
+
+    public func appName(pid: pid_t) -> String? {
+        NSRunningApplication(processIdentifier: pid)?.localizedName
+    }
 
     public init(bundleID: String = IPhoneAgentScreen.bundleID) {
         self.bundleID = bundleID
