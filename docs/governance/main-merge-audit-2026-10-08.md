@@ -545,3 +545,4 @@ Kevin 原话：
 - #204（修 #174，作者 b2）c9f5a34：b9 认为代码可以通过。合并申请前需补一条反向测试：真实提示框出现在不同位置时，不得提前把剪贴板还给用户。未授权。
 - #196 ae5083e：修复了超时分支不重扫的问题；新增 `Run.signal()`，每次发 SIGKILL 前，用 proc_pidinfo 读出进程的启动时间，与 ps 记录核对，对不上就不杀。b9 复审通过。剩余残余：同一秒内 pid 被复用仍识别不出。合并申请前还需要：Codex 审完、CI 通过、resolve 一条讨论线程。未授权。
 - #199 ec56012：Codex 在 b88dae6 上报了一条 P1：act 在读取菜单栏之前，没有先做 iPhone 镜像检查。ec56012 已修复并补了测试，b9 复审通过。合并申请前还需要：Codex 审完、CI 通过；SingleEndpointTests 超时要和 origin/main 对照。未授权。
+- #196 ae5083e 更正：b9 撤回复审通过。Codex 新提了一条 P2「Preserve subsecond process identity before signaling」：同一秒内 pid 被复用时仍可能杀错进程。b9 原本把它当作残余接受，属于判断错误；按后果判断（可能杀掉无关进程）属于阻断。已请 69 改为比较完整的 (sec, usec) 内核启动时间。
