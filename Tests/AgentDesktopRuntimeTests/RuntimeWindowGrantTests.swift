@@ -761,3 +761,25 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     #expect(!FileManager.default.fileExists(atPath: path), "deleted though the ending is not saved yet")
     #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "ended")
 }
+
+@Test func anEndedGrantCanStillBeRevokedAndItsKeptScreenshotsGoOutOfReach() throws {
+    let (sc, owner, g, token) = try calculatorScene(["observe", "persist"])
+    let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+    // The window closes: the grant ends; what was kept stays readable.
+    sc.s.endWindowGrant(g, reason: "window_closed")
+    #expect(data(call(sc.s, sc.c, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil)
+    // The user revokes it anyway: no longer.
+    #expect(data(call(sc.s, owner, "hub.windows.revoke", params: #"{"windowGrantId":"\#(g.windowGrantId)"}"#)) != nil)
+    #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "revoked")
+    let (back, _) = socketConnection(sc.s, clientId: sc.c.clientId, token: token)
+    #expect(code(call(sc.s, back, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) == "not_found")
+    #expect(code(call(sc.s, owner, "hub.windows.revoke", params: #"{"windowGrantId":"\#(g.windowGrantId)"}"#)) == "conflict")
+}
+
+@Test func aDestroyedDesktopsGrantsEndEvenIfTheStoreFails() throws {
+    let st = try Stage()
+    let id = try #require(data(st.request(["observe"]))?["windowGrantId"]?.stringValue)
+    st.s.hub.failsWindowGrantWrites = true
+    #expect(data(call(st.s, st.owner, "desktop.destroy", params: #"{"desktopId":"\#(st.desk)"}"#)) != nil)
+    #expect(st.s.hub.windowGrant(id)?.state == "ended")
+}

@@ -399,6 +399,13 @@ public final class HubStore: @unchecked Sendable {
     /// Window grants ended in this process whose ending is not saved yet.
     private var tombstones: [String: (state: String, reason: String)] = [:]
 
+    /// An ended grant revoked after all: its kept screenshots then go out of
+    /// the client's reach (window-grants.md).
+    public func revokeEndedWindowGrant(_ id: String) throws {
+        if failsWindowGrantWrites { throw RuntimeStoreError("window grant store unavailable (test)") }
+        try db.execute("UPDATE window_grants SET state = 'revoked' WHERE window_grant_id = ? AND state = 'ended'", [.text(id)])
+    }
+
     /// Inside a transaction the caller holds.
     @discardableResult
     private func endWindowGrantRow(_ id: String, state: String, reason: String) throws -> Bool {

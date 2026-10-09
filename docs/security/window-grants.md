@@ -93,6 +93,7 @@ owner（宿主进程内的主窗口、GUI 端口、AI 服务）就是用户本�
 - 代码身份未验证（`same_user`、`shared_interpreter`）的客户端也可以申请（与配对一致），确认窗口如实标出其身份级别。
 - `hub.windows.list`：已配对客户端只看到自己的窗口授权；owner 看到全部。
 - `hub.windows.revoke`：owner 直接撤销；已配对客户端（无论代码身份是否已验证）只能放弃**自己的**窗口授权，并按 A4 R1 须经可信窗口确认；指向别的客户端的授权直接拒绝（`not_own_window_grant`），不弹窗。
+- 已经失效（`ended`）的授权仍可撤销：撤销后，客户端读不到在这条授权下保存的截图。
 - 撤销必须写入成功才算完成：存储写入失败时返回 `audit_unavailable`，不切断连接，也不报告成功。
 
 CLI：`agentdesktop windows request|list|revoke`。

@@ -85,9 +85,13 @@ extension RuntimeService {
     }
 
     /// The Desktop is gone: so is every window grant on it.
+    /// One by one (Codex on 7271492): an ending the store cannot save stays
+    /// in memory and its transients go all the same. Access is refused
+    /// regardless, since every check finds the Desktop gone.
     func endWindowGrants(onDesktop desktopId: String) {
-        let ids = (try? hub.endWindowGrants(desktopId: desktopId, reason: "desktop_destroyed")) ?? []
-        endedWindowGrants(ids, state: "ended", reason: "desktop_destroyed")
+        for g in hub.windowGrants() where g.desktopId == desktopId {
+            endWindowGrant(g, reason: "desktop_destroyed")
+        }
     }
 
     /// The caller's live grants for this window of this launch on this
@@ -338,11 +342,21 @@ extension RuntimeService {
     func revokeWindowGrant(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["windowGrantId"]?.stringValue ?? ""
         guard let g = hub.windowGrant(id) else { return .failure(.notFound("no window grant \(id)")) }
-        guard g.state == "active" else {
-            return .failure(RuntimeError("conflict", "window grant \(id) is \(g.state)", phase: .handler, notSent: true,
+        // An ended grant can still be revoked (Codex on 7271492): what was
+        // kept under it with persist is then out of the client's reach.
+        guard g.state != "revoked" else {
+            return .failure(RuntimeError("conflict", "window grant \(id) is revoked", phase: .handler, notSent: true,
                                          details: .obj([("state", .string(g.state))])))
         }
-        do { try endWindowGrantSaved(g, state: "revoked", reason: "window_grant_revoked", by: c) } catch {
+        do {
+            if g.state == "ended" {
+                try hub.revokeEndedWindowGrant(id)
+                hub.audit(connectionId: c.connectionId, clientId: g.clientId, method: "hub.windows", decision: "revoked",
+                          reason: "\(id) window_grant_revoked")
+            } else {
+                try endWindowGrantSaved(g, state: "revoked", reason: "window_grant_revoked", by: c)
+            }
+        } catch {
             return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable; window grant \(id) is not revoked",
                                          phase: .handler, notSent: true))
         }
