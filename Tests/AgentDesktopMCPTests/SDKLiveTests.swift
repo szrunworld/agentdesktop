@@ -22,7 +22,12 @@ func which(_ tool: String) -> String? {
     return nil
 }
 
-func runLive(_ tool: String, _ args: [String], in dir: String, endpoint: String, extra: [String: String] = [:]) throws -> (Int32, String) {
+/// How long one SDK's live run may take (#187): a Runtime change that makes
+/// the run wait forever fails the test instead of holding CI.
+let liveRunLimit: TimeInterval = 120
+
+func runLive(_ tool: String, _ args: [String], in dir: String, endpoint: String, extra: [String: String] = [:],
+             limit: TimeInterval = liveRunLimit) throws -> (Int32, String) {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: tool)
     p.arguments = args
@@ -35,10 +40,38 @@ func runLive(_ tool: String, _ args: [String], in dir: String, endpoint: String,
     let out = Pipe()
     p.standardOutput = out
     p.standardError = out
+    final class Collected: @unchecked Sendable { let lock = NSLock(); var data = Data(); var eof = false }
+    let collected = Collected()
+    out.fileHandleForReading.readabilityHandler = { h in
+        let chunk = h.availableData
+        collected.lock.withLock { if chunk.isEmpty { collected.eof = true } else { collected.data.append(chunk) } }
+        if chunk.isEmpty { h.readabilityHandler = nil }
+    }
     try p.run()
-    let data = out.fileHandleForReading.readDataToEndOfFile()
-    p.waitUntilExit()
-    return (p.terminationStatus, String(decoding: data, as: UTF8.self))
+    let deadline = Date().addingTimeInterval(limit)
+    while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+    var timedOut = false
+    if p.isRunning {
+        // Its own children first (node --test runs the file in a child that
+        // holds the pipe), then itself; only this run's processes.
+        timedOut = true
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-TERM", "-P", String(p.processIdentifier)]
+        try? pkill.run()
+        pkill.waitUntilExit()
+        p.terminate()
+        p.waitUntilExit()
+    }
+    // Never a blocking read to the end (b9 on 1eb1d6a): a grandchild that
+    // outlives the run can hold the pipe open. Wait a little for the end of
+    // the output, then take what has arrived.
+    let drainUntil = Date().addingTimeInterval(5)
+    while !collected.lock.withLock({ collected.eof }) && Date() < drainUntil { Thread.sleep(forTimeInterval: 0.05) }
+    out.fileHandleForReading.readabilityHandler = nil
+    let text = String(decoding: collected.lock.withLock { collected.data }, as: UTF8.self)
+    if timedOut { return (-1, "timed out after \(Int(limit)) s (#187); output so far:\n" + text) }
+    return (p.terminationStatus, text)
 }
 
 /// Plays the owner: approves every pairing the SDK under test asks for, with
@@ -96,7 +129,7 @@ final class AutoApprover: @unchecked Sendable {
         let h = try MCPHarness()
         let approver = AutoApprover(h.service)
         defer { approver.stop() }
-        let (code, out) = try runLive(which("node")!, ["--test", "test/client.test.ts"],
+        let (code, out) = try runLive(which("node")!, ["--test", "--test-timeout=90000", "test/client.test.ts"],
                                       in: "sdks/typescript", endpoint: h.dir + "/runtime.sock")
         #expect(code == 0, "\(out)")
         #expect(out.contains("LIVE-OK"), "\(out)")

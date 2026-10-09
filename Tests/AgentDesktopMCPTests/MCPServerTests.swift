@@ -83,6 +83,8 @@ struct MCPBackend: RuntimeBackend {
                               frame: Rect(x: 3010, y: 10, width: 500, height: 400), onScreen: true)]
     }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: "2026-10-08T01:00:00.000Z") }
+    /// An executable in no app bundle: known not to be iPhone Mirroring (#139).
+    func executablePath(_ pid: Int32) -> String? { "/test/bin/process" }
 }
 
 /// A live Runtime on a temporary socket and an MCP server talking to it.

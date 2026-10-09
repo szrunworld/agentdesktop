@@ -167,6 +167,8 @@ extension RuntimeService {
                                    "the bound process \(b.process.pid) has exited or restarted; bind the window again",
                                    phase: .handler, details: .obj([("generation", .int(b.generation))]))
             }
+            // #139, before anything is captured or read: nothing was done.
+            try refuseMirroring(b.process.pid, notSent: true)
             // G0: only the bound window is shown, and only while nothing
             // else could be seen or reached in its place.
             let e = try exposedTarget(d, b, notSent: false)
