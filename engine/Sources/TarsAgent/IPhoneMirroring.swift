@@ -85,6 +85,11 @@ public protocol IPhoneMirroringSystem {
     /// Where the phone's input barrier is kept for every process: raised
     /// when nobody knows what an input did, lowered by the next screenshot.
     var inputBarrier: HostFlag { get }
+    /// Raised for every process when a reconnect presses Connect / Resume /
+    /// Try Again, lowered only by a reconnect that reports the phone
+    /// confirmed ready: input is refused while it is up, and while its
+    /// record cannot be read.
+    var reconnectGate: HostFlag { get }
 }
 
 // MARK: Observation
@@ -598,6 +603,7 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     /// One phone per Mac (iPhone Mirroring mirrors one at a time), so one
     /// barrier.
     public var inputBarrier: HostFlag { .named("iphone-input-barrier") }
+    public var reconnectGate: HostFlag { .named("iphone-reconnect-unconfirmed") }
 
     public init(bundleID: String = IPhoneAgentScreen.bundleID) {
         self.bundleID = bundleID

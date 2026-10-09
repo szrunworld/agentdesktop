@@ -31,6 +31,9 @@ class FakeMirroring: IPhoneMirroringSystem {
     let inputBarrier = HostFlag(url: FileManager.default.temporaryDirectory
         .appendingPathComponent("agentdesktop-barrier-\(UUID().uuidString)/iphone-input-barrier"))
     var createdScreens = 0
+    /// Shared between fakes to stand for two processes on one Mac.
+    var reconnectGate = HostFlag(url: FileManager.default.temporaryDirectory
+        .appendingPathComponent("agentdesktop-gate-\(UUID().uuidString)/iphone-reconnect-unconfirmed"))
 
     func mirroringPIDs() -> [pid_t] { pids }
     func screenFrame(named name: String) throws -> CGRect? { screen }
@@ -960,5 +963,125 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let g = tracker.begin(at: t0, pressed: true)
         tracker.record(look(g, .ready, 1, window: nil))
         #expect(tracker.phase == .connecting && !tracker.isReady(window: nil))
+    }
+}
+
+/// Codex review of b06c70f: the CLI makes a new screen, in a new process,
+/// for every command, so the unconfirmed press is kept for the whole Mac.
+@Suite struct IPhoneReconnectGateAcrossProcessesTests {
+    static let needed = IPhoneConnectionTracker.defaultStableReadings
+
+    /// Two Macs' worth of fakes sharing one gate file: two processes.
+    func twoProcesses() -> (FakeMirroring, FakeMirroring) {
+        let first = FakeMirroring()
+        let second = FakeMirroring()
+        second.reconnectGate = first.reconnectGate
+        return (first, second)
+    }
+
+    @Test func anUnconfirmedPressInOneProcessRefusesInputInAnother() throws {
+        let (fake1, fake2) = twoProcesses()
+        defer { fake1.reconnectGate.lower() }
+        fake1.ax = ["Connection Paused", "Resume"]
+        fake1.buttons = ["Resume"]
+        fake1.onSleep = { if fake1.sleeps == 1 { fake1.ax = [] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake1).reconnect(timeout: 2)
+        #expect(report.outcome == .pressedUnconfirmed)
+
+        // The next command: a new screen, the phone momentarily ready.
+        let phone2 = IPhoneAgentScreen(screen: "phone", system: fake2)
+        _ = try phone2.screenshot(size: CGSize(width: 330, height: 720))
+        // Typing pastes through the real clipboard, so it is left out here;
+        // its ⌘V goes through the same check as these.
+        for action in [tap(3100, 300), { var key = InputAction(.key); key.key = "home"; return key }()] {
+            let refused = try phone2.perform(action)
+            #expect(refused.error?.hasPrefix("not_connected (unconfirmed)") == true)
+        }
+        #expect(fake2.inputs.isEmpty)
+
+        // A reconnect that confirms the phone, in any process, lifts it.
+        let confirmed = try IPhoneAgentScreen(screen: "phone", system: fake2).reconnect(timeout: 20)
+        #expect(confirmed.outcome == .ready)
+        #expect(fake1.reconnectGate.reason(now: fake2.clock) == nil)
+        #expect(try phone2.perform(tap(3100, 300)).ok)
+    }
+
+    /// Locked after the press (F8), seen by the next process.
+    @Test func aPressThatEndedNeedingTheUserStaysUpForTheNextProcess() throws {
+        let (fake1, fake2) = twoProcesses()
+        defer { fake1.reconnectGate.lower() }
+        fake1.ax = ["Connection Paused", "Resume"]
+        fake1.buttons = ["Resume"]
+        fake1.onSleep = {
+            if fake1.sleeps == 1 { fake1.ax = [] }
+            if fake1.sleeps == 2 { fake1.ax = ["iPhone Mirroring Is Locked"] }
+        }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake1).reconnect(timeout: 20)
+        #expect(report.outcome == .needsUser)
+        let phone2 = IPhoneAgentScreen(screen: "phone", system: fake2)
+        _ = try phone2.screenshot(size: CGSize(width: 330, height: 720))
+        #expect(try phone2.perform(tap(3100, 300)).error?.hasPrefix("not_connected (unconfirmed)") == true)
+        #expect(fake2.inputs.isEmpty)
+    }
+
+    /// While the first is still polling, the second refuses already.
+    @Test func inputIsRefusedWhileAnotherProcessIsStillVerifying() throws {
+        let (fake1, fake2) = twoProcesses()
+        defer { fake1.reconnectGate.lower() }
+        let phone2 = IPhoneAgentScreen(screen: "phone", system: fake2)
+        _ = try phone2.screenshot(size: CGSize(width: 330, height: 720))
+        fake1.ax = ["Connection Paused", "Resume"]
+        fake1.buttons = ["Resume"]
+        var refusedMidway: String?
+        fake1.onSleep = {
+            if fake1.sleeps == 1 { fake1.ax = [] }
+            if fake1.sleeps == 2 { refusedMidway = (try? phone2.perform(tap(3100, 300)))?.error }
+        }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake1).reconnect(timeout: 20)
+        #expect(refusedMidway?.hasPrefix("not_connected (unconfirmed)") == true)
+        #expect(fake2.inputs.isEmpty)
+        #expect(report.outcome == .ready)
+    }
+
+    /// A press by another process while this one was verifying is not
+    /// confirmed by it: the gate stays up and ready is not reported.
+    @Test func aPressElsewhereDuringVerificationIsNotClearedByIt() throws {
+        let (fake1, fake2) = twoProcesses()
+        defer { fake1.reconnectGate.lower() }
+        fake2.onSleep = {
+            if fake2.sleeps == 2 { try? fake1.reconnectGate.raise("another process pressed Resume") }
+        }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake2).reconnect(timeout: 20)
+        #expect(report.outcome == .notReady && !report.isReady)
+        #expect(report.blockedBy?.contains("another") == true)
+        #expect(fake1.reconnectGate.reason(now: fake1.clock) == "another process pressed Resume")
+    }
+
+    /// An unreadable record counts as up.
+    @Test func anUnreadableGateRefusesInput() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        try FileManager.default.createDirectory(at: fake.reconnectGate.url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: fake.reconnectGate.url)
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        #expect(try phone.perform(tap(3100, 300)).error?.hasPrefix("not_connected (unconfirmed)") == true)
+        #expect(fake.inputs.isEmpty)
+    }
+
+    /// The gate cannot be recorded: nothing is pressed.
+    @Test func noPressWhenTheGateCannotBeRaised() throws {
+        let fake = FakeMirroring()
+        // A file where the gate's directory should be.
+        let blocker = FileManager.default.temporaryDirectory.appendingPathComponent("agentdesktop-gate-file-\(UUID().uuidString)")
+        try Data().write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        fake.reconnectGate = HostFlag(url: blocker.appendingPathComponent("iphone-reconnect-unconfirmed"))
+        fake.ax = ["Connection Paused", "Resume"]
+        fake.buttons = ["Resume"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20)
+        #expect(report.outcome == .notReady && report.pressed == nil)
+        #expect(fake.pressed.isEmpty)
     }
 }

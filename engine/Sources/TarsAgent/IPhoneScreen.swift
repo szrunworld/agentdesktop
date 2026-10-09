@@ -201,6 +201,10 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// The connection as `reconnect` left it in this process. A press not
     /// yet confirmed ready keeps input refused.
     public private(set) var connection = IPhoneConnectionTracker()
+    /// The host-wide reconnect gate as this reconnect last knew it: read at
+    /// its start, or what it raised itself. Ready lowers the gate only if
+    /// it still reads so, never a press another process made meanwhile.
+    private var gateKnown: String?
 
     /// Count a look at the window toward the connection; false when it was
     /// of an earlier generation and dropped.
@@ -237,6 +241,7 @@ public final class IPhoneAgentScreen: AgentScreen {
     public func reconnect(timeout: TimeInterval = 20) throws -> ReconnectReport {
         let until = min(deadline ?? .distantFuture, system.now.addingTimeInterval(timeout))
         connection.begin(at: system.now, pressed: false)
+        gateKnown = system.reconnectGate.reason(now: system.now)
         let generation = connection.generation
         let at = system.now
         let (state, label) = try connectionState()
@@ -251,9 +256,26 @@ public final class IPhoneAgentScreen: AgentScreen {
         case .disconnected:
             // Stopped already: press nothing, not even Connect or Resume.
             if let stop = stopReason() { throw stop }
-            guard let pid = binding?.pid,
-                  let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid, windowID: binding?.windowID)
-            else { return report(.notReady, pressed: nil, timedOut: false) }
+            guard let pid = binding?.pid else { return report(.notReady, pressed: nil, timedOut: false) }
+            // Every process refuses input from before the press until a
+            // reconnect confirms the phone: the CLI runs each command in a
+            // process of its own. Not recorded, not pressed.
+            let gate = "iPhone Mirroring was asked to connect at \(system.now) (process \(getpid()), "
+                + "\(UUID().uuidString)) and has not been confirmed ready"
+            do {
+                try system.reconnectGate.raise(gate)
+            } catch {
+                var refused = report(.notReady, pressed: nil, timedOut: false)
+                refused.blockedBy = "cannot record the reconnect for other processes (\(error.localizedDescription)); nothing pressed"
+                return refused
+            }
+            guard let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid, windowID: binding?.windowID)
+            else {
+                // Nothing pressed: leave the gate as it was.
+                if let before = gateKnown { try? system.reconnectGate.raise(before) } else { system.reconnectGate.lower() }
+                return report(.notReady, pressed: nil, timedOut: false)
+            }
+            gateKnown = gate
             pressed = title
             // What was seen before the press says nothing about after it.
             connection.begin(at: system.now, pressed: true)
@@ -293,6 +315,16 @@ public final class IPhoneAgentScreen: AgentScreen {
             blocked.blockedBy = "input barrier: \(reason); take a screenshot first"
             return blocked
         }
+        let gate = system.reconnectGate.reason(now: system.now)
+        if gate != gateKnown {
+            // Another process pressed while this one looked: its press is
+            // not confirmed by looks begun before it.
+            var blocked = report(.notReady, pressed: pressed, timedOut: false)
+            blocked.blockedBy = "another reconnect pressed a button meanwhile (\(gate ?? "its record is gone")); "
+                + "run `agentdesktop iphone reconnect` again"
+            return blocked
+        }
+        system.reconnectGate.lower()
         connection.confirm()
         return report(.ready, pressed: pressed, timedOut: false)
     }
@@ -455,6 +487,12 @@ public final class IPhoneAgentScreen: AgentScreen {
                               "iPhone Mirroring was asked to connect (generation \(connection.generation), "
                                   + "\(connection.phase.rawValue)) and has not been confirmed ready; "
                                   + "run `agentdesktop iphone reconnect` again")
+        }
+        // The same for a press by any process (the CLI's reconnect is a
+        // process of its own); an unreadable record counts as raised.
+        if let gate = system.reconnectGate.reason(now: system.now) {
+            throw IPhoneError("not_connected", reason: "unconfirmed",
+                              gate + "; run `agentdesktop iphone reconnect` until it reports ready")
         }
         return now
     }
