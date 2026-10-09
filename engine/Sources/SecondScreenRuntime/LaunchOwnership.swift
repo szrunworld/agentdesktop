@@ -279,7 +279,13 @@ public enum LaunchOwnership {
         let opened: LaunchedProcess
         switch await system.open(url, [tokenVariable: token]) {
         case let .success(p): opened = p
-        case let .failure(error): return refuseAfterOpening(nil, "launch failed: \(error.localizedDescription)")
+        case let .failure(error):
+            // The open call itself failed: whether the system started the app
+            // is not known, so this is not reported as opened, nor as refused
+            // before opening. Never retried: a second open could have effects
+            // of its own.
+            return .failure(LaunchRefusal("the launch call failed (\(error.localizedDescription)); the app may or may not have started, and the launch is not retried",
+                                          opened: false, reason: "launch_failed"))
         }
         let pid = opened.pid
         guard system.environment(pid)?[tokenVariable] == token else {

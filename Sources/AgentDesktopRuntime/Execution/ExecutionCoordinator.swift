@@ -139,18 +139,21 @@ public final class ExecutionCoordinator: @unchecked Sendable {
         return .success(r)
     }
 
-    /// The Run this connection may act in, if it is still running.
+    /// The Run this connection may act in, if it is still running. Every
+    /// refusal comes before anything is sent or captured: notSent, like the
+    /// same refusal from `beginAction` (2ndscreen-af's L2 asserts it).
     func authorized(runId: String, connection: ConnectionState) -> Result<RunRecord, RuntimeError> {
         guard connection.ownedRuns.contains(runId) || connection.attachedRuns.contains(runId) else {
-            return .failure(RuntimeError("permission_denied", "this connection does not own or attach to run \(runId)", phase: .handler))
+            return .failure(RuntimeError("permission_denied", "this connection does not own or attach to run \(runId)",
+                                         phase: .handler, notSent: true))
         }
         return lock.withLock {
             guard let l = live[runId] else {
-                return .failure(RuntimeError("run_not_active", "run \(runId) has ended", phase: .handler))
+                return .failure(RuntimeError("run_not_active", "run \(runId) has ended", phase: .handler, notSent: true))
             }
             guard l.record.phase == .running else {
                 return .failure(RuntimeError("run_not_active", "run \(runId) is \(l.record.phase.rawValue); it takes no new input",
-                                             phase: .handler))
+                                             phase: .handler, notSent: true))
             }
             return .success(l.record)
         }

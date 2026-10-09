@@ -48,19 +48,6 @@ public final class InputEngine: @unchecked Sendable {
         return response
     }
 
-    /// Marks every failure of `body` as coming after input already went out
-    /// (Codex on b003378): a click was sent first, so a typing that then
-    /// stops before its first character has still performed something, and
-    /// must never read as not performed. The Runtime gives this prefix
-    /// precedence over every not-performed phrase.
-    static let alreadySentPrefix = "input was already sent"
-    static func afterInputWasSent<T>(_ what: String, _ body: () throws -> T) throws -> T {
-        do { return try body() } catch {
-            let reason = (error as? AccessibilityError)?.message ?? error.localizedDescription
-            throw AccessibilityError("\(alreadySentPrefix) (\(what)); then: \(reason)")
-        }
-    }
-
     /// Points must be in the window, or in another window of the app on the
     /// same screen, such as an open menu or a dialog.
     public func perform(_ action: InputAction, in window: WindowInfo, on screen: ScreenInfo) throws -> ControlResponse {
@@ -135,9 +122,10 @@ public final class InputEngine: @unchecked Sendable {
                 } else {
                     cursor(.click, center)
                     _ = try BackgroundInput.click(at: center, in: window, button: .left, count: 1, allowAX: false)
-                    response.route = "event.click+" + (try Self.afterInputWasSent("a click into the field") {
-                        try BackgroundInput.type(text, in: window)
-                    })
+                    // The click went out: any failure from here is a delivery
+                    // the Runtime reports as unknown (#171: a failed typing is
+                    // never taken as not performed until #173).
+                    response.route = "event.click+" + (try BackgroundInput.type(text, in: window))
                 }
                 // Some Electron apps (BOSS直聘) drop background keys but take the
                 // field's text set through accessibility, which the page sees as

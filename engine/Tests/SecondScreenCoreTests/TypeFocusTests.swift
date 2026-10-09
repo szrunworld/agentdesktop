@@ -60,23 +60,4 @@ import Testing
         }
         #expect(r.posted == 2)
     }
-
-    // Codex on b003378 (P1): a failure after a click that already went out
-    // carries the prefix the Runtime reads as "performed", even when the
-    // typing itself submitted nothing.
-    @Test func aFailureAfterAClickSaysInputWasAlreadySent() {
-        do {
-            _ = try InputEngine.afterInputWasSent("a click into the field") { () throws -> String in
-                try BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11, focusedWindow: { _ in nil },
-                                                   post: { _, _ in }, pause: 0)
-                return "event.unicode"
-            }
-            Issue.record("no failure")
-        } catch {
-            let m = (error as? AccessibilityError)?.message ?? "\(error)"
-            #expect(m.hasPrefix(InputEngine.alreadySentPrefix), "\(m)")
-            #expect(m.contains("no character was submitted"), "the typing's own reason is kept")
-        }
-        #expect((try? InputEngine.afterInputWasSent("x") { 42 }) == 42)
-    }
 }

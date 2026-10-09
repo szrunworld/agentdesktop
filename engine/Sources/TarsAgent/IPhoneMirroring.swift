@@ -67,6 +67,18 @@ public protocol IPhoneMirroringSystem {
     /// Where the phone's input barrier is kept for every process: raised
     /// when nobody knows what an input did, lowered by the next screenshot.
     var inputBarrier: HostFlag { get }
+    /// Whether some process is in a paste: holding the clipboard lease, or
+    /// waiting out a phone that may still fetch (the pending mark). While it
+    /// is, a screenshot shows a field in flux and lowers no barrier.
+    var pasteInProgress: Bool { get }
+    /// Runs `body` with no paste able to begin meanwhile (holding the
+    /// clipboard lease), if none is under way; false, without running it,
+    /// when one is.
+    func whileNoPaste(_ body: () -> Void) -> Bool
+    /// `body`'s result, run holding the clipboard lease with no paste
+    /// pending, so none can start meanwhile; nil, without running it, when a
+    /// paste holds the lease or one is pending.
+    func withoutPaste<T>(_ body: () throws -> T) throws -> T?
 }
 
 // MARK: Observation
@@ -411,10 +423,39 @@ public struct IPhoneLifecycle {
 /// accessibility and Vision.
 public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     public let bundleID: String
+    /// The clipboard lease and pending mark every paste uses
+    /// (`PasteTransaction`'s defaults); settable for tests.
+    public var leaseURL: URL = ClipboardLease.defaultURL
+    public var pendingMark: HostFlag = .named("clipboard.pending")
 
     /// One phone per Mac (iPhone Mirroring mirrors one at a time), so one
     /// barrier.
-    public var inputBarrier: HostFlag { .named("iphone-input-barrier") }
+    /// Lowered only by a screenshot: an unreadable record stays up.
+    public var inputBarrier: HostFlag { .named("iphone-input-barrier", unreadableExpires: false) }
+
+    public var pasteInProgress: Bool {
+        if pendingMark.reason() != nil { return true }
+        guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return true }
+        lease.release()
+        return false
+    }
+
+    public func withoutPaste<T>(_ body: () throws -> T) throws -> T? {
+        guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return nil }
+        defer { lease.release() }
+        guard pendingMark.reason() == nil else { return nil }
+        return try body()
+    }
+
+    public func whileNoPaste(_ body: () -> Void) -> Bool {
+        guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return false }
+        defer { lease.release() }
+        // Under the lease no paste can start; one that left a pending mark
+        // is still under way.
+        guard pendingMark.reason() == nil else { return false }
+        body()
+        return true
+    }
 
     public init(bundleID: String = IPhoneAgentScreen.bundleID) {
         self.bundleID = bundleID

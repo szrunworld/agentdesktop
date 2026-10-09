@@ -487,3 +487,28 @@ extension Result where Failure == LaunchRefusal {
     #expect(r.reason == "launch_refused_after_open")
     #expect(r.error?.contains("the app was opened") == true)
 }
+
+// Kevin 2026-10-09: refused before opening, the open call failing, and a
+// refusal after opening are three different outcomes. A failed open call is
+// never reported as opened, and is not retried.
+@MainActor
+@Test func aFailedOpenCallIsNeitherOpenedNorRetried() async throws {
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    var l = sys.launching
+    l.open = { _, _ in
+        sys.lock.withLock { sys.opened += 1 }
+        return .failure(CocoaError(.executableLoad))
+    }
+    let screens = AgentScreens()
+    screens.launching = l
+    let target = ScreenInfo(name: "agent-1", kind: .agent, displayID: 9, width: 800, height: 600, hiDPI: false,
+                            frame: .init(CGRect(x: 0, y: 0, width: 800, height: 600)))
+    let r = await screens.launch(on: target, bundleID: nil, path: app.path, newInstance: true, fill: false)
+    #expect(!r.ok)
+    #expect(r.reason == "launch_failed")
+    #expect(r.error?.contains("was opened") == false, "not reported as opened: \(r.error ?? "")")
+    #expect(sys.opened == 1, "tried once, never retried")
+    #expect(sys.focusReturned.isEmpty && sys.moves == 0 && sys.binds.isEmpty && sys.quitPIDs.isEmpty)
+}

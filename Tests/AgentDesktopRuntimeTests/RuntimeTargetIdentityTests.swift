@@ -278,18 +278,17 @@ func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuC
     #expect(sc.platform.performed.count == 4)
 }
 
-// Kevin 2026-10-09 (#163, #169): "not sent" only when nothing went out. The
-// engine's typing that stopped before its first character is notSent; one
-// that stopped after some characters is a delivery that went partly out.
-@Test func onlyATypingStoppedBeforeItsFirstCharacterIsNotSent() {
-    #expect(EnginePlatform.failedBeforeDispatch("keyboard focus is not in window 11; no character was submitted"))
-    // Codex on b003378 (P1): a click into the web field went out first, so
-    // a typing that then stopped before its first character is not "not
-    // performed", whatever phrase follows; nor any other failure after it.
-    #expect(!EnginePlatform.failedBeforeDispatch("input was already sent (a click into the field); then: keyboard focus is not in window 11; no character was submitted"))
-    #expect(!EnginePlatform.failedBeforeDispatch("input was already sent (a click into the field); then: Agent Desktop needs the Accessibility permission"))
-    // Codex on 755f2e6 (P2): the marker counts only at the start; quoted
-    // inside another message (a key name) it does not make it performed.
-    #expect(EnginePlatform.failedBeforeDispatch(#"unknown key "input was already sent""#))
-    #expect(!EnginePlatform.failedBeforeDispatch("keyboard focus left window 11 after 2 of 6 characters were submitted to the input interface (whether the app received them is not known); the rest was not submitted"))
+// Kevin 2026-10-09 (#163, #171): "not performed" only with evidence. Until
+// the engine reports it structurally (#173), a failed typing is never taken
+// as not performed, not even one that stopped before its first character
+// or after a click into a web field went out: the delivery is unknown. A
+// one-character key with no key code is typed too; stopped before its
+// character it submitted nothing, and keys keep the text match.
+@Test func aStoppedTypingIsUnknownAndOnlyAKeyBeforeItsCharacterIsNotPerformed() {
+    let none = "keyboard focus is not in window 11; no character was submitted"
+    let some = "keyboard focus left window 11 after 2 of 6 characters were submitted to the input interface (whether the app received them is not known); the rest was not submitted"
+    #expect(!EnginePlatform.notPerformed(none, kind: .type))
+    #expect(!EnginePlatform.notPerformed(some, kind: .type))
+    #expect(EnginePlatform.notPerformed(none, kind: .key))
+    #expect(!EnginePlatform.notPerformed(some, kind: .key))
 }

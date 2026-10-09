@@ -4,16 +4,16 @@ import Foundation
 import Testing
 @testable import AgentDesktopACP
 
-/// Layer: Real (written, NOT RUN). Against a real Runtime on a side
-/// instance (CURTEST_REAL_ENDPOINT, a test copy's socket under /tmp/adt-*,
-/// never the product endpoint) with a prepared ended Run
-/// (CURTEST_REAL_RUN_ID, at least three events).
+/// Layer: Real (written, NOT RUN). Against a real Runtime this test
+/// process launched and owns (ACPTestRuntimeChild, ACP_TEST_RUNTIME_BINARY;
+/// never the product endpoint) with an ended Run (CURTEST_REAL_RUN_ID, at
+/// least three events; to be created in the child once the contract lands).
 ///
 /// Every test is disabled until the Runtime owner ships the cursor contract
 /// (07 R10 `Run.lastEventSequence`, 11-run-cursor.md §四 P1–P5). Enabling
 /// them is the Runtime owner's and the coordinator's call, not this
 /// workpack's; until they pass on a real instance the cursor is not done.
-@Suite(.enabled(if: CurTestReal.endpoint != nil)) struct CurRealRuntimeCursorTests {
+@Suite(.enabled(if: CurTestReal.enabled)) struct CurRealRuntimeCursorTests {
     @Test("[Real · not run] run.show carries lastEventSequence equal to the last stored sequence (CUR-R01, P1)",
           .disabled(.init(rawValue: CurTestReal.waiting)))
     func runShowCarriesLastEventSequence() throws {
@@ -103,7 +103,7 @@ import Testing
         let port = try CurTestReal.port()
         let last = try #require(try await port.snapshot(runId: runId).lastCursor)
         let caller = try await port.caller()
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("curtest-real-\(UUID().uuidString)")
+        let dir = ACPTestScratch.dir("curtest-real")
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = ACPFileSessionStore(directory: dir)
         try store.save(ACPSessionBinding(acpSessionId: "s1", principalId: caller.principalId, clientId: caller.clientId,
@@ -126,8 +126,9 @@ import Testing
     func otherClientCannotReadEvents() throws {
         let runId = try #require(CurTestReal.endedRunId)
         // A4: the paired test identity's endpoint/credential; not available before PR3.
-        let otherEndpoint = try #require(ProcessInfo.processInfo.environment["CURTEST_REAL_OTHER_ENDPOINT"])
-        let other = ACPBridgeConfiguration.socketFactory(endpoint: Endpoint(path: otherEndpoint, source: .environment))
+        // Same launched Runtime, a second client (A4 gives it its own identity).
+        let other = try ACPTestPinnedTransport.verifiedFactory(
+            child: try ACPTestRuntimeChild.shared(), name: "agentdesktop-acp-curtest-other")
         let c = other(.events)
         defer { c.close() }
         _ = try c.handshake()

@@ -282,8 +282,11 @@ func aControlWhoseNameSaysPasteCopyOrCutIsRefusedInAnyLanguage(_ role: String, _
     // The pasteboard is touched only where a person asks for it (the main
     // window's copy button) or by the iPhone path, which is not linked into
     // the Runtime (G1) and is held to G2 when it is.
+    // IPhoneMirroring.swift holds the clipboard lease around a screenshot
+    // and an input so neither runs during a paste (#127); it does not read
+    // or write the pasteboard.
     let allowed: Set<String> = ["Forms.swift", "PasteboardSnapshot.swift", "ClipboardLease.swift", "HostFlag.swift",
-                                "IPhonePaste.swift", "IPhoneCapabilities.swift"]
+                                "IPhonePaste.swift", "IPhoneCapabilities.swift", "IPhoneMirroring.swift"]
     for f in product + engine {
         let text = try String(contentsOf: f, encoding: .utf8)
         if text.contains("NSPasteboard") || text.contains("PasteboardSnapshot") || text.contains("ClipboardLease") {
