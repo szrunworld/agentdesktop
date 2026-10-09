@@ -401,6 +401,9 @@ public struct PasteWatcher {
                 continue
             }
             let prompting = seen.contains { line in
+                // Page text that was there before ⌘V, at the same place, is
+                // not the phone's prompt, as `PastePrompt.read` has it (#174).
+                if PastePrompt.wasThere(line, in: baseline) { return false }
                 let text = PastePrompt.clean(line.text)
                 return PastePrompt.allowPasteLabels.contains(text) || PastePrompt.denyPasteLabels.contains(text)
                     || PastePrompt.isProgress(line, before: baseline)
