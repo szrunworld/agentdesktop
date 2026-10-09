@@ -162,8 +162,10 @@ enum SkyLight {
     /// Chromium's user-activation gate open.
     @discardableResult
     static func focusWithoutRaise(windowID: CGWindowID, pid: pid_t) -> Bool {
-        DeliveryRecorder.submitting()
         guard let front = frontPSN(), let target = psn(windowID: windowID, pid: pid) else { return false }
+        // Marked right before the system is asked, past the checks that can
+        // stop it with nothing done (Codex on 811833a).
+        DeliveryRecorder.submitting()
         let defocused = post(focusRecord(windowID: windowID, kind: 2), to: front)
         let focused = post(focusRecord(windowID: windowID, kind: 1), to: target)
         return defocused && focused
@@ -183,9 +185,10 @@ enum SkyLight {
     /// Bring the app to the front with `windowID` key, for the foreground
     /// paths only. Returns the previous front process to restore.
     static func bringToFront(windowID: CGWindowID, pid: pid_t) -> ProcessSerialNumber? {
-        DeliveryRecorder.submitting()
         guard let setFrontProcess, var target = psn(windowID: windowID, pid: pid) else { return nil }
         let previous = frontPSN()
+        // Marked right before the system is asked (Codex on 811833a).
+        DeliveryRecorder.submitting()
         guard setFrontProcess(&target, windowID, 0x200) == 0 else { return nil }  // kCPSUserGenerated
         for kind: UInt8 in [1, 2] {
             var record = [UInt8](repeating: 0, count: 0xF8)
@@ -212,11 +215,13 @@ enum SkyLight {
     /// put the previous app back. The front app changes for well under a
     /// millisecond: the event only has to be queued while it is front.
     static func withMenuShortcutActivation(windowID: CGWindowID, pid: pid_t, _ body: () -> Void) {
-        DeliveryRecorder.submitting()
         guard let setFrontProcess, var target = psn(windowID: windowID, pid: pid), let previous = frontPSN() else {
+            // Nothing activated; whatever `body` posts marks itself.
             body()
             return
         }
+        // Marked right before the system is asked (Codex on 811833a).
+        DeliveryRecorder.submitting()
         _ = setFrontProcess(&target, 0, 0x400)
         body()
         setFront(previous)

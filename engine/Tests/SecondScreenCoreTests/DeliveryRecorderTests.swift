@@ -96,4 +96,22 @@ import Testing
         }
         #expect(r.state == .submitted)
     }
+
+    // Codex on 811833a: a focus or front change that stops at its own checks
+    // (no such window or process) asked nothing of the system: the recorder
+    // stays not performed. A window and a pid that do not exist make the
+    // lookups (read only) fail before any call that changes anything.
+    @Test func aFocusOrFrontChangeStoppedByItsChecksIsNotPerformed() {
+        let missingWindow: CGWindowID = 0xFFFF_FFF0
+        let r = DeliveryRecorder()
+        DeliveryRecorder.$active.withValue(r) {
+            #expect(!SkyLight.focusWithoutRaise(windowID: missingWindow, pid: -1))
+            #expect(SkyLight.bringToFront(windowID: missingWindow, pid: -1) == nil)
+            final class Ran { var body = false }
+            let ran = Ran()
+            SkyLight.withMenuShortcutActivation(windowID: missingWindow, pid: -1) { ran.body = true }
+            #expect(ran.body, "the body still runs; what it posts marks itself")
+        }
+        #expect(r.state == .notPerformed)
+    }
 }
