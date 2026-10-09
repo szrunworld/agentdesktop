@@ -60,6 +60,17 @@ extension RuntimeService {
             return .failure(e)
         }
         let action = request.params["action"] ?? .obj([])
+        // G2: a key may need the target app's menu bar, read here, before
+        // the Desktop's lock, so a slow app never holds the lock up.
+        var menu: (pid: Int32, items: [PlatformMenuItem]?)?
+        if let kind = PlatformAction.Kind(rawValue: action["kind"]?.stringValue ?? "") {
+            var probe = PlatformAction(kind: kind)
+            probe.key = action["key"]?.stringValue
+            probe.modifiers = action["modifiers"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            if ClipboardPolicy.needsMenu(probe), let pid = desktops.find(desk.desktopId)?.boundPID {
+                menu = (pid, platform.menuItems(pid: pid))
+            }
+        }
 
         let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date)) { d -> JSONValue in
             guard let b = d.binding else {
@@ -83,6 +94,16 @@ extension RuntimeService {
                 }
                 var pa = try platformAction(action, snap: snap, window: window)
                 if pa.modifiers.isEmpty { pa.modifiers = [] }
+                // G2, the last check before sending: nothing goes through the
+                // user's clipboard, whoever asks (ClipboardPolicy).
+                let pressed = action["target"]?["elementRef"]?.stringValue.flatMap { snap.elements[$0] }
+                if let path = ClipboardPolicy.refusal(pa, snapshotElement: pressed, pid: b.process.pid, windowId: b.windowId,
+                                                      menu: menu, platform: platform) {
+                    throw RuntimeError("permission_denied",
+                                       "this input would or might use the system clipboard (\(path)); agents may not use the clipboard",
+                                       phase: .handler, notSent: true,
+                                       details: .obj([("reason", .string("clipboard_path_refused")), ("path", .string(path))]))
+                }
                 if let deadline = request.deadline.flatMap(Timestamp.date), now() >= deadline {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
                                        phase: .handler, notSent: true)
@@ -193,7 +214,10 @@ extension RuntimeService {
 
     /// Resolve the request's target against its snapshot.
     func platformAction(_ a: JSONValue, snap: StoredObservation, window: PlatformWindow) throws -> PlatformAction {
-        var pa = PlatformAction(kind: PlatformAction.Kind(rawValue: a["kind"]?.stringValue ?? "") ?? .click)
+        guard let kind = PlatformAction.Kind(rawValue: a["kind"]?.stringValue ?? "") else {
+            throw RuntimeError("invalid_argument", "unknown action kind \(a["kind"]?.stringValue ?? "none")", phase: .handler, notSent: true)
+        }
+        var pa = PlatformAction(kind: kind)
         pa.text = a["text"]?.stringValue
         pa.key = a["key"]?.stringValue
         pa.modifiers = a["modifiers"]?.arrayValue?.compactMap(\.stringValue) ?? []

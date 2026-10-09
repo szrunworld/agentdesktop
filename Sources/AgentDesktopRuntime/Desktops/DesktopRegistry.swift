@@ -36,7 +36,15 @@ public final class DesktopRecord: @unchecked Sendable {
     public let kind: DesktopKind
     /// Held while the Desktop's state or its surface is read or changed.
     public let lock = NSLock()
-    public internal(set) var binding: TargetBinding?
+    public internal(set) var binding: TargetBinding? {
+        didSet { pidLock.withLock { _boundPID = binding?.process.pid } }
+    }
+    /// The bound process, readable without the Desktop's lock (which an
+    /// action holds for its whole duration): G2 reads the app's menu bar
+    /// before taking it. A hint only; the action re-checks under the lock.
+    var boundPID: Int32? { pidLock.withLock { _boundPID } }
+    private let pidLock = NSLock()
+    private var _boundPID: Int32?
     public internal(set) var generation = 0
     public internal(set) var state = "ready"
     /// Apps app.launch started here: the agent's, closed with the Desktop.
