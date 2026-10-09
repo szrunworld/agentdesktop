@@ -335,10 +335,12 @@ func aControlWhoseNameSaysPasteCopyOrCutIsRefusedInAnyLanguage(_ role: String, _
     // aimed at its container, which the engine would click: refused.
     platform.hitAt = { _, _ in PlatformHit(role: "AXGroup", texts: [], windowId: 11, focused: true) }
     expectRefusal(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#), path: "type_target_not_text")
-    // An editable field inside something named Copy is still refused.
-    platform.hitAt = { _, _ in PlatformHit(role: "AXTextField", texts: [], windowId: 11, ancestorTexts: ["Copy link"], editable: true) }
-    expectRefusal(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#), path: "control")
-    #expect(platform.performed.count == 1)
+    // A field's own words (a placeholder, a label around it) do not matter:
+    // typing into a field is not a paste (b9's seventh review ②).
+    platform.hitAt = { _, _ in PlatformHit(role: "AXTextField", texts: ["Paste your API key here"], windowId: 11,
+                                           ancestorTexts: ["Copy link"], editable: true) }
+    sent(act(sc, #"{"kind":"type","text":"x","target":{"elementRef":"el_0"}}"#))
+    #expect(platform.performed.count == 2)
 }
 
 @Test func returnOrSpaceOnAFocusedCopyButtonIsRefused() throws {
@@ -427,4 +429,40 @@ func aBlankCharacterKeyPressesTheFocusedControl(_ k: String) throws {
     sent(act(sc, key("return", [])))
     platform.focusFailures = 2
     expectRefusal(act(sc, key("return", [])), path: "focused_unverified")
+}
+
+// b9's seventh review (14e12bd): a tab in typed text moves focus mid-action,
+// a control-character key is Enter to AppKit, and Return in a text field
+// presses the window's default button.
+@Test(arguments: ["x\t ", "\u{19}", "a\u{3}", "\u{1b}"])
+func typedTextWithControlCharactersIsRefused(_ text: String) throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    let body = try #require(String(data: try JSONEncoder().encode(text), encoding: .utf8))
+    expectRefusal(act(sc, #"{"kind":"type","text":\#(body)}"#), path: "type_control_character")
+    #expect(platform.performed.isEmpty)
+}
+
+@Test(arguments: ["\u{3}", "\u{1}", "\u{7f}"])
+func aControlCharacterKeyIsRefused(_ k: String) throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    let body = try #require(String(data: try JSONEncoder().encode(k), encoding: .utf8))
+    expectRefusal(act(sc, #"{"kind":"key","key":\#(body)}"#), path: "key_not_printable")
+    #expect(platform.performed.isEmpty)
+}
+
+@Test func returnInAFieldWhoseWindowDefaultsToCopyIsRefused() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: 11, focused: true, editable: true,
+                                      defaultButtonTexts: ["Copy"])
+    expectRefusal(act(sc, key("return", [])), path: "default_button")
+    expectRefusal(act(sc, #"{"kind":"key","key":"\n"}"#), path: "default_button")
+    expectRefusal(act(sc, #"{"kind":"type","text":"a\n"}"#), path: "default_button")
+    // Space and plain text do not reach the default button.
+    sent(act(sc, key("space", [])))
+    sent(act(sc, #"{"kind":"type","text":"ab"}"#))
+    platform.focusedHit?.defaultButtonTexts = ["Send"]
+    sent(act(sc, key("return", [])))
 }

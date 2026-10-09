@@ -224,9 +224,13 @@ public struct PlatformHit: Equatable, Sendable {
     public var focused: Bool
     /// It is editable text (a field, or rich text a page marks editable).
     public var editable: Bool
+    /// For a focused element: the names of its window's default button,
+    /// which Return in a text field presses.
+    public var defaultButtonTexts: [String] = []
 
     public init(role: String, texts: [String], shortcut: String? = nil, windowId: UInt32?, inMenu: Bool = false,
-                ancestorTexts: [String] = [], focused: Bool = false, editable: Bool = false) {
+                ancestorTexts: [String] = [], focused: Bool = false, editable: Bool = false, defaultButtonTexts: [String] = []) {
+        self.defaultButtonTexts = defaultButtonTexts
         self.role = role
         self.texts = texts
         self.shortcut = shortcut

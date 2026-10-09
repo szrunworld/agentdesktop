@@ -29,6 +29,9 @@ public enum ClipboardProbe {
         /// The element is editable text (a field, or rich text a web page
         /// marks editable).
         public var editable = false
+        /// Names of the focused element's window's default button: what
+        /// Return in a text field presses.
+        public var defaultButtonTexts: [String] = []
     }
 
     /// One menu item of an app's menu bar with a keyboard equivalent.
@@ -150,6 +153,9 @@ public enum ClipboardProbe {
                       windowID: window.flatMap(WindowMover.windowID(of:)), inMenu: false, ancestorTexts: ancestors)
         hit.focused = true
         hit.editable = editable(element, role: role, r)
+        if let window, let button: AXUIElement = r.read(window, kAXDefaultButtonAttribute) {
+            hit.defaultButtonTexts = texts(of: button, r)
+        }
         return r.expired ? nil : hit
     }
 
