@@ -14,10 +14,14 @@
 #   6. pairing "acc-timeout"        -> do not answer (it ends by itself after 120 s)
 # Everything else is checked by the script. Usage, from the repository:
 #   scripts/bundle-app.sh && scripts/a4-touchid-acceptance.sh
+# One refusal round alone, on a fresh test copy (no cooldown to wait out):
+#   scripts/a4-touchid-acceptance.sh deny | cancel | timeout
 # For development bundles: step 6 expects the CLI to be refused sensitive
 # management (its code is not verified before S4). On a release candidate
 # (Developer ID CLI) that step is expected to differ.
 set -u
+ROUND="${1:-all}"
+case "$ROUND" in all|deny|cancel|timeout) ;; *) echo "usage: $0 [deny|cancel|timeout]"; exit 2 ;; esac
 APP="${APP:-build/Agent Desktop.app}"
 DIR=/tmp/adt-a4-acc
 EP="$DIR/side.runtime.sock"
@@ -55,6 +59,27 @@ HOST=$!
 i=0; while [ ! -S "$EP" ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
 [ -S "$EP" ] && ok "Runtime listening at $EP" || { bad "Runtime did not start"; exit 1; }
 
+pair_expect() { # name expected-audit-reason prompt
+    echo "== $3"
+    AGENTDESKTOP_PROFILE="$1" "$B" agents pair --name "$1" --capabilities observe --wait-timeout 200 --format json > "$DIR/$1.json"
+    grep -q '"ok":true' "$DIR/$1.json" && bad "$1 was granted" || ok "$1 not granted"
+    sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT reason FROM auth_events WHERE method='hub.pairing.start' AND decision='denied' ORDER BY rowid DESC LIMIT 1" \
+        | grep -q "$2" && ok "$1 audited as $2" || bad "$1 audit is not $2"
+}
+report() { # expected number of passes
+    echo "== audit (decisions only)"
+    sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT at, client_id, method, decision, reason FROM auth_events WHERE decision IN ('asked','confirmed','approved','revoked','cut','denied') ORDER BY rowid" | tail -20
+    echo "== host log (confirmation steps)"
+    grep "AgentDesktop confirmation" "$DIR/host.log" || true
+    echo "passed $pass, failed $fail"
+    [ $fail -eq 0 ] && [ $pass -eq "$1" ]
+}
+case "$ROUND" in
+    deny)    pair_expect acc-deny user_denied "press 拒绝 in the window"; report 3; exit ;;
+    cancel)  pair_expect acc-cancel user_cancelled "press 批准…, then cancel the Touch ID / password prompt"; report 3; exit ;;
+    timeout) pair_expect acc-timeout confirmation_timeout "do not answer; wait about two minutes"; report 3; exit ;;
+esac
+
 echo "== 2-4. pair the CLI: confirm in the window, approve with Touch ID or your password"
 "$B" agents pair --name acc-cli --capabilities observe,desktop.manage --desktops created --wait-timeout 180 --format json > "$DIR/pair-cli.json"
 CLI_ID=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["data"]["clientId"])' "$DIR/pair-cli.json" 2>/dev/null)
@@ -84,13 +109,6 @@ AGENTDESKTOP_PROFILE=victim "$B" agents revoke "$V_ID" --format json > "$DIR/rev
 AGENTDESKTOP_PROFILE=victim "$B" desktop list --format json > "$DIR/after.json"
 grep -q client_revoked "$DIR/after.json" && ok "the old credential is refused (client_revoked)" || bad "after revoke: $(cat "$DIR/after.json")"
 
-pair_expect() { # name expected-audit-reason prompt
-    echo "== $3"
-    AGENTDESKTOP_PROFILE="$1" "$B" agents pair --name "$1" --capabilities observe --wait-timeout 200 --format json > "$DIR/$1.json"
-    grep -q '"ok":true' "$DIR/$1.json" && bad "$1 was granted" || ok "$1 not granted"
-    sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT reason FROM auth_events WHERE method='hub.pairing.start' AND decision='denied' ORDER BY rowid DESC LIMIT 1" \
-        | grep -q "$2" && ok "$1 audited as $2" || bad "$1 audit is not $2"
-}
 sleep 61   # the cooldown after a refusal is per program
 pair_expect acc-deny user_denied "8. press 拒绝 in the window"
 sleep 61
@@ -98,10 +116,4 @@ pair_expect acc-cancel user_cancelled "9. press 批准…, then cancel the Touch
 sleep 61
 pair_expect acc-timeout confirmation_timeout "10. do not answer; wait about two minutes"
 
-echo "== audit (decisions only)"
-sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT at, client_id, method, decision, reason FROM auth_events WHERE decision IN ('asked','confirmed','approved','revoked','cut','denied') ORDER BY rowid" | tail -20
-echo "== host log (confirmation steps)"
-grep "AgentDesktop confirmation" "$DIR/host.log" || true
-
-echo "passed $pass, failed $fail"
-[ $fail -eq 0 ]
+report 16
