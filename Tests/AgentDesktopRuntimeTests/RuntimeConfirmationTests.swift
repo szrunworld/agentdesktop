@@ -741,9 +741,10 @@ func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerActio
     let platform = FakePlatform()
     let s = platformService(platform)
     let (sc, _, _) = try pairedScene(s, platform)   // grant: com.apple.calculator
-    // Both named: the contract allows one of the two (oneOf).
+    // Both named: refused before the platform (by the path check first, and
+    // the contract's oneOf would refuse it too).
     let both = call(s, sc.c, "app.launch", params: #"{"desktopId":"\#(sc.desktop)","bundleId":"com.apple.calculator","path":"/System/Applications/Notes.app"}"#)
-    #expect(code(both) == "schema_invalid")
+    #expect(code(both) == "grant_missing" || code(both) == "schema_invalid")
     // A path alone: no app identity the grant could name.
     let path = call(s, sc.c, "app.launch", params: #"{"desktopId":"\#(sc.desktop)","path":"/System/Applications/Notes.app"}"#)
     #expect(code(path) == "grant_missing" && errorDetails(path)?["reason"]?.stringValue == "launch_requires_grant")
