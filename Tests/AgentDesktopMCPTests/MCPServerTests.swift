@@ -9,6 +9,15 @@ import UniformTypeIdentifiers
 @testable import AgentDesktopRuntime
 
 final class MCPPlatform: DesktopPlatform, @unchecked Sendable {
+    // G2 probes: an ordinary button of window 3, a QWERTY layout, an
+    // empty menu bar.
+    func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
+        PlatformHit(role: "AXButton", texts: [], windowId: 3)
+    }
+    func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
+    func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: nil) }
+    func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
+
     let lock = NSLock()
     var placed = false
     var performed: [PlatformAction] = []
