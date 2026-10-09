@@ -256,6 +256,21 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         "has no frame to click", "does not take its text", "unknown key", "no screen named",
     ]
 
+    /// Whether an engine failure proves the action performed nothing (#170
+    /// not_performed). The engine says so only in its message text, which is
+    /// weak evidence (#173). A click may already have pressed through
+    /// accessibility before falling back to events, and typing may already
+    /// have clicked a web field or submitted characters, so for those two a
+    /// failure is never taken as not performed until the engine reports it
+    /// structurally (#173): the delivery is unknown. Keys and scrolls fail
+    /// before any input, and keep the text match.
+    static func notPerformed(_ message: String, kind: PlatformAction.Kind) -> Bool {
+        switch kind {
+        case .click, .type: return false
+        case .key, .scroll: return preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
+        }
+    }
+
     public func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
         var input = InputAction(InputAction.Kind(rawValue: action.kind.rawValue)!)
         input.index = action.elementIndex
@@ -276,7 +291,7 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         let response = handle(r)
         guard response.ok else {
             let message = response.error ?? "the engine refused the action"
-            let before = Self.preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
+            let before = Self.notPerformed(message, kind: action.kind)
             var e = Self.classify(message)
             e.beforeDispatch = before
             throw e
