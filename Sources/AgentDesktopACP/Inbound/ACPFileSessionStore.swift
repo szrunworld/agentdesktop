@@ -43,6 +43,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     public let directory: URL
     private let lock = NSLock()
     private var migrated = false
+    /// Set once a failed append could not be rolled back for certain; no
+    /// further log lines are written by this store (fail closed).
+    private var migrationLogUnusable = false
 
     /// `~/Library/Application Support/AgentDesktop/acp/sessions`. Not
     /// created until the first save. Tests pass a temporary directory.
@@ -256,6 +259,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     /// Append whole lines and fsync; false on any failure or short write.
     private func appendMigrationLog(_ entries: [MigrationLogEntry]) -> Bool {
         guard !entries.isEmpty else { return true }
+        guard !migrationLogUnusable else { return false }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var lines = Data()
@@ -267,11 +271,20 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
                       O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { return false }
         defer { close(fd) }
-        // All lines or none: on a short or failed write, cut the file back to
-        // where it was, so a retry never appends after a half line (Codex on
-        // #141). Called with the directory lock held, so no other writer.
+        // All lines or none (Codex on #141). Called with the directory lock
+        // held, so no other writer. A file that does not end with a complete
+        // line (a crash mid-write, or a rollback that did not stick) is never
+        // appended to: the migration stays pending instead.
         let start = lseek(fd, 0, SEEK_END)
         guard start >= 0 else { return false }
+        if start > 0 {
+            var last: UInt8 = 0
+            let rfd = open(directory.appendingPathComponent(Self.migrationLogName).path, O_RDONLY | O_NOFOLLOW)
+            guard rfd >= 0 else { return false }
+            let n = pread(rfd, &last, 1, start - 1)
+            close(rfd)
+            guard n == 1, last == UInt8(ascii: "\n") else { return false }
+        }
         let ok = lines.withUnsafeBytes { raw -> Bool in
             var offset = 0
             while offset < raw.count {
@@ -282,7 +295,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             return true
         }
         guard ok, fsync(fd) == 0 else {
-            _ = ftruncate(fd, start)
+            // Cut back to where it was and make that durable; if either step
+            // fails, this store writes no more log lines.
+            if ftruncate(fd, start) != 0 || fsync(fd) != 0 { migrationLogUnusable = true }
             return false
         }
         return true

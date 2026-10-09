@@ -334,6 +334,22 @@ import Testing
         #expect(raw(dir, ACPFileSessionStore.migrationLogName).contains("\"file\":\"history\""))
     }
 
+    /// Codex on #141 (1a6d9c2): a log that ends in half a line (a crash
+    /// mid-write, or a rollback that did not stick) is never appended to;
+    /// the migration stays pending and nothing is rewritten.
+    @Test func aMigrationLogEndingInAHalfLineIsNeverAppendedTo() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        let log = dir.appendingPathComponent(ACPFileSessionStore.migrationLogName)
+        try Data(#"{"at":"x","entries":3,"fi"#.utf8).write(to: log)
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(raw(dir, ACPFileSessionStore.migrationLogName) == #"{"at":"x","entries":3,"fi"#)  // untouched
+        #expect(raw(dir, "s1.history.json").contains("\"format\":1"))                         // not rewritten
+        #expect(!(try fresh.history(sessionId: "s1")).contains { $0.text.contains("hunter2") })  // still served scrubbed
+    }
+
     /// Codex on #141: an unreadable binding must not turn every status line
     /// into "another session's Run" for good.
     @Test func anUnreadableBindingLeavesTheHistoryForALaterRetry() throws {
