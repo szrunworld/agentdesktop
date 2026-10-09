@@ -212,7 +212,10 @@ func aControlWhoseNameSaysPasteCopyOrCutIsRefusedInAnyLanguage(_ role: String, _
     let server = RuntimeServer(path: path, service: sc.s)
     try server.start()
     defer { server.stop(); try? FileManager.default.removeItem(atPath: dir) }
-    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "acp", version: "1"), timeout: 5)
+    // The scene's session is the owner's; over the socket that is the
+    // test-only owner token (A4: no socket client is the owner in the product).
+    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "acp", version: "1"), timeout: 5,
+                                     credential: testOwner)
     defer { client.close() }
     let params = try StrictJSON.parse(Data(#"{"snapshotId":"\#(sc.snapshot)","action":\#(key("v", ["cmd"]))}"#.utf8))
     do {
