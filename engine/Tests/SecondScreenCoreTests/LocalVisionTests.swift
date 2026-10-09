@@ -9,7 +9,7 @@ import Testing
 /// test scrolls through, and rendered text for OCR. No real screenshots.
 private enum Fixture {
     static func directory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("localvision-\(UUID().uuidString)")
+        let url = ScratchDirectory.url("localvision")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
