@@ -430,7 +430,8 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
 
     /// One phone per Mac (iPhone Mirroring mirrors one at a time), so one
     /// barrier.
-    public var inputBarrier: HostFlag { .named("iphone-input-barrier") }
+    /// Lowered only by a screenshot: an unreadable record stays up.
+    public var inputBarrier: HostFlag { .named("iphone-input-barrier", unreadableExpires: false) }
 
     public var pasteInProgress: Bool {
         if pendingMark.reason() != nil { return true }

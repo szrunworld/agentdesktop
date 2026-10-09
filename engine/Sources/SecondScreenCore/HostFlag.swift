@@ -14,13 +14,20 @@ public struct HostFlag: Sendable {
     /// How long a record that cannot be read still counts as raised.
     public static let unreadableLifetime: TimeInterval = 600
 
-    public init(url: URL) {
+    /// Whether an unreadable record is dropped after `unreadableLifetime`.
+    /// Off for a flag that only something seen may lower: time does not say
+    /// whether an input landed (Codex on #127).
+    public var unreadableExpires: Bool
+
+    public init(url: URL, unreadableExpires: Bool = true) {
         self.url = url
+        self.unreadableExpires = unreadableExpires
     }
 
     /// `~/Library/Caches/AgentDesktop/<name>`, beside the clipboard lock.
-    public static func named(_ name: String) -> HostFlag {
-        HostFlag(url: ClipboardLease.defaultURL.deletingLastPathComponent().appendingPathComponent(name))
+    public static func named(_ name: String, unreadableExpires: Bool = true) -> HostFlag {
+        HostFlag(url: ClipboardLease.defaultURL.deletingLastPathComponent().appendingPathComponent(name),
+                 unreadableExpires: unreadableExpires)
     }
 
     private struct Record: Codable {
@@ -102,7 +109,7 @@ public struct HostFlag: Sendable {
             // than `unreadableLifetime` is dropped, so a corrupt file cannot
             // block every agent until someone deletes it by hand.
             let written = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
-            if let written, now.timeIntervalSince(written) > Self.unreadableLifetime {
+            if unreadableExpires, let written, now.timeIntervalSince(written) > Self.unreadableLifetime {
                 return lower(ifStill: "unreadable") ? .settled(nil) : .changed
             }
             return .settled("an unreadable record at \(url.path)")

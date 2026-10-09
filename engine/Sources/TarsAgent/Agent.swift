@@ -240,6 +240,13 @@ public final class TarsAgent {
             store.save(known, app: options.app)
             result.learned = "replayed"
             return result
+        case .stopped(let why):
+            onEvent(.error(why))
+            known[position].failures += 1
+            store.save(known, app: options.app)
+            var result = Result(outcome: .user, reason: "stopped: \(why)", steps: trace.count)
+            result.replayed = trace.count
+            return result
         case .handOver(let why, let failed):
             onEvent(.note("\(why); the model takes over"))
             let replayed = trace.count

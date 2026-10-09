@@ -15,6 +15,9 @@ extension TarsAgent {
         /// Why the model has to take over, and whether the procedure let
         /// the run down or only needs the model's eyes for the answer.
         case handOver(String, failed: Bool)
+        /// An input whose effect nobody knows (a paste that may or may not
+        /// have landed): neither the procedure nor the model goes on.
+        case stopped(String)
     }
 
     /// Containers: a click inside one is aimed at something they do not name.
@@ -345,6 +348,11 @@ extension TarsAgent {
             elementCache = nil
             do {
                 let response = try screen.perform(action)
+                if !response.ok, Self.isIndeterminate(response) {
+                    // Codex on #127: the model, seeing a screenshot, would
+                    // type or submit again. A person decides, as in explore.
+                    return .stopped("\(what): \(response.error ?? "ended with an unknown result")")
+                }
                 guard response.ok else { return .handOver("\(what) failed: \(response.error ?? "no reason given")", failed: true) }
             } catch {
                 return .handOver("\(what) failed: \(error.localizedDescription)", failed: true)

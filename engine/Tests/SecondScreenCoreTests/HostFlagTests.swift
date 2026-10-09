@@ -29,6 +29,23 @@ import Testing
         #expect(flag.reason() == "new")
     }
 
+    /// Codex on #127: an unreadable input barrier is not lowered by time;
+    /// only something seen may lower it. Other flags still let it go.
+    @Test func anUnreadableRecordExpiresOnlyWhereAllowed() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("flag")
+        let later = Date().addingTimeInterval(HostFlag.unreadableLifetime + 60)
+        try Data("not json".utf8).write(to: url)
+        let barrier = HostFlag(url: url, unreadableExpires: false)
+        #expect(barrier.reason(now: later) != nil)
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        let pending = HostFlag(url: url)
+        #expect(pending.reason(now: later) == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
     @Test func lowerIfStillLeavesANewerRaising() throws {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
