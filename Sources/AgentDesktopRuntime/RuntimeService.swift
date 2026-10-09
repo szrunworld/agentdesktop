@@ -221,7 +221,11 @@ public final class RuntimeService: @unchecked Sendable {
         self.contract = contract
         // Desktops do not outlive the process that made them, so no window
         // grant on one does either (window-grants.md).
-        _ = try? self.hub.endWindowGrants(reason: "runtime_restarted")
+        // Each one audited like any other ending (Codex on 9ea0dad).
+        for id in (try? self.hub.endWindowGrants(reason: "runtime_restarted")) ?? [] {
+            self.hub.audit(connectionId: "runtime", clientId: self.hub.windowGrant(id)?.clientId ?? "?", method: "hub.windows",
+                           decision: "ended", reason: "\(id) runtime_restarted")
+        }
         self.startedAt = Timestamp.date(identity.startedAt) ?? now()
         self.now = now
         // The sweep never removes what the Runtime still uses: the

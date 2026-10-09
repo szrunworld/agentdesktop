@@ -102,10 +102,18 @@ extension RuntimeService {
                 // Kept as usual only with persist; else for a short while,
                 // gone with the grant (window-grants.md).
                 var transientUntil: Date?
-                if let g = windowGrant {
-                    if effectivePermissions(g).contains("persist") {
+                // Kept under whichever live grant for this window allows
+                // persist, not only the one that allowed observe (Codex on
+                // 9ea0dad); that grant is the one the image then answers to.
+                var keptUnder = windowGrant
+                if let g = windowGrant, let b = d.binding {
+                    let persisting = effectivePermissions(g).contains("persist") ? g
+                        : liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
+                            .first { effectivePermissions($0).contains("persist") }
+                    if let p = persisting {
+                        keptUnder = p
                         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.persist", decision: "used",
-                                  reason: "\(g.windowGrantId) observe")
+                                  reason: "\(p.windowGrantId) observe")
                     } else {
                         // Never past the grant itself (Codex on 046a8c2).
                         let lifetime = now().addingTimeInterval(transientArtifactLifetime)
@@ -117,7 +125,7 @@ extension RuntimeService {
                     info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
                                                   runId: reserved.map { String($0.dropFirst("gui:".count)) } ?? request.context.runId,
                                                   createdAt: nowString, bucket: bucket, transientUntil: transientUntil,
-                                                  windowGrantId: windowGrant?.windowGrantId)
+                                                  windowGrantId: keptUnder?.windowGrantId)
                 } catch {
                     unlink(path)
                     // A place the ports reserved is theirs to give back.

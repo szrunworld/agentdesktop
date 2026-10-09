@@ -871,3 +871,21 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     #expect(sc.s.launchedHere(sc.c, try #require(sc.s.desktops.find(sc.desk)), backend.processIdentity(303)) == false)
     #expect(code(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) == "grant_missing")
 }
+
+@Test func persistOnASeparateGrantStillKeepsTheScreenshot() throws {
+    let (sc, _, _, _) = try calculatorScene(["observe"])
+    let p = try grantWindow(sc.s, clientId: sc.c.clientId, desktopId: sc.desktop, permissions: ["persist"])
+    let image = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"])
+    #expect(image["transient"] == nil, "\(image.encoded())")
+    let id = try #require(image["artifactId"]?.stringValue)
+    #expect(sc.s.artifacts.info(id)?.windowGrantId == p.windowGrantId, "kept under the grant that allows persist")
+}
+
+@Test func endingsAtRuntimeStartAreAudited() throws {
+    let st = try Stage()
+    let id = try #require(data(st.request(["observe"]))?["windowGrantId"]?.stringValue)
+    _ = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_next", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                 endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                       backend: st.backend, platform: st.platform, hub: st.s.hub)
+    #expect(st.s.hub.auditEvents().contains { $0["decision"]?.stringValue == "ended" && $0["reason"]?.stringValue == "\(id) runtime_restarted" })
+}
