@@ -395,13 +395,29 @@ public enum IPhoneConnection {
         let controls = Set(statusControls.map(normalize))
         let corroborated = own.contains(where: controls.contains)
         let seen = ocr.map(normalize)
-        for (label, state) in rules {
-            let key = normalize(label)
-            if own.contains(where: { $0.contains(key) }) { return (state, label) }
+        // An in-use page that mentions the camera or microphone anywhere, in
+        // either source, is that page: a lock does not end it, and a generic
+        // phrase on it ("…is no longer in use") must not pass it off as the
+        // plain "iPhone in Use" (Codex on #189).
+        func refined(_ label: String, _ state: IPhoneConnectionState) -> String {
+            guard state == .phoneInUse else { return label }
+            let all = own + seen
+            func mentions(_ words: [String]) -> String? {
+                words.first { word in all.contains { $0.contains(word) } }
+            }
+            if let word = mentions(["camera", "相机"]) { return word == "相机" ? "iPhone相机使用中" : "iPhone Camera in Use" }
+            if let word = mentions(["microphone", "麦克风"]) {
+                return word == "麦克风" ? "iPhone麦克风使用中" : "iPhone Microphone in Use"
+            }
+            return label
         }
         for (label, state) in rules {
             let key = normalize(label)
-            if seen.contains(where: { $0.contains(key) }) { return (corroborated ? state : .uncertain, label) }
+            if own.contains(where: { $0.contains(key) }) { return (state, refined(label, state)) }
+        }
+        for (label, state) in rules {
+            let key = normalize(label)
+            if seen.contains(where: { $0.contains(key) }) { return (corroborated ? state : .uncertain, refined(label, state)) }
         }
         // A status page's own control with no phrase read (its title drawn,
         // not exposed): still a status page, not the phone, whose picture

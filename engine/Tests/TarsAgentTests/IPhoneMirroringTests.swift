@@ -575,6 +575,25 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(fake.pressed.isEmpty && report.outcome == .needsUser)
     }
 
+    /// Codex on #189 (3c53e7f): a camera page whose generic sentence ("…is
+    /// no longer in use") is all that matched, or whose camera title only
+    /// OCR read, is the camera page, and not pressed.
+    @Test(arguments: [
+        (["Connect"], ["Connect when your iPhone camera is no longer in use."]),
+        (["Connect when your iPhone is no longer in use.", "Connect"], ["iPhone Camera in Use"]),
+        (["Connect"], ["当iPhone麦克风不再处于使用状态时连接"]),
+    ])
+    func aCameraOrMicrophonePageIsKnownByEitherSource(ax: [String], ocr: [String]) throws {
+        let fake = FakeMirroring()
+        fake.ax = ax
+        fake.ocr = ocr
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(fake.pressed.isEmpty)
+        #expect(report.outcome == .needsUser)
+        #expect(!IPhoneConnection.endsOnLock(report.label))
+    }
+
     /// Codex on #189: after Connect, a page a lock does not end (the camera
     /// in use) ends the wait at once as needing the user.
     @Test func aCameraPageAfterConnectNeedsTheUser() throws {
