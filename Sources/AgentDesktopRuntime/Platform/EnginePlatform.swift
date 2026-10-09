@@ -254,6 +254,10 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         "has no window", "has no on-screen window", "is not on screen", "is outside the window",
         "no element", "give --index", "needs --value", "needs the field named", "permission",
         "has no frame to click", "does not take its text", "unknown key", "no screen named",
+        // A one-character key with no key code is typed (#171 §1.1): stopped
+        // before its character, nothing was submitted (#163). Typing itself is
+        // never judged by text (notPerformed), until #173.
+        "no character was submitted",
     ]
 
     /// Whether an engine failure proves the action performed nothing (#170

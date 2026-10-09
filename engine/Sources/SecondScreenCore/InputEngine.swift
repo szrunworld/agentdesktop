@@ -126,6 +126,9 @@ public final class InputEngine: @unchecked Sendable {
                 } else {
                     cursor(.click, center)
                     _ = try BackgroundInput.click(at: center, in: window, button: .left, count: 1, allowAX: false)
+                    // The click went out: any failure from here is a delivery
+                    // the Runtime reports as unknown (#171: a failed typing is
+                    // never taken as not performed until #173).
                     response.route = "event.click+" + (try BackgroundInput.type(text, in: window))
                 }
                 // Some Electron apps (BOSS直聘) drop background keys but take the

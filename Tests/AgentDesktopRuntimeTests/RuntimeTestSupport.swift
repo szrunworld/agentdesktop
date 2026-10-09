@@ -31,10 +31,12 @@ struct FixedBackend: RuntimeBackend {
     }
     /// Windows a test opens later, in front of every other (a reference, so
     /// a test can change it after the Runtime took its copy of the backend).
-    final class Opened: @unchecked Sendable { var windows: [WindowSummary] = [] }
+    final class Opened: @unchecked Sendable { var windows: [WindowSummary] = []; var listUnreadable = false }
     var opened = Opened()
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
-        (opened.windows + wins).filter { (pid == nil || $0.process.pid == pid) && (bundleId == nil || $0.bundleId == bundleId)
+        // The window server's list could not be read: the backend gets none.
+        if opened.listUnreadable { return [] }
+        return (opened.windows + wins).filter { (pid == nil || $0.process.pid == pid) && (bundleId == nil || $0.bundleId == bundleId)
             && (includeOffscreen || $0.onScreen) }
     }
 }
@@ -107,17 +109,26 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     }
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { menu }
     /// What has focus; by default nothing.
-    var focusedHit: PlatformHit? = PlatformHit(role: "AXNone", texts: [], windowId: nil)
+    /// What has focus; by default an editable text area of the app's window
+    /// (where typing goes in the ordinary case).
+    var focusedHit: PlatformHit? = PlatformHit(role: "AXTextArea", texts: [], windowId: nil, focused: true, editable: true)
     /// Whether the app shows a menu; nil when that cannot be told.
     var menuShown: Bool? = false
     func menuOpen(pid: Int32) -> Bool? { menuShown }
     /// Reads of the focus that fail before `focusedHit` is answered.
     var focusFailures = 0
     var focusReads = 0
+    /// With no focused element, the app's focused window is its first one
+    /// (as for an app showing one window); off to model no focused window.
+    var focusFollowsWindow = true
     func focusedControl(pid: Int32) -> PlatformHit? {
         focusReads += 1
         if focusFailures > 0 { focusFailures -= 1; return nil }
-        return focusedHit
+        guard var hit = focusedHit else { return nil }
+        if focusFollowsWindow, hit.windowId == nil {
+            hit.windowId = lock.withLock { windows[pid]?.first?.windowId }
+        }
+        return hit
     }
     func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter {
         guard layoutKnown else { return .unknown }
