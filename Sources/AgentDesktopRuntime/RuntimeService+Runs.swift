@@ -5,7 +5,9 @@ extension RuntimeService {
     /// Until AgentHub pairing exists every local connection of the user is
     /// the owner: it sees and controls all Runs. A paired client will see
     /// only its own (clientId match).
-    func isOwner(_ c: ConnectionState) -> Bool { c.clientId.hasPrefix("local:") }
+    func isOwner(_ c: ConnectionState) -> Bool {
+        c.clientId.hasPrefix("local:") || (c.origin == .socket && !socketsSeeOnlyTheirOwn)
+    }
 
     func ownRun(_ p: JSONValue, _ c: ConnectionState) -> Result<RunRecord, RuntimeError> {
         let id = p["runId"]?.stringValue ?? ""
@@ -115,11 +117,17 @@ extension RuntimeService {
         }
     }
 
-    /// Global stop (owner only): close input admission and stop every Run,
-    /// Delegated and Durable, returning each one's stop state.
+    /// Global stop: close input admission and stop every Run, Delegated and
+    /// Durable, returning each one's stop state. The owner, and until A4
+    /// (#137) any local socket client too: stopping is the safe direction
+    /// (it was open to them before #153 made them non-owners). Turning input
+    /// back on stays the owner's.
     func stopAll(_ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
-        guard isOwner(c) else { return .failure(RuntimeError("permission_denied", "only the owner stops all input", phase: .handler)) }
-        let (admission, stopped) = execution.stopAll()
+        guard isOwner(c) || c.origin == .socket else { return .failure(RuntimeError("permission_denied", "only the owner stops all input", phase: .handler)) }
+        let (admission, all) = execution.stopAll()
+        // Every Run is stopped; a caller that is not the owner hears only
+        // about its own (the others' ids are not found to it anyway).
+        let stopped = isOwner(c) ? all : all.filter { $0.clientId == c.clientId }
         let pending = stopped.filter { !$0.isEnded }.map(\.runId)
         return .success(.obj([
             ("admission", .string(admission.rawValue)),

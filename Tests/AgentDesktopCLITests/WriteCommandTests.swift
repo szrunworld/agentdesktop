@@ -124,6 +124,16 @@ import Testing
 
 /// A minimal platform for the end-to-end flow over a real socket.
 final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
+    // G2 probes: an ordinary button of window 3, a QWERTY layout, an
+    // empty menu bar.
+    func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
+        PlatformHit(role: "AXButton", texts: [], windowId: 3)
+    }
+    func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
+    func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: nil) }
+    func menuOpen(pid: Int32) -> Bool? { false }
+    func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
+
     var placed: Set<UInt32> = []
     var performed: [PlatformAction] = []
     func quit(pid: Int32) -> Bool { true }
@@ -154,10 +164,10 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
     /// Test double: the window alone, as the window's crop of this double's screen.
     func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
-        return try screenshot(screen, cropTo: w.frame, to: path)
+        return try windowImage(screen, frame: w.frame, to: path)
     }
 
-    func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
+    func windowImage(_ screen: ScreenHandle, frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
         try Data("png".utf8).write(to: URL(fileURLWithPath: path))
         return (Int(frame.width), Int(frame.height))
     }
@@ -181,7 +191,7 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
                                    endpoint: path, buildSource: "unknown")
     let service = try { let s = RuntimeService(identity: identity, backend: StubBackend(), platform: TinyPlatform(),
                                  ledger: try RequestLedger(path: dir + "/requests.sqlite"),
-                                 artifacts: try ArtifactStore(directory: dir + "/artifacts")); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+                                 artifacts: try ArtifactStore(directory: dir + "/artifacts")); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
     let server = RuntimeServer(path: path, service: service)
     try server.start()
     defer { server.stop() }
