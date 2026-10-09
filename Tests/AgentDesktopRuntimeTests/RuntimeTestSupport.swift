@@ -108,6 +108,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { menu }
     /// What has focus; by default nothing.
     var focusedHit: PlatformHit? = PlatformHit(role: "AXNone", texts: [], windowId: nil)
+    /// Whether the app shows a menu; nil when that cannot be told.
+    var menuShown: Bool? = false
+    func menuOpen(pid: Int32) -> Bool? { menuShown }
     /// Reads of the focus that fail before `focusedHit` is answered.
     var focusFailures = 0
     var focusReads = 0

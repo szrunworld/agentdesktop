@@ -280,6 +280,18 @@ public enum ClipboardProbe {
     /// there (Text Input Sources wants the main thread) and kept fresh when
     /// the user switches input sources. Until it has been read, every key
     /// with a character is `unknown`.
+    /// Whether the app shows a menu now (a menu bar menu or a context menu
+    /// is a window of its own at the pop-up menu level); nil when the window
+    /// list cannot be read. Return or Space there activates the item the
+    /// arrows selected, which accessibility focus does not always show.
+    public static func menuOpen(pid: pid_t) -> Bool? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        let menuLevel = Int(CGWindowLevelForKey(.popUpMenuWindow))
+        return list.contains {
+            ($0[kCGWindowOwnerPID as String] as? Int).map(pid_t.init) == pid && ($0[kCGWindowLayer as String] as? Int) == menuLevel
+        }
+    }
+
     public static func prepareKeyboardLayout() {
         if Thread.isMainThread { KeyboardLayout.shared.start() } else {
             DispatchQueue.main.async { KeyboardLayout.shared.start() }
