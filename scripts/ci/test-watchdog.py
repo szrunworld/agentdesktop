@@ -555,7 +555,7 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
 
     procs = run.members(deadline=began + DIAGNOSIS_BUDGET)
     report["processes"] = [{"pid": pid, "command": cmd} for pid, cmd in procs.items()]
-    step("processes of the run", *discovery_outcome(run, f"{len(procs)} found", snapshots=True))
+    step("processes of the run", *discovery_outcome(run, f"{len(procs)} found"))
     print("processes of the run:", flush=True)
     for pid, cmd in procs.items():
         print(f"  {pid} {cmd[:200]}", flush=True)
@@ -609,19 +609,21 @@ def unverified_entries(run):
 
 def incomplete(run):
     """The problems that leave the list of processes incomplete: all but ps,
-    which only supplies command lines."""
-    return [p for p in run.discovery_problems if not p.startswith("ps ")]
-
-
-def discovery_outcome(run, found, snapshots=False):
-    """(status, detail) of a process discovery (#193): ok; partial when a
-    tool failed, so the list may be incomplete; failed when the kernel's
-    process list failed, so there is no list to speak of. With snapshots,
-    failed snapshots taken while the command ran count too. ps failing is
-    noted, but costs only command lines."""
-    problems = incomplete(run)
-    if snapshots and run.failed_snapshots:
+    which only supplies command lines. A snapshot that failed while the
+    command ran counts too: a process it would have remembered (one that
+    then left the tree) cannot be found by any later look (Codex on #197)."""
+    problems = [p for p in run.discovery_problems if not p.startswith("ps ")]
+    if run.failed_snapshots:
         problems.append(f"{run.failed_snapshots} snapshot(s) while the command ran: the process list failed")
+    return problems
+
+
+def discovery_outcome(run, found):
+    """(status, detail) of a process discovery (#193): ok; partial when a
+    tool failed or a snapshot did, so the list may be incomplete; failed
+    when the kernel's process list failed in this look, so there is no list
+    to speak of. ps failing is noted, but costs only command lines."""
+    problems = incomplete(run)
     notes = [p for p in run.discovery_problems if p.startswith("ps ")]
     if not problems:
         return "ok", "; ".join([found] + notes)

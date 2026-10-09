@@ -768,6 +768,42 @@ class WatchdogTests(unittest.TestCase):
             report = json.load(f)
         self.assertEqual([s["status"] for s in report["steps"] if s["step"] == "stop"], ["failed"])
 
+    def test_a_failed_snapshot_makes_the_exit_check_incomplete(self):
+        # Codex on #197: a snapshot failed while the command ran, the last
+        # look worked and found nothing. What that snapshot would have
+        # remembered cannot be found any more: the check is reported as
+        # incomplete (with a warning), not passed over in silence.
+        wd = self.load()
+        real = wd.processes
+        calls = {"n": 0}
+
+        def flaky(deadline=None, problems=None):
+            calls["n"] += 1
+            if calls["n"] <= 2:  # the first snapshots, while the command runs
+                if problems is not None:
+                    problems.append("process list: proc_listallpids failed")
+                return {}
+            return real(deadline, problems)
+        wd.processes = flaky
+        out = tempfile.mkdtemp(prefix="watchdog-test-")
+        argv = sys.argv
+        sys.argv = ["test-watchdog.py", "--stall", "20", "--out", out, "--", "sh", "-c", "sleep 2.5; exit 0"]
+        import contextlib
+        import io
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                code = wd.main()
+        finally:
+            sys.argv, wd.processes = argv, real
+        self.assertGreaterEqual(calls["n"], 3)
+        self.assertEqual(code, 0)
+        self.assertIn("::warning title=test-watchdog::", printed.getvalue())
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        self.assertEqual(report["trigger"], "leftover check failed")
+        self.assertEqual(report["steps"][0]["status"], "partial")
+        self.assertIn("snapshot(s) while the command ran", report["steps"][0]["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()
