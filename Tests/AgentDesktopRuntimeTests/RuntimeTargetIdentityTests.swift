@@ -292,3 +292,20 @@ func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuC
     #expect(EnginePlatform.notPerformed(none, kind: .key))
     #expect(!EnginePlatform.notPerformed(some, kind: .key))
 }
+
+// Codex on b258049 (P1): no menu was open before a key or typing was sent,
+// so a menu after it, or a menu state that cannot be read, is the input's
+// doing and focus may have gone with it: unknown, never dispatched.
+@Test(arguments: [Optional(true), nil])
+func aMenuAppearingWithTheInputMakesTheDeliveryUnknown(_ after: Bool?) throws {
+    let sc = try scene()
+    sc.platform.onPerform = { sc.platform.menuShown = after }
+    for a in [#"{"kind":"key","key":"a"}"#, #"{"kind":"type","text":"x"}"#] {
+        sc.platform.menuShown = false
+        let r = act(sc, a)
+        #expect(code(r) == "action_delivery_unknown", "\(a)")
+        #expect(failure(r)?.notSent != true)
+        #expect(failure(r)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
+    }
+    #expect(sc.platform.performed.count == 2)
+}

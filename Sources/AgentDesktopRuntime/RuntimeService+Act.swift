@@ -155,10 +155,20 @@ extension RuntimeService {
                         // window right after makes the delivery unknown (the
                         // input may have gone with it). Residual: a change and
                         // a change back between two reads is not seen.
-                        if pa.kind == .key || pa.kind == .type, platform.menuOpen(pid: b.process.pid) != true,
-                           let now = platform.focusedControl(pid: b.process.pid)?.windowId, now != b.windowId {
-                            throw RuntimeError("stale_observation", "keyboard focus moved to window \(now) while input was sent",
-                                               phase: .handler, details: .obj([("reason", .string("focus_moved"))]))
+                        if pa.kind == .key || pa.kind == .type {
+                            // No menu was open before the send (checked above),
+                            // so a menu now, or a state that cannot be read, is
+                            // this input's doing, and focus may have gone with
+                            // it (Codex on b258049). Only with no menu is the
+                            // focus read again.
+                            guard platform.menuOpen(pid: b.process.pid) == false else {
+                                throw RuntimeError("stale_observation", "a menu opened while input was sent",
+                                                   phase: .handler, details: .obj([("reason", .string("menu_opened_by_action"))]))
+                            }
+                            if let now = platform.focusedControl(pid: b.process.pid)?.windowId, now != b.windowId {
+                                throw RuntimeError("stale_observation", "keyboard focus moved to window \(now) while input was sent",
+                                                   phase: .handler, details: .obj([("reason", .string("focus_moved"))]))
+                            }
                         }
                     } catch let changed as RuntimeError {
                         delivery = "unknown"; execution = "unknown"
