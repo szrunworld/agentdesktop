@@ -692,7 +692,7 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
 @Test func aTransientScreenshotGoesNoLaterThanItsGrant() throws {
     let platform = FakePlatform()
     let s = platformService(platform)
-    let (c, id, _) = try pairedClient(s, capabilities: ["observe", "desktop.manage"], desktops: ["created"],
+    let (c, id, _) = try pairedClient(s, capabilities: ["observe", "act", "desktop.manage"], desktops: ["created"],
                                       apps: ["com.apple.calculator"], name: "agent")
     let d = try created(s, c)
     let g = try grantWindow(s, clientId: id, desktopId: d, permissions: ["observe"], seconds: 5)
