@@ -460,6 +460,10 @@ func aControlCharacterKeyIsRefused(_ k: String) throws {
     expectRefusal(act(sc, key("return", [])), path: "default_button")
     expectRefusal(act(sc, #"{"kind":"key","key":"\n"}"#), path: "default_button")
     expectRefusal(act(sc, #"{"kind":"type","text":"a\n"}"#), path: "default_button")
+    // b9's eighth review: "\r\n" is one Character; judged by scalar.
+    expectRefusal(act(sc, #"{"kind":"type","text":"x\r\n"}"#), path: "default_button")
+    expectRefusal(act(sc, #"{"kind":"type","text":"x\r"}"#), path: "default_button")
+    expectRefusal(act(sc, #"{"kind":"key","key":"\r\n"}"#), path: "default_button")
     // Space and plain text do not reach the default button.
     sent(act(sc, key("space", [])))
     sent(act(sc, #"{"kind":"type","text":"ab"}"#))

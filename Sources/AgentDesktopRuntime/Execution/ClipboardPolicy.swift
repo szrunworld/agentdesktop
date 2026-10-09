@@ -67,7 +67,7 @@ enum ClipboardPolicy {
             // a field's value fails): a space or newline typed into a focused
             // "Copy" button presses it.
             if let refused = focusRefusal(pid: pid, platform: platform,
-                                          returns: text.contains("\n") || text.contains("\r")) { return refused }
+                                          returns: text.unicodeScalars.contains { $0 == "\n" || $0 == "\r" }) { return refused }
             // Typing into a field the engine must first click (a web field
             // without focus) is a click: the element must be a text field.
             let point = action.point ?? snapshotElement?.frame.map { ($0.x + $0.width / 2, $0.y + $0.height / 2) }
@@ -125,7 +125,8 @@ enum ClipboardPolicy {
     /// Return by name or as a character: in a text field it presses the
     /// window's default button.
     static func returns(_ key: String) -> Bool {
-        key == "return" || key == "enter" || (!key.isEmpty && key.allSatisfy { $0 == "\n" || $0 == "\r" || $0 == "\r\n" })
+        // By scalar: "\r\n" is one Character in Swift.
+        key == "return" || key == "enter" || (!key.isEmpty && key.unicodeScalars.allSatisfy { $0 == "\n" || $0 == "\r" })
     }
 
     /// The app's focused element, read now (once more if the first read
