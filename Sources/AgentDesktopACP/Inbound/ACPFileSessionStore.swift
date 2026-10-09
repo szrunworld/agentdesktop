@@ -345,8 +345,12 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
                 if key == "entries" { return nil }
                 continue
             }
+            // Exact, from the line's own text (Codex on #141): parsers round
+            // through Double, so 9007199254740992.5 would look whole. The key
+            // must appear once, its value only digits, fitting Int.
             guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
-                  n.doubleValue >= 0, n.doubleValue == n.doubleValue.rounded(.towardZero) else { return nil }
+                  let token = soleNumberToken(of: key, in: raw),
+                  token.allSatisfy({ $0.isASCII && $0.isNumber }), Int(token) != nil else { return nil }
         }
         if let t = object["titleReset"] {
             guard let n = t as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
@@ -357,12 +361,27 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         return (status, file, sessionId)
     }
 
+    /// The raw number text of `"key": <number>` in a JSON line, when the key
+    /// occurs exactly once outside string values; nil otherwise.
+    private static func soleNumberToken(of key: String, in raw: Data) -> String? {
+        let text = String(decoding: raw, as: UTF8.self)
+        guard let re = try? NSRegularExpression(pattern: #"(?<!\\)"\#(key)"\s*:\s*(-?[0-9][0-9.eE+-]*)"#) else { return nil }
+        let matches = re.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        guard matches.count == 1, let r = Range(matches[0].range(at: 1), in: text) else { return nil }
+        return String(text[r])
+    }
+
+    /// Strict ISO 8601 (Codex on #141: the formatter alone is lenient): the
+    /// text must parse and format back to exactly itself, which rejects
+    /// impossible dates (Feb 31) and trailing garbage.
     private static func timestamp(_ s: String) -> Date? {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        if let d = f.date(from: s) { return d }
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.date(from: s)
+        for options in [ISO8601DateFormatter.Options.withInternetDateTime,
+                        [.withInternetDateTime, .withFractionalSeconds]] {
+            let f = ISO8601DateFormatter()
+            f.formatOptions = options
+            if let d = f.date(from: s), f.string(from: d) == s { return d }
+        }
+        return nil
     }
 
     private func filesAwaitingAPersonInLog() -> Set<String>? {
