@@ -178,7 +178,13 @@ extension RuntimeService {
         guard pairing.state == "requested" else {
             return .failure(RuntimeError("conflict", "pairing \(id) is \(pairing.state)", phase: .handler, notSent: true))
         }
-        try? hub.deny(pairing)
+        // Told "denied" only when it is (Codex review P2).
+        do { try hub.deny(pairing) } catch {
+            return .failure(RuntimeError("audit_unavailable", "the pairing store is unavailable; the pairing is not denied", phase: .handler, notSent: true))
+        }
+        guard hub.pairing(id)?.state == "denied" else {
+            return .failure(RuntimeError("conflict", "pairing \(id) was decided meanwhile", phase: .handler, notSent: true))
+        }
         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.pairing.deny", decision: "denied", reason: id)
         return .success(.obj([("pairingId", .string(id)), ("state", .string("denied"))]))
     }

@@ -1,3 +1,4 @@
+import AgentDesktopClient
 import AgentDesktopProtocol
 import Foundation
 import Testing
@@ -527,4 +528,16 @@ final class RTestSlowClient: RTestClient {
         owner.waitIfClosed()
         return try super.call(request)
     }
+}
+
+/// A4: the ACP bridge is a paired client; every connection it opens (control
+/// and events) carries its credential (Codex review P1 on #137).
+@Test func theBridgeConnectsWithItsPairedCredential() {
+    let cred = ClientCredential(clientId: "app:acp", token: "adt1_x")
+    let make = ACPBridgeConfiguration.socketFactory(endpoint: Endpoint(path: "/tmp/adt-none/r.sock", source: .option), credential: cred)
+    for role in [ACPBridgeConnectionRole.control, .events] {
+        #expect((make(role) as? SocketRuntimeClient)?.credential == cred, "\(role)")
+    }
+    let unpaired = ACPBridgeConfiguration.socketFactory(endpoint: Endpoint(path: "/tmp/adt-none/r.sock", source: .option))
+    #expect((unpaired(.control) as? SocketRuntimeClient)?.credential == nil)
 }
