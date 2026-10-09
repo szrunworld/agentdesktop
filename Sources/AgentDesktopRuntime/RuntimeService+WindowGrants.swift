@@ -160,12 +160,19 @@ extension RuntimeService {
     }
 
     /// The Desktop as this caller may see it: a binding it may not know of
-    /// shows as none.
+    /// shows as none, and of the grant behind it only the caller's own
+    /// (Codex on 08aefe8: another app's grant id is not its business).
     func desktopJSON(_ d: DesktopRecord, for c: ConnectionState) -> JSONValue {
         d.lock.withLock {
             var json = d.json(openSessions: sessions.openCount(desktopId: d.desktopId))
-            if let b = d.binding, !mayKnowBinding(c, d, b) { json = json.setting("binding", .null) }
-            return json
+            guard c.role == .paired, let b = d.binding else { return json }
+            guard mayKnowBinding(c, d, b) else { return json.setting("binding", .null) }
+            var binding = b
+            if let id = b.windowGrantId, hub.windowGrant(id)?.clientId != c.clientId {
+                binding.windowGrantId = liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
+                    .first?.windowGrantId
+            }
+            return json.setting("binding", binding.json)
         }
     }
 

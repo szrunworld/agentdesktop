@@ -556,3 +556,17 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
                        backend: again.backend, platform: again.platform, hub: again.s.hub)
     #expect(again.s.hub.windowGrant(id2)?.endedReason == "runtime_restarted")
 }
+
+@Test func anotherAppsGrantIdIsNeverShownWithTheBinding() throws {
+    let st = try Stage()
+    let mine = try #require(data(st.request(["observe"]))?["windowGrantId"]?.stringValue)
+    #expect(data(st.bind(12)) != nil)
+    // A second app with its own grant for the same window on the same Desktop.
+    let (other, otherId, _) = try pairedClient(st.s, capabilities: ["observe"], desktops: [st.desk], apps: [wechat], name: "other")
+    let theirs = try grantWindow(st.s, clientId: otherId, desktopId: st.desk, windowId: 12, pid: 202, bundleId: wechat, permissions: ["observe"])
+    let shown = data(call(st.s, other, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"]
+    #expect(shown?["windowId"]?.intValue == 12)
+    #expect(shown?["windowGrantId"]?.stringValue == theirs.windowGrantId, "its own grant, never the binder's")
+    #expect(!(data(call(st.s, other, "desktop.list"))?.encoded() ?? "").contains(mine))
+    #expect(data(call(st.s, st.app, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"]?["windowGrantId"]?.stringValue == mine)
+}

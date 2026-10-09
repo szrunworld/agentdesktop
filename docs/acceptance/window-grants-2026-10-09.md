@@ -54,7 +54,18 @@
 
 ## strict 线程池
 
-`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test`，提交 c497ae4：exit 0，1069 个测试通过。
+`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test`：
+
+- 提交 c497ae4：exit 0，1069 个测试通过。
+- 后续提交上偶发失败，失败的都是 `SingleEndpointTests`（#166 已知问题：`RuntimeBridge` 用 `Task.detached` 加信号量）。负载高时还出现过 ACP、WDA、推理超时类失败，同样与本 PR 无关。
+- 同一时段交替运行，对照干净 main（bb02b59）与本分支（Codex 第三轮修复后）：
+
+| 轮次 | main | 本分支 |
+| --- | --- | --- |
+| 1 | exit 1：`SingleEndpointTests` 4 处 | exit 1：`SingleEndpointTests` 4 处 |
+| 2 | exit 1：`SingleEndpointTests` 6 处 | exit 1：`SingleEndpointTests` 4 处 |
+
+除此之外，本分支没有其他失败。窗口授权、撤销、身份相关的 strict 定向运行（`RuntimeRevocationTests|RuntimeWindowGrantTests|RuntimeIdentityTests`）连续 5 次通过。
 
 ## CI
 
