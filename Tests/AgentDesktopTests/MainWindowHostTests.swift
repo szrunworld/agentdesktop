@@ -13,6 +13,8 @@ struct EmptyBackend: RuntimeBackend {
     func applications(includeBackground: Bool) -> [AppSummary] { [] }
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] { [] }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: nil) }
+    /// An executable in no app bundle: known not to be iPhone Mirroring (#139).
+    func executablePath(_ pid: Int32) -> String? { "/test/bin/process" }
 }
 
 struct FastClock: PollClock {

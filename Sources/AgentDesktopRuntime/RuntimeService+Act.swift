@@ -383,7 +383,7 @@ extension RuntimeService {
                 guard backend.processIdentity(b.process.pid) == b.process else {
                     throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler)
                 }
-                if Self.isBlocked(bundleId: runningBundleId(b.process.pid)) { throw Self.blockedAppError() }
+                try refuseMirroring(b.process.pid)
                 bound = b
                 observations.invalidateElementRefs(desktopId: d.desktopId)
                 return .null

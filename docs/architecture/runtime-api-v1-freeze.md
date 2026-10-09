@@ -118,10 +118,12 @@ iPhone 镜像（`com.apple.ScreenContinuity`）是普通 macOS 应用，但对�
 | 入口 | 行为 |
 | --- | --- |
 | `app.launch`（bundleId，大小写不敏感；或路径，包括包内文件和软链接） | 拒绝，不调用平台 |
-| `app.launch` 启动后才发现是它 | 不记为 Desktop 的应用，不绑定；只有能证明是本次启动创建的进程（启动前不在运行、启动时间晚于本次启动开始）才退出它，用户原本在运行的镜像不动。`details.quit` 说明是否退出，`notSent: false` |
+| `app.launch` 启动后才发现是它 | 不记为 Desktop 的应用，不绑定。平台只返回能用启动令牌（LaunchOwnership）证明由本次启动创建的进程，所以退出它；退出前再核对 pid 和启动时间，防止 pid 复用。归属不靠时间戳或应用列表判断，用户自己的镜像（包括启动过程中用户自己打开的）不动。`details.quit` 说明是否退出，`notSent: false` |
 | `window.bind`（虚拟或物理 Desktop） | 在授权检查之后拒绝，不移动窗口 |
 | 指向它的已有绑定上的 `observe` / `act` / `wait` | 拒绝，在截图、读取元素、发送输入之前；act 在请求账本中记为 `failed` |
 
+- **fail-closed**：进程身份先看运行中应用列表，再看可执行文件所在的 bundle（`proc_pidpath`），任一方式认出是它就拒绝。两种方式都无法确定时（列表读不到且路径读不到，或路径所在 .app 读不出 bundle id），同样拒绝，`details.identity = unverified`（认出时为 `iphone_mirroring`）。拒绝只针对这一次请求，不缓存，下一次请求重新核实。启动后无法识别的进程不记为 Desktop 的应用，也不退出。
+- observe 在截图、读元素之前拒绝时 `notSent: true`；截图之后的复查才是 `notSent: false`。
 - 错误：`permission_denied`，`details.reason = iphone_mirroring_blocked`。这是**安全策略拒绝，不是授权不足**：任何 grant、capability 或配对都不能解除。不新增错误码，不改已有错误码语义（不使用 `capability_missing` / `unsupported_backend`，以免被理解为补授权或技术不支持）。
 - 应用列表、窗口列表等只读方法照常列出它。
 - 合并本项不代表 iPhone 设备会话具备发布条件。解除封禁必须单独提 PR，完成设备会话授权、安全隔离和真机验收，并获得新的明确授权。

@@ -25,7 +25,10 @@ struct FixedBackend: RuntimeBackend {
     var platform: Platform { Platform(os: "macos", osVersion: "15.1.0", arch: "arm64") }
     func permissions() -> BackendPermissions { perms }
     func features() -> [String] { ["apps.list", "windows.list"] }
-    func applications(includeBackground: Bool) -> [AppSummary] { opened.apps + apps }
+    func applications(includeBackground: Bool) -> [AppSummary] { opened.appListUnreadable ? [] : opened.apps + apps }
+    func executablePath(_ pid: Int32) -> String? {
+        opened.paths[pid] ?? (opened.pathsUnreadable ? nil : "/test/bin/process")
+    }
     /// Processes the test has "restarted": same pid, other start time.
     var restarted: Set<Int32> = []
     func processIdentity(_ pid: Int32) -> ProcessIdentity {
@@ -40,6 +43,12 @@ struct FixedBackend: RuntimeBackend {
         /// that differ from the fixed one (#139).
         var apps: [AppSummary] = []
         var startedAt: [Int32: String] = [:]
+        /// The running-app list cannot be read: it comes back empty.
+        var appListUnreadable = false
+        /// What each process runs (the kernel's executable path). Others
+        /// run a file in no app bundle, unless `pathsUnreadable`.
+        var paths: [Int32: String] = [:]
+        var pathsUnreadable = false
     }
     var opened = Opened()
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {

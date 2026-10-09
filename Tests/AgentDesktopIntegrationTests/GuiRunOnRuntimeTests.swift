@@ -112,6 +112,8 @@ struct Backend: RuntimeBackend {
                               bundleId: nil, title: "表单", frame: Rect(x: 0, y: 0, width: 400, height: 300), onScreen: true)]
     }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: "2026-10-08T01:00:00.000Z") }
+    /// An executable in no app bundle: known not to be iPhone Mirroring (#139).
+    func executablePath(_ pid: Int32) -> String? { "/test/bin/process" }
 }
 
 /// Ark as the capability tests and this run expect it. The button centre

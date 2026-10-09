@@ -171,35 +171,39 @@ extension RuntimeService {
                                    "desktop \(d.desktopId) is physical: it binds windows the user's apps already show; app.launch is for virtual Desktops",
                                    phase: .handler, notSent: true)
             }
-            // #139: refused by name or by path, for every caller.
-            if Self.isBlocked(bundleId: p["bundleId"]?.stringValue)
-                || p["path"]?.stringValue.map({ Self.isBlocked(bundleId: Self.bundleId(atPath: $0)) }) == true {
-                throw Self.blockedAppError()
+            // #139: refused by name or by path, for every caller. A path
+            // inside an app whose bundle id cannot be read is refused too.
+            if Self.isBlocked(bundleId: p["bundleId"]?.stringValue) { throw Self.blockedAppError() }
+            if let path = p["path"]?.stringValue {
+                switch Self.bundle(atPath: path) {
+                case let .bundle(id) where Self.isBlocked(bundleId: id): throw Self.blockedAppError()
+                case .unreadable: throw Self.blockedAppError(unverified: true)
+                default: break
+                }
             }
-            // What was already running, to tell the user's own iPhone
-            // Mirroring from one this launch started.
-            let mirroringBefore = Set(backend.applications(includeBackground: true)
-                .filter { Self.isBlocked(bundleId: $0.bundleId) }.map(\.process.pid))
-            // At the precision start times are kept in (milliseconds).
-            let launchedAfter = Timestamp.date(nowString) ?? now()
             let (pid, windows) = try platform.launch(on: d.screen, bundleId: p["bundleId"]?.stringValue,
                                                      path: p["path"]?.stringValue,
                                                      newInstance: p["newInstance"]?.boolValue ?? false)
-            // A path the check above could not read may still have opened
-            // it. It is never kept as this Desktop's app. It is quit only
-            // when this launch provably started it: not running before, and
-            // started after the launch began. Otherwise it is left alone.
-            if Self.isBlocked(bundleId: runningBundleId(pid)) {
-                let process = backend.processIdentity(pid)
-                let ours = !mirroringBefore.contains(pid)
-                    && process.startedAt.flatMap(Timestamp.date).map { $0 >= launchedAfter } == true
-                let quit = ours && platform.quit(pid: pid)
+            let process = backend.processIdentity(pid)
+            // Checked again on the process itself: iPhone Mirroring, or an
+            // app that cannot be identified, is never kept as this Desktop's
+            // app. The platform returns only a process this launch provably
+            // started (its launch token, not a time or a list), so iPhone
+            // Mirroring is quit, as long as the pid is still that process.
+            // An unidentified one is left alone.
+            switch mirroringCheck(pid) {
+            case .other:
+                break
+            case .mirroring:
+                let quit = process.startedAt != nil && backend.processIdentity(pid) == process && platform.quit(pid: pid)
                 throw Self.blockedAppError(notSent: false, launched: process, quit: quit)
+            case .unverified:
+                throw Self.blockedAppError(notSent: false, unverified: true, launched: process, quit: false)
             }
-            d.launched.append(backend.processIdentity(pid))
+            d.launched.append(process)
             return .obj([
                 ("desktopId", .string(d.desktopId)),
-                ("process", backend.processIdentity(pid).json),
+                ("process", process.json),
                 ("windows", .array(windows.map(Self.placedJSON))),
             ])
         }
@@ -224,7 +228,7 @@ extension RuntimeService {
             }
             // #139, after the grant check so a refusal names no app the
             // caller may not see.
-            if Self.isBlocked(bundleId: runningBundleId(pid)) { throw Self.blockedAppError() }
+            try refuseMirroring(pid)
             let process = backend.processIdentity(pid)
             // The grant check comes first: a refusal says nothing about
             // whether a process with that pid exists.
