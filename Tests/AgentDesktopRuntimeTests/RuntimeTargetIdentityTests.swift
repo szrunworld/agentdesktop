@@ -113,9 +113,10 @@ func openSibling(_ backend: FixedBackend) {
 
 @Test func untilGrantsAVirtualDesktopBindsOnlyAppsItLaunchedAndCapturesTheWindowAlone() throws {
     let platform = FakePlatform()
+    let backend = FixedBackend()
     let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                           backend: FixedBackend(), platform: platform)
+                           backend: backend, platform: platform)
     #expect(s.bindsOnlyLaunchedProcesses && s.refusesScreenCaptureWithoutBinding, "the product defaults")
     let c = handshaken(s)
     let d = try created(s, c)
@@ -130,6 +131,12 @@ func openSibling(_ backend: FixedBackend) {
     // An app launched on the Desktop can be bound; its observation is the window alone.
     let launched = try #require(data(call(s, c, "app.launch", params: #"{"desktopId":"\#(d)","bundleId":"com.apple.Notes"}"#)))
     let pid = try #require(launched["process"]?["pid"]?.intValue)
+    // The window server lists the launched app's window, as on a real machine.
+    let w = try #require(launched["windows"]?.arrayValue?.first)
+    backend.opened.windows.append(WindowSummary(
+        windowId: UInt32(try #require(w["windowId"]?.intValue)), process: ProcessIdentity(pid: Int32(pid), startedAt: nil),
+        appName: "Notes", bundleId: "com.apple.Notes", title: "",
+        frame: Rect(x: 0, y: 0, width: 400, height: 300), onScreen: true))
     #expect(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":\#(pid)}"#)) != nil)
     let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
     #expect(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) != nil)
@@ -145,4 +152,200 @@ func openSibling(_ backend: FixedBackend) {
                                    frame: Rect(x: screen.frame.x + screen.frame.width - 20, y: 3, width: 10, height: 18))
     sc.platform.onCapture = { sc.platform.inFront[screen.name] = [indicator] }
     #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
+}
+
+// #120 audit: a floating panel of the same process (not a normal-level window,
+// so not in the stack checks) holds keyboard focus. Keys and typing would
+// reach it, not the bound window: refused, nothing sent.
+@Test func keysAndTypingAreRefusedWhileAnotherWindowOfTheAppHasFocus() throws {
+    let sc = try scene()
+    let bound = try #require(sc.s.desktops.find(sc.desktop)?.binding?.windowId)
+    func reason(_ a: String) -> String? { failure(act(sc, a))?.details?["reason"]?.stringValue }
+    let keyA = #"{"kind":"key","key":"a"}"#
+    // Focus in another window of the app (a floating panel): refused, nothing sent.
+    sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: bound &+ 1000, focused: true, editable: true)
+    for a in [keyA, #"{"kind":"type","text":"hello"}"#, #"{"kind":"key","key":"tab"}"#] {
+        #expect(reason(a) == "focus_outside_bound_window")
+    }
+    #expect(sc.platform.performed.isEmpty)
+    // Kevin 2026-10-09: focus that cannot be told is refused, for every key.
+    sc.platform.focusedHit = nil
+    for a in [keyA, #"{"kind":"key","key":"delete"}"#, #"{"kind":"key","key":"left"}"#] {
+        #expect(reason(a) == "focus_unverified")
+    }
+    // A focused element whose window cannot be read.
+    sc.platform.focusFollowsWindow = false
+    sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: nil, focused: true, editable: true)
+    #expect(reason(keyA) == "focus_unverified")
+    // No focused element and no focused window: who would get the key cannot be told.
+    sc.platform.focusFollowsWindow = false
+    sc.platform.focusedHit = PlatformHit(role: "AXNone", texts: [], windowId: nil)
+    #expect(reason(keyA) == "focus_unverified")
+    // No focused element, the app's focused window is another one.
+    sc.platform.focusedHit = PlatformHit(role: "AXNone", texts: [], windowId: bound &+ 1000)
+    #expect(reason(keyA) == "focus_outside_bound_window")
+    #expect(sc.platform.performed.isEmpty)
+    // Focus in the bound window: sent; a read that fails once is tried again.
+    sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: bound, focused: true, editable: true)
+    #expect(code(act(sc, keyA)) == nil)
+    sc.platform.focusFailures = 1
+    #expect(code(act(sc, keyA)) == nil)
+    // Clicks are judged by what is under the point (G2), not by focus.
+    sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: bound &+ 1000, focused: true, editable: true)
+    #expect(code(act(sc, #"{"kind":"click","target":{"elementRef":"el_0"}}"#)) == nil)
+}
+
+// Kevin 2026-10-09: with a menu open nothing is sent, not even the arrows or
+// Escape; an unreadable menu state refuses; the focus check returns once the
+// menu is closed. Clicks are judged by what is under the point (G2).
+@Test func withAMenuOpenNoKeyAndNoTypingIsSent() throws {
+    let sc = try scene()
+    // G2 refuses Return, Space and typing first, naming the path.
+    func reason(_ a: String) -> String? {
+        let d = failure(act(sc, a))?.details
+        return d?["reason"]?.stringValue == "clipboard_path_refused" ? d?["path"]?.stringValue : d?["reason"]?.stringValue
+    }
+    sc.platform.focusedHit = PlatformHit(role: "AXMenuItem", texts: ["Open"], windowId: 4242, focused: true)
+    sc.platform.menuShown = true
+    for a in [#"{"kind":"key","key":"down"}"#, #"{"kind":"key","key":"up"}"#, #"{"kind":"key","key":"escape"}"#,
+              #"{"kind":"key","key":"a"}"#, #"{"kind":"key","key":"delete"}"#, #"{"kind":"key","key":"tab"}"#,
+              #"{"kind":"key","key":"o","modifiers":["cmd"]}"#, #"{"kind":"key","key":"return"}"#,
+              #"{"kind":"key","key":"space"}"#, #"{"kind":"type","text":"x"}"#] {
+        #expect(reason(a) == "menu_open", "\(a)")
+    }
+    #expect(sc.platform.performed.isEmpty)
+    sc.platform.menuShown = nil
+    #expect(reason(#"{"kind":"key","key":"escape"}"#) == "menu_unverified")
+    // Closed again: the focus check is back (focus is not in the bound window here).
+    sc.platform.menuShown = false
+    #expect(reason(#"{"kind":"key","key":"down"}"#) == "focus_outside_bound_window")
+    // Closing a menu by clicking the bound window is a click, judged by G2.
+    sc.platform.menuShown = true
+    #expect(code(act(sc, #"{"kind":"click","target":{"elementRef":"el_0"}}"#)) == nil)
+}
+
+// Kevin's three regression cases for menus (2026-10-09). Whose a menu is cannot
+// be proved, so all three refuse; where the menu is does not matter.
+@Test(arguments: ["another window's menu, beside the bound window",
+                  "another window's menu, over the bound window",
+                  "a menu whose owner cannot be told"])
+func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuCase: String) throws {
+    let sc = try scene()
+    sc.platform.focusedHit = PlatformHit(role: "AXMenuItem", texts: ["Open"], windowId: 4242, focused: true)
+    sc.platform.menuShown = menuCase.hasPrefix("a menu whose owner") ? nil : true
+    for k in ["down", "escape"] {
+        let r = failure(act(sc, #"{"kind":"key","key":"\#(k)"}"#))
+        #expect(r?.details?["reason"]?.stringValue == (sc.platform.menuShown == nil ? "menu_unverified" : "menu_open"), "\(menuCase) \(k)")
+        #expect(r?.notSent == true)
+    }
+    #expect(sc.platform.performed.isEmpty)
+}
+
+// The check and the send are not one step: focus known to have left the
+// bound window right after the send makes the delivery unknown.
+@Test func focusMovingAwayDuringTheSendMakesTheDeliveryUnknown() throws {
+    let sc = try scene()
+    let bound = try #require(sc.s.desktops.find(sc.desktop)?.binding?.windowId)
+    sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: bound, focused: true, editable: true)
+    sc.platform.onPerform = {
+        sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: bound &+ 1000, focused: true, editable: true)
+    }
+    let r = act(sc, #"{"kind":"key","key":"a"}"#)
+    #expect(code(r) == "action_delivery_unknown")
+    #expect(failure(r)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
+    #expect(sc.platform.performed.count == 1)
+}
+
+// Codex on 74278c9 (P1): typed text goes one character at a time, focus is
+// checked once. Typing goes only into editable text with focus in the bound
+// window, and a newline only ends the text; refused before any input.
+@Test func typingNeedsEditableFocusAndANewlineOnlyAtTheEnd() throws {
+    let sc = try scene()
+    let bound = try #require(sc.s.desktops.find(sc.desktop)?.binding?.windowId)
+    func reason(_ a: String) -> String? { failure(act(sc, a))?.details?["reason"]?.stringValue }
+    // A plain button of the bound window has focus: "a b" would press it.
+    sc.platform.focusedHit = PlatformHit(role: "AXButton", texts: ["Next"], windowId: bound, focused: true)
+    #expect(reason(#"{"kind":"type","text":"a b"}"#) == "type_focus_not_text")
+    // Nothing focused in the bound window: nowhere sure to type.
+    sc.platform.focusedHit = PlatformHit(role: "AXNone", texts: [], windowId: bound)
+    #expect(reason(#"{"kind":"type","text":"hello"}"#) == "type_focus_not_text")
+    #expect(sc.platform.performed.isEmpty)
+    // Editable text with focus: a newline in the middle is refused...
+    sc.platform.focusedHit = PlatformHit(role: "AXTextArea", texts: [], windowId: bound, focused: true, editable: true)
+    for text in [#"one\ntwo"#, #"one\rtwo"#, #"one\r\ntwo"#, #"\nx"#,
+                 // b9 on 4ec619b: only one newline may end the text.
+                 #"abc\n\n"#, #"abc\r\n\r\n"#, #"abc\r\r"#, #"abc\n\r"#, #"\n\n"#] {
+        #expect(reason(#"{"kind":"type","text":"\#(text)"}"#) == "type_newline_not_last", "\(text)")
+    }
+    #expect(sc.platform.performed.isEmpty)
+    // ...and only at the end it goes through, as does plain text.
+    for text in ["hello world", #"one line\n"#, #"one line\r\n"#, #"one line\r"#] {
+        #expect(code(act(sc, #"{"kind":"type","text":"\#(text)"}"#)) == nil, "\(text)")
+    }
+    #expect(sc.platform.performed.count == 4)
+}
+
+// #173 (with #163's per-character check): the engine records what typing
+// did. Stopped before its first character it submitted nothing and records
+// not performed, which the Runtime marks notSent; stopped after some, or
+// after a click into a web field went out, it records submitted: never
+// notSent. The message text decides nothing.
+@Test func aStoppedTypingIsJudgedByTheEnginesRecordNotItsText() {
+    #expect(EnginePlatform.notPerformed(delivery: "notPerformed"))
+    #expect(!EnginePlatform.notPerformed(delivery: "submitted"))
+    #expect(!EnginePlatform.notPerformed(delivery: nil))
+}
+
+// Codex on b258049 (P1): no menu was open before a key or typing was sent,
+// so a menu after it, or a menu state that cannot be read, is the input's
+// doing and focus may have gone with it: unknown, never dispatched.
+@Test(arguments: [Optional(true), nil])
+func aMenuAppearingWithTheInputMakesTheDeliveryUnknown(_ after: Bool?) throws {
+    let sc = try scene()
+    sc.platform.onPerform = { sc.platform.menuShown = after }
+    for a in [#"{"kind":"key","key":"a"}"#, #"{"kind":"type","text":"x"}"#] {
+        sc.platform.menuShown = false
+        let r = act(sc, a)
+        #expect(code(r) == "action_delivery_unknown", "\(a)")
+        #expect(failure(r)?.notSent != true)
+        #expect(failure(r)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
+    }
+    #expect(sc.platform.performed.count == 2)
+}
+
+// Codex on 9ed802d (P1), and the audit of every "cannot be read" branch:
+// before the send it refuses (notSent), after the send it is unknown.
+@Test(arguments: ["no focus", "focus without a window"])
+func focusThatCannotBeReadAfterTheSendIsUnknown(_ how: String) throws {
+    let sc = try scene()
+    let bound = try #require(sc.s.desktops.find(sc.desktop)?.binding?.windowId)
+    sc.platform.focusedHit = PlatformHit(role: "AXTextArea", texts: [], windowId: bound, focused: true, editable: true)
+    sc.platform.onPerform = {
+        sc.platform.focusFollowsWindow = false
+        sc.platform.focusedHit = how == "no focus" ? nil
+            : PlatformHit(role: "AXTextArea", texts: [], windowId: nil, focused: true, editable: true)
+    }
+    let r = act(sc, #"{"kind":"key","key":"a"}"#)
+    #expect(code(r) == "action_delivery_unknown")
+    #expect(failure(r)?.notSent != true)
+    #expect(failure(r)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
+}
+
+@Test func aWindowListThatCannotBeReadRefusesBeforeAndIsUnknownAfter() throws {
+    let backend = FixedBackend()
+    let sc = try scene(backend: backend)
+    // Before the send: which window of the app is in front cannot be told.
+    backend.opened.listUnreadable = true
+    let before = act(sc, #"{"kind":"click","target":{"elementRef":"el_0"}}"#)
+    #expect(code(before) == "stale_observation")
+    #expect(failure(before)?.details?["reason"]?.stringValue == "window_list_unverified")
+    #expect(failure(before)?.notSent == true)
+    #expect(sc.platform.performed.isEmpty)
+    // After the send: unknown, never dispatched.
+    backend.opened.listUnreadable = false
+    sc.platform.onPerform = { backend.opened.listUnreadable = true }
+    let after = act(sc, #"{"kind":"click","target":{"elementRef":"el_0"}}"#)
+    #expect(code(after) == "action_delivery_unknown")
+    #expect(failure(after)?.notSent != true)
+    #expect(sc.platform.performed.count == 1)
 }

@@ -62,4 +62,38 @@ import Testing
         let untouched = DeliveryRecorder()
         #expect(untouched.state == .notPerformed)
     }
+
+    // b9 on merging #163: the typing loop (#163) stopped before its first
+    // character leaves the recorder at not performed; after some characters
+    // it is submitted. Posting goes through a function that notes it, as
+    // SkyLight.postKey does.
+    @Test func typingStoppedBeforeItsFirstCharacterIsNotPerformedAfterSomeIsSubmitted() {
+        let none = DeliveryRecorder()
+        DeliveryRecorder.$active.withValue(none) {
+            _ = try? BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11, focusedWindow: { _ in 99 },
+                                                    post: { _, _ in DeliveryRecorder.submitting() }, pause: 0)
+        }
+        #expect(none.state == .notPerformed, "no character was submitted")
+        let some = DeliveryRecorder()
+        final class Reads { var n = 0 }
+        let reads = Reads()
+        DeliveryRecorder.$active.withValue(some) {
+            _ = try? BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11,
+                                                    focusedWindow: { _ in reads.n += 1; return reads.n == 1 ? 11 : nil },
+                                                    post: { _, _ in DeliveryRecorder.submitting() }, pause: 0)
+        }
+        #expect(some.state == .submitted, "one character went out before focus could not be read")
+    }
+
+    // A click into a web field went out, then the typing stops before its
+    // first character: the input as a whole is submitted.
+    @Test func aClickThenATypingStoppedAtOnceIsSubmitted() {
+        let r = DeliveryRecorder()
+        DeliveryRecorder.$active.withValue(r) {
+            DeliveryRecorder.submitting()   // the click (BackgroundInput.click posts through SkyLight)
+            _ = try? BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11, focusedWindow: { _ in 99 },
+                                                    post: { _, _ in DeliveryRecorder.submitting() }, pause: 0)
+        }
+        #expect(r.state == .submitted)
+    }
 }

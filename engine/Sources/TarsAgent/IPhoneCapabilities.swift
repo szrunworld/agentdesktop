@@ -215,11 +215,13 @@ public enum IPhoneCapabilities {
             HostEffects(
                 usesPhysicalPointer: false, mayTemporarilyActivateApp: true, borrowsKeyFocus: true,
                 usesHostClipboard: true,
-                basis: "IPhoneAgentScreen.paste writes NSPasteboard.general (after saving every item and type, "
-                    + "or refuses), sends ⌘V with holdModifiers (no activation) and puts the clipboard back, "
-                    + "later if the phone may still fetch it; pressing Allow Paste is the same click as a tap, "
-                    + "which borrows key focus and may bring Mirroring forward for a moment; a trailing "
-                    + "newline adds Return")
+                basis: "IPhoneAgentScreen.paste saves every item and type on NSPasteboard.general (or pastes "
+                    + "nothing), writes the text, sends ⌘V with holdModifiers (no activation) and puts the "
+                    + "saved contents back once the paste settled. A paste that did not settle puts them back "
+                    + "only if the phone is then seen done; otherwise the text stays on the clipboard for good, "
+                    + "the user's earlier contents are not put back, and other pastes are refused for two "
+                    + "minutes. Pressing Allow Paste is the same click as a tap, which borrows key focus and may "
+                    + "bring Mirroring forward for a moment; a trailing newline adds Return")
         case .pressReturn, .pressDelete:
             HostEffects(
                 usesPhysicalPointer: false, mayTemporarilyActivateApp: false, borrowsKeyFocus: false,

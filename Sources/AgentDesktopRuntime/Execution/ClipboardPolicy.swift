@@ -21,9 +21,9 @@ import Foundation
 ///   an unreadable layout or menu bar refuses. F2–F4 (cut, copy, paste in
 ///   Office) are refused.
 /// - Clicks, by element or by point: the element under the point is read
-///   again just before sending. A menu item is allowed only once read and
-///   seen not to paste, copy or cut; anything outside the bound window that
-///   is not a menu, and anything accessibility cannot read, is refused; any
+///   again just before sending. No menu item or menu bar item is clicked
+///   (whose menu it is cannot be proved, #163); anything outside the bound
+///   window, and anything accessibility cannot read, is refused; any
 ///   control whose name says paste, copy or cut (in the languages macOS
 ///   ships) is refused.
 /// - Typing never uses the clipboard (accessibility value writes or unicode
@@ -217,7 +217,13 @@ enum ClipboardPolicy {
             if hit.shortcut == nil && texts.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
                 return "menu_item_unverified"
             }
-            return nil
+            // Kevin 2026-10-09 (#163): menu authorization is the bound
+            // window's, and lying over it does not prove a menu is its. Which
+            // window opened a menu cannot be proved, so no menu item and no
+            // menu bar item is clicked; a menu another window of the app
+            // opened would otherwise act on that window ("Close", "Delete").
+            // A click on the bound window itself still closes a menu.
+            return "menu_open"
         }
         // Outside the bound window and not a menu: a sheet, a popover, a
         // panel or another app's window, which the snapshot never showed.

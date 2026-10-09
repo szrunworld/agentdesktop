@@ -136,8 +136,11 @@ public enum ClipboardProbe {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, messagingTimeout)
         guard let element: AXUIElement = r.read(app, kAXFocusedUIElementAttribute) else {
-            // No focused element is an answer (nothing to press), unless the read failed.
-            return r.expired ? nil : Hit(role: "AXNone", texts: [], shortcut: nil, windowID: nil, inMenu: false)
+            // No focused element is an answer (nothing to press), unless the
+            // read failed. Keys still go to the app's focused window: say which.
+            let focusedWindow: AXUIElement? = r.read(app, kAXFocusedWindowAttribute)
+            return r.expired ? nil : Hit(role: "AXNone", texts: [], shortcut: nil,
+                                          windowID: focusedWindow.flatMap(WindowMover.windowID(of:)), inMenu: false)
         }
         guard let role: String = r.read(element, kAXRoleAttribute) else { return nil }
         var ancestors: [String] = []
@@ -273,6 +276,24 @@ public enum ClipboardProbe {
         }
         if let v: String = r.read(element, kAXValueAttribute), !v.isEmpty, v.count <= 64 { out.append(v) }
         return out
+    }
+
+    /// The window holding the app's keyboard focus, read now: the focused
+    /// element's window, or the app's focused window when no element has
+    /// focus. Nil when it cannot be read. Light enough to ask before each
+    /// typed character.
+    public static func focusedWindowID(pid: pid_t) -> CGWindowID? {
+        let r = Reader()
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, messagingTimeout)
+        var window: AXUIElement?
+        if let element: AXUIElement = r.read(app, kAXFocusedUIElementAttribute) {
+            window = r.read(element, kAXWindowAttribute) ?? r.read(element, kAXTopLevelUIElementAttribute)
+        } else {
+            window = r.read(app, kAXFocusedWindowAttribute)
+        }
+        guard !r.expired else { return nil }
+        return window.flatMap(WindowMover.windowID(of:))
     }
 
     /// Whether the app shows a menu now (a menu bar menu or a context menu

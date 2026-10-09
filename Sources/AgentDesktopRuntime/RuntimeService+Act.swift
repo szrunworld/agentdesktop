@@ -104,6 +104,18 @@ extension RuntimeService {
                                        phase: .handler, notSent: true,
                                        details: .obj([("reason", .string("clipboard_path_refused")), ("path", .string(path))]))
                 }
+                // #120 audit (Kevin 2026-10-09): keys and typing go to the
+                // app's focused window, not to a window id. A floating panel of
+                // the same process (not a normal-level window, so not in the
+                // checks above) may hold focus, and input would reach a window
+                // that was neither bound nor shown. Sent only when the focused
+                // window is known to be the bound one; refused when it is
+                // elsewhere or cannot be told (fail closed). With a menu open
+                // nothing is sent (Kevin 2026-10-09: whose menu it is cannot be
+                // proved); the agent closes it by clicking the bound window.
+                if pa.kind == .key || pa.kind == .type {
+                    try focusRefusal(pa, pid: b.process.pid, windowId: b.windowId, platform: platform)
+                }
                 if let deadline = request.deadline.flatMap(Timestamp.date), now() >= deadline {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
                                        phase: .handler, notSent: true)
@@ -137,6 +149,33 @@ extension RuntimeService {
                         if !Self.sameFrame(after.window.frame, window.frame) {
                             throw RuntimeError("stale_observation", "window \(b.windowId) moved while input was sent",
                                                phase: .handler, details: .obj([("reason", .string("moved"))]))
+                        }
+                        // The focus check before the send and the send are not
+                        // one step: focus that is known to have left the bound
+                        // window right after makes the delivery unknown (the
+                        // input may have gone with it). Residual: a change and
+                        // a change back between two reads is not seen.
+                        if pa.kind == .key || pa.kind == .type {
+                            // No menu was open before the send (checked above),
+                            // so a menu now, or a state that cannot be read, is
+                            // this input's doing, and focus may have gone with
+                            // it (Codex on b258049). Only with no menu is the
+                            // focus read again.
+                            guard platform.menuOpen(pid: b.process.pid) == false else {
+                                throw RuntimeError("stale_observation", "a menu opened while input was sent",
+                                                   phase: .handler, details: .obj([("reason", .string("menu_opened_by_action"))]))
+                            }
+                            // Dispatched only when focus is known to be still in
+                            // the bound window; unreadable is unknown (Codex on
+                            // 9ed802d).
+                            guard let now = platform.focusedControl(pid: b.process.pid)?.windowId else {
+                                throw RuntimeError("stale_observation", "keyboard focus could not be read after input was sent",
+                                                   phase: .handler, details: .obj([("reason", .string("focus_unverified_after_send"))]))
+                            }
+                            if now != b.windowId {
+                                throw RuntimeError("stale_observation", "keyboard focus moved to window \(now) while input was sent",
+                                                   phase: .handler, details: .obj([("reason", .string("focus_moved"))]))
+                            }
                         }
                     } catch let changed as RuntimeError {
                         delivery = "unknown"; execution = "unknown"
@@ -204,6 +243,60 @@ extension RuntimeService {
             break
         }
         return result
+    }
+
+    /// Why a key or typing must not be sent to the bound window now (#120
+    /// audit), or nothing. Every refusal is notSent and names its reason.
+    func focusRefusal(_ pa: PlatformAction, pid: Int32, windowId: UInt32, platform: DesktopPlatform) throws {
+        func refuse(_ reason: String, _ message: String, _ extra: [(String, JSONValue)] = []) -> RuntimeError {
+            RuntimeError("stale_observation", message + "; nothing was sent", phase: .handler, notSent: true,
+                         details: .obj([("reason", .string(reason))] + extra))
+        }
+        // Kevin 2026-10-09: menu authorization is the bound window's, not the
+        // process's, and being placed over the bound window does not prove a
+        // menu is its. Which window opened a menu cannot be proved, so while
+        // the app shows any menu no key and no typing is sent, not even the
+        // arrows or Escape. Clicks are judged by what is under the point (G2).
+        switch platform.menuOpen(pid: pid) {
+        case nil:
+            throw refuse("menu_unverified", "whether the app shows a menu cannot be read")
+        case true?:
+            throw refuse("menu_open", "the app shows a menu, and whose it is cannot be proved; close it by clicking the bound window")
+        case false?:
+            break
+        }
+        guard let focus = platform.focusedControl(pid: pid) ?? platform.focusedControl(pid: pid) else {
+            throw refuse("focus_unverified", "the app's keyboard focus cannot be read")
+        }
+        guard let focusWindow = focus.windowId else {
+            throw refuse("focus_unverified", "the window holding the app's keyboard focus cannot be told")
+        }
+        guard focusWindow == windowId else {
+            throw refuse("focus_outside_bound_window", "keyboard focus is in window \(focusWindow) of the app, not the bound window \(windowId)",
+                         [("focusWindowId", .int(Int(focusWindow)))])
+        }
+        // Codex on 74278c9 (P1): typed text is sent one character at a time,
+        // and focus is checked once before. A space typed into a focused
+        // button presses it, a newline presses a default button; either may
+        // open a menu or move focus, and the rest of the text would follow it
+        // elsewhere. So typing goes only into editable text that has focus in
+        // the bound window, and a newline only at the very end (nothing left
+        // to send after what it may set off).
+        if pa.kind == .type {
+            let role = String(focus.role.split(separator: "/").first ?? "")
+            guard focus.editable || ClipboardPolicy.textRoles.contains(role) else {
+                throw refuse("type_focus_not_text", "keyboard focus is not on editable text in the bound window; typing there could press a control")
+            }
+            // At most one newline, and only as the last thing sent ("\n",
+            // "\r" or "\r\n"): a second one would go wherever the first sent
+            // focus (b9 on 4ec619b: "abc\n\n").
+            var scalars = Array((pa.text ?? "").unicodeScalars)
+            if scalars.suffix(2) == ["\r", "\n"] { scalars.removeLast(2) }
+            else if let last = scalars.last, last == "\n" || last == "\r" { scalars.removeLast() }
+            guard !scalars.contains(where: { $0 == "\n" || $0 == "\r" }) else {
+                throw refuse("type_newline_not_last", "a newline may only end the text: what it sets off could take the rest elsewhere; send the lines as separate actions")
+            }
+        }
     }
 
     static func sameFrame(_ a: AgentDesktopProtocol.Rect, _ b: AgentDesktopProtocol.Rect) -> Bool {
