@@ -336,7 +336,23 @@ public final class HubStore: @unchecked Sendable {
     }
 
     private func windowGrants(where clause: String, _ args: [SQLiteDatabase.Value]) -> [WindowGrant] {
-        (try? loadWindowGrants(where: clause, args)) ?? []
+        let rows = (try? loadWindowGrants(where: clause, args)) ?? []
+        let pending = lock.withLock { tombstones }
+        guard !pending.isEmpty else { return rows }
+        // An ending not saved yet still holds; try to save it again.
+        var out: [WindowGrant] = []
+        for var g in rows {
+            if let t = pending[g.windowGrantId], g.state == "active" {
+                if (try? db.transaction({ try endWindowGrantRow(g.windowGrantId, state: t.state, reason: t.reason) })) != nil {
+                    lock.withLock { _ = tombstones.removeValue(forKey: g.windowGrantId) }
+                }
+                g.state = t.state
+                g.endedReason = t.reason
+                if clause.contains("state = 'active'") { continue }
+            }
+            out.append(g)
+        }
+        return out
     }
 
     /// The throwing read, for sweeps inside a transaction: a failed read
@@ -360,12 +376,24 @@ public final class HubStore: @unchecked Sendable {
     /// True when this call ended it (it was active).
     @discardableResult
     public func endWindowGrant(_ id: String, state: String, reason: String) throws -> Bool {
-        try db.transaction { try endWindowGrantRow(id, state: state, reason: reason) }
+        // Ended in memory first (Codex on 8e9eb9d): a store that cannot save
+        // it does not let the grant come back while this process runs; the
+        // write is tried again whenever it is read.
+        lock.withLock { if tombstones[id] == nil { tombstones[id] = (state, reason) } }
+        let ended = try db.transaction { try endWindowGrantRow(id, state: state, reason: reason) }
+        lock.withLock { _ = tombstones.removeValue(forKey: id) }
+        return ended
     }
+
+    /// Tests: every window grant ending fails to save.
+    var failsWindowGrantWrites = false
+    /// Window grants ended in this process whose ending is not saved yet.
+    private var tombstones: [String: (state: String, reason: String)] = [:]
 
     /// Inside a transaction the caller holds.
     @discardableResult
     private func endWindowGrantRow(_ id: String, state: String, reason: String) throws -> Bool {
+        if failsWindowGrantWrites { throw RuntimeStoreError("window grant store unavailable (test)") }
         try db.execute("UPDATE window_grants SET state = ?, ended_reason = ? WHERE window_grant_id = ? AND state = 'active'",
                        [.text(state), .text(reason), .text(id)])
         return db.changes == 1

@@ -567,7 +567,8 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     let shown = data(call(st.s, other, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"]
     #expect(shown?["windowId"]?.intValue == 12)
     #expect(shown?["windowGrantId"]?.stringValue == theirs.windowGrantId, "its own grant, never the binder's")
-    #expect(!(data(call(st.s, other, "desktop.list"))?.encoded() ?? "").contains(mine))
+    let listed = data(call(st.s, other, "desktop.list"))?.encoded() ?? ""
+    #expect(listed.contains("wg_") && !listed.contains(mine), "\(listed)")
     #expect(data(call(st.s, st.app, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"]?["windowGrantId"]?.stringValue == mine)
 }
 
@@ -661,7 +662,8 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     #expect(data(call(st.s, st.owner, "hub.grants.set", params: p)) != nil)
     let back = st.reconnect()
     #expect(data(call(st.s, back, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"] == .null)
-    #expect(!(data(call(st.s, back, "desktop.list"))?.encoded() ?? "").contains("\"windowId\":12"))
+    let listed = data(call(st.s, back, "desktop.list"))?.encoded() ?? ""
+    #expect(listed.contains("\"binding\":null") && !listed.contains("\"windowId\":12"), "\(listed)")
 }
 
 @Test func anArtifactRemovedFromManyPlacesAtOnceIsCountedOnce() async throws {
@@ -700,4 +702,29 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
     let image = try #require(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#))?["image"])
     #expect((image["expiresAt"]?.stringValue ?? "~") <= g.expiresAt)
+}
+
+@Test func anEndingTheStoreCouldNotSaveStillHolds() throws {
+    let st = try Stage()
+    let id = try #require(data(st.request(["observe"]))?["windowGrantId"]?.stringValue)
+    #expect(data(st.bind(12)) != nil)
+    let sid = try st.session()
+    // The store fails while the window is seen closed.
+    st.s.hub.failsWindowGrantWrites = true
+    st.backend.opened.lock.withLock { _ = st.backend.opened.closed.insert(12) }
+    #expect(code(st.observe(sid)) == "grant_missing")
+    // The window id comes back in the same process before anything is saved:
+    // the grant stays ended (Codex on 8e9eb9d).
+    st.backend.opened.lock.withLock { _ = st.backend.opened.closed.remove(12) }
+    #expect(st.reason(st.observe(sid)) == "window_grant_ended")
+    #expect(st.s.hub.windowGrant(id)?.state == "ended")
+    // Once the store works again, the ending is saved on the next read.
+    st.s.hub.failsWindowGrantWrites = false
+    _ = st.s.hub.windowGrant(id)
+    #expect(st.s.hub.windowGrants(clientId: st.appId).isEmpty)
+    // A revocation that cannot be saved is not reported done.
+    let st2 = try Stage()
+    let id2 = try #require(data(st2.request(["observe"]))?["windowGrantId"]?.stringValue)
+    st2.s.hub.failsWindowGrantWrites = true
+    #expect(code(call(st2.s, st2.owner, "hub.windows.revoke", params: #"{"windowGrantId":"\#(id2)"}"#)) == "audit_unavailable")
 }

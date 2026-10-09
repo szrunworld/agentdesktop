@@ -48,7 +48,11 @@ print("" if d is None else d)' "$1" "$2" 2>/dev/null; }
 
 cleanup() {
     [ -n "${DESK:-}" ] && "$B" desktop destroy "$DESK" --format json > /dev/null 2>&1
-    [ -n "${PROBE:-}" ] && kill "$PROBE" 2>/dev/null
+    # Only the very process this script started: same pid and same start
+    # time as recorded at launch (Codex on 8e9eb9d: the pid may be reused).
+    if [ -n "${PROBE:-}" ] && [ -n "${PROBE_START:-}" ] && [ "$(ps -o lstart= -p "$PROBE" 2>/dev/null)" = "$PROBE_START" ]; then
+        kill "$PROBE" 2>/dev/null
+    fi
     [ -n "${HOST:-}" ] && kill "$HOST" 2>/dev/null
     [ -s "$DIR/search-list" ] && restore_search_list
     security delete-keychain "$KC" 2>/dev/null
@@ -96,6 +100,8 @@ while [ -z "$PROBE" ] && [ $i -lt 40 ]; do
     PROBE="$NEW"
 done
 [ -n "$PROBE" ] && ok "probe TextEdit pid $PROBE (new, started by this script)" || { bad "no new TextEdit"; exit 1; }
+PROBE_START=$(ps -o lstart= -p "$PROBE" 2>/dev/null)
+[ -n "$PROBE_START" ] || { bad "cannot read the probe's start time"; PROBE=""; exit 1; }
 WIN=$(swift - "$PROBE" 2>/dev/null <<'SWIFT'
 import CoreGraphics
 let pid = Int32(CommandLine.arguments[1])!
