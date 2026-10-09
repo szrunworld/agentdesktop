@@ -207,6 +207,15 @@ class Run:
         self.root_alive = True
         self.not_stopped = {}  # what stop() could not end
 
+    def command_gone(self):
+        """The command has exited and been reaped: its pid may be reused at
+        once. It is forgotten (start times are only exact to the second, so
+        a remembered entry could match a new process in the same second)
+        and members() no longer accepts its pid from any source (Codex and
+        b9 on #196)."""
+        self.root_alive = False
+        self.seen.pop(self.root, None)
+
     def snapshot(self, force=False):
         now = time.monotonic()
         if not SNAPSHOTS or (not force and now - self.last_snapshot < 1.0):
@@ -244,6 +253,8 @@ class Run:
                 if t.isdigit() and int(t) in procs and int(t) != os.getpid():
                     live[int(t)] = procs[int(t)][3]
         live.update(self._marked(procs, set(live), deadline))
+        if not self.root_alive:
+            live.pop(self.root, None)
         return dict(sorted(live.items()))
 
     def _own_helpers(self, procs):
@@ -316,7 +327,7 @@ class Run:
             if self.child is not None:
                 try:
                     self.child.wait(timeout=2)
-                    self.root_alive = False
+                    self.command_gone()
                     # Look again: the list above still holds the reaped
                     # root, whose pid may already be someone else's, and
                     # whatever else exited meanwhile (Codex on #196).
@@ -544,7 +555,7 @@ def main():
         if child.poll() is None:
             run.snapshot()
         else:
-            run.root_alive = False
+            run.command_gone()
             # Drain what is left, never blocking: a process the run left
             # behind can hold the terminal open forever (b9 on #188).
             deadline = time.monotonic() + 5

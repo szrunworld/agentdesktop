@@ -331,6 +331,11 @@ class WatchdogTests(unittest.TestCase):
         try:
             run = wd.Run(bystander.pid, None, uuid.uuid4().hex, time.time(), Reaped())
             self.assertIn(bystander.pid, run.members())  # found while the command "ran"
+            # The forced snapshot before a diagnosis remembers the root; with
+            # the bystander's own start time this acts out a pid reused in
+            # the same second (lstart is exact to the second).
+            run.snapshot(force=True)
+            self.assertIn(bystander.pid, run.seen)
             real = wd.os.killpg
             wd.os.killpg = lambda *a: None  # the group signal is not what is tested here
             try:
@@ -340,6 +345,8 @@ class WatchdogTests(unittest.TestCase):
             time.sleep(0.3)
             self.assertIsNone(bystander.poll(), "the process that reused the reaped pid was killed")
             self.assertFalse(run.root_alive)
+            self.assertNotIn(bystander.pid, run.seen)
+            self.assertNotIn(bystander.pid, run.members())
         finally:
             bystander.kill()
             bystander.wait()
