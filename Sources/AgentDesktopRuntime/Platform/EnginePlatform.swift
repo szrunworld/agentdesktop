@@ -135,9 +135,18 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         let answer = handle(r)
         // Refused before anything was opened: say so, with the reason, so a
         // client can tell "not allowed" from a launch that failed.
-        if !answer.ok, let reason = answer.reason, ["no_launch_apps_configured", "launch_not_verified"].contains(reason) {
-            throw RuntimeError("permission_denied", answer.error ?? "the app was not opened", phase: .handler, notSent: true,
-                               details: .obj([("reason", .string(reason))]))
+        if !answer.ok, let reason = answer.reason {
+            switch reason {
+            case "no_launch_apps_configured", "launch_not_verified", "launch_unprovable", "app_already_running":
+                throw RuntimeError("permission_denied", answer.error ?? "the app was not opened", phase: .handler, notSent: true,
+                                   details: .obj([("reason", .string(reason))]))
+            case "launch_refused_after_open":
+                // Opened, then refused: nothing moved or bound, but not "not sent".
+                throw RuntimeError("execution_failed", answer.error ?? "the app was opened, then refused", phase: .handler,
+                                   details: .obj([("reason", .string(reason))]))
+            default:
+                break
+            }
         }
         let response = try check(answer)
         guard let pid = response.pid else { throw PlatformError(.refused, "the engine reported no process") }

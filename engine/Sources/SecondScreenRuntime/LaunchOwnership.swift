@@ -239,17 +239,19 @@ public enum LaunchOwnership {
                                         token: String = UUID().uuidString) async -> Result<LaunchedProcess, LaunchRefusal> {
         let info = system.bundleInfo(url)
         guard let id = info.id else {
-            return .failure(LaunchRefusal("\(url.lastPathComponent) has no bundle ID; a new process cannot be told apart from a running one"))
+            return .failure(LaunchRefusal("\(url.lastPathComponent) has no bundle ID; a new process cannot be told apart from a running one",
+                                          reason: "launch_unprovable"))
         }
         guard !info.singleInstance else {
-            return .failure(LaunchRefusal("\(id) allows one instance only; its windows are not moved automatically"))
+            return .failure(LaunchRefusal("\(id) allows one instance only; its windows are not moved automatically",
+                                          reason: "launch_unprovable"))
         }
         // Checking a signature reads the whole app from disk: off the main
         // actor, so a large app never holds up the engine's main thread.
         let readIdentity = system.identity
         let identity = await Task.detached { readIdentity(url) }.value
         guard let identity, identity.bundleId == id else {
-            return .failure(LaunchRefusal("\(id) has no valid code signature; it was not opened"))
+            return .failure(LaunchRefusal("\(id) has no valid code signature; it was not opened", reason: "launch_unprovable"))
         }
         let verifications = system.verified()
         guard verification(for: identity, in: verifications) != nil else {
@@ -264,13 +266,15 @@ public enum LaunchOwnership {
                 reason: "launch_not_verified"))
         }
         guard system.processes(id).isEmpty else {
-            return .failure(LaunchRefusal("\(id) is already running; an app the user has open is not launched again for an agent"))
+            return .failure(LaunchRefusal("\(id) is already running; an app the user has open is not launched again for an agent",
+                                          reason: "app_already_running"))
         }
         let before = system.runningPIDs()
         let previous = system.frontmost()
         func refuseAfterOpening(_ opened: LaunchedProcess?, _ message: String) -> Result<LaunchedProcess, LaunchRefusal> {
             if let previous, let opened { system.returnFocus(previous, opened) }
-            return .failure(LaunchRefusal(message, opened: true))
+            return .failure(LaunchRefusal(message + " (the app was opened; its process was left as it is)", opened: true,
+                                          reason: "launch_refused_after_open"))
         }
         let opened: LaunchedProcess
         switch await system.open(url, [tokenVariable: token]) {
@@ -319,7 +323,11 @@ public enum LaunchOwnership {
     }
 
     /// Parse a KERN_PROCARGS2 buffer: argc, the executable path, padding,
-    /// argc arguments, then the environment, each NUL-terminated.
+    /// argc arguments, then the environment, each NUL-terminated. Anything
+    /// that does not parse (short buffer, negative argc, fewer strings than
+    /// argc) is nil, and nil is a refusal: the parser never guesses. An
+    /// empty argv[0] is skipped as padding, which shifts the reading by one
+    /// string and so also ends in a refusal, never in a false match.
     static func parseProcArgs(_ b: [UInt8]) -> [String: String]? {
         guard b.count >= 4 else { return nil }
         let argc = Int(b.withUnsafeBytes { $0.load(as: Int32.self) })

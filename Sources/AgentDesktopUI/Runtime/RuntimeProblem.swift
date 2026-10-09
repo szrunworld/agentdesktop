@@ -45,6 +45,12 @@ public struct RuntimeProblem: Equatable, Sendable {
             return "未配置允许启动的应用。启动前必须能证明新进程确实由这次启动创建；目前没有任何应用通过这项验证，所以 AgentDesktop 不会打开它。"
         case "launch_not_verified":
             return "这个应用（或它的当前版本）还没有通过启动归属验证，AgentDesktop 不会打开它。应用更新后需要重新验证。"
+        case "launch_unprovable":
+            return "无法证明这个应用的新进程由这次启动创建（没有有效签名、只允许单实例或没有 Bundle ID），AgentDesktop 不会打开它。"
+        case "app_already_running":
+            return "这个应用已经在运行，是你正在使用的实例。Agent 不会再启动它，也不会动它的窗口。"
+        case "launch_refused_after_open":
+            return "应用已被打开，但无法证明新进程属于这次启动，所以没有移动或绑定它的窗口。它可能留在你的屏幕上，可以手动关闭。"
         case "physical_desktop_requires_grant":
             return "在逐窗口授权上线前，不能把你的显示器作为 Desktop。请使用虚拟 Desktop。"
         default:

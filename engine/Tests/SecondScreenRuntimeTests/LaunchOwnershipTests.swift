@@ -465,3 +465,25 @@ extension Result where Failure == LaunchRefusal {
     #expect(sign.terminationStatus == 0)
     #expect(AppIdentity.read(app) == nil, "an ad-hoc copy claiming TextEdit's bundle ID has no identity")
 }
+
+// 42's review: every refusal names its reason; refusals after opening say
+// the app was opened.
+@MainActor
+@Test func everyRefusalCarriesAReason() async throws {
+    let running = ScriptedSystem()
+    let (a1, c1) = try tempApp(running)
+    defer { c1() }
+    running.userStarts(100)
+    #expect(await launch(running, a1).0.reason == "app_already_running")
+    let single = ScriptedSystem()
+    let (a2, c2) = try tempApp(single, single: true)
+    defer { c2() }
+    #expect(await launch(single, a2).0.reason == "launch_unprovable")
+    let opened = ScriptedSystem()
+    let (a3, c3) = try tempApp(opened)
+    defer { c3() }
+    opened.onOpen = { s, _ in s.userStarts(500) }
+    let r = await launch(opened, a3).0
+    #expect(r.reason == "launch_refused_after_open")
+    #expect(r.error?.contains("the app was opened") == true)
+}
