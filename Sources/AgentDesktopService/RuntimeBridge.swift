@@ -49,11 +49,11 @@ public enum RuntimeBridge {
         let done = DispatchSemaphore(value: 0)
         let deadline = call.deadline.map(Timestamp.string)
         Task.detached {
-            traced?.note(.taskStarted, taskPriority: Task.currentPriority.rawValue)
+            traced?.noteInTask(.taskStarted, taskPriority: Task.currentPriority.rawValue)
             box.outcome = await router.answer(method: call.method, params: call.params, deadline: deadline,
                                               idempotencyKey: idempotent ? call.requestId : nil)
-            traced?.note(.resultReady)
             done.signal()
+            traced?.noteInTask(.resultReady)
         }
         traced?.note(.taskCreated)
         let until = call.deadline ?? Date().addingTimeInterval(defaultWait)

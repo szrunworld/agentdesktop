@@ -7,17 +7,23 @@ import Foundation
 /// product never does, and with none the bridge does what it always did.
 ///
 /// It records the method name only: no params, no requestId, no credential.
+///
+/// The task's own stages are only appended to memory: `onEvent` (which may
+/// write to stderr) is called on the connection thread, never on the
+/// cooperative thread whose availability is what the timeline measures, and
+/// never before the waiter is signalled (b9 and Codex on 062f5db).
 final class BridgeDiagnostics: @unchecked Sendable {
     enum Stage: String, Sendable {
         /// `answer` was called (on the connection thread).
         case entered
-        /// The service task was created.
+        /// The service task was created (noted after `Task.detached` returns,
+        /// so a task that starts at once can note `taskStarted` first).
         case taskCreated
         /// The connection thread starts waiting for the task.
         case waitStarted
         /// The task began to run (on a cooperative thread).
         case taskStarted
-        /// The service answered; the task is about to signal.
+        /// The service answered and the waiter was signalled.
         case resultReady
         /// The wait ended with the service's answer.
         case answered
@@ -53,6 +59,7 @@ final class BridgeDiagnostics: @unchecked Sendable {
     private var nextCall: UInt64 = 0
     private var entered: [UInt64: UInt64] = [:]
     private var recorded: [Event] = []
+    private var reported = 0
     private let onEvent: (@Sendable (Event) -> Void)?
 
     init(onEvent: (@Sendable (Event) -> Void)? = nil) { self.onEvent = onEvent }
@@ -65,30 +72,36 @@ final class BridgeDiagnostics: @unchecked Sendable {
         let call: UInt64
         let method: String
 
-        func note(_ stage: Stage, taskPriority: UInt8? = nil) {
-            recorder.note(call, stage, method: method, taskPriority: taskPriority)
+        /// On the connection thread: noted, and everything not yet passed
+        /// to `onEvent` is passed now, in order.
+        func note(_ stage: Stage) { recorder.note(call, stage, method: method, report: true) }
+
+        /// On the task: noted in memory only.
+        func noteInTask(_ stage: Stage, taskPriority: UInt8? = nil) {
+            recorder.note(call, stage, method: method, taskPriority: taskPriority, report: false)
         }
     }
 
     /// A new call, with `entered` noted.
     func begin(method: String) -> Trace {
         let call = lock.withLock { () -> UInt64 in nextCall += 1; return nextCall }
-        note(call, .entered, method: method)
+        note(call, .entered, method: method, report: true)
         return Trace(recorder: self, call: call, method: method)
     }
 
-    func note(_ call: UInt64, _ stage: Stage, method: String, taskPriority: UInt8? = nil) {
+    private func note(_ call: UInt64, _ stage: Stage, method: String, taskPriority: UInt8? = nil, report: Bool) {
         let now = DispatchTime.now().uptimeNanoseconds
         var tid: UInt64 = 0
         pthread_threadid_np(nil, &tid)
-        let event = lock.withLock { () -> Event in
+        let due = lock.withLock { () -> ArraySlice<Event> in
             if stage == .entered { entered[call] = now }
             let start = entered[call] ?? now
-            let e = Event(call: call, stage: stage, method: method, uptimeNanos: now, sinceEnteredNanos: now &- start,
-                          threadId: tid, mainThread: Thread.isMainThread, taskPriority: taskPriority)
-            recorded.append(e)
-            return e
+            recorded.append(Event(call: call, stage: stage, method: method, uptimeNanos: now, sinceEnteredNanos: now &- start,
+                                  threadId: tid, mainThread: Thread.isMainThread, taskPriority: taskPriority))
+            guard report, onEvent != nil else { return [] }
+            defer { reported = recorded.count }
+            return recorded[reported...]
         }
-        onEvent?(event)
+        for e in due { onEvent?(e) }
     }
 }

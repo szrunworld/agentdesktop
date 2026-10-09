@@ -71,7 +71,8 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
     #expect(Set(e.keys) == [.entered, .taskCreated, .waitStarted, .taskStarted, .resultReady, .answered])
     let t = { (s: BridgeDiagnostics.Stage) in e[s]!.uptimeNanos }
     #expect(t(.entered) <= t(.taskCreated) && t(.taskCreated) <= t(.waitStarted) && t(.waitStarted) <= t(.answered))
-    #expect(t(.entered) <= t(.taskStarted) && t(.taskStarted) <= t(.resultReady) && t(.resultReady) <= t(.answered))
+    // resultReady is noted after the signal, so it may follow `answered`.
+    #expect(t(.entered) <= t(.taskStarted) && t(.taskStarted) <= t(.resultReady))
     #expect(e[.entered]!.sinceEnteredNanos == 0)
     // The connection thread notes its own stages; the task runs elsewhere.
     let caller = e[.entered]!.threadId
@@ -111,4 +112,24 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
     let text = printed.lock.withLock { printed.all }.joined(separator: "\n") + recorder.events.map(\.description).joined()
     #expect(!text.isEmpty)
     for secret in [secretKey, secretRequestId, "example.invalid", "Diag"] { #expect(!text.contains(secret), "\(secret)") }
+}
+
+// b9 and Codex on 062f5db: the hook (here, a slow one) never runs on the
+// task, so it cannot hold the cooperative thread or delay the signal.
+@Test func theHookRunsOnlyOnTheConnectionThreadAndAfterTheSignal() async throws {
+    let (s, dir) = try await service()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Seen: @unchecked Sendable { let lock = NSLock(); var threads: Set<UInt64> = []; var stages: [BridgeDiagnostics.Stage] = [] }
+    let seen = Seen()
+    let recorder = BridgeDiagnostics(onEvent: { e in
+        var tid: UInt64 = 0
+        pthread_threadid_np(nil, &tid)
+        seen.lock.withLock { seen.threads.insert(tid); seen.stages.append(e.stage) }
+        Thread.sleep(forTimeInterval: 0.05)
+    })
+    for _ in 0..<3 { _ = await answer(call("ai.connections.list", .obj([])), s, idempotent: false, recorder) }
+    let callers = Set(recorder.events.filter { $0.stage == .entered }.map(\.threadId))
+    #expect(seen.lock.withLock { seen.threads }.isSubset(of: callers))
+    // The task's stages still reach the hook, later, from a connection thread.
+    #expect(seen.lock.withLock { seen.stages }.contains(.taskStarted))
 }
