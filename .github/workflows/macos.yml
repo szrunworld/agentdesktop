@@ -34,6 +34,9 @@ jobs:
       - name: Product unit tests
         timeout-minutes: 8
         run: swift test
+      - name: Test watchdog self-tests
+        timeout-minutes: 3
+        run: python3 -m unittest scripts/ci/test_test_watchdog.py -v
       - name: Native core unit tests
         timeout-minutes: 8
         run: |

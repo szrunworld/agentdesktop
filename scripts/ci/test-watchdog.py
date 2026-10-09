@@ -42,44 +42,92 @@ WAITING = ("semaphore_wait", "__psynch_cvwait", "__ulock_wait", "__psynch_mutexw
 
 
 def processes():
-    """pid -> (ppid, pgid, command) for every process."""
-    rows = subprocess.run(["ps", "-axo", "pid=,ppid=,pgid=,command="], capture_output=True, text=True).stdout
+    """pid -> (ppid, pgid, start, command) for every process; start is the
+    process start time (with the pid it identifies a process; pids are
+    reused)."""
+    rows = subprocess.run(["ps", "-axo", "pid=,ppid=,pgid=,lstart=,command="],
+                          capture_output=True, text=True).stdout
     procs = {}
     for row in rows.splitlines():
-        parts = row.strip().split(None, 3)
-        if len(parts) == 4 and all(p.isdigit() for p in parts[:3]):
-            procs[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3])
+        parts = row.split()
+        if len(parts) < 9 or not all(p.isdigit() for p in parts[:3]):
+            continue
+        try:
+            start = time.mktime(time.strptime(" ".join(parts[3:8]), "%a %b %d %H:%M:%S %Y"))
+        except ValueError:
+            continue
+        procs[int(parts[0])] = (int(parts[1]), int(parts[2]), start, " ".join(parts[8:]))
     return procs
 
 
-def tree(root):
-    """pid -> command for everything the run started: root, its descendants,
-    and anything still in its process group (orphans are re-parented to
-    launchd once the root exits, but keep the group)."""
-    procs = processes()
-    found = {pid for pid, (_, pgid, _) in procs.items() if pgid == root}
-    found.add(root)
-    changed = True
-    while changed:
-        changed = False
-        for pid, (ppid, _, _) in procs.items():
-            if ppid in found and pid not in found:
-                found.add(pid)
-                changed = True
-    return {pid: procs[pid][2] for pid in sorted(found) if pid in procs}
+class Run:
+    """Every process that belongs to one run of the command.
 
+    Three sources, because each misses something (Codex on #188):
+    * the live tree: the root, its descendants, its process group;
+    * every descendant seen while the command ran, remembered with its
+      start time (a background process started with setsid or in a new
+      process group is re-parented to launchd when the command exits, and
+      then neither its parent nor its group leads back here);
+    * every process that still has the run's terminal open.
+    A remembered pid counts only while its start time is unchanged.
+    """
 
-def stop_all(root):
-    """Kill the process group, then every remaining process of the run."""
-    try:
-        os.killpg(root, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
-    for pid in tree(root):
+    def __init__(self, root, tty):
+        self.root, self.tty = root, tty
+        self.seen = {}  # pid -> (start, command)
+        self.last_snapshot = 0.0
+
+    def snapshot(self, force=False):
+        now = time.monotonic()
+        if not force and now - self.last_snapshot < 0.25:
+            return
+        self.last_snapshot = now
+        procs = processes()
+        for pid, cmd in self._tree(procs).items():
+            self.seen.setdefault(pid, (procs[pid][2], cmd))
+
+    def _tree(self, procs):
+        found = {pid for pid, (_, pgid, _, _) in procs.items() if pgid == self.root}
+        found.add(self.root)
+        changed = True
+        while changed:
+            changed = False
+            for pid, (ppid, _, _, _) in procs.items():
+                if ppid in found and pid not in found:
+                    found.add(pid)
+                    changed = True
+        return {pid: procs[pid][3] for pid in found if pid in procs}
+
+    def members(self):
+        """pid -> command of every live process of the run."""
+        procs = processes()
+        live = self._tree(procs)
+        for pid, (start, cmd) in self.seen.items():
+            if pid in procs and procs[pid][2] == start:
+                live[pid] = procs[pid][3]
+        if self.tty:
+            r = subprocess.run(["lsof", "-t", self.tty], capture_output=True, text=True)
+            for t in r.stdout.split():
+                if t.isdigit() and int(t) in procs and int(t) != os.getpid():
+                    live[int(t)] = procs[int(t)][3]
+        return dict(sorted(live.items()))
+
+    def stop(self):
+        """Take the whole set first, then kill: the group, then each one."""
+        targets = self.members()
         try:
-            os.kill(pid, signal.SIGKILL)
+            os.killpg(self.root, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
+        for _ in range(2):
+            for pid in targets:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            time.sleep(0.2)
+            targets = self.members()
 
 
 def summarise(sample_text, limit=400):
@@ -103,7 +151,7 @@ def summarise(sample_text, limit=400):
     return out[:limit]
 
 
-def diagnose(child_pid, started, finished, out_dir, why):
+def diagnose(run, started, finished, out_dir, why):
     os.makedirs(out_dir, exist_ok=True)
     print(f"\n=== test-watchdog: {why}; collecting evidence (#183) ===", flush=True)
     open_tests = [t for t in started if t not in finished]
@@ -112,8 +160,8 @@ def diagnose(child_pid, started, finished, out_dir, why):
         print(f"  still running: {t}", flush=True)
     with open(os.path.join(out_dir, "unfinished-tests.txt"), "w") as f:
         f.write("\n".join(open_tests) + "\n")
-    procs = tree(child_pid)
-    print("process tree:", flush=True)
+    procs = run.members()
+    print("processes of the run:", flush=True)
     for pid, cmd in procs.items():
         print(f"  {pid} {cmd[:200]}", flush=True)
     for pid, cmd in procs.items():
@@ -129,7 +177,8 @@ def diagnose(child_pid, started, finished, out_dir, why):
                 print(line, flush=True)
     spin = os.path.join(out_dir, "spindump.txt")
     try:
-        r = subprocess.run(["sudo", "-n", "spindump", str(child_pid), "5", "-file", spin],
+        target = next(iter(procs), run.root)
+        r = subprocess.run(["sudo", "-n", "spindump", str(target), "5", "-file", spin],
                            capture_output=True, timeout=90)
         print(f"spindump: {'saved' if r.returncode == 0 else 'not available'}", flush=True)
     except Exception as e:
@@ -148,13 +197,15 @@ def main():
         ap.error("no command")
 
     master, slave = pty.openpty()
+    tty = os.ttyname(slave)
     child = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, start_new_session=True)
     os.close(slave)
+    run = Run(child.pid, tty)
     started, finished = [], set()
     last_output = time.monotonic()
     pending = b""
     while True:
-        ready, _, _ = select.select([master], [], [], 1.0)
+        ready, _, _ = select.select([master], [], [], 0.25)
         if ready:
             try:
                 data = os.read(master, 65536)
@@ -172,15 +223,18 @@ def main():
                         finished.add(m.group(1) or m.group(2))
                     elif (m := STARTED.search(line)):
                         started.append(m.group(1) or m.group(2))
-                continue
-        if child.poll() is not None:
+        # Checked on every turn, data or not (Codex on #188): a leftover
+        # writing to the terminal must not keep the exit from being seen.
+        if child.poll() is None:
+            run.snapshot()
+        else:
             # Drain what is left, never blocking: a process the run left
             # behind can hold the terminal open forever (b9 on #188).
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 ready, _, _ = select.select([master], [], [], 0.5)
                 if not ready:
-                    continue
+                    break
                 try:
                     data = os.read(master, 65536)
                 except OSError:
@@ -192,17 +246,18 @@ def main():
             # The command is done; anything of its run still alive is a
             # leftover (a Runtime, a helper, a background task): evidence,
             # then stop it and fail.
-            left = {pid: cmd for pid, cmd in tree(child.pid).items() if pid != child.pid}
+            left = run.members()
             if left:
-                diagnose(child.pid, started, finished, args.out,
+                diagnose(run, started, finished, args.out,
                          f"the command exited ({child.returncode}) but {len(left)} process(es) of its run remain")
-                stop_all(child.pid)
+                run.stop()
                 print("test-watchdog: stopped processes left behind by the run (exit 124)", flush=True)
                 return 124
             return child.returncode
         if time.monotonic() - last_output > args.stall:
-            diagnose(child.pid, started, finished, args.out, f"no output for {args.stall:.0f} s")
-            stop_all(child.pid)
+            run.snapshot(force=True)
+            diagnose(run, started, finished, args.out, f"no output for {args.stall:.0f} s")
+            run.stop()
             child.wait()
             print(f"test-watchdog: stopped after {args.stall:.0f} s without output (exit 124)", flush=True)
             return 124
