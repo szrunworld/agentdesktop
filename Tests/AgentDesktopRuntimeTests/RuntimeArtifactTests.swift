@@ -445,11 +445,27 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
     defer { try? FileManager.default.removeItem(atPath: dir) }
     final class Clock: @unchecked Sendable { var now = Date() }
     let clock = Clock()
+    // The query that the refused admit starts in the background is held
+    // until the refusal has been checked: left to run, it could answer first
+    // and the admit rightly pass, which failed this test on loaded runners
+    // (#185).
+    final class Hold: @unchecked Sendable {
+        let lock = NSLock()
+        var on = false
+        let gate = DispatchSemaphore(value: 0)
+    }
+    let hold = Hold()
     let store = try ArtifactStore(directory: dir, now: { clock.now })
-    store.freeBytes = { 100 << 30 }
+    store.freeBytes = {
+        if hold.lock.withLock({ hold.on }) { hold.gate.wait() }
+        return 100 << 30
+    }
     store.refreshFreeSpace()
     clock.now = clock.now.addingTimeInterval(-3600)
+    hold.lock.withLock { hold.on = true }
     #expect(throws: RuntimeError.self) { try store.admit(bucket: "session:s") }
+    hold.lock.withLock { hold.on = false }
+    hold.gate.signal()
     store.refreshFreeSpace()
     try store.admit(bucket: "session:s")
 }
