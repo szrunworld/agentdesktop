@@ -107,7 +107,9 @@ extension RuntimeService {
                         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.persist", decision: "used",
                                   reason: "\(g.windowGrantId) observe")
                     } else {
-                        transientUntil = now().addingTimeInterval(transientArtifactLifetime)
+                        // Never past the grant itself (Codex on 046a8c2).
+                        let lifetime = now().addingTimeInterval(transientArtifactLifetime)
+                        transientUntil = min(lifetime, Timestamp.date(g.expiresAt) ?? lifetime)
                     }
                 }
                 let info: ArtifactStore.Info

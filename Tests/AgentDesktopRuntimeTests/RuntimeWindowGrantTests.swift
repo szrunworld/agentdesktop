@@ -688,3 +688,16 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
         #expect(sc.s.artifacts.count(bucket: bucket) == 1)
     }
 }
+
+@Test func aTransientScreenshotGoesNoLaterThanItsGrant() throws {
+    let platform = FakePlatform()
+    let s = platformService(platform)
+    let (c, id, _) = try pairedClient(s, capabilities: ["observe", "desktop.manage"], desktops: ["created"],
+                                      apps: ["com.apple.calculator"], name: "agent")
+    let d = try created(s, c)
+    let g = try grantWindow(s, clientId: id, desktopId: d, permissions: ["observe"], seconds: 5)
+    #expect(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101,"windowId":11}"#)) != nil)
+    let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
+    let image = try #require(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#))?["image"])
+    #expect((image["expiresAt"]?.stringValue ?? "~") <= g.expiresAt)
+}
