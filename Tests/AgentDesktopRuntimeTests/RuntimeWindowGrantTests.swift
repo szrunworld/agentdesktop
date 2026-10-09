@@ -908,3 +908,23 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     #expect(!FileManager.default.fileExists(atPath: sc.s.artifacts.metaPath(id)) && !FileManager.default.fileExists(atPath: png))
     #expect(sc.s.artifacts.count(bucket: bucket) == 0)
 }
+
+@Test func keptScreenshotsGoOutOfReachWhenTheAppOrDesktopIsTakenAway() throws {
+    let (sc, owner, g, token) = try calculatorScene(["observe", "persist"])
+    let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+    // The owner removes Calculator from the grant and keeps observe.
+    let p = #"{"clientId":"\#(sc.c.clientId)","capabilities":["observe","act","desktop.manage","run"],"desktops":["created"],"apps":[]}"#
+    #expect(data(call(sc.s, owner, "hub.grants.set", params: p)) != nil)
+    #expect(sc.s.hub.windowGrant(g.windowGrantId)?.endedReason == "app_removed")
+    let (back, _) = socketConnection(sc.s, clientId: sc.c.clientId, token: token)
+    #expect(code(call(sc.s, back, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) == "not_found")
+    #expect(data(call(sc.s, owner, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil)
+}
+
+@Test func anObservationFailingOnAccessibilityPermissionLeavesNoImage() throws {
+    let (sc, _, _, _) = try calculatorScene(["observe"])
+    sc.platform.lock.withLock { sc.platform.axFailure = PlatformError(.permission, "needs Accessibility") }
+    #expect(code(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
+    let pngs = ((try? FileManager.default.contentsOfDirectory(atPath: sc.s.artifacts.directory)) ?? []).filter { $0.hasSuffix(".png") }
+    #expect(pngs.isEmpty, "\(pngs)")
+}

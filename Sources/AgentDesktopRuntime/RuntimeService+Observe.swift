@@ -212,7 +212,10 @@ extension RuntimeService {
             case .timedOut: ax = ("unavailable", "deadline")
             case .busy: ax = ("unavailable", "busy")
             // A missing permission is for the user to fix: say so.
-            case let .failed(e as PlatformError) where e.kind == .permission: return .failure(e.runtimeError)
+            case let .failed(e as PlatformError) where e.kind == .permission:
+                // Not answered: an image taken under a window grant goes now (Codex on 5ae0e5e).
+                if windowGrant != nil, let id = image["artifactId"]?.stringValue { artifacts.remove(id) }
+                return .failure(e.runtimeError)
             // An app that does not answer accessibility (frozen, busy, or
             // hiding the window from it) still has its screenshot.
             case .failed: ax = ("unavailable", "error")

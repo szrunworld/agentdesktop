@@ -214,6 +214,11 @@ extension RuntimeService {
         return nil
     }
 
+    /// Endings of the window itself, after which screenshots kept with
+    /// persist stay readable.
+    static let endingsThatKeepScreenshots: Set<String> = ["window_closed", "process_changed", "app_changed",
+                                                          "desktop_destroyed", "runtime_restarted"]
+
     /// Whether an artifact taken under a window grant is out of the caller's
     /// reach now. Kept (persist) ones stay readable after the window is gone,
     /// but not once the user revoked the grant. Transient ones only until
@@ -221,7 +226,12 @@ extension RuntimeService {
     func windowArtifactRefusal(_ info: ArtifactStore.Info, _ c: ConnectionState) -> Bool {
         if info.expiresAt == nil {
             guard c.role == .paired, let id = info.windowGrantId else { return false }
-            return hub.windowGrant(id)?.state != "ended" && hub.windowGrant(id)?.state != "active"
+            guard let g = hub.windowGrant(id) else { return true }
+            if g.state == "active" { return false }
+            // Kept past the window's own end (it closed, its process or
+            // Desktop went), never past the user taking it back: revoked, or
+            // its app or Desktop removed from the grant (Codex on 5ae0e5e).
+            return g.state != "ended" || !Self.endingsThatKeepScreenshots.contains(g.endedReason ?? "")
         }
         let expiresAt = info.expiresAt!
         if expiresAt <= nowString { artifacts.remove(info.artifactId); return true }
