@@ -351,6 +351,67 @@ class WatchdogTests(unittest.TestCase):
             bystander.kill()
             bystander.wait()
 
+    def test_targets_are_found_again_when_reaping_times_out(self):
+        # Codex on #196: while stop() waits for the command, a target may
+        # exit and its pid go to an unrelated process; even when the wait
+        # times out, the list taken before it is not acted on.
+        wd = self.load()
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+
+        class Unreaped:
+            def wait(self, timeout=None):
+                raise subprocess.TimeoutExpired("cmd", timeout)
+        try:
+            run = wd.Run(999999, None, uuid.uuid4().hex, time.time(), Unreaped())
+            # Before the wait the bystander's pid was a target; after it, it
+            # belongs to an unrelated process and is no longer one.
+            # Its recorded start is the bystander's own, the worst case (pid
+            # reused within the same second), so only looking again saves it.
+            looks = iter([{bystander.pid: "old target"}])
+            start = wd.start_seconds(bystander.pid)
+
+            def members(deadline=None):
+                found = next(looks, {})
+                run.starts = {pid: start for pid in found}
+                return found
+            run.members = members
+            real = wd.os.killpg
+            wd.os.killpg = lambda *a: None
+            try:
+                run.stop()
+            finally:
+                wd.os.killpg = real
+            time.sleep(0.3)
+            self.assertIsNone(bystander.poll(), "a target taken before the wait was killed")
+            self.assertTrue(run.root_alive)
+        finally:
+            bystander.kill()
+            bystander.wait()
+
+    def test_a_target_is_signalled_only_while_it_is_the_process_found(self):
+        # b9 on #196: a scan takes seconds; a pid found in it may belong to
+        # another process by the time the signal is sent. Signalled only if
+        # the kernel's start time still matches the one ps saw.
+        wd = self.load()
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        found = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        try:
+            run = wd.Run(999999, None, uuid.uuid4().hex, time.time())
+            run.root_alive = False
+            start = wd.start_seconds(other.pid)
+            # other: found as a process that started earlier (its pid reused
+            # since); found: still the very process the scan saw.
+            run.starts = {other.pid: start - 5, found.pid: wd.start_seconds(found.pid)}
+            run.signal([other.pid, found.pid, 999998])  # 999998: no such process
+            time.sleep(0.3)
+            self.assertIsNone(other.poll(), "a process with a reused pid was killed")
+            self.assertEqual(found.wait(timeout=5), -9)
+        finally:
+            for p in (other, found):
+                if p.poll() is None:
+                    p.kill()
+                p.wait()
+
 
 if __name__ == "__main__":
     unittest.main()
