@@ -65,6 +65,17 @@
 | 1 | exit 1：`SingleEndpointTests` 4 处 | exit 1：`SingleEndpointTests` 4 处 |
 | 2 | exit 1：`SingleEndpointTests` 6 处 | exit 1：`SingleEndpointTests` 4 处 |
 
+2026-10-10 凌晨负载低（约 3），又交替跑了四轮（本分支在 Codex 第八轮修复之后）：
+
+| 轮次 | main | 本分支 |
+| --- | --- | --- |
+| 3 | exit 0 | exit 1：`SingleEndpointTests` 4 处 |
+| 4 | exit 0 | exit 1：`SingleEndpointTests` 7 处 |
+| 5 | exit 0 | exit 0 |
+| 6 | exit 0 | exit 0 |
+
+只跑 `SingleEndpointTests`（strict）时，main 和本分支各跑 6 次，全部通过。也就是说，这个用例只在全量并发运行时失败，与 #166 记录的机制一致（`RuntimeBridge.answer` 用 `Task.detached` 加信号量，依赖协作线程池调度）。本分支多了约 30 个测试，全量运行时的并发更高，失败率也随之上升，这与 A4 基线（main 4/15，#137 7/15）的情况相同。本 PR 没有改动 `RuntimeBridge` 或 AI 服务的代码路径。这个不稳定用例需要在 #166 修复，不在本 PR 范围内；请 Kevin 知悉。
+
 除此之外，本分支没有其他失败。窗口授权、撤销、身份相关的 strict 定向运行（`RuntimeRevocationTests|RuntimeWindowGrantTests|RuntimeIdentityTests`）连续 5 次通过。
 
 ## CI

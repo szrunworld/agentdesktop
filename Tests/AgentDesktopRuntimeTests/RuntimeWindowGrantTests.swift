@@ -663,3 +663,28 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     #expect(data(call(st.s, back, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"] == .null)
     #expect(!(data(call(st.s, back, "desktop.list"))?.encoded() ?? "").contains("\"windowId\":12"))
 }
+
+@Test func anArtifactRemovedFromManyPlacesAtOnceIsCountedOnce() async throws {
+    try await offPoolConfirm {
+        let (sc, _, g, _) = try calculatorScene(["observe"])
+        for _ in 0..<3 { _ = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#) }
+        let bucket = "session:" + sc.session
+        #expect(sc.s.artifacts.count(bucket: bucket) == 3)
+        let ids = ((try? FileManager.default.contentsOfDirectory(atPath: sc.s.artifacts.directory)) ?? [])
+            .compactMap(ArtifactStore.artifactId(ofFile:))
+        let group = DispatchGroup()
+        for _ in 0..<8 {
+            group.enter()
+            Thread {
+                for id in Set(ids) { sc.s.artifacts.remove(id) }
+                sc.s.artifacts.removeTransients(windowGrantId: g.windowGrantId)
+                group.leave()
+            }.start()
+        }
+        group.wait()
+        #expect(sc.s.artifacts.count(bucket: bucket) == 0, "each removal counted once, never below zero")
+        // A new one counts from zero again.
+        _ = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+        #expect(sc.s.artifacts.count(bucket: bucket) == 1)
+    }
+}

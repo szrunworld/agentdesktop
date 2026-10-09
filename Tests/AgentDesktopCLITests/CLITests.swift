@@ -306,4 +306,10 @@ final class Harness {
     let h = Harness()
     #expect(h.cli.run(["windows", "request", "--desktop", "d_1", "--app", "com.x"]) == 2)
     #expect(h.clients.isEmpty)
+    // Durations that do not fit are argument errors, never a crash.
+    for d in ["1e309s", "1e300d", "8d", "0.1s"] {
+        let h = Harness()
+        #expect(h.cli.run(["windows", "request", "--desktop", "d_1", "--app", "com.x", "--allow", "observe", "--duration", d]) == 2, "\(d)")
+        #expect(h.clients.isEmpty)
+    }
 }

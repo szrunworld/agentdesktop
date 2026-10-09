@@ -405,9 +405,14 @@ public final class ArtifactStore: @unchecked Sendable {
     /// Transient artifacts registered by this process: id → (expiry, window grant).
     private var transients: [String: (until: Date, windowGrantId: String?)] = [:]
 
+    /// Artifacts being removed now: each removal and its accounting happen
+    /// once, whoever else asks meanwhile (Codex on 6598a94).
+    private var removing: Set<String> = []
+
     /// Remove one artifact and its record now, and take it off the usage.
     func remove(_ artifactId: String) {
-        guard Self.validId(artifactId) else { return }
+        guard Self.validId(artifactId), lock.withLock({ removing.insert(artifactId).inserted }) else { return }
+        defer { _ = lock.withLock { removing.remove(artifactId) } }
         let meta = FileManager.default.contents(atPath: metaPath(artifactId)).flatMap { try? StrictJSON.parse($0) }
         var removed = false
         for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []

@@ -545,7 +545,12 @@ enum CommandRouter {
         guard let (suffix, scale) = units.first(where: { d.hasSuffix($0.0) }), let v = Double(d.dropLast(suffix.count)), v > 0 else {
             throw RuntimeError.invalidArgument("--duration needs 1h, 8h, 7d or the like, got \(d)")
         }
-        return Int(v * scale)
+        // Checked before it becomes an Int (Codex on 6598a94: 1e309s trapped).
+        let seconds = v * scale
+        guard seconds.isFinite, seconds >= 1, seconds <= 7 * 86400 else {
+            throw RuntimeError.invalidArgument("--duration must be between 1s and 7d, got \(d)")
+        }
+        return Int(seconds)
     }
 
     static func positive(_ o: [String: String], _ name: String, required: Bool) throws -> Int? {
