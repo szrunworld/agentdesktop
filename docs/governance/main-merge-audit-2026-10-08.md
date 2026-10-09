@@ -543,3 +543,5 @@ Kevin 原话：
 - #196 d6c44b2：b9 复核通过、CI 通过，但 Codex 新提了一条 P2「Refresh targets when root reaping times out」：等待 root 退出超时的分支没有重新扫描进程，pid 被复用后可能误杀别的进程。按后果判断属于阻断，已转给作者 69 修复。
 - #202（修 #180，作者 b2）309e078：b9 非作者审核通过。`(delivery_unknown)` 只在发送之前的阻断拒绝里出现；发送之后的未知结果都以 action_delivery_unknown 开头。Codex 👍，CI 通过。未授权。
 - #204（修 #174，作者 b2）c9f5a34：b9 认为代码可以通过。合并申请前需补一条反向测试：真实提示框出现在不同位置时，不得提前把剪贴板还给用户。未授权。
+- #196 ae5083e：修复了超时分支不重扫的问题；新增 `Run.signal()`，每次发 SIGKILL 前，用 proc_pidinfo 读出进程的启动时间，与 ps 记录核对，对不上就不杀。b9 复审通过。剩余残余：同一秒内 pid 被复用仍识别不出。合并申请前还需要：Codex 审完、CI 通过、resolve 一条讨论线程。未授权。
+- #199 ec56012：Codex 在 b88dae6 上报了一条 P1：act 在读取菜单栏之前，没有先做 iPhone 镜像检查。ec56012 已修复并补了测试，b9 复审通过。合并申请前还需要：Codex 审完、CI 通过；SingleEndpointTests 超时要和 origin/main 对照。未授权。
