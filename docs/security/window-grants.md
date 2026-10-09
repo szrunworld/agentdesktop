@@ -36,7 +36,7 @@ owner（宿主进程内的主窗口、GUI 端口、AI 服务）就是用户本�
 | `permissions` | `observe` / `act` / `persist` 的子集 |
 | `state` | `active` / `revoked`（被撤销）/ `ended`（失效） |
 | `endedReason` | 失效原因（见下文生命周期） |
-| `createdAt` / `expiresAt` | 期限不超过客户端授权本身的到期时间 |
+| `createdAt` / `expiresAt` | 用户批准后起算；按绝对时间计，不晚于批准那一刻客户端授权的到期时间 |
 | `confirmationId` | 用户确认的那一次（可在审计里对上） |
 
 ### 防止窗口 ID 复用
@@ -100,7 +100,7 @@ CLI：`agentdesktop windows request|list|revoke`。
 
 | 事件 | 结果 | reason |
 | --- | --- | --- |
-| 窗口关闭（不在该进程窗口列表中） | 授权 `ended`，粘滞 | `window_closed` |
+| 窗口关闭（进程仍是同一次启动，但它的窗口列表里没有这个窗口；列表为空也算，因为被授权的可能是它唯一的窗口） | 授权 `ended`，粘滞 | `window_closed` |
 | 进程退出或重启（pid + 启动时间不符） | `ended`，粘滞 | `process_changed` |
 | 同一 pid 变成另一个 App | `ended`，粘滞 | `app_changed` |
 | 用户撤销这条窗口授权 | `revoked`；该客户端所有连接被切断（同 A4 收窄） | `window_grant_revoked` |
@@ -117,7 +117,7 @@ CLI：`agentdesktop windows request|list|revoke`。
 
 对已配对客户端：
 
-- `window.list` 只返回：它持有有效窗口授权的窗口（检查时已验证仍存活），以及它自己启动的进程的窗口。**不再**返回 `grant.apps` 里 App 的其他窗口；按 pid 或 bundleId 查询也一样。
+- `window.list` 只返回：它持有有效窗口授权、且授权含 `observe` 的窗口（检查时已验证仍存活；列表会给出标题和位置，所以只有 `act` 不够），以及它自己启动的进程的窗口。**不再**返回 `grant.apps` 里 App 的其他窗口；按 pid 或 bundleId 查询也一样。
 - `desktop.show` / `desktop.list` 里的 `binding`：调用方对绑定窗口没有访问权时显示为 `null`，不透露那是哪个 App 的哪个窗口。
 - 同一 App 另一个窗口已授权，不会扩大到这个窗口：每个检查都按窗口 ID + 进程身份精确匹配。
 - 拒绝信息不包含窗口标题、App 名或 pid 是否存在（沿用 #153 / SEC-05 的写法）。
@@ -134,7 +134,7 @@ CLI：`agentdesktop windows request|list|revoke`。
 | `wait` | `observe`，每次轮询 | `wait` 锁内 |
 | `act` | `act`，在投递边界前最后一刻（与 A4 `recheckAct` 同处） | `act` 锁内 |
 | `artifact.show` / `artifact.read` | 临时截图：授权仍有效且有 `observe`，且未过期；保存的截图：授权未被用户撤销 | `visibleArtifact` |
-| `window.list` | 只列有效授权窗口和自己启动的窗口 | `handle(.windowList)` |
+| `window.list` | 只列含 `observe` 的有效授权窗口和自己启动的窗口 | `handle(.windowList)` |
 | `desktop.show` / `desktop.list` | 绑定信息按调用方权限显示 | `desktopJSON(_:for:)` |
 | MCP / ACP / CLI | 都是 runtime.sock 上的已配对客户端，走同一套检查，没有旁路 | — |
 | GUI Run（`gui.runs.*`）、AI 服务 | 只属于宿主进程（owner），socket 上一律拒绝（A4） | — |

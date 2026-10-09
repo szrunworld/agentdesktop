@@ -8,6 +8,9 @@
 # in the background, on a file in /tmp/adt-wg-acc) and quits only that
 # instance at the end; it never touches any other window.
 #
+# Finding the probe window by its title needs Screen Recording for the
+# terminal you run this from; without it the script stops at that step.
+#
 # It needs one Desktop to grant a window on. Physical Desktops stay off in the
 # product (#145), so the only Desktop is a virtual one, which creates a
 # virtual display. Because of the WindowServer history, the script does that
@@ -80,19 +83,26 @@ CLI_ID=$(field "$DIR/pair.json" data.clientId)
 
 echo "== the probe window: one TextEdit instance of this script's own"
 echo "window grant acceptance probe" > "$DIR/wg-probe-A.txt"
-open -n -g -a TextEdit "$DIR/wg-probe-A.txt"
+# Only a TextEdit process that did not exist before this launch is ours: the
+# script inspects and quits that one and no other (Codex on 7629d6b).
+pgrep -x TextEdit | sort > "$DIR/textedit-before"
+open -n -g -a TextEdit "$DIR/wg-probe-A.txt" || { bad "open TextEdit failed"; exit 1; }
 i=0; PROBE=""
 while [ -z "$PROBE" ] && [ $i -lt 40 ]; do
     sleep 0.5; i=$((i + 1))
-    PROBE=$(pgrep -n -x TextEdit)
+    pgrep -x TextEdit | sort > "$DIR/textedit-after"
+    NEW=$(comm -13 "$DIR/textedit-before" "$DIR/textedit-after")
+    [ "$(printf '%s\n' "$NEW" | grep -c .)" -gt 1 ] && { bad "more than one new TextEdit started; stopping without touching any"; exit 1; }
+    PROBE="$NEW"
 done
-[ -n "$PROBE" ] && ok "probe TextEdit pid $PROBE" || { bad "no probe TextEdit"; exit 1; }
+[ -n "$PROBE" ] && ok "probe TextEdit pid $PROBE (new, started by this script)" || { bad "no new TextEdit"; exit 1; }
 WIN=$(swift - "$PROBE" 2>/dev/null <<'SWIFT'
 import CoreGraphics
 let pid = Int32(CommandLine.arguments[1])!
 for _ in 0..<40 {
     let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
-    if let w = list.first(where: { ($0[kCGWindowOwnerPID as String] as? Int32) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }) {
+    if let w = list.first(where: { ($0[kCGWindowOwnerPID as String] as? Int32) == pid && ($0[kCGWindowLayer as String] as? Int) == 0
+                              && (($0[kCGWindowName as String] as? String) ?? "").contains("wg-probe-A") }) {
         print(w[kCGWindowNumber as String] as! Int); exit(0)
     }
     usleep(250_000)

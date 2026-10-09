@@ -227,6 +227,8 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
     #expect(errorDetails(o)?["reason"]?.stringValue == "window_observe_not_granted")
     #expect(!sc.platform.calls.contains { $0.hasPrefix("screenshot") || $0.hasPrefix("elements") }, "nothing was captured for it")
+    // Nor listed: a listing shows the title and frame (Codex on 7629d6b).
+    #expect(data(call(sc.s, sc.c, "window.list", params: #"{"includeOffscreen":true}"#))?["windows"]?.arrayValue?.isEmpty == true)
     // It may still send input to the window it was granted (against a
     // snapshot the owner took).
     let snap = try #require(data(call(sc.s, owner, "observe", context: #"{"desktopId":"\#(sc.desktop)"}"#))?["snapshotId"]?.stringValue)
@@ -508,4 +510,30 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
             }
         }
     }
+}
+
+@Test func closingAProcesssOnlyWindowEndsTheGrantForGood() throws {
+    // Calculator (pid 101) shows one window: once it closes, the process
+    // lists none (Codex on 7629d6b), and the grant ends all the same.
+    let (sc, _, g, _) = try calculatorScene(["observe"])
+    let backend = try #require(sc.s.backend as? FixedBackend)
+    backend.opened.lock.withLock { _ = backend.opened.closed.insert(11) }
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(code(o) == "grant_missing")
+    #expect(sc.s.hub.windowGrant(g.windowGrantId)?.endedReason == "window_closed")
+    backend.opened.lock.withLock { _ = backend.opened.closed.remove(11) }
+    #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "ended")
+    #expect(code(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) == "grant_missing")
+}
+
+@Test func aWindowGrantNeverOutlivesTheClientsGrantInAbsoluteTime() throws {
+    let st = try Stage()
+    // While the user decides, the owner shortens the app's grant to a minute from now.
+    let soon = Timestamp.string(Date().addingTimeInterval(60))
+    st.confirmer.decide = { [s = st.s, id = st.appId] r in
+        if var g = s.hub.grant(id) { g.expiresAt = soon; try? s.hub.putGrant(g) }
+        return .approved(digest: r.digest)
+    }
+    let g = try #require(data(st.request(["observe"])))
+    #expect((g["expiresAt"]?.stringValue ?? "~") <= soon, "\(g.encoded())")
 }

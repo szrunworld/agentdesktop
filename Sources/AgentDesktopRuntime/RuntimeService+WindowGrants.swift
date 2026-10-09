@@ -31,11 +31,11 @@ extension RuntimeService {
         if g.expiresAt <= nowString { return ("window_grant_expired", false) }
         // The same launch of the same process.
         guard backend.processIdentity(g.process.pid) == g.process else { return ("process_changed", true) }
+        // The same process with no window of that id: closed, for good. An
+        // empty list counts too (Codex on 7629d6b): the granted window may
+        // have been the process's only one, and an unreadable list ending a
+        // grant only costs asking the user again (fail closed).
         let windows = backend.windows(pid: g.process.pid, bundleId: nil, includeOffscreen: true)
-        // No list at all: it cannot be told whether the window is there
-        // (the backend gives none when the window server cannot be read).
-        // Refused, not ended (fail closed, not sticky).
-        guard !windows.isEmpty else { return ("window_list_unverified", false) }
         guard let w = windows.first(where: { $0.windowId == g.windowId }) else { return ("window_closed", true) }
         guard w.bundleId == g.bundleId else { return ("app_changed", true) }
         // The client's own grant still covers the app and the Desktop.
@@ -130,7 +130,8 @@ extension RuntimeService {
         return !liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process).isEmpty
     }
 
-    /// window.list for a paired app: only windows it holds a live grant for
+    /// window.list for a paired app: only windows it holds a live grant with
+    /// observe for (a listing shows the title and frame; Codex on 7629d6b)
     /// and windows of launches it made on a Desktop.
     func visibleToPaired(_ c: ConnectionState, _ w: WindowSummary) -> Bool {
         guard appAllowed(c, bundleId: w.bundleId) else { return false }
@@ -141,7 +142,7 @@ extension RuntimeService {
                 if f.sticky { endWindowGrant(g, reason: f.reason) }
                 return false
             }
-            return true
+            return effectivePermissions(g).contains("observe")
         }
     }
 
@@ -229,6 +230,8 @@ extension RuntimeService {
         }
         let requested = Double(p["durationSeconds"]?.intValue ?? Int(Self.defaultGrantDuration))
         let untilClientGrant = (Timestamp.date(cg.expiresAt) ?? now()).timeIntervalSince(now())
+        // What the user is shown; the grant then ends at that long after the
+        // approval or at the client's own expiry, whichever comes first.
         let seconds = Int(max(1, min(requested, untilClientGrant)))
         let details = JSONValue.obj([
             ("desktop", .obj([("desktopId", .string(d.desktopId)), ("kind", .string(d.kind.rawValue)),
@@ -249,10 +252,14 @@ extension RuntimeService {
         // Access may have gone, or the window changed, while the user decided.
         if let reason = c.cutReason { return .failure(Self.cutError(c, reason)) }
         if let e = accessError(c, method: "hub.windows.request") { return .failure(e) }
+        // Never past the client's grant as it is now, in absolute time (Codex
+        // on 7629d6b: an interval taken before the prompt outlived it).
+        let afterApproval = Timestamp.string(now().addingTimeInterval(Double(seconds)))
+        let clientExpiry = hub.grant(c.clientId)?.expiresAt ?? nowString
         let grant = HubStore.WindowGrant(
             windowGrantId: DesktopRegistry.newId(prefix: "wg"), clientId: c.clientId, desktopId: d.desktopId, windowId: w.windowId,
             process: w.process, bundleId: bundleId, appName: w.appName, permissions: permissions, state: "active", endedReason: nil,
-            createdAt: nowString, expiresAt: Timestamp.string(now().addingTimeInterval(Double(seconds))), confirmationId: confirmation)
+            createdAt: nowString, expiresAt: min(afterApproval, clientExpiry), confirmationId: confirmation)
         if d.state == "destroyed" || desktops.find(d.desktopId) == nil || !desktopAllowed(c, d.desktopId) || !appAllowed(c, bundleId: bundleId)
             || permissions.contains(where: { !(hub.grant(c.clientId)?.capabilities.contains(Self.capability(forWindowPermission: $0)) ?? false) })
             || windowGrantFailure(grant) != nil
