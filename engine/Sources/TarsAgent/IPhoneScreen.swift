@@ -310,7 +310,7 @@ public final class IPhoneAgentScreen: AgentScreen {
             break
         }
         while true {
-            if let done = readyReport(pressed: pressed) { return done }
+            if let done = try readyReport(pressed: pressed, until: until) { return done }
             if let stop = stopReason() { throw stop }
             let left = until.timeIntervalSince(system.now)
             if left <= 0 { return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true) }
@@ -334,8 +334,8 @@ public final class IPhoneAgentScreen: AgentScreen {
     }
 
     /// The report when the connection is ready in the bound window, nil
-    /// while it is not.
-    private func readyReport(pressed: String?) -> ReconnectReport? {
+    /// while it is not. Throws when stopped.
+    private func readyReport(pressed: String?, until: Date) throws -> ReconnectReport? {
         guard connection.isReady(window: binding?.windowID) else { return nil }
         if let reason = invalidated ?? system.inputBarrier.reason(now: system.now) {
             var blocked = report(.notReady, pressed: pressed, timedOut: false)
@@ -345,28 +345,39 @@ public final class IPhoneAgentScreen: AgentScreen {
         // Compared and lowered as one step: a press by another process
         // meanwhile is not confirmed by looks begun before it, and is never
         // lowered here.
-        let found: String??
+        enum Lowering { case lowered, pressedElsewhere(String?), timedOut }
+        let lowering: Lowering
         do {
-            found = try gateLock.locked { () -> String?? in
+            lowering = try gateLock.locked { () throws -> Lowering in
+                // The wait for the lock may have outlasted the call: stopped
+                // or out of time, the looks are stale and nothing is lowered.
+                if let stop = stopReason() { throw stop }
+                if system.now >= until { return .timedOut }
                 let gate = system.reconnectGate.reason(now: system.now)
-                guard gate == gateKnown else { return .some(gate) }
+                guard gate == gateKnown else { return .pressedElsewhere(gate) }
                 system.reconnectGate.lower()
-                return .none
+                return .lowered
             }
+        } catch let stop as IPhoneError {
+            throw stop
         } catch {
             var blocked = report(.notReady, pressed: pressed, timedOut: false)
             blocked.blockedBy = "cannot change the reconnect record for other processes (\(error.localizedDescription)); "
                 + "run `agentdesktop iphone reconnect` again"
             return blocked
         }
-        if case .some(let gate) = found {
+        switch lowering {
+        case .lowered:
+            connection.confirm()
+            return report(.ready, pressed: pressed, timedOut: false)
+        case .timedOut:
+            return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true)
+        case .pressedElsewhere(let gate):
             var blocked = report(.notReady, pressed: pressed, timedOut: false)
             blocked.blockedBy = "another reconnect pressed a button meanwhile (\(gate ?? "its record is gone")); "
                 + "run `agentdesktop iphone reconnect` again"
             return blocked
         }
-        connection.confirm()
-        return report(.ready, pressed: pressed, timedOut: false)
     }
 
     private func report(_ outcome: ReconnectOutcome, pressed: String?, timedOut: Bool) -> ReconnectReport {
@@ -450,6 +461,8 @@ public final class IPhoneAgentScreen: AgentScreen {
             // reconnect cannot raise the gate and press between the check
             // and the send (other input is not held up).
             (window, response) = try gateLock.locked(shared: true) { () throws -> (IPhoneWindow, ControlResponse) in
+                // Stopped while waiting for the lock: nothing is sent.
+                if let stop = stopReason() { throw stop }
                 let window = try verifiedTarget(pid: pid)
                 var request = ControlRequest(command: .input)
                 request.screen = screen
