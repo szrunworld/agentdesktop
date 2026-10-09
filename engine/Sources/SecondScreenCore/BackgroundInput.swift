@@ -260,26 +260,52 @@ public enum BackgroundInput {
 
     /// Type text as Unicode key events, one character at a time, so any
     /// script works whatever the keyboard layout or input method.
+    ///
+    /// Before each character the app's focused window is read again (#163,
+    /// Kevin 2026-10-09): a character typed so far may have opened a window
+    /// or moved focus, and the rest must not follow it. When focus is no
+    /// longer in `window`, or cannot be read, typing stops: before the first
+    /// character "no character was submitted" (not performed); after it, how
+    /// many were submitted to the input interface (delivery unknown, never
+    /// reported as not performed). Submitted is not received: events are
+    /// queued to the app, which takes them later.
     public static func type(_ text: String, in window: WindowInfo) throws -> String {
         try requireTrust()
-        FocusGuard.shared.protect(target: window.pid) {
-            for character in text {
-                let units = Array(String(character).utf16)
-                for down in [true, false] {
-                    guard let event = CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState),
-                                              virtualKey: 0, keyDown: down) else { continue }
-                    event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
-                    // Chromium reads modifiers from the flags; an uppercase
-                    // letter would otherwise arrive as Shift held.
-                    event.flags = []
-                    SkyLight.postKey(event, to: window.pid)
-                    // Enough for the app to take each event in order; longer
-                    // gaps only slowed typing (120 characters took 5 s at 38 ms).
-                    Thread.sleep(forTimeInterval: 0.004)
-                }
-            }
+        try FocusGuard.shared.protect(target: window.pid) {
+            try typeCharacters(text, pid: window.pid, windowID: window.windowID,
+                               focusedWindow: { ClipboardProbe.focusedWindowID(pid: $0) },
+                               post: { SkyLight.postKey($0, to: $1) })
         }
         return "event.unicode"
+    }
+
+    /// The loop of `type`, with the focus read and the posting passed in
+    /// (tests): a character is posted only after the focused window was
+    /// read again and is still `windowID`.
+    static func typeCharacters(_ text: String, pid: pid_t, windowID: CGWindowID,
+                               focusedWindow: (pid_t) -> CGWindowID?, post: (CGEvent, pid_t) -> Void,
+                               pause: TimeInterval = 0.004) throws {
+        let total = text.count
+        for (sent, character) in text.enumerated() {
+            guard focusedWindow(pid) == windowID else {
+                throw AccessibilityError(sent == 0
+                    ? "keyboard focus is not in window \(windowID); no character was submitted"
+                    : "keyboard focus left window \(windowID) after \(sent) of \(total) characters were submitted to the input interface (whether the app received them is not known); the rest was not submitted")
+            }
+            let units = Array(String(character).utf16)
+            for down in [true, false] {
+                guard let event = CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState),
+                                          virtualKey: 0, keyDown: down) else { continue }
+                event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+                // Chromium reads modifiers from the flags; an uppercase
+                // letter would otherwise arrive as Shift held.
+                event.flags = []
+                post(event, pid)
+                // Enough for the app to take each event in order; longer
+                // gaps only slowed typing (120 characters took 5 s at 38 ms).
+                if pause > 0 { Thread.sleep(forTimeInterval: pause) }
+            }
+        }
     }
 
     /// Press a key with modifiers. With cmd, the app is made front for the

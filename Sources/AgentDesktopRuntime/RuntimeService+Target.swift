@@ -42,6 +42,13 @@ extension RuntimeService {
         // a new window). A new window never inherits the binding.
         let ownFront = backend.windows(pid: b.process.pid, bundleId: nil, includeOffscreen: false)
             .filter { $0.frame.width >= 2 && $0.frame.height >= 2 }
+        // The bound window is on screen (found above), so it is in its own
+        // process's list. When it is not, the list could not be read (the
+        // backend gives none then): which window of the app is in front
+        // cannot be told, which is refused, not passed (#163, fail closed).
+        guard ownFront.contains(where: { $0.windowId == b.windowId }) else {
+            throw refuse("window_list_unverified", "the windows of the bound window's app cannot be read")
+        }
         if let first = ownFront.first, first.windowId != b.windowId {
             let sibling = PlatformWindow(windowId: first.windowId, pid: b.process.pid, appName: first.appName,
                                          title: first.title ?? "", frame: first.frame)
