@@ -81,25 +81,30 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
     #expect(recorder.events.allSatisfy { $0.call == 1 && $0.method == "ai.connections.list" })
 }
 
-// A deadline already past: the wait ends at once. The timeline says how it
-// ended, and the answer is the one the bridge gives without a timeline.
-@Test func aWaitThatRunsOutIsTimedOutAndAnswersAsBefore() async throws {
+// A deadline already past: the wait may run out at once, or the task may
+// answer first. Either way the timeline says how the wait ended, and the
+// answer is the one the bridge gives without a timeline. (Which of the two
+// happens is the scheduler's choice, so neither is required here; the
+// timed-out order is pinned step by step in the test below.)
+@Test(.timeLimit(.minutes(1))) func aWaitThatRunsOutIsTimedOutAndAnswersAsBefore() async throws {
     let (s, dir) = try await service()
     defer { try? FileManager.default.removeItem(atPath: dir) }
-    var timedOut = 0
+    let recorder = BridgeDiagnostics()
     for _ in 0..<20 {
-        let recorder = BridgeDiagnostics()
         let c = call("ai.connections.list", .obj([]), deadline: Date().addingTimeInterval(-1))
         let r = await answer(c, s, idempotent: false, recorder)
-        let ended = recorder.events.first { $0.stage == .answered || $0.stage == .timedOut }
+        let thisCall = recorder.events.last { $0.stage == .entered }?.call
+        let ended = recorder.events.first { $0.call == thisCall && ($0.stage == .answered || $0.stage == .timedOut) }
         if case let .failure(e) = r, e.code == "deadline_exceeded", e.message.contains("did not answer in time") {
             #expect(ended?.stage == .timedOut)
-            timedOut += 1
         } else {
             #expect(ended?.stage == .answered)
         }
     }
-    #expect(timedOut > 0, "a wait with no time left never ran out")
+    // Codex on d700f37: every task the timed-out waits left behind finishes
+    // before the service's directory goes (the time limit, not a clock here,
+    // ends a wait that never would).
+    while recorder.events.filter({ $0.stage == .resultReady }).count < 20 { try await Task.sleep(nanoseconds: 10_000_000) }
 }
 
 @Test func theTimelineHoldsNoParamsCredentialOrRequestId() async throws {
