@@ -248,8 +248,10 @@ public enum BackgroundInput {
     /// Kevin 2026-10-09): a character typed so far may have opened a window
     /// or moved focus, and the rest must not follow it. When focus is no
     /// longer in `window`, or cannot be read, typing stops: before the first
-    /// character "nothing was typed" (not sent); after it, how many went out
-    /// (delivery unknown, never reported as not sent).
+    /// character "no character was submitted" (not performed); after it, how
+    /// many were submitted to the input interface (delivery unknown, never
+    /// reported as not performed). Submitted is not received: events are
+    /// queued to the app, which takes them later.
     public static func type(_ text: String, in window: WindowInfo) throws -> String {
         try requireTrust()
         try FocusGuard.shared.protect(target: window.pid) {
@@ -270,8 +272,8 @@ public enum BackgroundInput {
         for (sent, character) in text.enumerated() {
             guard focusedWindow(pid) == windowID else {
                 throw AccessibilityError(sent == 0
-                    ? "keyboard focus is not in window \(windowID); nothing was typed"
-                    : "keyboard focus left window \(windowID) after \(sent) of \(total) characters were typed; the rest was not sent")
+                    ? "keyboard focus is not in window \(windowID); no character was submitted"
+                    : "keyboard focus left window \(windowID) after \(sent) of \(total) characters were submitted to the input interface (whether the app received them is not known); the rest was not submitted")
             }
             let units = Array(String(character).utf16)
             for down in [true, false] {

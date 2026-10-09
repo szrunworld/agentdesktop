@@ -282,6 +282,11 @@ func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuC
 // engine's typing that stopped before its first character is notSent; one
 // that stopped after some characters is a delivery that went partly out.
 @Test func onlyATypingStoppedBeforeItsFirstCharacterIsNotSent() {
-    #expect(EnginePlatform.failedBeforeDispatch("keyboard focus is not in window 11; nothing was typed"))
-    #expect(!EnginePlatform.failedBeforeDispatch("keyboard focus left window 11 after 2 of 6 characters were typed; the rest was not sent"))
+    #expect(EnginePlatform.failedBeforeDispatch("keyboard focus is not in window 11; no character was submitted"))
+    // Codex on b003378 (P1): a click into the web field went out first, so
+    // a typing that then stopped before its first character is not "not
+    // performed", whatever phrase follows; nor any other failure after it.
+    #expect(!EnginePlatform.failedBeforeDispatch("input was already sent (a click into the field); then: keyboard focus is not in window 11; no character was submitted"))
+    #expect(!EnginePlatform.failedBeforeDispatch("input was already sent (a click into the field); then: Agent Desktop needs the Accessibility permission"))
+    #expect(!EnginePlatform.failedBeforeDispatch("keyboard focus left window 11 after 2 of 6 characters were submitted to the input interface (whether the app received them is not known); the rest was not submitted"))
 }

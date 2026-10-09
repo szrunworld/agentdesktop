@@ -28,8 +28,9 @@ import Testing
             Issue.record("typing went on after focus left")
         } catch {
             let m = "\(error)"
-            #expect(m.contains("after 2 of 6 characters"), "\(m)")
-            #expect(!m.contains("nothing was typed"))
+            #expect(m.contains("after 2 of 6 characters were submitted"), "\(m)")
+            #expect(!m.contains("no character was submitted"))
+            #expect(m.contains("submitted to the input interface") && m.contains("not known"), "submitted, not received")
         }
         #expect(r.posted == 4, "only the two characters before the move")
     }
@@ -42,7 +43,7 @@ import Testing
                                                post: { _, _ in r.posted += 1 }, pause: 0)
             Issue.record("typed without focus in the window")
         } catch {
-            #expect("\(error)".contains("nothing was typed"))
+            #expect("\(error)".contains("no character was submitted"))
         }
         #expect(r.posted == 0)
     }
@@ -58,5 +59,24 @@ import Testing
             #expect("\(error)".contains("after 1 of 3"))
         }
         #expect(r.posted == 2)
+    }
+
+    // Codex on b003378 (P1): a failure after a click that already went out
+    // carries the prefix the Runtime reads as "performed", even when the
+    // typing itself submitted nothing.
+    @Test func aFailureAfterAClickSaysInputWasAlreadySent() {
+        do {
+            _ = try InputEngine.afterInputWasSent("a click into the field") { () throws -> String in
+                try BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11, focusedWindow: { _ in nil },
+                                                   post: { _, _ in }, pause: 0)
+                return "event.unicode"
+            }
+            Issue.record("no failure")
+        } catch {
+            let m = (error as? AccessibilityError)?.message ?? "\(error)"
+            #expect(m.hasPrefix(InputEngine.alreadySentPrefix), "\(m)")
+            #expect(m.contains("no character was submitted"), "the typing's own reason is kept")
+        }
+        #expect((try? InputEngine.afterInputWasSent("x") { 42 }) == 42)
     }
 }

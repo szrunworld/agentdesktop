@@ -252,14 +252,17 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         "has no frame to click", "does not take its text", "unknown key", "no screen named",
         // Typing stopped before its first character (#163); after it, the
         // message counts what went out and the delivery is unknown.
-        "nothing was typed",
+        "no character was submitted",
     ]
 
     /// Whether the engine's failure message says nothing was sent. Only
     /// then is a failure notSent; a typing stopped after some characters
     /// counts them and is not (Kevin 2026-10-09: partial is never zero).
     static func failedBeforeDispatch(_ message: String) -> Bool {
-        preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
+        // Input that already went out (a click into a web field before
+        // typing) is never undone by what failed after it.
+        if message.lowercased().contains("input was already sent") { return false }
+        return preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
     }
 
     public func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
