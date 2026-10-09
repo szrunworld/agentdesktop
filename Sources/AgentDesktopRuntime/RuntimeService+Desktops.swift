@@ -63,7 +63,9 @@ extension RuntimeService {
         defer { createLock.unlock() }
         let id = DesktopRegistry.newId(prefix: "d")
         let name = p["name"]?.stringValue ?? id
-        if desktops.names().contains(name) {
+        // Names are unique per creator: a client can neither probe nor take
+        // another's Desktop names (#153 parity).
+        if desktops.names(createdBy: c.clientId).contains(name) {
             return .failure(RuntimeError("conflict", "a desktop named \(name) exists", phase: .handler))
         }
         do {

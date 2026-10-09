@@ -91,6 +91,11 @@ public final class DesktopRegistry: @unchecked Sendable {
 
     public func names() -> [String] { lock.withLock { desktops.map(\.name) } }
 
+    /// Names of the Desktops one principal created (names are unique per creator).
+    func names(createdBy clientId: String) -> [String] {
+        lock.withLock { desktops.filter { ($0.createdBy ?? "") == clientId }.map(\.name) }
+    }
+
     @discardableResult
     func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual) -> DesktopRecord {
         let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen, kind: kind)

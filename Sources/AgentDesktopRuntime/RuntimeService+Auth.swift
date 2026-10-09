@@ -34,7 +34,8 @@ extension RuntimeService {
     static let grantReason: [String: String] = ["app.launch": "launch_requires_grant",
                                                 "app.list": "window_discovery_requires_grant",
                                                 "window.list": "window_discovery_requires_grant",
-                                                "gui.runs.start": "gui_run_requires_grant"]
+                                                "gui.runs.start": "gui_run_requires_grant", "gui.runs.get": "gui_run_requires_grant",
+                                                "gui.runs.cancel": "gui_run_requires_grant", "gui.runs.events": "gui_run_requires_grant"]
 
     /// Why the caller may not make this request, if it may not.
     func authorization(_ request: RuntimeRequest, _ c: ConnectionState) -> RuntimeError? {
@@ -158,10 +159,14 @@ extension RuntimeService {
             return nil
         }
         guard appAllowed(c, bundleId: bundle) else {
-            return RuntimeError("grant_missing", "\(bundle ?? "this app") is not among the apps \(c.clientId) was granted",
+            // Names nothing: not the app a pid belongs to, not whether that
+            // pid exists (#153 parity, SEC-05); a launch echoes nothing either.
+            let launch = request.method == "app.launch"
+            return RuntimeError("grant_missing",
+                                launch ? "starting this app needs a launch grant for it, which this client does not have"
+                                       : "binding this window needs a grant for its app, which this client does not have",
                                 phase: .request, notSent: true,
-                                details: .obj([("reason", .string(request.method == "app.launch" ? "launch_requires_grant" : "app")),
-                                               ("bundleId", bundle.map(JSONValue.string) ?? .null)]))
+                                details: .obj([("reason", .string(launch ? "launch_requires_grant" : "bind_requires_grant"))]))
         }
         return nil
     }

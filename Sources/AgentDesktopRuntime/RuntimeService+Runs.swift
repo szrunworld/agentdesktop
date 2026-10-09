@@ -118,7 +118,10 @@ extension RuntimeService {
     /// Delegated and Durable, returning each one's stop state.
     func stopAll(_ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard isOwner(c) else { return .failure(RuntimeError("permission_denied", "only the owner stops all input", phase: .handler)) }
-        let (admission, stopped) = execution.stopAll()
+        let (admission, all) = execution.stopAll()
+        // Every Run stops; a paired client the user let stop everything hears
+        // only about its own (#153 parity).
+        let stopped = c.role == .owner ? all : all.filter { $0.clientId == c.clientId }
         let pending = stopped.filter { !$0.isEnded }.map(\.runId)
         return .success(.obj([
             ("admission", .string(admission.rawValue)),
