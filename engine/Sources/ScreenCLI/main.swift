@@ -73,8 +73,9 @@ phone's Allow Paste is a tap. The saved contents are put back once the
 paste has settled (unless something else was copied meanwhile, which is left
 alone). When the paste times out the phone may still fetch the clipboard, so
 the saved contents go back only if the phone is then seen to have finished;
-otherwise the pasted text is left on the clipboard (the result says
-clipboard_withheld) and further pastes are refused for two minutes. This
+otherwise the pasted text stays on the clipboard for good and your earlier
+contents are not put back (the result says clipboard_withheld), and further
+pastes are refused for two minutes. This
 backend has no reliable background swipe, scroll, drag or long press (a
 person's mouse or trackpad can do them), so it offers none. hide quits iPhone Mirroring, handing the phone back.
 

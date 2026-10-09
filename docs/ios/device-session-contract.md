@@ -70,7 +70,7 @@ Mirroring 当前声明（摘要，详见代码）：
 | 动作 | 能力 | 指针 | 前台激活 | 焦点借用 | 宿主剪贴板 |
 | --- | --- | --- | --- | --- | --- |
 | tap | supported | 否 | **可能**（点击可能把镜像短暂置前，`BackgroundInput.click` 随后把用户应用切回前台） | **是**（focusWithoutRaise → restoreFocus） | 否 |
-| type（粘贴） | supported | 否 | **可能**（⌘V 以 holdModifiers 发送不激活；但点按“允许粘贴”走与 tap 相同的点击，可能短暂置前） | 是（点按“允许粘贴”时） | **是**（完整快照全部类型，无法完整保存则拒绝粘贴；手机可能仍在拉取时暂缓恢复） |
+| type（粘贴） | supported | 否 | **可能**（⌘V 以 holdModifiers 发送不激活；但点按“允许粘贴”走与 tap 相同的点击，可能短暂置前） | 是（点按“允许粘贴”时） | **是**（完整快照全部类型，无法完整保存则拒绝粘贴；粘贴稳定后恢复；未稳定且之后未见手机取完时不再恢复：输入的文字一直留在剪贴板、用户原内容不放回，并在 2 分钟内拒绝其他粘贴） |
 | Return / Delete | supported | 否 | 否 | 否 | 否 |
 | Home / App Switcher / Spotlight（⌘1/2/3） | supported | 否 | **是**（withMenuShortcutActivation 瞬时置前再恢复） | 否 | 否 |
 | swipe / drag / scroll / longPress | unsupported | — | — | — | — |
