@@ -103,6 +103,7 @@ extension DesktopPlatform {
     public func menuItems(pid: Int32) -> [PlatformMenuItem]? { nil }
     public func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { .unknown }
     public func focusedControl(pid: Int32) -> PlatformHit? { nil }
+    public func menuOpen(pid: Int32) -> Bool? { nil }
 
     /// Platforms without the user's displays (test doubles, other backends)
     /// refuse physical Desktops.
@@ -165,10 +166,6 @@ public protocol DesktopPlatform: Sendable {
     func window(on screen: ScreenHandle, pid: Int32, windowId: UInt32) -> PlatformWindow?
     /// Write a PNG of the whole screen; its size in pixels.
     func screenshot(_ screen: ScreenHandle, to path: String) throws -> (width: Int, height: Int)
-    /// Write a PNG of only `frame` (global points) of the screen; its size
-    /// in pixels. The Runtime asks for the bound window's frame after
-    /// proving nothing covers it, so the pixels are that window's.
-    func screenshot(_ screen: ScreenHandle, cropTo frame: Rect, to path: String) throws -> (width: Int, height: Int)
     /// On-screen normal windows that overlap the screen, front to back, as
     /// the window server orders them now.
     func stack(on screen: ScreenHandle) -> [PlatformWindow]
@@ -207,6 +204,8 @@ public protocol DesktopPlatform: Sendable {
     /// The element with keyboard focus in the app, read now: what Return or
     /// Space would press. Role "AXNone" when nothing has focus.
     func focusedControl(pid: Int32) -> PlatformHit?
+    /// Whether the app shows a menu now; nil when that cannot be told.
+    func menuOpen(pid: Int32) -> Bool?
 }
 
 /// The element at a point, as G2 judges it.

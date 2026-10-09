@@ -181,3 +181,32 @@ private func namesNothing(_ e: RuntimeError?) -> Bool {
     #expect(ConnectionState(socketPeer: getuid()).origin == .socket)
     #expect(ConnectionState(socketPeer: getuid(), pid: 1, executable: "/x").origin == .socket)
 }
+
+/// #153's "a refusal writes no ledger entry" and "every service method
+/// outside the read list is refused", under A4: an unpaired client gets
+/// pairing_required and a paired one whose code is not verified gets no
+/// sensitive call, for every method other services answer here; their
+/// handlers are never reached and nothing enters the ledger.
+@Test func parityEveryServiceMethodIsRefusedToUnverifiedSocketClientsAndLeavesNoTrace() throws {
+    let s = platformService()
+    final class Reached: @unchecked Sendable { let lock = NSLock(); var methods: [String] = [] }
+    let reached = Reached()
+    let served = RuntimeContract.shared.methods.filter { $0.servedBy != nil }.map(\.method)
+    #expect(!served.isEmpty)
+    s.registerExtensions(Dictionary(uniqueKeysWithValues: served.map { m in
+        (m, { (_: ExtensionCall) -> Result<JSONValue, RuntimeError> in reached.lock.withLock { reached.methods.append(m) }; return .success(.obj([])) })
+    }))
+    s.confirmer = FakeConfirmer()   // would approve, if it were ever asked
+    let anon = ConnectionState(socketPeer: getuid())
+    _ = answer(s, handshakeLine, anon)
+    let (script, id) = try pairedConnection(s, capabilities: ["observe", "act", "desktop.manage", "run", "unit.run"], name: "script")
+    for m in served {
+        let a = call(s, anon, m, id: "anon-\(m)")
+        #expect(code(a) == "pairing_required", "\(m)")
+        let r = call(s, script, m, id: "script-\(m)")
+        #expect(code(r) != nil, "\(m) answered an unverified client")
+        #expect(try s.ledger.record(caller: id, requestId: "script-\(m)") == nil, "\(m) left a ledger entry")
+        #expect(try s.ledger.record(caller: anon.clientId, requestId: "anon-\(m)") == nil)
+    }
+    #expect(reached.lock.withLock { reached.methods }.isEmpty, "no service handler was reached: \(reached.methods)")
+}

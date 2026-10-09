@@ -95,11 +95,11 @@ extension RuntimeService {
                     wanted = nil
                 }
                 let screen = try platform.attachDisplay(wanted)
-                if let other = desktops.physical(displayId: screen.displayId) {
-                    return .failure(RuntimeError("conflict", "desktop \(other.desktopId) already attaches display \(screen.displayId)",
-                                                 phase: .handler, details: .obj([("desktopId", .string(other.desktopId))])))
+                if desktops.physical(displayId: screen.displayId) != nil {
+                    return .failure(RuntimeError("conflict", "another desktop already attaches display \(screen.displayId)",
+                                                 phase: .handler))
                 }
-                let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical)
+                let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical, createdBy: c.clientId)
                 return .success(desktopJSON(d))
             }
             let screen = try platform.createScreen(name: id, width: p["width"]?.intValue, height: p["height"]?.intValue)
@@ -202,13 +202,15 @@ extension RuntimeService {
                                    phase: .request, notSent: true, details: .obj([("reason", .string("bind_requires_grant"))]))
             }
             let process = backend.processIdentity(pid)
-            guard process.startedAt != nil else { throw RuntimeError.notFound("no process \(pid)") }
+            // The grant check comes first: a refusal says nothing about
+            // whether a process with that pid exists.
             if d.kind == .virtual && bindsOnlyLaunchedProcesses && !d.launched.contains(process) {
                 throw RuntimeError("permission_denied",
                                    "only an app launched on desktop \(d.desktopId) can be bound until per-window grants exist; launch it there with app.launch",
                                    phase: .handler, notSent: true,
                                    details: .obj([("reason", .string("bind_requires_grant"))]))
             }
+            guard process.startedAt != nil else { throw RuntimeError.notFound("no process \(pid)") }
             if d.kind == .physical {
                 // Never move the user's window: it must already be on this display.
                 guard let wanted else {

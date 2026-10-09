@@ -117,6 +117,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { menu }
     /// What has focus; by default nothing.
     var focusedHit: PlatformHit? = PlatformHit(role: "AXNone", texts: [], windowId: nil)
+    /// Whether the app shows a menu; nil when that cannot be told.
+    var menuShown: Bool? = false
+    func menuOpen(pid: Int32) -> Bool? { menuShown }
     /// Reads of the focus that fail before `focusedHit` is answered.
     var focusFailures = 0
     var focusReads = 0
@@ -189,6 +192,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws -> (pid: Int32, windows: [PlatformWindow]) {
         note("launch \(bundleId ?? path ?? "?") on \(screen.name)")
         guard bundleId != "com.example.missing" else { throw PlatformError(.refused, "give a bundle ID of an installed app") }
+        // The engine's answer when the launch hands back a process that was
+        // already running: refused before anything is moved or bound.
+        guard bundleId != "com.example.single-instance" else { throw PlatformError(.refused, "the app was already running; nothing was moved") }
         let w = PlatformWindow(windowId: 31, pid: 303, appName: "Notes", title: "备忘录",
                                frame: Rect(x: screen.frame.x + 10, y: 10, width: 500, height: 400))
         lock.withLock { windows[303] = [w]; onScreen[31] = screen.name }
@@ -247,13 +253,14 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         }
     }
 
-    /// Test double: the window alone, as the window's crop of this double's screen.
+    /// Test double: the window alone, the whole window at scale 2, as the engine renders it.
     func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        if lock.withLock({ failScreenshot }) { throw PlatformError(.refused, "capture failed") }
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
-        return try screenshot(screen, cropTo: w.frame, to: path)
+        return try windowImage(screen, frame: w.frame, to: path)
     }
 
-    func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
+    func windowImage(_ screen: ScreenHandle, frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
         note("screenshot \(screen.name) window")
         defer { lock.withLock { onCapture }?() }
         guard screenRecordingGranted else {
@@ -296,6 +303,8 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     var performed: [PlatformAction] = []
     /// Fail the next action: before or after dispatch.
     var failNext: PlatformError?
+    /// Window captures fail (G2/#144 tests).
+    var failScreenshot = false
     /// Hold actions until signalled (cancel-in-flight tests).
     var gate: DispatchSemaphore?
     var entered = DispatchSemaphore(value: 0)

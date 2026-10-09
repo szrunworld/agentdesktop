@@ -473,3 +473,20 @@ func aControlCharacterKeyIsRefused(_ k: String) throws {
     platform.focusedHit?.defaultButtonTexts = ["Send"]
     sent(act(sc, key("return", [])))
 }
+
+// Codex (e514647, P1): open Edit, arrow down to Paste, press Return. With a
+// menu open, Return and Space are refused whatever focus says.
+@Test func returnOrSpaceWhileAMenuIsOpenIsRefused() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.menuShown = true
+    for k in ["return", "space", "enter"] { expectRefusal(act(sc, key(k, [])), path: "menu_open") }
+    expectRefusal(act(sc, #"{"kind":"key","key":" "}"#), path: "menu_open")
+    expectRefusal(act(sc, #"{"kind":"type","text":"p "}"#), path: "menu_open")
+    // Arrows still move through it; only activation is refused.
+    sent(act(sc, key("down", [])))
+    platform.menuShown = nil
+    expectRefusal(act(sc, key("return", [])), path: "menu_unverified")
+    platform.menuShown = false
+    sent(act(sc, key("return", [])))
+}

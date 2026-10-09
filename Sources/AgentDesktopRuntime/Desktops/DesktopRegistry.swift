@@ -49,7 +49,6 @@ public final class DesktopRecord: @unchecked Sendable {
     public internal(set) var state = "ready"
     /// Apps app.launch started here: the agent's, closed with the Desktop.
     public internal(set) var launched: [ProcessIdentity] = []
-
     /// The principal that created it; a paired app's grant can cover
     /// "the Desktops I created".
     public internal(set) var createdBy: String?
@@ -97,8 +96,10 @@ public final class DesktopRegistry: @unchecked Sendable {
     }
 
     @discardableResult
-    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual) -> DesktopRecord {
+    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual,
+             createdBy: String? = nil) -> DesktopRecord {
         let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen, kind: kind)
+        r.createdBy = createdBy
         lock.withLock { desktops.append(r) }
         return r
     }

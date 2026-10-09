@@ -9457,7 +9457,7 @@ enum RuntimeContractData {
       "code": "limit_exceeded",
       "exitCode": 5,
       "phase": "handler",
-      "reserved": true,
+      "reserved": false,
       "description": "A configured limit (steps, time, budget, quota) refused or ended the work."
     },
     {
