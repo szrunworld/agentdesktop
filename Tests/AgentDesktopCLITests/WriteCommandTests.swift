@@ -131,6 +131,7 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
     }
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
     func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: nil) }
+    func menuOpen(pid: Int32) -> Bool? { false }
     func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
 
     var placed: Set<UInt32> = []
