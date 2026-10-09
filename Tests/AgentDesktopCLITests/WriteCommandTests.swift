@@ -190,7 +190,7 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
                                    endpoint: path, buildSource: "unknown")
     let service = try { let s = RuntimeService(identity: identity, backend: StubBackend(), platform: TinyPlatform(),
                                  ledger: try RequestLedger(path: dir + "/requests.sqlite"),
-                                 artifacts: try ArtifactStore(directory: dir + "/artifacts")); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+                                 artifacts: try ArtifactStore(directory: dir + "/artifacts")); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
     let server = RuntimeServer(path: path, service: service)
     try server.start()
     defer { server.stop() }

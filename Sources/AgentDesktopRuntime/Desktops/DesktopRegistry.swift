@@ -49,8 +49,13 @@ public final class DesktopRecord: @unchecked Sendable {
     public internal(set) var state = "ready"
     /// Apps app.launch started here: the agent's, closed with the Desktop.
     public internal(set) var launched: [ProcessIdentity] = []
+    /// Who created it: the host's own window or a socket client. A socket
+    /// client sees and uses only Desktops socket clients created.
+    public let createdBy: ConnectionOrigin
 
-    init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle, kind: DesktopKind = .virtual) {
+    init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle, kind: DesktopKind = .virtual,
+         createdBy: ConnectionOrigin = .host) {
+        self.createdBy = createdBy
         self.desktopId = desktopId
         self.name = name
         self.createdAt = createdAt
@@ -87,9 +92,16 @@ public final class DesktopRegistry: @unchecked Sendable {
 
     public func names() -> [String] { lock.withLock { desktops.map(\.name) } }
 
+    /// Names of the Desktops one origin created (names are unique per origin,
+    /// so a socket client can neither probe nor take the main window's).
+    func names(createdBy origin: ConnectionOrigin) -> [String] {
+        lock.withLock { desktops.filter { $0.createdBy == origin }.map(\.name) }
+    }
+
     @discardableResult
-    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual) -> DesktopRecord {
-        let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen, kind: kind)
+    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual,
+             createdBy: ConnectionOrigin = .host) -> DesktopRecord {
+        let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen, kind: kind, createdBy: createdBy)
         lock.withLock { desktops.append(r) }
         return r
     }

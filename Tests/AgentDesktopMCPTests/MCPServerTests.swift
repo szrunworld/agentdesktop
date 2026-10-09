@@ -90,7 +90,7 @@ final class MCPHarness {
                                                                endpoint: path, buildSource: "unknown"),
                                      backend: MCPBackend(), platform: platform)
         service.bindsOnlyLaunchedProcesses = false
-        service.refusesScreenCaptureWithoutBinding = false
+        service.refusesScreenCaptureWithoutBinding = false; service.socketLaunchRequiresGrant = false; service.socketDiscoveryRequiresGrant = false; service.socketGuiRunRequiresGrant = false; service.socketsSeeOnlyTheirOwn = false; service.socketExtensionsAreReadOnly = false
         server = RuntimeServer(path: path, service: service)
         try server.start()
         mcp = MCPServer(makeClient: { SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1")) })

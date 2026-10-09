@@ -1,9 +1,20 @@
 import AgentDesktopProtocol
 import Foundation
 
+/// Where a connection comes from, as the Runtime saw it. Never taken from
+/// anything the client sends.
+public enum ConnectionOrigin: String, Sendable {
+    /// Built inside this process: the main window, the GUI ports.
+    case host
+    /// Accepted by RuntimeServer on the socket: any local client.
+    case socket
+}
+
 /// What the Runtime knows about one connection.
 public final class ConnectionState: @unchecked Sendable {
     public let peerUID: uid_t
+    /// Set when the connection is made; nothing on the wire changes it.
+    public let origin: ConnectionOrigin
     /// Issued by the Runtime for this channel; changes on every reconnect.
     public let connectionId: String
     /// The principal behind the connection. Until AgentHub pairing issues
@@ -20,11 +31,26 @@ public final class ConnectionState: @unchecked Sendable {
     var subscription: EventSubscription?
     public var isSubscribed: Bool { subscription != nil }
 
-    public init(peerUID: uid_t) {
+    /// A connection inside this process (the main window, the GUI ports).
+    /// Package access: only the host's own code makes one.
+    package init(peerUID: uid_t) {
         self.peerUID = peerUID
+        origin = .host
         connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
         clientId = "local:\(peerUID)"
     }
+
+    /// A connection RuntimeServer accepted on the socket. (A4 #137 adds the
+    /// peer's pid and executable; until then they are not used.)
+    /// Until A4 pairing (#137) the socket client is "socket:<uid>": never
+    /// the owner, so it sees only its own Runs, events and artifacts.
+    public init(socketPeer uid: uid_t, pid: pid_t? = nil, executable: String? = nil) {
+        peerUID = uid
+        origin = .socket
+        connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
+        clientId = "socket:\(uid)"
+    }
+
 }
 
 /// Turns one request line into one response line. Every method passes the
@@ -72,6 +98,40 @@ public final class RuntimeService: @unchecked Sendable {
     /// bar, notifications and any window dragged there). Tests turn this
     /// off; the product never does.
     var refusesScreenCaptureWithoutBinding = true
+    /// Until launch grants (PR3, SEC-04): a socket client cannot start apps.
+    /// The host's own window launches through its in-process connection.
+    /// Tests turn this off; the product never does.
+    var socketLaunchRequiresGrant = true
+    /// Until window-discovery grants (PR3, SEC-05): a socket client cannot
+    /// list apps or windows (titles name chats, documents, customers). The
+    /// host's own window lists them in-process for the user to choose from.
+    /// Tests turn this off; the product never does.
+    var socketDiscoveryRequiresGrant = true
+    /// Until GUI-run grants (PR3): a socket client cannot start a GUI Run.
+    /// The run executes on the host's in-process ports with the host's
+    /// identity, observes a bound window and sends it to a model: started
+    /// from a socket it would borrow the host's rights (observe, disclose,
+    /// a window the user bound in the main window). Reading, cancelling and
+    /// following a run stay open. Tests turn this off; the product never does.
+    var socketGuiRunRequiresGrant = true
+    /// Until A4 (#137): a socket client is not the owner. It sees and uses
+    /// only the Desktops, Runs, events and artifacts socket clients made,
+    /// never the main window's. Tests turn this off; the product never does.
+    var socketsSeeOnlyTheirOwn = true
+    /// Until grants (PR3): a socket client may only read from the services
+    /// that answer on this endpoint (AI configuration and the like), from
+    /// an explicit list. Anything else they serve, including methods added
+    /// later or a write mislabelled as a read, is refused. Tests turn this
+    /// off; the product never does.
+    var socketExtensionsAreReadOnly = true
+    /// What a socket client may call on those services: reads that return
+    /// no secret and nothing of the main window's runs.
+    static let socketReadableExtensions: Set<String> = [
+        "ai.connections.list", "ai.connections.get", "ai.models.list",
+        "ai.modelProfiles.list", "ai.modelProfiles.get",
+        "ai.profiles.list", "ai.profiles.get", "ai.profiles.default.get",
+        "ai.operations.get", "ai.usage.summary",
+    ]
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date
@@ -158,6 +218,10 @@ public final class RuntimeService: @unchecked Sendable {
                     "conflict", "this connection carries an event subscription; use another connection or send events.unsubscribe",
                     phase: .handler, details: .obj([("reason", .string("subscribed"))])))
             }
+            // Before the ledger and the service: a refusal has no side effect.
+            if let refusal = extensionGrantRefusal(request.method, connection) ?? scopeRefusal(request, connection) {
+                return .failure(request.requestId, refusal)
+            }
             guard let handler = extensions.handler(request.method) else {
                 return .failure(request.requestId, .capabilityMissing("\(request.method) is not available: the \(spec.servedBy!) is not running"))
             }
@@ -185,6 +249,10 @@ public final class RuntimeService: @unchecked Sendable {
         guard paramViolations.isEmpty else {
             return .failure(request.requestId, .schemaInvalid("params break \(spec.params)", violations: paramViolations))
         }
+        // Before the ledger and the platform: a refusal has no side effect.
+        if let refusal = grantRefusal(method, connection) ?? scopeRefusal(request, connection) {
+            return .failure(request.requestId, refusal)
+        }
         let result: Result<JSONValue, RuntimeError>
         if spec.mutation {
             result = ledgered(request, on: connection)
@@ -209,7 +277,7 @@ public final class RuntimeService: @unchecked Sendable {
     private func ledgered(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let begin: RequestLedger.Begin
         do {
-            begin = try ledger.begin(caller: connection.peerUID, request)
+            begin = try ledger.begin(caller: callerKey(connection), request)
         } catch {
             execution.auditStorageFailed()
             return .failure(ExecutionCoordinator.auditError(notSent: true))
@@ -224,7 +292,7 @@ public final class RuntimeService: @unchecked Sendable {
                 if case .success = result { result = .failure(ExecutionCoordinator.auditError()) }
             }
             do {
-                try ledger.finish(caller: connection.peerUID, requestId: request.requestId, result)
+                try ledger.finish(caller: callerKey(connection), requestId: request.requestId, result)
             } catch {
                 execution.auditStorageFailed()
                 // A failure before dispatch can still say notSent. After
@@ -244,6 +312,62 @@ public final class RuntimeService: @unchecked Sendable {
                 "requestId \(request.requestId) was used for a different \(record.method) request; use a new requestId for a new operation",
                 phase: .request, details: .obj([("requestId", .string(request.requestId)), ("originalMethod", .string(record.method))])))
         }
+    }
+
+    /// The key requests and sessions are kept under: the uid for the host,
+    /// its complement for socket clients, so a socket client never reads the
+    /// host's request outcomes or uses the host's sessions (same uid).
+    func callerKey(_ c: ConnectionState) -> uid_t {
+        c.origin == .socket && socketsSeeOnlyTheirOwn ? ~c.peerUID : c.peerUID
+    }
+
+    /// The until-grants refusals for socket clients. The message and details
+    /// name no app, window, title or pid.
+    func grantRefusal(_ method: RuntimeMethod, _ connection: ConnectionState) -> RuntimeError? {
+        guard connection.origin == .socket else { return nil }
+        switch method {
+        case .appLaunch where socketLaunchRequiresGrant:
+            return RuntimeError("permission_denied", "starting apps needs a launch grant, which this client does not have",
+                                phase: .handler, notSent: true,
+                                details: .obj([("reason", .string("launch_requires_grant"))]))
+        case .appList where socketDiscoveryRequiresGrant, .windowList where socketDiscoveryRequiresGrant:
+            return RuntimeError("permission_denied", "listing apps and windows needs a window-discovery grant, which this client does not have",
+                                phase: .handler, notSent: true,
+                                details: .obj([("reason", .string("window_discovery_requires_grant"))]))
+        default:
+            return nil
+        }
+    }
+
+    /// A socket client does not see the host's Desktops: one the main
+    /// window created is "not found" to it, before the ledger and the
+    /// handler, whether named in params or in context.
+    func scopeRefusal(_ request: RuntimeRequest, _ connection: ConnectionState) -> RuntimeError? {
+        guard connection.origin == .socket, socketsSeeOnlyTheirOwn else { return nil }
+        for id in [request.params["desktopId"]?.stringValue, request.context.desktopId].compactMap({ $0 }) {
+            if let d = desktops.find(id), d.createdBy == .host { return .notFound("no desktop \(id)") }
+        }
+        return nil
+    }
+
+    /// The until-grants refusal for methods other services answer here.
+    /// A GUI-run method: a socket client cannot start one, and the runs that
+    /// exist are the host's (observed and disclosed on its identity).
+    /// Anything else not on the explicit read list: the AI configuration is
+    /// global, and pointing a connection elsewhere would send the main
+    /// window's next GUI-run screenshots there.
+    func extensionGrantRefusal(_ method: String, _ connection: ConnectionState) -> RuntimeError? {
+        guard connection.origin == .socket else { return nil }
+        if method.hasPrefix("gui.runs.") {
+            guard socketGuiRunRequiresGrant else { return nil }
+            return RuntimeError("permission_denied", "GUI runs need a GUI-run grant, which this client does not have",
+                                phase: .handler, notSent: true,
+                                details: .obj([("reason", .string("gui_run_requires_grant"))]))
+        }
+        guard socketExtensionsAreReadOnly, !Self.socketReadableExtensions.contains(method) else { return nil }
+        return RuntimeError("permission_denied", "changing the AI configuration needs a grant, which this client does not have",
+                            phase: .handler, notSent: true,
+                            details: .obj([("reason", .string("ai_config_requires_grant"))]))
     }
 
     private func handle(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {
@@ -288,7 +412,8 @@ public final class RuntimeService: @unchecked Sendable {
             ] + extensions.capabilitySections()))
 
         case .desktopList:
-            return .success(.obj([("desktops", .array(desktops.list().map(desktopJSON)))]))
+            let visible = desktops.list().filter { connection.origin == .host || !socketsSeeOnlyTheirOwn || $0.createdBy == .socket }
+            return .success(.obj([("desktops", .array(visible.map(desktopJSON)))]))
 
         case .desktopShow:
             return desktop(p["desktopId"]).map(desktopJSON)
@@ -303,7 +428,7 @@ public final class RuntimeService: @unchecked Sendable {
                                           includeOffscreen: p["includeOffscreen"]?.boolValue ?? false)
             return .success(.obj([("windows", .array(windows.map(\.json)))]))
 
-        case .desktopCreate: return createDesktop(p)
+        case .desktopCreate: return createDesktop(p, origin: connection.origin)
         case .desktopDestroy: return destroyDesktop(p)
         case .appLaunch: return launchApp(p)
         case .windowBind: return bindWindow(p)

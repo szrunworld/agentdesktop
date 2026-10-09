@@ -112,7 +112,7 @@ extension RuntimeService {
 
                 // Delivery boundary: from here an interruption is unknown.
                 do {
-                    try ledger.markDispatching(caller: c.peerUID, requestId: request.requestId)
+                    try ledger.markDispatching(caller: callerKey(c), requestId: request.requestId)
                     runs.appendEvent(runId, "action.dispatched", .obj([("requestId", .string(request.requestId))]))
                     try runs.checkWritable()
                 } catch {
