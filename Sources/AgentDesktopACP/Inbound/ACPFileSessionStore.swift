@@ -42,7 +42,8 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
 
     public let directory: URL
     private let lock = NSLock()
-    private var migrated = false
+    /// Whether the migration finished (tests read it).
+    private(set) var migrated = false
     /// Set once a failed append could not be rolled back for certain; no
     /// further log lines are written by this store (fail closed).
     private var migrationLogUnusable = false
@@ -204,12 +205,14 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         // meanwhile reads scrub format-1 files in memory (Codex on #141).
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
         // Kevin 2026-10-09: if the log cannot tell us whether it is safe to
-        // go on, stop and wait for a person; files whose last record is
-        // `uncertain` are never processed automatically.
-        guard let uncertain = uncertainFilesInLog() else { return }
+        // go on, stop and wait for a person. A file whose last record is
+        // `uncertain`, or a lone `intent` (its outcome was never recorded),
+        // is never processed automatically, and while any such file exists
+        // the migration is never complete (Codex on #141).
+        guard let blocked = filesAwaitingAPersonInLog() else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        var failed = false
+        var failed = !blocked.isEmpty
         for name in names.sorted() where name.hasSuffix(".json") && !name.hasPrefix(".") {
             let url = directory.appendingPathComponent(name)
             let data: Data
@@ -239,7 +242,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
                 guard let encoded = try? encoder.encode(r) else { failed = true; continue }
                 out = encoded
             }
-            if uncertain.contains(entry.file + "/" + entry.sessionId) { failed = true; continue }
+            if blocked.contains(entry.file + "/" + entry.sessionId) { failed = true; continue }
             // The log line is written (and synced) before the file changes:
             // no log, no rewrite, so the audit trail is never missing a file.
             // Kevin 2026-10-09: if the intent cannot be written, the whole
@@ -305,10 +308,11 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     var logDirFsyncFaultForTesting = false
 
     /// Files ("history/<id>" or "binding/<id>") whose latest log record is
-    /// `uncertain`. nil when the log exists but cannot be read or a line
+    /// `uncertain` or a lone `intent`: their outcome is unknown and they wait
+    /// for a person. nil when the log exists but cannot be read or a line
     /// cannot be understood: then the migration must not run. A trailing
     /// half line is the append guard's business (no further appends).
-    private func uncertainFilesInLog() -> Set<String>? {
+    private func filesAwaitingAPersonInLog() -> Set<String>? {
         let url = directory.appendingPathComponent(Self.migrationLogName)
         let data: Data
         switch Self.readNoFollow(url) {
@@ -324,7 +328,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             guard let l = try? JSONDecoder().decode(Line.self, from: Data(raw)) else { return nil }
             latest[l.file + "/" + l.sessionId] = l.status ?? "intent"
         }
-        return Set(latest.filter { $0.value == "uncertain" }.keys)
+        return Set(latest.filter { $0.value == "uncertain" || $0.value == "intent" }.keys)
     }
 
     private func appendMigrationLog(_ entries: [MigrationLogEntry]) -> Bool {
@@ -381,9 +385,14 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         // succeeds (b9). Not durable means the append failed.
         if !logDirDurable {
             let dfd = open(directory.path, O_RDONLY | O_DIRECTORY)
-            guard dfd >= 0 else { return false }
-            defer { close(dfd) }
-            guard !logDirFsyncFaultForTesting, fsync(dfd) == 0 else { return false }
+            let synced = dfd >= 0 && !logDirFsyncFaultForTesting && fsync(dfd) == 0
+            if dfd >= 0 { close(dfd) }
+            guard synced else {
+                // Reported as failed, so the line must not stay either (else
+                // it would read as a lone intent and block an untouched file).
+                if ftruncate(fd, start) != 0 || fsync(fd) != 0 { migrationLogUnusable = true }
+                return false
+            }
             logDirDurable = true
         }
         return true

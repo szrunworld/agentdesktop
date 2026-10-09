@@ -444,6 +444,45 @@ import Testing
         #expect(!isLegacy(dir, "s1.history.json"))
     }
 
+    /// Codex on #141: a file whose outcome was never recorded (a lone
+    /// intent, because the completed record could not be written) waits for
+    /// a person, and while it does the migration is never complete.
+    @Test func aLoneIntentKeepsTheFileForAPersonAndTheMigrationIncomplete() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let first = ACPFileSessionStore(directory: dir)
+        first.logAppendFaultForTesting = { $0 == 2 }   // completed of s1.history.json fails
+        _ = try first.history(sessionId: "s1")
+        #expect(!isLegacy(dir, "s1.history.json"))
+        let next = ACPFileSessionStore(directory: dir)
+        _ = try next.history(sessionId: "s1")
+        #expect(!next.migrated)                          // never complete with a lone intent
+        for name in ["s1.json", "s2.history.json", "s2.json"] { #expect(!isLegacy(dir, name), "\(name)") }
+        let lines = try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
+            .split(separator: "\n").map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
+        #expect(lines.filter { $0.file == "history" && $0.sessionId == "s1" }.map(\.status) == ["intent"])
+    }
+
+    /// Codex on #141: if the uncertain record itself cannot be written and
+    /// the rename is later rolled back, the lone intent still keeps the file
+    /// from being rewritten automatically.
+    @Test func aLoneIntentAfterAnUnrecordedUncertainRewriteIsNotRetried() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let legacyHistory = raw(dir, "s1.history.json")
+        let first = ACPFileSessionStore(directory: dir)
+        first.dirFsyncFaultForTesting = { $0 == "s1.history.json" }
+        first.logAppendFaultForTesting = { $0 == 2 }   // the uncertain record fails
+        _ = try first.history(sessionId: "s1")
+        try legacyHistory.write(to: dir.appendingPathComponent("s1.history.json"), atomically: true, encoding: .utf8)
+        let next = ACPFileSessionStore(directory: dir)
+        _ = try next.history(sessionId: "s1")
+        #expect(isLegacy(dir, "s1.history.json"))       // not rewritten automatically
+        #expect(!next.migrated)
+    }
+
     /// Kevin 2026-10-09: a log that cannot be understood stops the migration.
     @Test func anUnreadableLogStopsTheMigration() throws {
         let (s, dir) = store()
