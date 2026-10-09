@@ -67,17 +67,24 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
     defer { try? FileManager.default.removeItem(atPath: dir) }
     let recorder = BridgeDiagnostics()
     _ = await answer(call("ai.connections.list", .obj([])), s, idempotent: false, recorder)
+    // resultReady is noted after the signal (b9 on 3bca1c2): it may land just
+    // after `answer` returns.
+    let until = Date().addingTimeInterval(2)
+    while !recorder.events.contains(where: { $0.stage == .resultReady }) && Date() < until {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
     let e = Dictionary(recorder.events.map { ($0.stage, $0) }, uniquingKeysWith: { a, _ in a })
-    #expect(Set(e.keys) == [.entered, .taskCreated, .waitStarted, .taskStarted, .resultReady, .answered])
-    let t = { (s: BridgeDiagnostics.Stage) in e[s]!.uptimeNanos }
-    #expect(t(.entered) <= t(.taskCreated) && t(.taskCreated) <= t(.waitStarted) && t(.waitStarted) <= t(.answered))
+    try #require(Set(e.keys) == [.entered, .taskCreated, .waitStarted, .taskStarted, .resultReady, .answered],
+                 "stages after 2 s: \(e.keys.map(\.rawValue).sorted())")
+    let at = { (s: BridgeDiagnostics.Stage) in e[s]?.uptimeNanos ?? 0 }
+    #expect(at(.entered) <= at(.taskCreated) && at(.taskCreated) <= at(.waitStarted) && at(.waitStarted) <= at(.answered))
     // resultReady is noted after the signal, so it may follow `answered`.
-    #expect(t(.entered) <= t(.taskStarted) && t(.taskStarted) <= t(.resultReady))
-    #expect(e[.entered]!.sinceEnteredNanos == 0)
+    #expect(at(.entered) <= at(.taskStarted) && at(.taskStarted) <= at(.resultReady))
+    #expect(e[.entered]?.sinceEnteredNanos == 0)
     // The connection thread notes its own stages; the task runs elsewhere.
-    let caller = e[.entered]!.threadId
-    #expect(caller != 0 && [.taskCreated, .waitStarted, .answered].allSatisfy { e[$0]!.threadId == caller })
-    #expect(e[.taskStarted]!.threadId != 0 && e[.taskStarted]!.taskPriority != nil)
+    let caller = e[.entered]?.threadId ?? 0
+    #expect(caller != 0 && [.taskCreated, .waitStarted, .answered].allSatisfy { e[$0]?.threadId == caller })
+    #expect(e[.taskStarted]?.threadId ?? 0 != 0 && e[.taskStarted]?.taskPriority != nil)
     #expect(recorder.events.allSatisfy { $0.call == 1 && $0.method == "ai.connections.list" })
 }
 

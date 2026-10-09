@@ -11,7 +11,10 @@ import Foundation
 /// The task's own stages are only appended to memory: `onEvent` (which may
 /// write to stderr) is called on the connection thread, never on the
 /// cooperative thread whose availability is what the timeline measures, and
-/// never before the waiter is signalled (b9 and Codex on 062f5db).
+/// never before the waiter is signalled (b9 and Codex on 062f5db). So a
+/// task's stages reach `onEvent` with the connection's next stage: the last
+/// call's `resultReady`, and a timed-out call's late stages, only with the
+/// next call on that bridge (all are in `events` at once).
 final class BridgeDiagnostics: @unchecked Sendable {
     enum Stage: String, Sendable {
         /// `answer` was called (on the connection thread).
