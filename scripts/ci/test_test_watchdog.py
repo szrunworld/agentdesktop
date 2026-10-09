@@ -269,6 +269,13 @@ class WatchdogTests(unittest.TestCase):
         finally:
             subprocess.run(["pkill", "-f", tag], capture_output=True)
 
+    def failing_tool(self, name, script="#!/bin/sh\nexit 2\n"):
+        path = os.path.join(tempfile.mkdtemp(prefix="watchdog-tool-"), name)
+        with open(path, "w") as f:
+            f.write(script)
+        os.chmod(path, 0o755)
+        return path
+
     def load(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("watchdog", WATCHDOG)
@@ -311,13 +318,32 @@ class WatchdogTests(unittest.TestCase):
 
     def test_a_command_line_with_spaces_is_parsed_whole(self):
         wd = self.load()
-        row = " 812   1  812  501 S+   Thu Oct  9 13:36:03 2026     /usr/bin/python3 -c print('a  b') --flag x"
-        pid, ppid, pgid, uid, stat, start, command = wd.parse_ps_row(row)
-        self.assertEqual((pid, ppid, pgid, uid, stat), (812, 1, 812, 501, "S+"))
-        self.assertEqual(time.localtime(start)[:6], (2026, 10, 9, 13, 36, 3))
-        self.assertEqual(command, "/usr/bin/python3 -c print('a  b') --flag x")
-        self.assertIsNone(wd.parse_ps_row(" 812 1 812 501 S+ not a date at all here x"))
+        self.assertEqual(wd.parse_ps_row("  812 /usr/bin/python3 -c print('a  b') --flag x"),
+                         (812, "/usr/bin/python3 -c print('a  b') --flag x"))
+        self.assertIsNone(wd.parse_ps_row("not-a-pid something"))
 
+    def test_relationships_come_from_the_kernel_never_from_ps(self):
+        # Codex on #196: ps's view of a pid may be a process that has since
+        # exited and whose pid went to another; its parent and group must
+        # never be paired with the new process's identity. Here ps claims a
+        # bystander is the command's child; the kernel knows better.
+        wd = self.load()
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        root = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        lie = self.failing_tool("ps", "#!/bin/sh\n"
+                                f"echo '{bystander.pid} {root.pid} {root.pid} {os.getuid()} S "
+                                "Thu Oct  9 13:36:03 2026 lying-ps-row'\n")
+        try:
+            wd.PS = lie
+            procs = wd.processes()
+            self.assertEqual(procs[bystander.pid][:2], (os.getpid(), bystander.pid))
+            self.assertEqual(procs[bystander.pid][2], wd.start_time(bystander.pid))
+            run = wd.Run(root.pid, None, uuid.uuid4().hex, time.time())
+            self.assertNotIn(bystander.pid, run.members())
+        finally:
+            for p in (bystander, root):
+                p.kill()
+                p.wait()
     def test_a_reaped_commands_pid_is_never_signalled(self):
         # Codex and b9 on #196: once stop() has reaped the command, its pid
         # may be reused at once; the process that now has it must survive.
@@ -426,18 +452,41 @@ class WatchdogTests(unittest.TestCase):
         wd = self.load()
         marker = uuid.uuid4().hex
         run = wd.Run(999999, None, marker, time.time() - 5)
-        now = time.time()
-        procs = {424242: (1, 424242, now, "replaced"), 424243: (1, 424243, now, "same")}
-        ids = {424242: (int(now), 1), 424243: (int(now), 2)}
-        after = {424242: (int(now), 7), 424243: (int(now), 2)}  # 424242 changed during the read
+        now = int(time.time())
+        procs = {424242: (1, 424242, (now, 1), "replaced"), 424243: (1, 424243, (now, 2), "same")}
+        after = {424242: (now, 7), 424243: (now, 2)}  # 424242 changed during the read
         real_env, real_start = wd.process_environment, wd.start_time
         wd.process_environment = lambda pid: [f"{wd.MARKER}={marker}"]
         wd.start_time = lambda pid: after.get(pid)
         try:
-            found = run._marked(procs, set(), None, ids)
+            found = run._marked(procs, set(), None)
         finally:
             wd.process_environment, wd.start_time = real_env, real_start
         self.assertEqual(found, {424243: "same"})
+
+    def test_a_child_hangs_from_its_parent_only_if_the_parent_is_unchanged(self):
+        # b9 on #196: the listing read parent X, then X exited, its pid went
+        # to X', and X' forked R; R's parent pid still says X. R joins the
+        # tree only if X is still the process listed.
+        wd = self.load()
+        procs_ = [subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+                  for _ in range(3)]
+        root, x, r = (p.pid for p in procs_)
+        try:
+            listing = {
+                root: (1, root, wd.start_time(root), "root"),
+                x: (root, x, wd.start_time(x), "X"),
+                r: (x, r, wd.start_time(r), "R"),
+            }
+            run = wd.Run(root, None, uuid.uuid4().hex, time.time())
+            self.assertEqual(set(run._tree(listing)), {root, x, r})  # X unchanged: R is in
+            sec, usec = listing[x][2]
+            listing[x] = (root, x, (sec, (usec + 1) % 1000000), "X")  # X listed, X' there now
+            self.assertNotIn(r, run._tree(listing))
+        finally:
+            for p in procs_:
+                p.kill()
+                p.wait()
 
 
 if __name__ == "__main__":
