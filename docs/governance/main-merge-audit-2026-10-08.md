@@ -703,3 +703,4 @@ Kevin 原话：
 - **#197 8a9d96f**（在 ccfe82e 上重新实现）：b9 复审通过，Codex 的旧讨论已由 `if: always()` 修复并 resolve。等 Codex 审完、CI 通过；未授权。
   - 本 PR 同时修复了 #196 遗留的一处漏检：ps 失败时，括号判断会让所有进程跳过 marker 检查。
   - **记录**：PR 分支用 `--force-with-lease` 覆盖了旧 head 16ec7b3（本地备份 backup/193-old-16ec7b3，GitHub 上该 commit 仍可访问）。改写的不是 main，但与"不改写 git 历史"的规则有关，待 Kevin 定性。已请 69 把备份 ref 推到远端，今后改为开新分支。
+  - **补充（69 主动披露）**：#197 分支共被 force-push 两次，都用了 `--force-with-lease`。第一次在变基到更新后的 #196 时，bcf67d5 被 16ec7b3 覆盖；第二次在 ccfe82e 上重新实现时，16ec7b3 被 8a9d96f 覆盖。两个旧 head 都已推到远端保存：`backup/193-old-bcf67d5`、`backup/193-old-16ec7b3`，b9 已用 ls-remote 核实。待 Kevin 定性。
