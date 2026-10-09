@@ -275,11 +275,6 @@ public enum ClipboardProbe {
         return out
     }
 
-
-    /// Call once on the main thread at start: the keyboard layout is read
-    /// there (Text Input Sources wants the main thread) and kept fresh when
-    /// the user switches input sources. Until it has been read, every key
-    /// with a character is `unknown`.
     /// Whether the app shows a menu now (a menu bar menu or a context menu
     /// is a window of its own at the pop-up menu level); nil when the window
     /// list cannot be read. Return or Space there activates the item the
@@ -292,6 +287,10 @@ public enum ClipboardProbe {
         }
     }
 
+    /// Call once on the main thread at start: the keyboard layout is read
+    /// there (Text Input Sources wants the main thread) and kept fresh when
+    /// the user switches input sources. Until it has been read, every key
+    /// with a character is `unknown`.
     public static func prepareKeyboardLayout() {
         if Thread.isMainThread { KeyboardLayout.shared.start() } else {
             DispatchQueue.main.async { KeyboardLayout.shared.start() }
