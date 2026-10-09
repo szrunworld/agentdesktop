@@ -184,6 +184,7 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(code, 0, log)
         self.assertNotIn("ps -axo", log)
         self.assertNotIn("lsof -t", log)
+        self.assertNotIn("::warning", log)  # #193: lsof finding nothing is not a failure
 
     def test_output_read_while_draining_is_parsed_like_the_rest(self):
         import importlib.util
@@ -534,8 +535,8 @@ class WatchdogTests(unittest.TestCase):
         try:
             real = wd.processes
 
-            def lying(deadline=None):
-                procs = real(deadline)
+            def lying(deadline=None, problems=None):
+                procs = real(deadline, problems)
                 if stranger.pid in procs:  # its parent pid claims the root
                     procs[stranger.pid] = (root.pid,) + procs[stranger.pid][1:]
                 return procs
@@ -573,8 +574,8 @@ class WatchdogTests(unittest.TestCase):
             real = wd.processes
             listed = {}
 
-            def with_the_gone_child(deadline=None):
-                procs = real(deadline)
+            def with_the_gone_child(deadline=None, problems=None):
+                procs = real(deadline, problems)
                 # As listed just before it exited: the root's child.
                 procs[gone.pid] = (root.pid, gone.pid, (int(time.time()), 1), "gone")
                 listed[gone.pid] = True
@@ -602,6 +603,129 @@ class WatchdogTests(unittest.TestCase):
         finally:
             root.kill()
             root.wait()
+
+    STALL = [sys.executable, "-c",
+             'import threading; print("◇ Test stuck() started."); l=threading.Lock(); l.acquire(); l.acquire()']
+
+    def test_a_failing_lsof_makes_the_process_list_partial(self):
+        # #193: a list found without the terminal holders is not reported as
+        # complete.
+        code, log, _, out = self.run_watchdog(self.STALL, stall=3, env={"WATCHDOG_LSOF": self.failing_tool("lsof")})
+        self.assertEqual(code, 124, log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        step = [s for s in report["steps"] if s["step"] == "processes of the run"][0]
+        self.assertEqual(step["status"], "partial", step)
+        self.assertIn("lsof: exit 2", step["detail"])
+        self.assertIn("processes of the run", log.split("incomplete steps:")[-1])
+
+    def test_a_failing_process_list_at_exit_keeps_the_status_and_warns(self):
+        # #193, b9: the leftover check could not be done; the command's own
+        # status is kept, and the failure is visible (log, diagnosis.json,
+        # a warning annotation on the CI run).
+        code, log, _, out = self.run_watchdog(
+            ["sh", "-c", "echo hi; exit 3"], env={"WATCHDOG_FAKE_NO_PROCESS_LIST": "1", "WATCHDOG_NO_SUDO": "1"})
+        self.assertEqual(code, 3, log)
+        self.assertIn("::warning title=test-watchdog::", log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        self.assertEqual(report["trigger"], "leftover check failed")
+        self.assertEqual(report["steps"][0]["status"], "failed")
+        self.assertIn("process list: proc_listallpids failed", report["steps"][0]["detail"])
+
+    def test_a_failing_process_list_never_reports_the_stop_as_clean(self):
+        # #193: after a stall with the process list failing, nothing is
+        # known to be left, which is not "nothing left".
+        code, log, _, out = self.run_watchdog(
+            self.STALL, stall=3, env={"WATCHDOG_FAKE_NO_PROCESS_LIST": "1", "WATCHDOG_NO_SUDO": "1"})
+        self.assertEqual(code, 124, log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        statuses = {s["step"]: s["status"] for s in report["steps"]}
+        self.assertEqual(statuses["processes of the run"], "failed")
+        self.assertEqual(statuses["stop"], "failed")
+
+    def test_a_failing_ps_costs_only_command_lines(self):
+        # #193: ps now supplies only command lines. With it failing, a
+        # detached leftover is still found by its marker and stopped, the
+        # list is complete (no warning), and the failure is noted.
+        secs = str(3000 + uuid.uuid4().int % 900)
+        tag = f"ps-down-{uuid.uuid4().hex[:8]}"
+        try:
+            code, log, _, out = self.run_watchdog(
+                [sys.executable, "-c",
+                 "import subprocess, sys; subprocess.Popen([sys.executable, '-c', "
+                 f"'import time; time.sleep({secs}) # {tag}'], start_new_session=True, "
+                 "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"],
+                env={"WATCHDOG_PS": self.failing_tool("ps")})
+            self.assertEqual(code, 124, log)
+            self.assertNotIn("::warning", log)
+            time.sleep(0.5)
+            self.assertFalse(alive(tag), "the leftover was not found without ps")
+            with open(os.path.join(out, "diagnosis.json")) as f:
+                report = json.load(f)
+            step = [s for s in report["steps"] if s["step"] == "processes of the run"][0]
+            self.assertEqual(step["status"], "ok", step)
+            self.assertIn("ps (command lines only): exit 2", step["detail"])
+        finally:
+            subprocess.run(["pkill", "-f", tag], capture_output=True)
+
+    def test_the_unverifiable_recheck_keeps_what_is_still_there(self):
+        # #193: the recheck asks the kernel pid by pid, so it cannot fail
+        # and drop processes nobody could check; only what is gone goes.
+        os.environ["WATCHDOG_FAKE_UNREADABLE"] = "all"
+        os.environ["WATCHDOG_NO_SUDO"] = "1"
+        try:
+            wd = self.load()
+        finally:
+            del os.environ["WATCHDOG_FAKE_UNREADABLE"], os.environ["WATCHDOG_NO_SUDO"]
+        live = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        gone = subprocess.Popen(["/usr/bin/true"])
+        gone_start = (int(time.time()), 1)
+        gone.wait()
+        try:
+            run = wd.Run(999999, None, uuid.uuid4().hex, time.time() - 30)
+            procs = {live.pid: (1, live.pid, wd.start_time(live.pid), "live"),
+                     gone.pid: (1, gone.pid, gone_start, "gone")}
+            real = wd.start_time
+            # The environment read itself must pass the identity check for
+            # the gone one, so it is the recheck that drops it.
+            calls = {}
+
+            def start_time(pid):
+                calls[pid] = calls.get(pid, 0) + 1
+                return gone_start if pid == gone.pid and calls[pid] == 1 else real(pid)
+            wd.start_time = start_time
+            try:
+                run._marked(procs, set())
+            finally:
+                wd.start_time = real
+            self.assertEqual(run.unverifiable, {live.pid: "live"})
+            self.assertEqual(run.sudo_problem, "sudo turned off")
+        finally:
+            live.kill()
+            live.wait()
+
+    def test_a_failed_leftover_check_still_reports_the_unverifiable(self):
+        # Codex on #197: the failed-discovery report runs first; processes
+        # nobody could check must reach it.
+        wd = self.load()
+        run = wd.Run(999999, None, uuid.uuid4().hex, time.time())
+        run.root_alive = False
+        run.discovery_problems = ["process list: proc_listallpids failed"]
+        run.sudo_problem = "sudo turned off"
+        run.unverifiable = {424242: "/bin/sleep 100"}
+        out = tempfile.mkdtemp(prefix="watchdog-test-")
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()) as printed:  # not a real annotation on CI
+            wd.report_failed_discovery(run, out, 0, time.monotonic())
+        self.assertIn("::warning", printed.getvalue())
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        self.assertEqual([e["pid"] for e in report["unverifiable"]], [424242])
+        self.assertIn("sudo turned off", report["unverifiable"][0]["why"])
+        self.assertEqual([s["step"] for s in report["steps"]], ["processes of the run", "environment check"])
 
 
 if __name__ == "__main__":
