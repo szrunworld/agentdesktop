@@ -481,8 +481,11 @@ public final class ArtifactStore: @unchecked Sendable {
             // Gone at its expiry even if nothing else happens meanwhile
             // (Codex on 59ea934); armed only once it is recorded above
             // (Codex on 72e8b63).
+            // The delay runs on the monotonic clock: when it ends, this one
+            // goes whatever the wall clock says by then (Codex on e9adcc8).
             sweeper.asyncAfter(deadline: .now() + max(0, transientUntil.timeIntervalSince(clock()))) { [weak self] in
                 guard let self else { return }
+                self.remove(artifactId)
                 self.purgeTransients(now: self.clock())
             }
         }
