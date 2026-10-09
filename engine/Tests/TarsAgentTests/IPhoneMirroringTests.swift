@@ -1409,3 +1409,36 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(fake.inputs.isEmpty)
     }
 }
+
+/// Codex review of 2cfa2f9: giving up is checked before the lock's own
+/// wait runs out, so a caller stopped at that moment hears that it was
+/// stopped, not that the lock was busy.
+@Suite struct IPhoneGateLockGiveUpFirstTests {
+    @Test func givingUpWinsOverTheWaitRunningOut() throws {
+        let gate = FakeMirroring().reconnectGate
+        defer { gate.lower() }
+        let fd = try IPhoneReconnectGateLockTests.holdLock(of: gate)
+        defer { IPhoneReconnectGateLockTests.release(fd) }
+        var ran = false
+        #expect(throws: HostFlagLock.GaveUp.self) {
+            try HostFlagLock(for: gate, wait: 0).locked(giveUp: { true }) { ran = true }
+        }
+        #expect(!ran)
+    }
+
+    @Test func anInputStoppedAsTheWaitRunsOutSaysCancelled() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        phone.gateLockWait = 0
+        // Not stopped at the first check, stopped from then on.
+        var calls = 0
+        phone.isCancelled = { calls += 1; return calls >= 2 }
+        let fd = try IPhoneReconnectGateLockTests.holdLock(of: fake.reconnectGate)
+        defer { IPhoneReconnectGateLockTests.release(fd) }
+        let response = try phone.perform(tap(3100, 300))
+        #expect(response.error?.hasPrefix("cancelled") == true)
+        #expect(fake.inputs.isEmpty)
+    }
+}

@@ -126,8 +126,11 @@ struct HostFlagLock {
         defer { close(fd) }
         let end = Date().addingTimeInterval(wait)
         while flock(fd, (shared ? LOCK_SH : LOCK_EX) | LOCK_NB) != 0 {
-            guard errno == EWOULDBLOCK || errno == EINTR, Date() < end else { throw Busy(path: url.path) }
+            guard errno == EWOULDBLOCK || errno == EINTR else { throw Busy(path: url.path) }
+            // Before the wait's own end: a caller stopped by then was
+            // stopped, the lock was not merely busy.
             if giveUp() { throw GaveUp() }
+            guard Date() < end else { throw Busy(path: url.path) }
             Thread.sleep(forTimeInterval: 0.02)
         }
         defer { flock(fd, LOCK_UN) }
