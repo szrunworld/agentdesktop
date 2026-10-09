@@ -668,6 +668,105 @@
       "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
       "asynchronous": false,
       "requiresIdempotencyKey": false
+    },
+    {
+      "method": "hub.pairing.start",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_pairing_start_params",
+      "result": "PairingStarted",
+      "status": "implemented",
+      "note": "anyone connected, paired or not; returns a short code the owner compares"
+    },
+    {
+      "method": "hub.pairing.status",
+      "stage": "P0",
+      "mutation": false,
+      "params": "pairing_ref_params",
+      "result": "PairingStatus",
+      "status": "implemented",
+      "note": "the asking connection (or the owner); an approved pairing hands its credential to the asking connection once"
+    },
+    {
+      "method": "hub.pairing.approve",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_pairing_approve_params",
+      "result": "PairingApproved",
+      "status": "implemented",
+      "note": "owner; the grant can only hold what was requested; 1 s to 7 days"
+    },
+    {
+      "method": "hub.pairing.deny",
+      "stage": "P0",
+      "mutation": true,
+      "params": "pairing_ref_params",
+      "result": "PairingDenied",
+      "status": "implemented",
+      "note": "owner"
+    },
+    {
+      "method": "hub.clients.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "HubClientList",
+      "status": "implemented",
+      "note": "owner; open pairing requests too"
+    },
+    {
+      "method": "hub.clients.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "client_ref_params",
+      "result": "HubClient",
+      "status": "implemented",
+      "note": "owner"
+    },
+    {
+      "method": "hub.clients.revoke",
+      "stage": "P0",
+      "mutation": true,
+      "params": "client_ref_params",
+      "result": "HubClient",
+      "status": "implemented",
+      "note": "owner; soft delete: the credential stops working, the client's Runs stop"
+    },
+    {
+      "method": "hub.grants.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "HubGrantList",
+      "status": "implemented",
+      "note": "owner"
+    },
+    {
+      "method": "hub.grants.set",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_grants_set_params",
+      "result": "HubGrant",
+      "status": "implemented",
+      "note": "owner; narrowing applies to the next request and action; Runs outside the new grant stop"
+    },
+    {
+      "method": "hub.grants.revoke",
+      "stage": "P0",
+      "mutation": true,
+      "params": "client_ref_params",
+      "result": "HubGrant",
+      "status": "implemented",
+      "note": "owner; the client's Runs stop"
+    },
+    {
+      "method": "hub.connections.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "HubConnectionList",
+      "status": "implemented",
+      "note": "owner"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -680,72 +779,6 @@
       "params": "unit_run_params",
       "result": "Run",
       "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process. Params unit_run_params (verification is UnitVerification); lifetime/ownership/origin are accepted only to be refused with ownership_escalation_denied; the Run carries unit (RunUnit). The handler arrives with A6."
-    },
-    {
-      "method": "hub.pairing.start",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.pairing.status",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.pairing.approve",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.pairing.deny",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.clients.list",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.clients.show",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.clients.revoke",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.grants.list",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.grants.set",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.grants.revoke",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.connections.list",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
     },
     {
       "method": "inbox.list",
@@ -1008,5 +1041,15 @@
       "note": "Run.unit is in (RunUnit)"
     }
   },
-  "serviceSchema": "service.schema.json"
+  "serviceSchema": "service.schema.json",
+  "authorization": {
+    "principal": "from the handshake credential only: owner (the host's in-process connections; no socket client is ever the owner), paired app (app:<id> credential from hub.pairing; a client that paired as verified code must satisfy its designated requirement, read from the socket's audit token, on every handshake), else unpaired",
+    "unpaired": "runtime.handshake, runtime.capabilities, hub.pairing.start, hub.pairing.status; anything else is pairing_required",
+    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
+    "checked": "every request, against the client and grant as they are now; an action once more right before its input goes out",
+    "pairing": "hub.pairing.start asks the user in the host's trusted window (details, short code, user authentication); approved exactly as shown, the grant's duration counting from the approval; denied, cancelled, timed out or no trusted window: denied",
+    "confirmation": "a confirmation is bound to a digest of exactly what will be applied, recomputed by the window from what it displayed; params are shown in full and a call too large to show is refused unseen; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch, confirmation_too_large, pairing_busy or no_trusted_ui",
+    "targets": "every Desktop, session and Run a paired client's request names, in its context or params, is authorized; naming two different Desktops is invalid_argument (reason target_mismatch)",
+    "handshake": "a socket connection completes runtime.handshake once (conflict, reason already_handshaken)"
+  }
 }

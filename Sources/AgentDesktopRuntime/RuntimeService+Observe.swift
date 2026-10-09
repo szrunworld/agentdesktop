@@ -6,7 +6,7 @@ extension RuntimeService {
     /// desktopId. The Session must belong to the caller.
     func target(of request: RuntimeRequest, _ c: ConnectionState) -> Result<(DesktopRecord, RuntimeSession?), RuntimeError> {
         if let sid = request.context.sessionId {
-            guard let s = sessions.find(sid, caller: callerKey(c)) else { return .failure(.notFound("no session \(sid)")) }
+            guard let s = sessions.find(sid, caller: c.clientId) else { return .failure(.notFound("no session \(sid)")) }
             guard s.state == "open" else {
                 return .failure(RuntimeError("conflict", "session \(sid) is closed", phase: .handler))
             }
@@ -70,7 +70,7 @@ extension RuntimeService {
         var exposed: (window: PlatformWindow, stack: [StackEntry])?
 
         // 1. Under the lock: checks and screenshot.
-        let first = withDesktop(.string(desk.desktopId), until: requestDeadline) { d -> JSONValue in
+        let first = withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
             stored.binding = d.binding
             /// The screen, or with a binding only the bound window's frame.
             func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
@@ -186,7 +186,7 @@ extension RuntimeService {
         }
 
         // 3. Under the lock again: still the same exposed window; store.
-        return withDesktop(.string(desk.desktopId), until: requestDeadline) { d -> JSONValue in
+        return withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
             var targetJSON: JSONValue = .null
             var elementsJSON: [JSONValue] = []
             if let b = stored.binding, let before = exposed {

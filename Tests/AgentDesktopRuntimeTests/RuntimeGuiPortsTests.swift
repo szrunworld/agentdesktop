@@ -43,7 +43,7 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
         Issue.record("an unknown session must be refused")
     } catch let e as ContractError { #expect(e.code == .forbidden) }
     let (sid, epoch) = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
-    #expect(s.sessions.find(sid, caller: getuid())?.desktopId == d)
+    #expect(s.sessions.find(sid, caller: "local:\(getuid())")?.desktopId == d)
     #expect(epoch == 1)
 }
 
@@ -85,7 +85,7 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
     let again = try await ports.execute(p, actionId: "act-1")
     #expect(again.deliveryState == .confirmed)
     #expect(platform.performed.count == 1)
-    #expect(try s.ledger.record(caller: getuid(), requestId: "gui-act-1")?.method == "act")
+    #expect(try s.ledger.record(caller: "local:\(getuid())", requestId: "gui-act-1")?.method == "act")
 
     // Keys: Meta+A → cmd-a.
     let k = proposal(.action(.key(keys: ["Meta", "A"])), run: "r1", stamp: bundle.observation.stamp, shot: shot)

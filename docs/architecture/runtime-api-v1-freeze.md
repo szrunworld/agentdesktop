@@ -71,6 +71,14 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 
 ### 2.1 PR3 之前的临时封堵（#153，Kevin 2026-10-09 裁决）
 
+> **#137（A4）合入后，本节描述的临时模型由 A4 取代**，判断统一由 Runtime 的身份与授权完成（`docs/security/a4-identity.md`）：
+> - socket 客户端分为未配对（只能配对）和已配对（`app:<id>`，按 grant 授权，默认拒绝）。不再有 `socket:<uid>` 主体，也不再有 `socketsSeeOnlyTheirOwn` 等开关。
+> - 拒绝原因保持不变：`launch_requires_grant`、`window_discovery_requires_grant`、`gui_run_requires_grant`；另有 `bind_requires_grant`。错误码按契约为 `pairing_required` / `grant_missing`。
+> - `runtime.stopAll`：配对 App 只停自己的 Run，不关闭输入准入；只有 owner 能全局停止（落实了下面的收紧计划第 1、2 条）。第 3、4 条（单独的「紧急停止」授权、主窗口显示发起者）尚未实现。
+> - AI 配置：未配对和未验证代码的客户端连读都不行；已验证客户端每次调用都要在可信窗口确认（窗口对 `ai.connections.*` 有显式警告）。
+> - `runtime.status` 对配对 App 只统计它能看到的部分。
+> - #153 的封堵测试已改写为 A4 语义的 `RuntimeSealParityTests`。
+
 在 #137（A4 身份与授权）落地之前，Runtime 按连接来源区分两类主体。来源由 Runtime 在建立连接时标记，客户端改不了：
 
 | 来源 | 怎样产生 | `clientId` | 角色 |

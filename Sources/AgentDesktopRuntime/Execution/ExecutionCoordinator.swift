@@ -255,6 +255,13 @@ public final class ExecutionCoordinator: @unchecked Sendable {
         for id in owned { stop(runId: id, reason: "owner_lost", endAs: .cancelled) }
     }
 
+    /// A client's access is gone (revoked, expired): every live Run it owns
+    /// stops, whatever its lifetime; no further input of it is admitted.
+    func stopRuns(ofClient clientId: String, reason: String) {
+        let owned: [String] = lock.withLock { live.filter { $0.value.record.clientId == clientId }.map(\.key) }
+        for id in owned { stop(runId: id, reason: reason, endAs: .cancelled) }
+    }
+
     /// Close input admission for every Run (Delegated and Durable) and stop
     /// them all. Returns each Run's stop state; global admission becomes
     /// `stopped` only once every Run is quiescent.

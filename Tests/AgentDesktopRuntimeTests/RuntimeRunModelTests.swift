@@ -9,7 +9,7 @@ import Testing
 
 /// A Durable Run on the scene's Desktop, as GUI Explorer would start it.
 func durable(_ sc: Scene, origin: RunRecord.Origin = .guiExplorer) throws -> RunRecord {
-    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: getuid(), at: Timestamp.string(Date()))
+    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: "local:\(getuid())", at: Timestamp.string(Date()))
     return try sc.s.execution.startDurable(kind: "unit", session: session, origin: origin).get()
 }
 
@@ -79,7 +79,7 @@ func runJSON(_ sc: Scene, _ id: String, on c: ConnectionState? = nil) -> JSONVal
     }
     #expect(data(call(sc.s, sc.c, "run.list"))?["runs"]?.arrayValue?.isEmpty == true, "nothing was created")
     // And inside the Runtime, an AgentHub origin cannot be made durable.
-    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: getuid(), at: Timestamp.string(Date()))
+    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: "local:\(getuid())", at: Timestamp.string(Date()))
     if case let .failure(e) = sc.s.execution.startDurable(kind: "unit", session: session, origin: .agentHub) {
         #expect(e.code == "ownership_escalation_denied")
     } else { Issue.record("agent_hub origin must not start a durable Run") }
@@ -182,12 +182,15 @@ func runJSON(_ sc: Scene, _ id: String, on c: ConnectionState? = nil) -> JSONVal
     let ids = (page1["runs"]?.arrayValue ?? []) + (page2["runs"]?.arrayValue ?? [])
     #expect(Set(ids.compactMap { $0["runId"]?.stringValue }).count == 4)
     #expect(page2["next"] == .null)
-    // A paired client (future AgentHub principal) sees its own Runs only.
-    let client = handshaken(sc.s)
-    client.clientId = "client:paired-app"
+    // A paired client sees its own Runs only, and cannot stop everyone's.
+    let (client, _) = try pairedConnection(sc.s, capabilities: ["run"])
     #expect(data(call(sc.s, client, "run.list"))?["runs"]?.arrayValue?.isEmpty == true)
     #expect(code(call(sc.s, client, "run.show", params: #"{"runId":"\#(d.runId)"}"#)) == "not_found")
-    #expect(code(call(sc.s, client, "runtime.stopAll", params: #"{"scope":"all_platform_runs"}"#)) == "permission_denied")
+    // It may stop only its own Runs (it has none here); everyone else's go on.
+    let before = data(call(sc.s, sc.c, "run.show", params: #"{"runId":"\#(d.runId)"}"#))
+    let stop = data(call(sc.s, client, "runtime.stopAll", params: #"{"scope":"all_platform_runs"}"#))
+    #expect(stop?["runs"]?.arrayValue?.isEmpty == true && stop?["admission"]?.stringValue == "enabled")
+    #expect(data(call(sc.s, sc.c, "run.show", params: #"{"runId":"\#(d.runId)"}"#)) == before)
 }
 
 @Test func thePersistentRuntimeKeepsRunsAcrossARestart() throws {

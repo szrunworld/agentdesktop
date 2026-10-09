@@ -32,7 +32,7 @@ extension CLI {
             return ExitStatus.ok
         }
         func probe() throws -> RuntimeIdentity {
-            let c = makeClient(endpoint)
+            let c = client(endpoint)
             defer { c.close() }
             return try c.handshake()
         }

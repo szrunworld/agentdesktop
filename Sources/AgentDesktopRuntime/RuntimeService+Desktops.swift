@@ -23,7 +23,12 @@ extension RuntimeService {
     /// `until` (the request's deadline) or after `desktopLockWait`: a
     /// Desktop held by a slow operation delays its callers only that long,
     /// and nothing is done when the wait ends.
-    func withDesktop(_ id: JSONValue?, until: Date? = nil, _ body: (DesktopRecord) throws -> JSONValue) -> Result<JSONValue, RuntimeError> {
+    /// Run `body` under the Desktop's lock. With a caller, its access is
+    /// checked once more after the lock is held, right before anything is
+    /// done (A4 R3): a request that waited for the lock while the owner
+    /// revoked or narrowed its access does nothing.
+    func withDesktop(_ id: JSONValue?, until: Date? = nil, as c: ConnectionState? = nil, method: String = "",
+                     _ body: (DesktopRecord) throws -> JSONValue) -> Result<JSONValue, RuntimeError> {
         switch desktop(id) {
         case let .failure(e): return .failure(e)
         case let .success(d):
@@ -35,6 +40,11 @@ extension RuntimeService {
             }
             defer { d.lock.unlock() }
             guard d.state != "destroyed" else { return .failure(.notFound("no desktop \(d.desktopId)")) }
+            if let c, let e = recheckAct(c, desktopId: d.desktopId, method: method) {
+                hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied",
+                          reason: "after_lock: " + (e.details?["reason"]?.stringValue ?? e.code))
+                return .failure(e)
+            }
             do {
                 return .success(try body(d))
             } catch let e as RuntimeError {
@@ -47,14 +57,20 @@ extension RuntimeService {
         }
     }
 
-    func createDesktop(_ p: JSONValue, origin: ConnectionOrigin = .host) -> Result<JSONValue, RuntimeError> {
+    func createDesktop(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         createLock.lock()
         defer { createLock.unlock() }
+        // Waited for the lock: access is checked again (round-four review L2).
+        if c.role == .paired {
+            if let reason = c.cutReason { return .failure(Self.cutError(c, reason)) }
+            if let e = accessError(c, method: "desktop.create") { return .failure(e) }
+        }
         let id = DesktopRegistry.newId(prefix: "d")
         let name = p["name"]?.stringValue ?? id
-        let taken = socketsSeeOnlyTheirOwn ? desktops.names(createdBy: origin) : desktops.names()
-        if taken.contains(name) {
+        // Names are unique per creator: a client can neither probe nor take
+        // another's Desktop names (#153 parity).
+        if desktops.names(createdBy: c.clientId).contains(name) {
             return .failure(RuntimeError("conflict", "a desktop named \(name) exists", phase: .handler))
         }
         do {
@@ -83,11 +99,11 @@ extension RuntimeService {
                     return .failure(RuntimeError("conflict", "another desktop already attaches display \(screen.displayId)",
                                                  phase: .handler))
                 }
-                let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical, createdBy: origin)
+                let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical, createdBy: c.clientId)
                 return .success(desktopJSON(d))
             }
             let screen = try platform.createScreen(name: id, width: p["width"]?.intValue, height: p["height"]?.intValue)
-            let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, createdBy: origin)
+            let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, createdBy: c.clientId)
             return .success(desktopJSON(d))
         } catch let e as PlatformError {
             return .failure(e.runtimeError)
@@ -96,9 +112,9 @@ extension RuntimeService {
         }
     }
 
-    func destroyDesktop(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
+    func destroyDesktop(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
-        return withDesktop(p["desktopId"]) { d in
+        return withDesktop(p["desktopId"], as: c, method: "desktop.destroy") { d in
             if let holder = execution.holder(of: d.desktopId) {
                 throw RuntimeError("conflict", "run \(holder) controls desktop \(d.desktopId); cancel it first",
                                    phase: .handler, details: .obj([("holderRunId", .string(holder))]))
@@ -142,9 +158,14 @@ extension RuntimeService {
         }
     }
 
-    func launchApp(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
+    func launchApp(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
-        return withDesktop(p["desktopId"]) { d in
+        return withDesktop(p["desktopId"], as: c, method: "app.launch") { d in
+            // The app itself is checked again under the lock (round-four review L2).
+            if c.role == .paired, p["path"] != nil || !appAllowed(c, bundleId: p["bundleId"]?.stringValue) {
+                throw RuntimeError("grant_missing", "starting this app needs a launch grant for it, which this client does not have",
+                                   phase: .request, notSent: true, details: .obj([("reason", .string("launch_requires_grant"))]))
+            }
             guard d.kind == .virtual else {
                 throw RuntimeError("invalid_target",
                                    "desktop \(d.desktopId) is physical: it binds windows the user's apps already show; app.launch is for virtual Desktops",
@@ -168,11 +189,17 @@ extension RuntimeService {
     }
 
     /// Move the window onto the Desktop and make it the Desktop's target.
-    func bindWindow(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
+    func bindWindow(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
-        return withDesktop(p["desktopId"]) { d in
+        return withDesktop(p["desktopId"], as: c, method: "window.bind") { d in
             guard let pid = p["pid"]?.intValue.map(Int32.init) else { throw RuntimeError.schemaInvalid("pid is required") }
             let wanted = p["windowId"]?.intValue.map(UInt32.init)
+            // The app is checked again under the lock, naming nothing (round-four review L2).
+            if c.role == .paired,
+               !appAllowed(c, bundleId: backend.applications(includeBackground: true).first { $0.process.pid == pid }?.bundleId) {
+                throw RuntimeError("grant_missing", "binding this window needs a grant for its app, which this client does not have",
+                                   phase: .request, notSent: true, details: .obj([("reason", .string("bind_requires_grant"))]))
+            }
             let process = backend.processIdentity(pid)
             // The grant check comes first: a refusal says nothing about
             // whether a process with that pid exists.
@@ -211,8 +238,8 @@ extension RuntimeService {
         }
     }
 
-    func unbindWindow(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
-        withDesktop(p["desktopId"]) { d in
+    func unbindWindow(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
+        withDesktop(p["desktopId"], as: c, method: "window.unbind") { d in
             if d.binding != nil {
                 d.generation += 1
                 d.binding = nil
@@ -222,20 +249,20 @@ extension RuntimeService {
     }
 
     func openSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
-        withDesktop(p["desktopId"]) { d in
-            sessions.open(desktopId: d.desktopId, caller: callerKey(c), at: nowString).json
+        withDesktop(p["desktopId"], as: c, method: "session.open") { d in
+            sessions.open(desktopId: d.desktopId, caller: c.clientId, at: nowString).json
         }
     }
 
     func showSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["sessionId"]?.stringValue ?? ""
-        guard let s = sessions.find(id, caller: callerKey(c)) else { return .failure(.notFound("no session \(id)")) }
+        guard let s = sessions.find(id, caller: c.clientId) else { return .failure(.notFound("no session \(id)")) }
         return .success(s.json)
     }
 
     func closeSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["sessionId"]?.stringValue ?? ""
-        guard sessions.find(id, caller: callerKey(c)) != nil, let s = sessions.close(id, at: nowString) else {
+        guard sessions.find(id, caller: c.clientId) != nil, let s = sessions.close(id, at: nowString) else {
             return .failure(.notFound("no session \(id)"))
         }
         return .success(s.json)
@@ -243,7 +270,7 @@ extension RuntimeService {
 
     func showRequest(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["requestId"]?.stringValue ?? ""
-        guard let r = try? ledger.record(caller: callerKey(c), requestId: id) else {
+        guard let r = try? ledger.record(caller: c.clientId, requestId: id) else {
             return .failure(.notFound("no request \(id) within the last \(RequestLedger.retentionDays) days"))
         }
         var m: [(String, JSONValue)] = [("requestId", .string(r.requestId)), ("method", .string(r.method)),

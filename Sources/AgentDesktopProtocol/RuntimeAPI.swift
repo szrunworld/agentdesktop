@@ -53,6 +53,17 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case artifactRead = "artifact.read"
     case eventsSubscribe = "events.subscribe"
     case eventsUnsubscribe = "events.unsubscribe"
+    case pairingStart = "hub.pairing.start"
+    case pairingStatus = "hub.pairing.status"
+    case pairingApprove = "hub.pairing.approve"
+    case pairingDeny = "hub.pairing.deny"
+    case clientsList = "hub.clients.list"
+    case clientsShow = "hub.clients.show"
+    case clientsRevoke = "hub.clients.revoke"
+    case grantsList = "hub.grants.list"
+    case grantsSet = "hub.grants.set"
+    case grantsRevoke = "hub.grants.revoke"
+    case connectionsList = "hub.connections.list"
 }
 
 /// The machine-readable contract: schema, method catalog and error table.
