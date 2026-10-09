@@ -9,10 +9,20 @@ public enum PrincipalRole: String, Sendable {
 }
 
 /// What the Runtime knows about one connection.
+/// Where a connection comes from, as the Runtime saw it. Never taken from
+/// anything the client sends.
+public enum ConnectionOrigin: String, Sendable {
+    /// Built inside this process: the main window, the GUI ports.
+    case host
+    /// Accepted by RuntimeServer on the socket: any local client.
+    case socket
+}
+
 public final class ConnectionState: @unchecked Sendable {
     public let peerUID: uid_t
-    /// A socket client (not the host's own in-process connection).
-    public private(set) var isSocket = false
+    /// Where the connection comes from, as the Runtime saw it (#153's
+    /// interface); nothing on the wire changes it.
+    public let origin: ConnectionOrigin
     /// Issued by the Runtime for this channel; changes on every reconnect.
     public let connectionId: String
     /// The principal behind the connection: "local:<uid>" for the owner,
@@ -75,17 +85,18 @@ public final class ConnectionState: @unchecked Sendable {
 
     /// A connection inside this process (the main window, the GUI ports):
     /// the owner.
-    public init(peerUID: uid_t) {
+    package init(peerUID: uid_t) {
         self.peerUID = peerUID
+        origin = .host
         connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
         clientId = "local:\(peerUID)"
         role = .owner
     }
 
     /// A socket connection: unpaired until its handshake shows a credential.
-    public init(socketPeer uid: uid_t, pid: pid_t?, executable: String?) {
+    public init(socketPeer uid: uid_t, pid: pid_t? = nil, executable: String? = nil) {
         peerUID = uid
-        isSocket = true
+        origin = .socket
         codeIdentity = .unknown
         connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
         clientId = "unpaired:" + connectionId
@@ -344,7 +355,7 @@ public final class RuntimeService: @unchecked Sendable {
                     phase: .handshake, details: .obj([("supported", .array(RuntimeAPI.supportedVersions.map(JSONValue.string)))])))
             }
             // A socket connection says who it is once (review L4).
-            if connection.isSocket, connection.apiVersion != nil {
+            if connection.origin == .socket, connection.apiVersion != nil {
                 return .failure(RuntimeError("conflict", "this connection already completed its handshake; open a new one",
                                              phase: .handshake, notSent: true, details: .obj([("reason", .string("already_handshaken"))])))
             }

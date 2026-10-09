@@ -159,3 +159,9 @@ private func namesNothing(_ e: RuntimeError?) -> Bool {
     #expect(ids == [mine], "only its own run is reported")
     #expect(data(call(s, owner, "run.show", params: #"{"runId":"\#(hostRun)"}"#))?["phase"]?.stringValue != "running", "but every run stopped")
 }
+
+@Test func theOriginInterfaceAgreedWith153() {
+    #expect(ConnectionState(peerUID: getuid()).origin == .host)
+    #expect(ConnectionState(socketPeer: getuid()).origin == .socket)
+    #expect(ConnectionState(socketPeer: getuid(), pid: 1, executable: "/x").origin == .socket)
+}
