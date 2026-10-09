@@ -12,7 +12,8 @@ public struct RuntimeProblem: Equatable, Sendable {
     public let code: String
     public let title: String
     public let advice: String
-    /// True when the request was certainly not sent (`notSent`).
+    /// True when the action was certainly not performed (`notSent`, #170):
+    /// no input and no outside write went out.
     public let notSent: Bool
 
     public init(code: String, title: String, advice: String, notSent: Bool = false) {

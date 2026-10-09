@@ -20,6 +20,48 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 
 没有永久别名：ai/1 信封与 `ai.sock` 在 PR2 迁完后删除（产品未发布，无外部兼容负担）。`AgentDesktopContracts` 的类型并入 `AgentDesktopProtocol`，只保留一份规范性 Schema。
 
+### 1.1 `notSent` 的含义：not_performed（#170，Kevin 2026-10-09 选方案 A）
+
+字段名仍是 `notSent`，语义按 Kevin 的定义：
+
+> **not_performed：执行系统能够证明，本次动作没有向目标平台或目标应用发出任何具有外部效果的输入或写操作。** 无论请求是否已到达 Runtime，只要能够证明没有发生外部输入或写操作，都可以返回 not_performed。如果已经发出部分操作，或者无法证明操作没有发出，则不得返回 not_performed。
+
+| 场景 | 结果 |
+|---|---|
+| 请求未到达 Runtime，且能够确认没有执行（连接失败、本地参数校验） | `notSent: true` |
+| Runtime 收到请求，但授权检查失败，未执行动作 | `notSent: true` |
+| Runtime 收到请求，但安全策略拒绝，未执行动作（G2、#153 封堵、焦点检查） | `notSent: true` |
+| 焦点检查失败，没有输入任何字符 | `notSent: true` |
+| 已经向输入接口提交部分字符 | 送达未知，不得 `notSent` |
+| 外部写入已提交，但未收到平台回执 | unknown，不得 `notSent` |
+| 外部写入已提交，平台明确确认成功 | completed |
+| 无法判断外部写入是否发生 | unknown，不得 `notSent` |
+| 请求超时，但 Runtime 可能已经执行 | unknown（`request_acceptance_unknown`），不得 `notSent` |
+
+**三条不变量**
+1. **not_performed 必须有证据。** 不能因为超时、断连、取消或缺少回执，就推断什么都没发生。Runtime 里的证据是代码结构：拒绝发生在调用平台（`platform.perform`、启动、移动窗口、截图）或外部写入之前；`act` 的投递边界由请求账本的 `dispatch_started_at` 标记，在调用平台之前同步写入。
+2. **not_performed 不等于允许自动重试。** 重试照样要经过授权、Run 状态、停止状态、安全策略和请求账本。停止之后，用同一个 requestId 或新的 requestId 重试，都仍然被拒绝。
+3. **区分“已提交输入”和“目标实际接收”。** 只要输入接口已经接受提交，就不得声称没有发送；目标是否实际接收、处理或显示，是另一个层面的确认问题。
+
+**现有用法核对（2026-10-09，main 9eb49bc）**：`Sources` 中共 52 处 `notSent: true`（Runtime 43 处，客户端、CLI、协议层 9 处），逐处核对如下。
+
+| 类别 | 位置 | 结论 |
+|---|---|---|
+| 连接失败、本地校验、端点被拒 | `UnixSocketTransport`、`EndpointResolver`、`ContractCLI`、`ExecContext`、`RuntimeError.invalidArgument` / `runtimeOffline` | 符合：请求没有发出 |
+| 账本、审计不可用，幂等冲突 | `RuntimeService` 处理前，`RuntimeService+Extensions`，`ExecutionCoordinator.begin` / `beginAction` / `enableInput` | 符合：在处理和调用平台之前 |
+| #153 的封堵，所有权提升，物理 Desktop、启动、绑定的封堵 | `RuntimeService` 的 `grantRefusal` / `extensionGrantRefusal`，`RuntimeService+Runs`，`RuntimeService+Desktops` | 符合：在请求账本、处理和平台之前 |
+| 启动归属拒绝 | `EnginePlatform.launch`（`no_launch_apps_configured` 等） | 符合：在打开应用之前（#151 / #164），`launch_failed` 和 `launch_refused_after_open` 不标 |
+| act 的目标与快照检查、G2、截止时间、停止 | `RuntimeService+Act` 投递边界之前的 17 处 | 符合：都在 `markDispatching` 和 `platform.perform` 之前 |
+| 重启时未走到投递边界的 act | `RequestLedger` 恢复逻辑 | 符合：只针对 `act`，并以 `dispatch_started_at` 为证；其他方法在途时记为 unknown |
+| observe 的截图封堵 | `RuntimeService+Observe` | 符合：在截图之前 |
+| **引擎报错时的 `beforeDispatch`** | `RuntimeService+Act` 第 152 行，依据 `EnginePlatform.preDispatchFailures` | **证据偏弱，已保守处理**：引擎只在错误文字里说明“没有发出”。点击可能已经通过辅助功能按下、再改发事件；打字可能已经先点击了网页输入框，或者已经提交了部分字符。所以在引擎结构化地回报“是否已执行”之前（#173），**点击和打字的引擎错误一律不标 `notSent`，记为送达未知**（`EnginePlatform.notPerformed`）。按键和滚动的引擎错误都发生在任何输入之前，暂时仍按文字判断，这是已知的证据偏弱点，#173 落地后取消。这个判断目前成立，有两个前提（Codex 在 c550a5e 上的意见）：其一，没有对应键码的单个字符按键（例如 `*`）实际走的是打字路径（`BackgroundInput.type`），它现在只会在打出第一个字符之前失败；其二，带 cmd 的按键会在投递事件时把应用短暂调到前台（`SkyLight.withMenuShortcutActivation`），它现在只会在激活之前失败。#173 用结构化结果取代文字判断时，**激活之后、或者打出第一个字符之后才发生的任何失败，都必须算作已执行**。Kevin 2026-10-09 的原则：“任何可能已经产生外部副作用的动作，不能标记为 not_performed。”代价：点击或打字在执行前就因参数问题失败（例如元素序号不存在）时，也报送达未知，需要重新观察（Codex 在 a72ac3b 上的 P1） |
+
+**另行登记的发现**
+- 按元素点击时，引擎先尝试通过辅助功能“按下”元素；如果返回失败（包括超时），会再补发一次事件点击。超时不代表没有执行，所以可能点击两次。这不涉及 `notSent`，但违反“执行状态只描述能够证明的事实”的原则，要单独修。
+- iOS（WDA）那条线用的是自己的 `delivery: .notSent`，不属于 runtime/1 契约，这次没有核对。按同一原则另行审查。
+
+**测试**：`RuntimeNotPerformedContractTests` 覆盖以下场景：收到请求但拒绝执行、已发出的输入不得标 notSent、停止后同一 requestId 或新 requestId 重试仍被拒绝、可能已执行的写入记为 unknown。已有测试 `afterARestartUndispatchedActsFailAndDispatchedOnesAreUnknown` 和 `aWriteInFlightWhenTheHostStoppedIsUnknownAfterRestart` 覆盖重启场景。
+
 ## 2. 主体身份（为 PR3 预留，现在就在线上）
 
 - 每个连接有服务端签发的 `connectionId`；每个请求在服务端被归属到一个**主体** `clientId`。
