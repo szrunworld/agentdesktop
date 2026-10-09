@@ -244,7 +244,9 @@ public final class InputEngine: @unchecked Sendable {
         guard AXActions.canPress(element) else {
             throw AccessibilityError("element \(element.index) does not advertise AXPress; nothing was pressed")
         }
-        switch press() {
+        let outcome = press()
+        DeliveryRecorder.noteAX(outcome)
+        switch outcome {
         case .pressed: return explicitPressRoute
         case .notPerformed: throw AccessibilityError("AXPress on element \(element.index) was refused; nothing was pressed and no other input was sent")
         case .unknown: throw BackgroundInput.pressUnknown("element \(element.index)")
@@ -256,7 +258,11 @@ public final class InputEngine: @unchecked Sendable {
     /// here: it may have pressed, and a click after it could press twice.
     static func pressThenClick(press: () -> AXActions.PressOutcome, what: String,
                                click: () throws -> String) throws -> String {
-        switch press() {
+        // Recorded here too, whatever `press` is (#173): noting an outcome
+        // twice changes nothing, missing it would.
+        let outcome = press()
+        DeliveryRecorder.noteAX(outcome)
+        switch outcome {
         case .pressed: return "ax.press"
         case .unknown: throw BackgroundInput.pressUnknown(what)
         case .notPerformed: return try click()

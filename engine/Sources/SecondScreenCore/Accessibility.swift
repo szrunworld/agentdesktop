@@ -328,7 +328,9 @@ public enum AXActions {
     /// the action is asked once and its result judged by `pressOutcome`.
     static func pressOnce(validate: () -> AXError, perform: () -> AXError) -> PressOutcome {
         guard validate() == .success else { return .notPerformed }
-        return pressOutcome(perform())
+        let outcome = pressOutcome(perform())
+        DeliveryRecorder.noteAX(outcome)
+        return outcome
     }
 
     /// The check `pressOnce` makes before pressing: the element still answers.
@@ -375,20 +377,20 @@ public enum AXActions {
     /// element takes neither, so the caller can type with keys instead.
     public static func insert(_ text: String, into snapshot: AXSnapshot, index: Int) -> Write {
         guard let element = snapshot.handle(index) else { return .refused }
-        AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        write(element, kAXFocusedAttribute, kCFBooleanTrue)
         let before: String = WindowMover.copyAttribute(element, kAXValueAttribute) ?? ""
         let landed = { (now: String) in now != before && now.contains(text) }
         var settable: DarwinBoolean = false
         if AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
            settable.boolValue,
-           AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success {
+           write(element, kAXSelectedTextAttribute, text as CFString) == .success {
             // Some apps accept a selected-text write and drop it; only a
             // change shows it went in. Without one, try the value instead.
             if settle(element, landed) { return .landed }
         }
         if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
            settable.boolValue,
-           AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, (before + text) as CFString) == .success {
+           write(element, kAXValueAttribute, (before + text) as CFString) == .success {
             return settle(element, landed) ? .landed : .unconfirmed
         }
         return .refused
@@ -401,7 +403,7 @@ public enum AXActions {
         var settable: DarwinBoolean = false
         guard AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
               settable.boolValue,
-              AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString) == .success
+              write(element, kAXValueAttribute, value as CFString) == .success
         else { return .refused }
         // BOSS直聘 took a draft this way while its box read back the old text,
         // and then half the new one, for more than half a second.

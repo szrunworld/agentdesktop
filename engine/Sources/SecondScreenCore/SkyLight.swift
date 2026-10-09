@@ -70,6 +70,7 @@ enum SkyLight {
     /// Chromium and Catalyst windows, and with `alsoPublic`, through the
     /// public call too, which some AppKit targets need instead.
     static func postMouse(_ event: CGEvent, to pid: pid_t, alsoPublic: Bool) {
+        DeliveryRecorder.submitting()
         if let postToPid {
             postToPid(pid, event)
             if alsoPublic { event.postToPid(pid) }
@@ -83,6 +84,7 @@ enum SkyLight {
     /// process. Such events skip the HID path, so NSMenu never sees them:
     /// menu key equivalents need `postKeyWithoutAuth` while the app is front.
     static func postKey(_ event: CGEvent, to pid: pid_t) {
+        DeliveryRecorder.submitting()
         guard let postToPid else {
             event.postToPid(pid)
             return
@@ -100,6 +102,7 @@ enum SkyLight {
     }
 
     static func postKeyWithoutAuth(_ event: CGEvent, to pid: pid_t) {
+        DeliveryRecorder.submitting()
         if let postToPid { postToPid(pid, event) } else { event.postToPid(pid) }
     }
 
@@ -159,6 +162,7 @@ enum SkyLight {
     /// Chromium's user-activation gate open.
     @discardableResult
     static func focusWithoutRaise(windowID: CGWindowID, pid: pid_t) -> Bool {
+        DeliveryRecorder.submitting()
         guard let front = frontPSN(), let target = psn(windowID: windowID, pid: pid) else { return false }
         let defocused = post(focusRecord(windowID: windowID, kind: 2), to: front)
         let focused = post(focusRecord(windowID: windowID, kind: 1), to: target)
@@ -179,6 +183,7 @@ enum SkyLight {
     /// Bring the app to the front with `windowID` key, for the foreground
     /// paths only. Returns the previous front process to restore.
     static func bringToFront(windowID: CGWindowID, pid: pid_t) -> ProcessSerialNumber? {
+        DeliveryRecorder.submitting()
         guard let setFrontProcess, var target = psn(windowID: windowID, pid: pid) else { return nil }
         let previous = frontPSN()
         guard setFrontProcess(&target, windowID, 0x200) == 0 else { return nil }  // kCPSUserGenerated
@@ -207,6 +212,7 @@ enum SkyLight {
     /// put the previous app back. The front app changes for well under a
     /// millisecond: the event only has to be queued while it is front.
     static func withMenuShortcutActivation(windowID: CGWindowID, pid: pid_t, _ body: () -> Void) {
+        DeliveryRecorder.submitting()
         guard let setFrontProcess, var target = psn(windowID: windowID, pid: pid), let previous = frontPSN() else {
             body()
             return

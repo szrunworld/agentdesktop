@@ -291,6 +291,10 @@ public struct ControlResponse: Codable {
     /// refused before opening anything ("no_launch_apps_configured",
     /// "launch_not_verified").
     public var reason: String?
+    /// For `input`: what the request did, as its execution path recorded it
+    /// (#173): "notPerformed", "submitted" or "unknown". Set on success and
+    /// on failure; a client that finds it missing must take it as unknown.
+    public var delivery: String?
 
     public init(ok: Bool = true) {
         self.ok = ok

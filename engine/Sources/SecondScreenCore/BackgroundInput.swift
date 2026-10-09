@@ -404,11 +404,13 @@ public enum BackgroundInput {
             }
         }
         func post(_ type: CGEventType, _ at: CGPoint) {
+            DeliveryRecorder.submitting()
             CGWarpMouseCursorPosition(at)
             CGAssociateMouseAndMouseCursorPosition(1)
             guard let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: at,
                                       mouseButton: .left) else { return }
             if !flags.isEmpty { event.flags = flags }
+            DeliveryRecorder.submitting()
             event.post(tap: .cghidEventTap)
         }
         post(.mouseMoved, from)
