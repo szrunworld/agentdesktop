@@ -30,3 +30,11 @@ import Testing
     #expect(RuntimeProblem(e).advice.contains("未配置允许启动的应用"))
     #expect(RuntimeProblem.reasonAdvice("launch_not_verified") != nil)
 }
+
+@Test func everyLaunchOutcomeHasItsOwnAdvice() {
+    let texts = ["no_launch_apps_configured", "launch_not_verified", "launch_unprovable", "app_already_running",
+                 "launch_failed", "launch_refused_after_open"].map { RuntimeProblem.reasonAdvice($0) }
+    #expect(texts.allSatisfy { $0 != nil })
+    #expect(Set(texts.compactMap { $0 }).count == texts.count, "each reason says something different")
+    #expect(RuntimeProblem.reasonAdvice("launch_failed")?.contains("不会自动重试") == true)
+}

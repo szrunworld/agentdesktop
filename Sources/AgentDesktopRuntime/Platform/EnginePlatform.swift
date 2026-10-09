@@ -142,6 +142,10 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
             case "no_launch_apps_configured", "launch_not_verified", "launch_unprovable", "app_already_running":
                 throw RuntimeError("permission_denied", answer.error ?? "the app was not opened", phase: .handler, notSent: true,
                                    details: .obj([("reason", .string(reason))]))
+            case "launch_failed":
+                // The open call failed: the app may or may not have started.
+                throw RuntimeError("execution_failed", answer.error ?? "the launch call failed", phase: .handler,
+                                   details: .obj([("reason", .string(reason))]))
             case "launch_refused_after_open":
                 // Opened, then refused: nothing moved or bound, but not "not sent".
                 throw RuntimeError("execution_failed", answer.error ?? "the app was opened, then refused", phase: .handler,
