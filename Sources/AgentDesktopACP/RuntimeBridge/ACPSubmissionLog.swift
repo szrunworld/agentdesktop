@@ -105,7 +105,10 @@ public final class ACPSubmissionLog: @unchecked Sendable {
         }
     }
 
-    /// Forget a submission; only when it is certain nothing reached the Runtime.
+    /// Forget a submission; only when it is not performed (`notSent`, #170):
+    /// it can be proved no input and no outside write went out, whether or
+    /// not the request reached the Runtime. A later submission is judged
+    /// again; forgetting is no licence to retry past a stop or a refusal.
     public func remove(_ submissionKey: String) throws {
         lock.lock(); defer { lock.unlock() }
         let previous = entries.removeValue(forKey: submissionKey)
