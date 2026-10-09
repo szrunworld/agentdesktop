@@ -32,11 +32,12 @@ func runLive(_ tool: String, _ args: [String], in dir: String, endpoint: String,
     let out = Pipe()
     p.standardOutput = out
     p.standardError = out
-    final class Collected: @unchecked Sendable { let lock = NSLock(); var data = Data() }
+    final class Collected: @unchecked Sendable { let lock = NSLock(); var data = Data(); var eof = false }
     let collected = Collected()
     out.fileHandleForReading.readabilityHandler = { h in
         let chunk = h.availableData
-        collected.lock.withLock { collected.data.append(chunk) }
+        collected.lock.withLock { if chunk.isEmpty { collected.eof = true } else { collected.data.append(chunk) } }
+        if chunk.isEmpty { h.readabilityHandler = nil }
     }
     try p.run()
     let deadline = Date().addingTimeInterval(limit)
@@ -54,9 +55,13 @@ func runLive(_ tool: String, _ args: [String], in dir: String, endpoint: String,
         p.terminate()
         p.waitUntilExit()
     }
+    // Never a blocking read to the end (b9 on 1eb1d6a): a grandchild that
+    // outlives the run can hold the pipe open. Wait a little for the end of
+    // the output, then take what has arrived.
+    let drainUntil = Date().addingTimeInterval(5)
+    while !collected.lock.withLock({ collected.eof }) && Date() < drainUntil { Thread.sleep(forTimeInterval: 0.05) }
     out.fileHandleForReading.readabilityHandler = nil
-    let rest = (try? out.fileHandleForReading.readToEnd()) ?? nil
-    let text = String(decoding: collected.lock.withLock { collected.data } + (rest ?? Data()), as: UTF8.self)
+    let text = String(decoding: collected.lock.withLock { collected.data }, as: UTF8.self)
     if timedOut { return (-1, "timed out after \(Int(limit)) s (#187); output so far:\n" + text) }
     return (p.terminationStatus, text)
 }
