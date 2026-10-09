@@ -268,3 +268,26 @@ Kevin 原话：
 跟进事项：
 - 缺口 A 的封堵在 #163：head 518b651，b9 复审通过，等待 Kevin 授权；之后还需要真机验证。
 - 建议 B（网页元素按旧坐标点击）登记为 issue #165。
+
+### #153、#151 合并记录补充（9c，原文见 #149 评论 issuecomment-6074499558）
+
+- **#151 合并前预演（9c）**：把 f61931f 合进已合入 #153 的 main 后，根包严格模式 899 个、引擎 249 个测试全部通过。
+- **main 30b65f4 合并后回归（9c，第三份，与 b9、42 对照）**：
+  - 根包严格模式 899 个，全部通过；
+  - 引擎普通模式 249 个，重跑后全部通过。**第一次运行在负载约 30 时卡住超过 20 分钟**，位置在 #159 新增的菜单快捷键测试附近；停掉后重跑通过，只出现过一次，没有复现；
+  - 引擎严格模式：1 个失败（`anOwnerThatExitsDuringTheWaitIsRefused`，已知不稳定，见 #161）。**完整测试没有全绿。**
+- **测试副本真机检查**（30b65f4 的构建，独立端点 `/tmp/adt-post`，没有碰主实例）：
+  - 主窗口能打开；
+  - `app.list`、`window.list`、`app.launch`、`gui.runs.start`、`ai.connections.update` 都被拒（`permission_denied`、notSent），系统里没有出现计算器进程；
+  - `runtime.stopAll` 成功，没有列出其他主体的 Run；
+  - `runtime.enableInput` 被拒。
+- **产品验收要如实记录的两点**：
+  - #151 合并后验证名单为空，`app.launch` 默认拒绝所有应用；主窗口仍可正常打开；用户授权推迟到 #137，最终条件是"归属证明通过且用户授权通过"。
+  - #153 是临时封堵，在 #137 落地之前不得撤销。
+- **后续**：启动失败的提示已开成 #164（b9 审核 0ba7ece 通过，等 Codex 和 Kevin 授权）。
+
+### 待跟踪的测试稳定性问题
+
+- 已登记：#147（WDA 严格模式）、#161（`anOwnerThatExitsDuringTheWaitIsRefused`）。
+- 高负载下不稳定的计时测试（SingleEndpoint、WDAClient、ACP prompt/resume，见 30b65f4 回归）：**尚未开 issue**。
+- 引擎测试在菜单快捷键测试附近卡住一次：**尚未开 issue**。
