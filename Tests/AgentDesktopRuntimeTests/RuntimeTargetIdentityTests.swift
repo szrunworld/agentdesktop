@@ -146,3 +146,32 @@ func openSibling(_ backend: FixedBackend) {
     sc.platform.onCapture = { sc.platform.inFront[screen.name] = [indicator] }
     #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
 }
+
+// #120 audit: a floating panel of the same process (not a normal-level window,
+// so not in the stack checks) holds keyboard focus. Keys and typing would
+// reach it, not the bound window: refused, nothing sent.
+@Test func keysAndTypingAreRefusedWhileAnotherWindowOfTheAppHasFocus() throws {
+    let sc = try scene()
+    let bound = try #require(sc.s.desktops.find(sc.desktop)?.binding?.windowId)
+    sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: bound &+ 1000, focused: true, editable: true)
+    for a in [#"{"kind":"key","key":"a"}"#, #"{"kind":"type","text":"hello"}"#, #"{"kind":"key","key":"tab"}"#] {
+        let r = act(sc, a)
+        #expect(code(r) == "stale_observation")
+        #expect(failure(r)?.details?["reason"]?.stringValue == "focus_outside_bound_window")
+    }
+    #expect(sc.platform.performed.isEmpty)
+    // Focus in the bound window, or no focus anywhere: sent.
+    sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: bound, focused: true, editable: true)
+    #expect(code(act(sc, #"{"kind":"key","key":"a"}"#)) == nil)
+    sc.platform.focusedHit = PlatformHit(role: "AXNone", texts: [], windowId: nil)
+    #expect(code(act(sc, #"{"kind":"key","key":"a"}"#)) == nil)
+    // A menu open: arrows and Escape act on the menu.
+    sc.platform.focusedHit = PlatformHit(role: "AXMenuItem", texts: ["Open"], windowId: bound &+ 2000, focused: true)
+    sc.platform.menuShown = true
+    #expect(code(act(sc, #"{"kind":"key","key":"down"}"#)) == nil)
+    #expect(code(act(sc, #"{"kind":"key","key":"escape"}"#)) == nil)
+    // Clicks are judged by what is under the point (G2), not by focus.
+    sc.platform.menuShown = false
+    sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: bound &+ 1000, focused: true, editable: true)
+    #expect(code(act(sc, #"{"kind":"click","target":{"elementRef":"el_0"}}"#)) == nil)
+}

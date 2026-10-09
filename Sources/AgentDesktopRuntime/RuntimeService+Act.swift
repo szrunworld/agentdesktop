@@ -104,6 +104,21 @@ extension RuntimeService {
                                        phase: .handler, notSent: true,
                                        details: .obj([("reason", .string("clipboard_path_refused")), ("path", .string(path))]))
                 }
+                // #120 audit: keys and typing go to the app's focused window,
+                // not to a window id. A floating panel of the same process
+                // (not a normal-level window, so not in the checks above) may
+                // hold focus: the input would reach a window that was neither
+                // bound nor shown. Refused when focus is known to be elsewhere.
+                // With a menu open the arrows and Escape act on the menu (G2
+                // already refuses Return, Space and typing there).
+                if pa.kind == .key || pa.kind == .type, platform.menuOpen(pid: b.process.pid) != true,
+                   let focusWindow = platform.focusedControl(pid: b.process.pid)?.windowId, focusWindow != b.windowId {
+                    throw RuntimeError("stale_observation",
+                                       "keyboard focus is in window \(focusWindow) of the app, not the bound window \(b.windowId); nothing was sent",
+                                       phase: .handler, notSent: true,
+                                       details: .obj([("reason", .string("focus_outside_bound_window")),
+                                                      ("focusWindowId", .int(Int(focusWindow)))]))
+                }
                 if let deadline = request.deadline.flatMap(Timestamp.date), now() >= deadline {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
                                        phase: .handler, notSent: true)

@@ -136,8 +136,11 @@ public enum ClipboardProbe {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, messagingTimeout)
         guard let element: AXUIElement = r.read(app, kAXFocusedUIElementAttribute) else {
-            // No focused element is an answer (nothing to press), unless the read failed.
-            return r.expired ? nil : Hit(role: "AXNone", texts: [], shortcut: nil, windowID: nil, inMenu: false)
+            // No focused element is an answer (nothing to press), unless the
+            // read failed. Keys still go to the app's focused window: say which.
+            let focusedWindow: AXUIElement? = r.read(app, kAXFocusedWindowAttribute)
+            return r.expired ? nil : Hit(role: "AXNone", texts: [], shortcut: nil,
+                                          windowID: focusedWindow.flatMap(WindowMover.windowID(of:)), inMenu: false)
         }
         guard let role: String = r.read(element, kAXRoleAttribute) else { return nil }
         var ancestors: [String] = []
