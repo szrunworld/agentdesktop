@@ -31,7 +31,14 @@ public enum BackgroundInput {
             FocusGuard.shared.protect(target: window.pid) { rightClick(at: point, in: hit) }
             return overlay ? "event.right.overlay" : "event.right"
         }
-        if allowAX, count == 1, flags.isEmpty, pressElement(at: point, in: hit) { return "ax.press" }
+        if allowAX, count == 1, flags.isEmpty {
+            // #172: events only when the press certainly did nothing.
+            switch pressElement(at: point, in: hit) {
+            case .pressed: return "ax.press"
+            case .unknown: throw pressUnknown("the element at (\(Int(point.x)), \(Int(point.y)))")
+            case .notPerformed: break
+            }
+        }
         let user = NSWorkspace.shared.frontmostApplication
         FocusGuard.shared.protect(target: nil, allowing: window.pid) {
             // Moving focus to the main window would close an open menu.
@@ -134,19 +141,28 @@ public enum BackgroundInput {
     /// AXPress on the pressable native element at the point, if it is in the
     /// window. Web content is left to events: Chromium reports AXPress there
     /// as done while a background page never sees it.
-    private static func pressElement(at point: CGPoint, in window: WindowInfo) -> Bool {
+    /// The failure of a press that got no clear answer: it may have pressed,
+    /// so nothing more is sent and the delivery is unknown. Its words name
+    /// no not-performed phrase the Runtime looks for.
+    static func pressUnknown(_ what: String) -> AccessibilityError {
+        AccessibilityError("the accessibility press of \(what) got no clear answer; it may have pressed, so no further click was sent")
+    }
+
+    /// Not attempted (no pressable native element of the window there) is
+    /// not performed: events may be used.
+    private static func pressElement(at point: CGPoint, in window: WindowInfo) -> AXActions.PressOutcome {
         let app = AXUIElementCreateApplication(window.pid)
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y), &hit) == .success,
               let element = hit,
               let role: String = WindowMover.copyAttribute(element, kAXRoleAttribute), pressable.contains(role)
-        else { return false }
+        else { return .notPerformed }
         var windowElement: AXUIElement? = WindowMover.copyAttribute(element, kAXWindowAttribute)
         if windowElement == nil { windowElement = WindowMover.copyAttribute(element, kAXTopLevelUIElementAttribute) }
         guard let windowElement, WindowMover.windowID(of: windowElement) == window.windowID,
               !isInWebArea(element)
-        else { return false }
-        return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+        else { return .notPerformed }
+        return AXActions.pressOutcome(AXUIElementPerformAction(element, kAXPressAction as CFString))
     }
 
     private static func isInWebArea(_ element: AXUIElement) -> Bool {
