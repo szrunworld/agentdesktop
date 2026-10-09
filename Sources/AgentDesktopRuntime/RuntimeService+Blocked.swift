@@ -75,19 +75,20 @@ extension RuntimeService {
     }
 
     /// `unverified`: the app could not be identified, so it could be iPhone
-    /// Mirroring. `launched` and `quit` only for a launch found to be it
-    /// afterwards: the process, and whether it was quit.
+    /// Mirroring. `launched` and `quitRequested` only for a launch found to
+    /// be it (or unidentified) afterwards: the process, and whether it was
+    /// asked to quit (a request, not proof that it exited).
     static func blockedAppError(notSent: Bool = true, unverified: Bool = false,
-                                launched: ProcessIdentity? = nil, quit: Bool = false) -> RuntimeError {
+                                launched: ProcessIdentity? = nil, quitRequested: Bool = false) -> RuntimeError {
         var details: [(String, JSONValue)] = [("reason", .string("iphone_mirroring_blocked")),
                                               ("identity", .string(unverified ? "unverified" : "iphone_mirroring"))]
         var message = unverified
             ? "the app of this process cannot be identified right now, so it cannot be told apart from iPhone Mirroring; nothing was done. Try again: the next request checks it anew"
             : "iPhone Mirroring is not controlled through desktop methods: input to it reaches the phone without the iPhone protections. It stays refused until the iPhone device session is accepted"
         if let launched {
-            details += [("process", launched.json), ("quit", .bool(quit))]
-            message += quit ? "; this launch had started it and it was quit"
-                : "; it was left running and is not this Desktop's app"
+            details += [("process", launched.json), ("quitRequested", .bool(quitRequested))]
+            message += quitRequested ? "; this launch had started it and it was asked to quit"
+                : "; it could not be asked to quit and is not this Desktop's app"
         }
         return RuntimeError("permission_denied", message, phase: .handler, notSent: notSent, details: .obj(details))
     }

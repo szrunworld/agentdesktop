@@ -219,6 +219,7 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws -> (pid: Int32, windows: [PlatformWindow]) {
         note("launch \(bundleId ?? path ?? "?") on \(screen.name)")
         onLaunch?()
+        if let launchError { throw launchError }
         guard bundleId != "com.example.missing" else { throw PlatformError(.refused, "give a bundle ID of an installed app") }
         // The engine's answer when the launch hands back a process that was
         // already running: refused before anything is moved or bound.
@@ -329,6 +330,8 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     var quit: [Int32] = []
     /// Runs as a launch starts its app (#139).
     var onLaunch: (() -> Void)?
+    /// Thrown by the launch after `onLaunch`, as the engine's refusals are.
+    var launchError: Error?
     func quit(pid: Int32) -> Bool { lock.withLock { quit.append(pid) }; return true }
     var performed: [PlatformAction] = []
     /// Fail the next action: before or after dispatch.

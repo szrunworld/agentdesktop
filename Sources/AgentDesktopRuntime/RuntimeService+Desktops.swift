@@ -188,17 +188,17 @@ extension RuntimeService {
             // Checked again on the process itself: iPhone Mirroring, or an
             // app that cannot be identified, is never kept as this Desktop's
             // app. The platform returns only a process this launch provably
-            // started (its launch token, not a time or a list), so iPhone
-            // Mirroring is quit, as long as the pid is still that process.
-            // An unidentified one is left alone.
-            switch mirroringCheck(pid) {
-            case .other:
-                break
-            case .mirroring:
-                let quit = process.startedAt != nil && backend.processIdentity(pid) == process && platform.quit(pid: pid)
-                throw Self.blockedAppError(notSent: false, launched: process, quit: quit)
-            case .unverified:
-                throw Self.blockedAppError(notSent: false, unverified: true, launched: process, quit: false)
+            // started (its launch token, not a time or a list), so it is
+            // asked to quit, as long as the pid is still that process. A
+            // launch that could not prove its process throws above and
+            // nothing is quit. Known residue: quit finds the process by pid
+            // again (no launch handle reaches the Runtime), and a quit
+            // request is not proof that it exited.
+            let check = mirroringCheck(pid)
+            if check != .other {
+                let requested = process.startedAt != nil && backend.processIdentity(pid) == process && platform.quit(pid: pid)
+                throw Self.blockedAppError(notSent: false, unverified: check == .unverified, launched: process,
+                                           quitRequested: requested)
             }
             d.launched.append(process)
             return .obj([

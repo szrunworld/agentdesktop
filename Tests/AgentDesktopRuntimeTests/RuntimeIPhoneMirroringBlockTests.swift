@@ -69,9 +69,10 @@ final class TempApp {
 }
 
 /// A launch of something else whose process is pid 303; `during` runs as it starts.
-func launching(_ during: @escaping (FixedBackend) -> Void) throws
+func launching(failingWith error: Error? = nil, _ during: @escaping (FixedBackend) -> Void) throws
     -> (platform: FakePlatform, s: RuntimeService, d: String, r: RuntimeResponse) {
     let platform = FakePlatform()
+    platform.launchError = error
     let backend = FixedBackend()
     platform.onLaunch = { during(backend) }
     let s = platformService(platform, backend: backend)
@@ -86,7 +87,7 @@ func launching(_ during: @escaping (FixedBackend) -> Void) throws
     let t = try launching { $0.opened.apps = [mirroring(pid: 404), mirroring(pid: 303)] }
     #expect(refusedAsMirroring(t.r))
     #expect(failure(t.r)?.notSent == false)
-    #expect(failure(t.r)?.details?["quit"]?.boolValue == true)
+    #expect(failure(t.r)?.details?["quitRequested"]?.boolValue == true)
     #expect(t.platform.quit == [303])
     let desk = try #require(t.s.desktops.find(t.d))
     #expect(desk.launched.isEmpty && desk.binding == nil)
@@ -105,14 +106,31 @@ func launching(_ during: @escaping (FixedBackend) -> Void) throws
     #expect(t.s.desktops.find(t.d)?.launched.map(\.pid) == [303])
 }
 
-@Test func aLaunchedProcessThatCannotBeIdentifiedIsRefusedNotKeptAndNotQuit() throws {
-    // Not in the list, no readable executable path.
+@Test func aLaunchedProcessThatCannotBeIdentifiedIsRefusedNotKeptButAskedToQuit() throws {
+    // Not in the list, no readable executable path. The launch token proved
+    // it is this launch's, so it is asked to quit rather than left orphaned.
     let t = try launching { $0.opened.pathsUnreadable = true }
     #expect(refusedAsMirroring(t.r, identity: "unverified"))
     #expect(failure(t.r)?.notSent == false)
-    #expect(failure(t.r)?.details?["quit"]?.boolValue == false)
-    #expect(t.platform.quit.isEmpty)
+    #expect(failure(t.r)?.details?["quitRequested"]?.boolValue == true)
+    #expect(t.platform.quit == [303])
     #expect(t.s.desktops.find(t.d)?.launched.isEmpty == true)
+}
+
+@Test func aLaunchThatCannotProveItsProcessQuitsNothingAndKeepsNothing() throws {
+    // The engine opened something but could not prove it was this launch's
+    // (or the open call failed), while an iPhone Mirroring with a new pid
+    // appeared. Nothing is quit, nothing kept, and the engine's error stands.
+    for reason in ["launch_refused_after_open", "launch_failed"] {
+        let engine = RuntimeError("execution_failed", "the app was opened, then refused", phase: .handler,
+                                  details: .obj([("reason", .string(reason))]))
+        let t = try launching(failingWith: engine) { $0.opened.apps = [mirroring(pid: 505)] }
+        #expect(code(t.r) == "execution_failed", "\(reason)")
+        #expect(failure(t.r)?.details?["reason"]?.stringValue == reason)
+        #expect(t.platform.quit.isEmpty, "\(reason)")
+        let desk = try #require(t.s.desktops.find(t.d))
+        #expect(desk.launched.isEmpty && desk.binding == nil, "\(reason)")
+    }
 }
 
 // MARK: window.bind
