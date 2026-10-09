@@ -414,16 +414,28 @@ public final class ArtifactStore: @unchecked Sendable {
         guard Self.validId(artifactId), lock.withLock({ removing.insert(artifactId).inserted }) else { return }
         defer { _ = lock.withLock { removing.remove(artifactId) } }
         let meta = FileManager.default.contents(atPath: metaPath(artifactId)).flatMap { try? StrictJSON.parse($0) }
-        var removed = false
-        for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
-        where Self.artifactId(ofFile: name) == artifactId {
-            if unlink(directory + "/" + name) == 0 { removed = true }
+        // The image first, its record last: a record never outlives nothing,
+        // and the removal counts only when every file is gone (Codex on
+        // e081bbd); otherwise it is tried again shortly.
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [])
+            .filter { Self.artifactId(ofFile: $0) == artifactId }
+            .sorted { !$0.hasSuffix(".meta.json") && $1.hasSuffix(".meta.json") }
+        var removedAny = false, failed = false
+        for name in names {
+            if unlink(directory + "/" + name) == 0 { removedAny = true } else if errno != ENOENT { failed = true; break }
+        }
+        guard !failed else {
+            sweeper.asyncAfter(deadline: .now() + Self.removalRetry) { [weak self] in self?.remove(artifactId) }
+            return
         }
         _ = lock.withLock { transients.removeValue(forKey: artifactId) }
-        if removed, let size = meta?["byteSize"]?.intValue {
+        if removedAny, let size = meta?["byteSize"]?.intValue {
             forget(bucket: meta?["bucket"]?.stringValue ?? meta?["runId"]?.stringValue.map { "run:" + $0 }, bytes: Int64(size))
         }
     }
+
+    /// How soon a removal that failed on a file is tried again.
+    static let removalRetry: TimeInterval = 5
 
     /// Transient artifacts past their expiry go now.
     func purgeTransients(now: Date) {

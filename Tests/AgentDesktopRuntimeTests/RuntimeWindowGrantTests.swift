@@ -889,3 +889,22 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
                        backend: st.backend, platform: st.platform, hub: st.s.hub)
     #expect(st.s.hub.auditEvents().contains { $0["decision"]?.stringValue == "ended" && $0["reason"]?.stringValue == "\(id) runtime_restarted" })
 }
+
+@Test func aRemovalThatCannotDeleteTheImageKeepsItsRecordAndCount() throws {
+    let (sc, _, _, _) = try calculatorScene(["observe"])
+    let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+    let bucket = "session:" + sc.session
+    let png = sc.s.artifacts.path(for: id, ext: "png")
+    // The image cannot be unlinked (a non-empty directory in its place).
+    try FileManager.default.removeItem(atPath: png)
+    try FileManager.default.createDirectory(atPath: png + "/x", withIntermediateDirectories: true)
+    sc.s.artifacts.remove(id)
+    #expect(FileManager.default.fileExists(atPath: sc.s.artifacts.metaPath(id)), "its record stays for the retry")
+    #expect(sc.s.artifacts.count(bucket: bucket) == 1, "nothing counted off yet")
+    // Once the file can go, the removal completes and counts once.
+    try FileManager.default.removeItem(atPath: png)
+    try Data("PNG".utf8).write(to: URL(fileURLWithPath: png))
+    sc.s.artifacts.remove(id)
+    #expect(!FileManager.default.fileExists(atPath: sc.s.artifacts.metaPath(id)) && !FileManager.default.fileExists(atPath: png))
+    #expect(sc.s.artifacts.count(bucket: bucket) == 0)
+}
