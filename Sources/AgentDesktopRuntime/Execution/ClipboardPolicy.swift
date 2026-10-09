@@ -63,6 +63,10 @@ enum ClipboardPolicy {
             if text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control && $0 != "\n" && $0 != "\r" }) {
                 return "type_control_character"
             }
+            // With a menu open, typed text type-selects its items and a
+            // space or newline activates the selected one.
+            guard let open = platform.menuOpen(pid: pid) else { return "menu_unverified" }
+            if open { return "menu_open" }
             // The text goes to whatever has focus (directly, or when writing
             // a field's value fails): a space or newline typed into a focused
             // "Copy" button presses it.
@@ -156,7 +160,15 @@ enum ClipboardPolicy {
         if key.unicodeScalars.contains(where: { $0.properties.generalCategory == .control && !"\n\r\t".unicodeScalars.contains($0) }) {
             return "key_not_printable"
         }
-        if presses(key), let refused = focusRefusal(pid: pid, platform: platform, returns: returns(key)) { return refused }
+        if presses(key) {
+            // Codex (e514647, P1): with a menu open, Return or Space activates
+            // the item the arrows selected ("Paste"), which accessibility
+            // focus may not show. Refused while a menu is open, and when that
+            // cannot be told.
+            guard let open = platform.menuOpen(pid: pid) else { return "menu_unverified" }
+            if open { return "menu_open" }
+            if let refused = focusRefusal(pid: pid, platform: platform, returns: returns(key)) { return refused }
+        }
         let mods = action.modifiers.map { $0.lowercased() }
         // Shift+Delete is cut in Windows guests (virtual machines, remote desktops).
         if key == "forwarddelete" && mods.contains("shift") { return "shortcut" }
