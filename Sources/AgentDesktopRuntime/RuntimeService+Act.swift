@@ -258,6 +258,24 @@ extension RuntimeService {
             throw refuse("focus_outside_bound_window", "keyboard focus is in window \(focusWindow) of the app, not the bound window \(windowId)",
                          [("focusWindowId", .int(Int(focusWindow)))])
         }
+        // Codex on 74278c9 (P1): typed text is sent one character at a time,
+        // and focus is checked once before. A space typed into a focused
+        // button presses it, a newline presses a default button; either may
+        // open a menu or move focus, and the rest of the text would follow it
+        // elsewhere. So typing goes only into editable text that has focus in
+        // the bound window, and a newline only at the very end (nothing left
+        // to send after what it may set off).
+        if pa.kind == .type {
+            let role = String(focus.role.split(separator: "/").first ?? "")
+            guard focus.editable || ClipboardPolicy.textRoles.contains(role) else {
+                throw refuse("type_focus_not_text", "keyboard focus is not on editable text in the bound window; typing there could press a control")
+            }
+            var body = Substring(pa.text ?? "")
+            while let last = body.unicodeScalars.last, last == "\n" || last == "\r" { body = body.dropLast() }
+            guard !body.unicodeScalars.contains(where: { $0 == "\n" || $0 == "\r" }) else {
+                throw refuse("type_newline_not_last", "a newline may only end the text: what it sets off could take the rest elsewhere; send the lines as separate actions")
+            }
+        }
     }
 
     static func sameFrame(_ a: AgentDesktopProtocol.Rect, _ b: AgentDesktopProtocol.Rect) -> Bool {

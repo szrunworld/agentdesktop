@@ -107,7 +107,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     }
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { menu }
     /// What has focus; by default nothing.
-    var focusedHit: PlatformHit? = PlatformHit(role: "AXNone", texts: [], windowId: nil)
+    /// What has focus; by default an editable text area of the app's window
+    /// (where typing goes in the ordinary case).
+    var focusedHit: PlatformHit? = PlatformHit(role: "AXTextArea", texts: [], windowId: nil, focused: true, editable: true)
     /// Whether the app shows a menu; nil when that cannot be told.
     var menuShown: Bool? = false
     func menuOpen(pid: Int32) -> Bool? { menuShown }
@@ -121,7 +123,7 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         focusReads += 1
         if focusFailures > 0 { focusFailures -= 1; return nil }
         guard var hit = focusedHit else { return nil }
-        if focusFollowsWindow, hit.role == "AXNone", hit.windowId == nil {
+        if focusFollowsWindow, hit.windowId == nil {
             hit.windowId = lock.withLock { windows[pid]?.first?.windowId }
         }
         return hit

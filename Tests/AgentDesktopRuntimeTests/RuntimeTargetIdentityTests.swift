@@ -167,6 +167,7 @@ func openSibling(_ backend: FixedBackend) {
         #expect(reason(a) == "focus_unverified")
     }
     // A focused element whose window cannot be read.
+    sc.platform.focusFollowsWindow = false
     sc.platform.focusedHit = PlatformHit(role: "AXTextField", texts: [], windowId: nil, focused: true, editable: true)
     #expect(reason(keyA) == "focus_unverified")
     // No focused element and no focused window: who would get the key cannot be told.
@@ -246,4 +247,31 @@ func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuC
     #expect(code(r) == "action_delivery_unknown")
     #expect(failure(r)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
     #expect(sc.platform.performed.count == 1)
+}
+
+// Codex on 74278c9 (P1): typed text goes one character at a time, focus is
+// checked once. Typing goes only into editable text with focus in the bound
+// window, and a newline only ends the text; refused before any input.
+@Test func typingNeedsEditableFocusAndANewlineOnlyAtTheEnd() throws {
+    let sc = try scene()
+    let bound = try #require(sc.s.desktops.find(sc.desktop)?.binding?.windowId)
+    func reason(_ a: String) -> String? { failure(act(sc, a))?.details?["reason"]?.stringValue }
+    // A plain button of the bound window has focus: "a b" would press it.
+    sc.platform.focusedHit = PlatformHit(role: "AXButton", texts: ["Next"], windowId: bound, focused: true)
+    #expect(reason(#"{"kind":"type","text":"a b"}"#) == "type_focus_not_text")
+    // Nothing focused in the bound window: nowhere sure to type.
+    sc.platform.focusedHit = PlatformHit(role: "AXNone", texts: [], windowId: bound)
+    #expect(reason(#"{"kind":"type","text":"hello"}"#) == "type_focus_not_text")
+    #expect(sc.platform.performed.isEmpty)
+    // Editable text with focus: a newline in the middle is refused...
+    sc.platform.focusedHit = PlatformHit(role: "AXTextArea", texts: [], windowId: bound, focused: true, editable: true)
+    for text in [#"one\ntwo"#, #"one\rtwo"#, #"one\r\ntwo"#, #"\nx"#] {
+        #expect(reason(#"{"kind":"type","text":"\#(text)"}"#) == "type_newline_not_last", "\(text)")
+    }
+    #expect(sc.platform.performed.isEmpty)
+    // ...and only at the end it goes through, as does plain text.
+    for text in ["hello world", #"one line\n"#, #"one line\r\n"#] {
+        #expect(code(act(sc, #"{"kind":"type","text":"\#(text)"}"#)) == nil, "\(text)")
+    }
+    #expect(sc.platform.performed.count == 3)
 }
