@@ -28,6 +28,17 @@ class FakeMirroring: IPhoneMirroringSystem {
     var sleeps = 0
     var onSleep: (() -> Void)?
     var createFails = false
+    var pasteInProgress = false
+    func withoutPaste<T>(_ body: () throws -> T) throws -> T? {
+        guard !pasteInProgress else { return nil }
+        return try body()
+    }
+    func whileNoPaste(_ body: () -> Void) -> Bool {
+        guard !pasteInProgress else { return false }
+        body()
+        return true
+    }
+    var deliverThrows = false
     let inputBarrier = HostFlag(url: FileManager.default.temporaryDirectory
         .appendingPathComponent("agentdesktop-barrier-\(UUID().uuidString)/iphone-input-barrier"))
     var createdScreens = 0
@@ -45,8 +56,10 @@ class FakeMirroring: IPhoneMirroringSystem {
                                    windowID: windowID, frame: frame)
     }
 
+    struct TransportLost: Error {}
     func deliver(_ request: ControlRequest) throws -> ControlResponse {
         delivered.append(request)
+        if deliverThrows, request.command == .input { throw TransportLost() }
         if request.command == .screenCreate {
             if createFails { return .failure("a screen named \"\(request.screen ?? "")\" already exists") }
             createdScreens += 1

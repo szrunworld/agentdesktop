@@ -54,6 +54,9 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// Set when input may have reached something else; input is refused
     /// until the window is read again.
     private var invalidated: String?
+    /// This screen's own paste is under way: its own presses (Allow Paste,
+    /// Return) go through, while everyone else waits for it.
+    private var ownPaste = false
 
     /// Checked before each input and during each wait in here; once true,
     /// nothing more is sent.
@@ -107,6 +110,22 @@ public final class IPhoneAgentScreen: AgentScreen {
     }
 
     public func screenshot(size: CGSize) throws -> Data {
+        // Taken with no paste able to start or be under way in any process
+        // (the clipboard lease held across the capture, Codex on #127): a
+        // paste that began and ended between two samples would otherwise
+        // leave a frame of a field in flux to act on. This screen's own
+        // paste holds the lease itself, so it captures without it.
+        if ownPaste { return try takeScreenshot(size: size) }
+        guard let png = try system.withoutPaste({ try takeScreenshot(size: size) }) else {
+            throw Self.pasteInProgress
+        }
+        return png
+    }
+
+    private func takeScreenshot(size: CGSize) throws -> Data {
+        // An input that turns uncertain while this capture is taken raises a
+        // barrier this picture predates: only the one already up is lowered.
+        let barrierSeen = system.inputBarrier.generation(now: system.now)
         let capture = try capturedWindow()
         let status = state(of: capture)
         guard status.state == .ready else {
@@ -120,9 +139,11 @@ public final class IPhoneAgentScreen: AgentScreen {
         let png = try Images.png(Images.scaled(capture.image, to: size))
         observation = IPhoneObservation(pid: binding?.pid ?? 0, windowID: capture.windowID, frame: capture.frame,
                                         pixelSize: size, capturedAt: system.now)
-        // Whoever took it can now see what an uncertain input left.
+        // Whoever took it can now see what an uncertain input left. With no
+        // paste under way (the lease is held), the barrier seen at the start
+        // can go; one raised since stays.
         invalidated = nil
-        system.inputBarrier.lower()
+        if !ownPaste, let barrierSeen { system.inputBarrier.lower(ifStill: barrierSeen) }
         return png
     }
 
@@ -264,6 +285,18 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// window and geometry last read; a refusal sends nothing.
     private func send(_ action: InputAction, pid: pid_t) throws -> ControlResponse {
         if let stop = stopReason() { return .failure(stop.localizedDescription) }
+        // The checks and the delivery run with no paste able to start in any
+        // process (the clipboard lease held through dispatch, Codex on #127),
+        // so no input lands in a field another process is pasting into. This
+        // screen's own paste holds the lease and sends its presses itself.
+        if ownPaste { return try dispatch(action, pid: pid) }
+        guard let response = try system.withoutPaste({ try dispatch(action, pid: pid) }) else {
+            return .failure(Self.pasteInProgress.localizedDescription)
+        }
+        return response
+    }
+
+    private func dispatch(_ action: InputAction, pid: pid_t) throws -> ControlResponse {
         let window: IPhoneWindow
         do {
             window = try verifiedTarget(pid: pid)
@@ -275,7 +308,20 @@ public final class IPhoneAgentScreen: AgentScreen {
         request.pid = pid
         request.windowID = window.windowID
         request.input = action
-        let response = try system.deliver(request)
+        let response: ControlResponse
+        do {
+            response = try system.deliver(request)
+        } catch {
+            // The request may have gone out before the transport failed: the
+            // input's effect is unknown, as when the window changes under it.
+            block("may hold the result of an input whose delivery failed midway")
+            var unknown = ControlResponse.failure(IPhoneError(
+                "action_delivery_unknown", reason: "transport_error",
+                "sending the input failed (\(error.localizedDescription)); it may or may not have reached the phone. "
+                    + "Take a new screenshot before deciding on another action", notSent: false).localizedDescription)
+            unknown.route = "\(action.kind.rawValue).unknown"
+            return unknown
+        }
         // Checking and sending cannot be one step: if the window changed
         // around the send, the input may have gone elsewhere. Unknown, not
         // success, and nothing more until the window is read again.
@@ -294,14 +340,21 @@ public final class IPhoneAgentScreen: AgentScreen {
         return response
     }
 
+    static let pasteInProgress = IPhoneError(
+        "paste_in_progress", "another agent is pasting into the phone (or waiting out a paste the phone may still fetch); "
+            + "nothing was sent: take a screenshot again once it is done")
+
     /// No more input to this phone, from this or any process, until a
     /// screenshot of it is taken.
     private func block(_ reason: String) {
         do {
             try system.inputBarrier.raise(reason)
         } catch {
-            // Kept here at least, for this process.
+            // Kept here at least, for this process, and said: other processes
+            // will not see this barrier.
             invalidated = reason
+            FileHandle.standardError.write(Data(("agentdesktop: the iPhone input barrier could not be shared with "
+                + "other processes (\(error.localizedDescription)); only this process holds back input\n").utf8))
         }
     }
 
@@ -311,6 +364,8 @@ public final class IPhoneAgentScreen: AgentScreen {
             throw IPhoneError.stale("delivery_unknown", "the window \(reason) after an earlier input; "
                 + "take a screenshot before any more input")
         }
+        // Nor while another process is pasting: whatever this input was
+        // planned on, the field is changing under it.
         guard let bound = binding else {
             throw IPhoneError("no_observation", "read iPhone Mirroring's window first (frame or screenshot)")
         }
@@ -345,7 +400,9 @@ public final class IPhoneAgentScreen: AgentScreen {
 
     /// Paste `text` into the phone's focused field (see `PasteTransaction`).
     private func paste(_ text: String, pid: pid_t) throws -> PasteTransaction.Result {
-        PasteTransaction().paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
+        ownPaste = true
+        defer { ownPaste = false }
+        return PasteTransaction().paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
     }
 
     /// The phone for a paste: Vision reads the window, input goes to Mirroring.
@@ -354,7 +411,9 @@ public final class IPhoneAgentScreen: AgentScreen {
         let pid: pid_t
 
         func look() throws -> [PhoneText] {
-            try phone.pastePrompt()
+            // Stopped: no more looks count, so the paste ends unknown.
+            if let stop = phone.stopReason() { throw stop }
+            return try phone.pastePrompt()
         }
 
         func pressPaste() throws -> ControlResponse {
@@ -371,7 +430,11 @@ public final class IPhoneAgentScreen: AgentScreen {
             return try phone.send(tap, pid: pid)
         }
 
-        func pause(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+        func pause(_ seconds: TimeInterval) {
+            if phone.stopReason() == nil { Thread.sleep(forTimeInterval: seconds) }
+        }
+
+        func blockInput(_ reason: String) { phone.block(reason) }
     }
 
     /// The text on the mirroring window, for `PastePrompt.read` and for
