@@ -88,7 +88,14 @@ if demo {
         fail("cannot open the submission log under \(state): \(error)")
     }
     projector = ACPProjector()
-    runtime = ACPBridgeRuntimePort(makeClient: ACPBridgeConfiguration.socketFactory(endpoint: endpoint), log: log)
+    // A4: the bridge speaks as the paired client of profile "acp", kept in the
+    // keychain (AGENTDESKTOP_KEYCHAIN for a test copy's keychain file).
+    let keychain = ProcessInfo.processInfo.environment["AGENTDESKTOP_KEYCHAIN"].flatMap { $0.isEmpty ? nil : $0 }
+    let credential = (try? KeychainCredentialStore(keychainPath: keychain).load(endpoint: endpoint.path, profile: "acp")) ?? nil
+    if credential == nil {
+        FileHandle.standardError.write(Data("agentdesktop-acp: not paired with \(endpoint.path); run `agentdesktop agents pair --name ACP --profile acp` first\n".utf8))
+    }
+    runtime = ACPBridgeRuntimePort(makeClient: ACPBridgeConfiguration.socketFactory(endpoint: endpoint, credential: credential), log: log)
     store = ACPFileSessionStore(directory: URL(fileURLWithPath: state).appendingPathComponent("sessions", isDirectory: true))
 }
 

@@ -24,7 +24,7 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
     let path = dir + "/runtime.sock"
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_a2", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                                 backend: Backend(), testSocketOwnerToken: "adt1_test-owner-credential"); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
         databasePath: dir + "/ai.sqlite", credentials: InMemoryCredentialStore()))
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
@@ -32,7 +32,8 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
     let server = RuntimeServer(path: path, service: runtime)
     try server.start()
-    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"))
+    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+                                      credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
     return (server, client, runtime, dir)
 }
 
@@ -91,7 +92,7 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
 @Test func withoutTheAIServiceItsMethodsSaySoAndNeedAHandshake() throws {
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_a2b", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: "/tmp/x.sock", buildSource: "unknown"),
-                                 backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                                 backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let c = ConnectionState(peerUID: getuid())
     let line = Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"r1","method":"ai.connections.list","params":{}}"#.utf8)
     if case let .failure(e) = runtime.respond(to: line, on: c).result { #expect(e.code == "handshake_required") }
@@ -142,7 +143,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
         // The original request still replays its own answer.
         let replay = try client.call(RuntimeRequest(requestId: "idem-key-0001", method: "ai.connections.create", params: connParams))
         #expect(replay["connectionId"] == first["connectionId"])
-        #expect(try runtime.ledger.record(caller: getuid(), requestId: "idem-key-0001")?.state == .completed)
+        #expect(try runtime.ledger.record(caller: "local:\(getuid())", requestId: "idem-key-0001")?.state == .completed)
     }
 }
 
@@ -157,7 +158,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
                 Issue.record("a missing connection cannot be disabled")
             } catch let e as RuntimeError { #expect(e.code == "not_found") }
             // Nothing happened, so nothing holds the key.
-            #expect(try runtime.ledger.record(caller: getuid(), requestId: "idem-fail-0001") == nil)
+            #expect(try runtime.ledger.record(caller: "local:\(getuid())", requestId: "idem-fail-0001") == nil)
         }
     }
 }
@@ -169,7 +170,8 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
     let ids = try await withThrowingTaskGroup(of: String.self) { group in
         for _ in 0..<6 {
             group.addTask { try await offPool {
-                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"))
+                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+                                      credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
                 defer { c.close() }
                 return try c.call(RuntimeRequest(requestId: "idem-race-0001", method: "ai.connections.create",
                                                  params: connParams))["connectionId"]?.stringValue ?? ""
@@ -184,7 +186,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
 @Test func anUnknownOutcomeStaysUnknownAndIsNeverRunAgain() throws {
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_unk", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: "/tmp/x.sock", buildSource: "unknown"),
-                                 backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                                 backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     final class Calls: @unchecked Sendable { var n = 0 }
     let calls = Calls()
     runtime.registerExtensions(["ai.connections.create": { _ in

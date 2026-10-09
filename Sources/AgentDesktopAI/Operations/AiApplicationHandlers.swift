@@ -35,6 +35,18 @@ public struct AiApplicationHandlers: Sendable {
         return out
     }
 
+    /// A4 R4: the caller's access was withdrawn. Its queued or running
+    /// operations are cancelled the way ai.operations.cancel does it, so a
+    /// revoked client's approval does not keep calling models.
+    public func cancelOperations(callerScope: String) async {
+        let ids = (try? await store.activeOperations(callerScope: callerScope)) ?? []
+        for id in ids {
+            _ = try? await store.requestOperationCancel(id, callerScope: callerScope)
+            await runner.cancel(id)
+            if !(await runner.isActive(id)) { try? await store.setOperation(id, state: .cancelled) }
+        }
+    }
+
     public func handle(_ req: ServiceRequest, callerScope: String) async throws -> JSONValue {
         let p = req.params
         let s = store

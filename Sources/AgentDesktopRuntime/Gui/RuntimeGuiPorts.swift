@@ -63,13 +63,13 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         }
         let session: String
         if let sessionId {
-            guard let s = service.sessions.find(sessionId, caller: getuid()), s.state == "open", s.desktopId == desktopId else {
+            guard let s = service.sessions.find(sessionId, caller: connection.clientId), s.state == "open", s.desktopId == desktopId else {
                 throw ContractError(.forbidden, "session \(sessionId) is not an open session of desktop \(desktopId)")
             }
             session = s.sessionId
         } else {
             guard trustedOwner else { throw ContractError(.forbidden, "a GUI run needs an explicit session") }
-            session = service.sessions.open(desktopId: desktopId, caller: getuid(), at: Timestamp.string(Date())).sessionId
+            session = service.sessions.open(desktopId: desktopId, caller: connection.clientId, at: Timestamp.string(Date())).sessionId
         }
         let epoch = UInt64(b.generation)
         lock.withLock { bindings[runId] = RunBinding(desktopId: desktopId, sessionId: session, bindingEpoch: epoch) }

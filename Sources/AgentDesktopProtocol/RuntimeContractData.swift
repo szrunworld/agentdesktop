@@ -204,6 +204,9 @@ enum RuntimeContractData {
               "maxLength": 64
             }
           }
+        },
+        "credential": {
+          "$ref": "#/$defs/Credential"
         }
       }
     },
@@ -340,6 +343,9 @@ enum RuntimeContractData {
               "type": "string"
             }
           }
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
         }
       }
     },
@@ -2312,20 +2318,30 @@ enum RuntimeContractData {
         "role",
         "connectionId"
       ],
-      "description": "Who the Runtime holds responsible for this connection. Reserved for handshake results (PR2b); paired apps arrive in PR3.",
+      "description": "who the Runtime holds this connection to be (A4): from the credential shown in runtime.handshake, never from params",
       "properties": {
         "clientId": {
           "type": "string",
-          "pattern": "^(local:[0-9]+|app:[A-Za-z0-9._-]{1,64})$"
+          "pattern": "^(local:[0-9]+|app:[A-Za-z0-9._-]{1,64}|unpaired:conn_[0-9a-f]{16})$"
         },
         "role": {
           "enum": [
             "owner",
-            "paired"
+            "paired",
+            "unpaired"
           ]
         },
         "connectionId": {
           "$ref": "#/$defs/Id"
+        },
+        "codeIdentityLevel": {
+          "enum": [
+            "verified",
+            "shared_interpreter",
+            "same_user",
+            "in_process"
+          ],
+          "description": "how far the Runtime can tell this connection's program from other processes of the user (A4 S2)"
         }
       }
     },
@@ -3078,6 +3094,591 @@ enum RuntimeContractData {
           "items": {
             "$ref": "service.schema.json#/$defs/GuiVerification"
           }
+        }
+      }
+    },
+    "Credential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "token"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "pattern": "^(local:[0-9]+|app:[A-Za-z0-9._-]{1,64})$"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200
+        }
+      }
+    },
+    "GrantRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilities"
+      ],
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "desktop.manage",
+              "run",
+              "unit.run"
+            ]
+          }
+        },
+        "desktops": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "description": "a Desktop id, or \"created\""
+          }
+        },
+        "apps": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$",
+            "description": "a bundle identifier"
+          }
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 604800
+        }
+      }
+    },
+    "HubGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "capabilities",
+        "desktops",
+        "apps",
+        "expiresAt",
+        "revision",
+        "state"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "desktop.manage",
+              "run",
+              "unit.run"
+            ]
+          }
+        },
+        "desktops": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "description": "a Desktop id, or \"created\""
+          }
+        },
+        "apps": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$",
+            "description": "a bundle identifier"
+          }
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "active",
+            "revoked"
+          ]
+        }
+      }
+    },
+    "HubClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "agentName",
+        "state",
+        "registeredAt"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string"
+        },
+        "agentName": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "callerFacts": {
+          "type": "object"
+        },
+        "codeIdentity": {
+          "$ref": "#/$defs/CodeIdentity"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "revoked"
+          ]
+        },
+        "registeredAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "revokedAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "grant": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HubGrant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "HubPairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "shortCode",
+        "state",
+        "expiresAt"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "shortCode": {
+          "type": "string",
+          "pattern": "^[0-9]{6}$"
+        },
+        "agentName": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requested": {
+          "type": "object"
+        },
+        "callerFacts": {
+          "type": "object"
+        },
+        "codeIdentity": {
+          "$ref": "#/$defs/CodeIdentity"
+        },
+        "state": {
+          "enum": [
+            "requested",
+            "approved",
+            "denied",
+            "expired"
+          ]
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "clientId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "hub_pairing_start_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agentName",
+        "requested"
+      ],
+      "properties": {
+        "agentName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u061C\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\uFEFF]+$",
+          "description": "one line of printable text, shown to the user as self-reported (no control, line-separator or bidi characters)"
+        },
+        "publisher": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u061C\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\uFEFF]+$",
+          "description": "one line of printable text, shown to the user as self-reported (no control, line-separator or bidi characters)"
+        },
+        "requested": {
+          "$ref": "#/$defs/GrantRequest"
+        }
+      }
+    },
+    "PairingStarted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "shortCode",
+        "state",
+        "expiresAt"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "shortCode": {
+          "type": "string",
+          "pattern": "^[0-9]{6}$"
+        },
+        "state": {
+          "const": "requested"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "pairing_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "PairingStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "state",
+        "expiresAt"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "enum": [
+            "requested",
+            "approved",
+            "denied",
+            "expired"
+          ]
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "credential": {
+          "$ref": "#/$defs/Credential"
+        },
+        "grant": {
+          "$ref": "#/$defs/HubGrant"
+        }
+      }
+    },
+    "hub_pairing_approve_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "grant"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "grant": {
+          "$ref": "#/$defs/GrantRequest"
+        }
+      }
+    },
+    "PairingApproved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client",
+        "grant"
+      ],
+      "properties": {
+        "client": {
+          "$ref": "#/$defs/HubClient"
+        },
+        "grant": {
+          "$ref": "#/$defs/HubGrant"
+        }
+      }
+    },
+    "PairingDenied": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairingId",
+        "state"
+      ],
+      "properties": {
+        "pairingId": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "const": "denied"
+        }
+      }
+    },
+    "HubClientList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clients",
+        "pairings"
+      ],
+      "properties": {
+        "clients": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubClient"
+          }
+        },
+        "pairings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubPairing"
+          }
+        }
+      }
+    },
+    "client_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "pattern": "^app:[A-Za-z0-9._-]{1,64}$"
+        }
+      }
+    },
+    "hub_grants_set_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "capabilities"
+      ],
+      "properties": {
+        "clientId": {
+          "type": "string",
+          "pattern": "^app:[A-Za-z0-9._-]{1,64}$"
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "desktop.manage",
+              "run",
+              "unit.run"
+            ]
+          }
+        },
+        "desktops": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "description": "a Desktop id, or \"created\""
+          }
+        },
+        "apps": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$",
+            "description": "a bundle identifier"
+          }
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 604800
+        }
+      }
+    },
+    "HubGrantList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grants"
+      ],
+      "properties": {
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubGrant"
+          }
+        }
+      }
+    },
+    "HubConnectionList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connections"
+      ],
+      "properties": {
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "connectionId",
+              "clientId",
+              "role",
+              "since"
+            ],
+            "properties": {
+              "connectionId": {
+                "type": "string"
+              },
+              "clientId": {
+                "type": "string"
+              },
+              "role": {
+                "enum": [
+                  "owner",
+                  "paired",
+                  "unpaired"
+                ]
+              },
+              "clientName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "callerFacts": {
+                "type": "object"
+              },
+              "since": {
+                "$ref": "#/$defs/Timestamp"
+              }
+            }
+          }
+        }
+      }
+    },
+    "CodeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "hardenedRuntime"
+      ],
+      "description": "what the Runtime read from the socket peer's kernel audit token (A4 S2), never from anything the client sends. verified: team-signed, hardened runtime, bound by its designated requirement; shared_interpreter: as verified but an interpreter whose every script shares it; same_user: nothing verifiable, only a process of this user; in_process: the host itself",
+      "properties": {
+        "level": {
+          "enum": [
+            "verified",
+            "shared_interpreter",
+            "same_user",
+            "in_process"
+          ]
+        },
+        "identifier": {
+          "type": "string"
+        },
+        "teamId": {
+          "type": "string"
+        },
+        "hardenedRuntime": {
+          "type": "boolean"
+        },
+        "requirement": {
+          "type": "string",
+          "description": "the designated requirement every later connection of this client must satisfy"
         }
       }
     }
@@ -8319,6 +8920,105 @@ enum RuntimeContractData {
       "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
       "asynchronous": false,
       "requiresIdempotencyKey": false
+    },
+    {
+      "method": "hub.pairing.start",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_pairing_start_params",
+      "result": "PairingStarted",
+      "status": "implemented",
+      "note": "anyone connected, paired or not; returns a short code the owner compares"
+    },
+    {
+      "method": "hub.pairing.status",
+      "stage": "P0",
+      "mutation": false,
+      "params": "pairing_ref_params",
+      "result": "PairingStatus",
+      "status": "implemented",
+      "note": "the asking connection (or the owner); an approved pairing hands its credential to the asking connection once"
+    },
+    {
+      "method": "hub.pairing.approve",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_pairing_approve_params",
+      "result": "PairingApproved",
+      "status": "implemented",
+      "note": "owner; the grant can only hold what was requested; 1 s to 7 days"
+    },
+    {
+      "method": "hub.pairing.deny",
+      "stage": "P0",
+      "mutation": true,
+      "params": "pairing_ref_params",
+      "result": "PairingDenied",
+      "status": "implemented",
+      "note": "owner"
+    },
+    {
+      "method": "hub.clients.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "HubClientList",
+      "status": "implemented",
+      "note": "owner; open pairing requests too"
+    },
+    {
+      "method": "hub.clients.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "client_ref_params",
+      "result": "HubClient",
+      "status": "implemented",
+      "note": "owner"
+    },
+    {
+      "method": "hub.clients.revoke",
+      "stage": "P0",
+      "mutation": true,
+      "params": "client_ref_params",
+      "result": "HubClient",
+      "status": "implemented",
+      "note": "owner; soft delete: the credential stops working, the client's Runs stop"
+    },
+    {
+      "method": "hub.grants.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "HubGrantList",
+      "status": "implemented",
+      "note": "owner"
+    },
+    {
+      "method": "hub.grants.set",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_grants_set_params",
+      "result": "HubGrant",
+      "status": "implemented",
+      "note": "owner; narrowing applies to the next request and action; Runs outside the new grant stop"
+    },
+    {
+      "method": "hub.grants.revoke",
+      "stage": "P0",
+      "mutation": true,
+      "params": "client_ref_params",
+      "result": "HubGrant",
+      "status": "implemented",
+      "note": "owner; the client's Runs stop"
+    },
+    {
+      "method": "hub.connections.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "HubConnectionList",
+      "status": "implemented",
+      "note": "owner"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -8331,72 +9031,6 @@ enum RuntimeContractData {
       "params": "unit_run_params",
       "result": "Run",
       "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process. Params unit_run_params (verification is UnitVerification); lifetime/ownership/origin are accepted only to be refused with ownership_escalation_denied; the Run carries unit (RunUnit). The handler arrives with A6."
-    },
-    {
-      "method": "hub.pairing.start",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.pairing.status",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.pairing.approve",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.pairing.deny",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.clients.list",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.clients.show",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.clients.revoke",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.grants.list",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.grants.set",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.grants.revoke",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
-    },
-    {
-      "method": "hub.connections.list",
-      "status": "reserved",
-      "pr": "PR3",
-      "stage": "P0"
     },
     {
       "method": "inbox.list",
@@ -8659,7 +9293,17 @@ enum RuntimeContractData {
       "note": "Run.unit is in (RunUnit)"
     }
   },
-  "serviceSchema": "service.schema.json"
+  "serviceSchema": "service.schema.json",
+  "authorization": {
+    "principal": "from the handshake credential only: owner (the host's in-process connections; no socket client is ever the owner), paired app (app:<id> credential from hub.pairing; a client that paired as verified code must satisfy its designated requirement, read from the socket's audit token, on every handshake), else unpaired",
+    "unpaired": "runtime.handshake, runtime.capabilities, hub.pairing.start, hub.pairing.status; anything else is pairing_required",
+    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
+    "checked": "every request, against the client and grant as they are now; an action once more right before its input goes out",
+    "pairing": "hub.pairing.start asks the user in the host's trusted window (details, short code, user authentication); approved exactly as shown, the grant's duration counting from the approval; denied, cancelled, timed out or no trusted window: denied",
+    "confirmation": "a confirmation is bound to a digest of exactly what will be applied, recomputed by the window from what it displayed; params are shown in full and a call too large to show is refused unseen; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch, confirmation_too_large, pairing_busy or no_trusted_ui",
+    "targets": "every Desktop, session and Run a paired client's request names, in its context or params, is authorized; naming two different Desktops is invalid_argument (reason target_mismatch)",
+    "handshake": "a socket connection completes runtime.handshake once (conflict, reason already_handshaken)"
+  }
 }
 """##
 
@@ -8839,28 +9483,24 @@ enum RuntimeContractData {
       "code": "pairing_required",
       "exitCode": 4,
       "phase": "handler",
-      "reserved": true,
       "description": "The client is not paired; pair it in AgentDesktop before calling this method."
     },
     {
       "code": "client_revoked",
       "exitCode": 4,
       "phase": "handler",
-      "reserved": true,
       "description": "The client was removed; its credential no longer works."
     },
     {
       "code": "grant_missing",
       "exitCode": 4,
       "phase": "handler",
-      "reserved": true,
       "description": "The capability, Desktop or app is not in the client's grant."
     },
     {
       "code": "grant_expired",
       "exitCode": 4,
       "phase": "handler",
-      "reserved": true,
       "description": "The grant that covered this has expired."
     },
     {

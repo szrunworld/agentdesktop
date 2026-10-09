@@ -1,3 +1,5 @@
+import Testing
+import AgentDesktopClient
 import AgentDesktopProtocol
 import Foundation
 @testable import AgentDesktopRuntime
@@ -46,8 +48,12 @@ func makeService(backend: RuntimeBackend = FixedBackend(), endpoint: String = "/
     { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(),
                                              startedAt: Timestamp.string(Date()), endpoint: endpoint,
                                              buildSource: "unknown"),
-                   backend: backend, desktops: desktops); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                   backend: backend, desktops: desktops, testSocketOwnerToken: testOwnerToken); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
 }
+
+/// The owner credential of every test Runtime made by makeService.
+let testOwnerToken = "adt1_test-owner-credential"
+let testOwner = ClientCredential(clientId: "local:\(getuid())", token: testOwnerToken)
 
 /// A short private directory for sockets (sun_path holds 104 bytes).
 func socketDirectory() throws -> String {
@@ -85,6 +91,9 @@ final class RawConnection {
 }
 
 let handshakeLine = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"hs_1","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"t","version":"1"}}}"#
+
+/// The same handshake with the test owner credential (raw socket clients, A4).
+let ownerHandshakeLine = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"hs_1","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"t","version":"1"},"credential":{"clientId":"local:\#(getuid())","token":"adt1_test-owner-credential"}}}"#
 
 func requestLine(_ method: String, id: String = "req_1", params: String = "{}") -> String {
     #"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(id)","method":"\#(method)","params":\#(params)}"#
@@ -336,7 +345,7 @@ func platformService(_ platform: FakePlatform = FakePlatform(), backend: FixedBa
                      ledger: RequestLedger? = nil) -> RuntimeService {
     { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                              endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                   backend: backend, platform: platform, ledger: ledger); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                   backend: backend, platform: platform, ledger: ledger); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
 }
 
 import CoreGraphics
@@ -361,4 +370,35 @@ func pngSize(_ data: Data) -> (Int, Int)? {
           let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
           let w = p[kCGImagePropertyPixelWidth] as? Int, let h = p[kCGImagePropertyPixelHeight] as? Int else { return nil }
     return (w, h)
+}
+
+/// A paired app on this Runtime (A4), registered the way the owner would:
+/// a pairing request, approved with this grant; the connection has shown
+/// the app's credential in its handshake.
+func pairedConnection(_ s: RuntimeService, capabilities: [String] = ["observe", "act", "run"], desktops: [String] = [],
+                      apps: [String] = [], name: String = "test-app") throws -> (ConnectionState, String) {
+    let (c, id, _) = try pairedClient(s, capabilities: capabilities, desktops: desktops, apps: apps, name: name)
+    return (c, id)
+}
+
+/// pairedConnection, with the app's token for later connections.
+func pairedClient(_ s: RuntimeService, capabilities: [String], desktops: [String] = [],
+                  apps: [String] = [], name: String = "test-app") throws -> (ConnectionState, String, String) {
+    let pairing = try s.hub.startPairing(connectionId: "conn_test", agentName: name, publisher: nil,
+                                         requested: .obj([("capabilities", .array(capabilities.map(JSONValue.string)))]),
+                                         callerFacts: .obj([]))
+    let (client, _) = try s.hub.approve(pairing, grant: HubStore.Grant(
+        clientId: "", capabilities: capabilities, desktops: desktops, apps: apps,
+        expiresAt: Timestamp.string(Date().addingTimeInterval(3600)), revision: 0, state: "active"))
+    let token = try #require(s.hub.collect(pairing.pairingId))
+    let c = ConnectionState(socketPeer: getuid(), pid: nil, executable: nil)
+    let hello = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"hs","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"t","version":"1"},"credential":{"clientId":"\#(client.clientId)","token":"\#(token)"}}}"#
+    _ = s.respond(to: Data(hello.utf8), on: c)
+    #expect(c.role == .paired)
+    return (c, client.clientId, token)
+}
+
+/// The owner's credential for a socket client of this Runtime (A4).
+func ownerCredential(_ s: RuntimeService) -> ClientCredential {
+    ClientCredential(clientId: "local:\(getuid())", token: s.testSocketOwnerToken ?? "")
 }

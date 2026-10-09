@@ -35,7 +35,7 @@ extension CLI {
                                 message: "\(endpoint.path) is this user's socket [from \(endpoint.source.rawValue)]"))
         }
 
-        let client = makeClient(endpoint)
+        let client = client(endpoint)
         defer { client.close() }
         if checks.last?.status == .ok {
             do {

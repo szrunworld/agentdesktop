@@ -18,7 +18,7 @@ func scene(_ platform: FakePlatform = FakePlatform(), backend: FixedBackend = Fi
            ledger: RequestLedger? = nil, runs: RunStore? = nil) throws -> Scene {
     let s = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                           backend: backend, platform: platform, ledger: ledger, runs: runs); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                           backend: backend, platform: platform, ledger: ledger, runs: runs, testSocketOwnerToken: testOwnerToken); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let c = handshaken(s)
     let d = try created(s, c)
     _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
@@ -205,18 +205,18 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
     do {
         let ledger = try RequestLedger(path: dir + "/requests.sqlite")
         let runs = try RunStore(path: dir + "/runs.sqlite")
-        _ = try ledger.begin(caller: getuid(), RuntimeRequest(requestId: "queued", method: "act", params: .obj([])))
-        _ = try ledger.begin(caller: getuid(), RuntimeRequest(requestId: "sent", method: "act", params: .obj([])))
-        try ledger.markDispatching(caller: getuid(), requestId: "sent")
+        _ = try ledger.begin(caller: "local:\(getuid())", RuntimeRequest(requestId: "queued", method: "act", params: .obj([])))
+        _ = try ledger.begin(caller: "local:\(getuid())", RuntimeRequest(requestId: "sent", method: "act", params: .obj([])))
+        try ledger.markDispatching(caller: "local:\(getuid())", requestId: "sent")
         runs.create(testRun("run_x", lifetime: .connectionScoped))
         // A durable Run whose action crossed its delivery boundary unanswered.
         runs.create(testRun("run_y", lifetime: .platformDurable))
         runs.appendEvent("run_y", "action.dispatched", .obj([("requestId", .string("sent-y"))]))
     }
     let ledger = try RequestLedger(path: dir + "/requests.sqlite")
-    #expect(try ledger.record(caller: getuid(), requestId: "queued")?.state == .failed)
-    #expect(try ledger.record(caller: getuid(), requestId: "queued")?.outcome?["error"]?["details"]?["delivery"]?.stringValue == "not_dispatched")
-    #expect(try ledger.record(caller: getuid(), requestId: "sent")?.state == .unknown)
+    #expect(try ledger.record(caller: "local:\(getuid())", requestId: "queued")?.state == .failed)
+    #expect(try ledger.record(caller: "local:\(getuid())", requestId: "queued")?.outcome?["error"]?["details"]?["delivery"]?.stringValue == "not_dispatched")
+    #expect(try ledger.record(caller: "local:\(getuid())", requestId: "sent")?.state == .unknown)
     let runs = try RunStore(path: dir + "/runs.sqlite")
     let x = try #require(runs.find("run_x"))
     #expect(x.phase == .ended && x.quiescence == .confirmed && x.outcome == .cancelled)

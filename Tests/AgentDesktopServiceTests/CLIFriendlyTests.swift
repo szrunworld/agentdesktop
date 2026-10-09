@@ -1,3 +1,4 @@
+import AgentDesktopClient
 import AgentDesktopCLI
 import AgentDesktopProtocol
 @testable import AgentDesktopRuntime
@@ -21,6 +22,7 @@ final class CLIRun: @unchecked Sendable {
         ContractCLI(stdout: out.add, stderr: err.add,
             readFile: { [files] p in guard let s = files[p] else { throw CocoaError(.fileNoSuchFile) }; return Data(s.utf8) },
             environment: ["HOME": NSHomeDirectory()],
+            send: ownerSend,
             readStdin: { [stdin] in Data(stdin.utf8) },
             nowMs: { [self] in clockMs },
             sleepMs: { [self] ms in polls += 1; clockMs += UInt64(ms); usleep(20_000) },
@@ -51,10 +53,15 @@ struct NoDesktopBackend: RuntimeBackend {
 
 /// The composed service answering through a real Runtime endpoint, as the
 /// host wires it.
+/// The contract CLI under test speaks as the owner of its test Runtime: a
+/// test seam; the product has no socket owner (A4 S1).
+let serviceTestOwner = ClientCredential(clientId: "local:\(getuid())", token: "adt1_service-test-owner")
+let ownerSend: @Sendable (JSONValue, String) -> TransportReply = { RuntimeTransport.exchange($0, path: $1, credential: serviceTestOwner) }
+
 func runtimeEndpoint(for service: AgentDesktopService, at path: String) throws -> RuntimeServer {
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_svc", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: NoDesktopBackend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                                 backend: NoDesktopBackend(), testSocketOwnerToken: serviceTestOwner.token); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
     runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }

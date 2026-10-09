@@ -72,7 +72,7 @@ extension RuntimeService {
             }
         }
 
-        let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date)) { d -> JSONValue in
+        let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date), as: c, method: "act") { d -> JSONValue in
             guard let b = d.binding else {
                 throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler, notSent: true)
             }
@@ -120,11 +120,13 @@ extension RuntimeService {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
                                        phase: .handler, notSent: true)
                 }
+                // A4: the grant as it is now, at the last moment before input.
+                if let revoked = recheckAct(c, desktopId: d.desktopId) { throw revoked }
                 if let stopped = execution.beginAction(runId: runId) { throw stopped }
 
                 // Delivery boundary: from here an interruption is unknown.
                 do {
-                    try ledger.markDispatching(caller: callerKey(c), requestId: request.requestId)
+                    try ledger.markDispatching(caller: c.clientId, requestId: request.requestId)
                     runs.appendEvent(runId, "action.dispatched", .obj([("requestId", .string(request.requestId))]))
                     try runs.checkWritable()
                 } catch {
@@ -369,10 +371,12 @@ extension RuntimeService {
         let deadline = now().addingTimeInterval(Double(request.params["timeoutMs"]?.intValue ?? 1000) / 1000)
         var lastSnapshot: String?
         while true {
+            // Access is checked on every poll: a revoked app stops waiting.
+            if let e = recheckAct(c, desktopId: desk.desktopId, method: "wait") { return .failure(e) }
             // As in observe: checks under the lock, the read on the AX threads
             // without it, then the store under the lock.
             var bound: TargetBinding?
-            let checked = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
+            let checked = withDesktop(.string(desk.desktopId), until: deadline, as: c, method: "wait") { d -> JSONValue in
                 guard let b = d.binding else {
                     throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler)
                 }
@@ -396,7 +400,7 @@ extension RuntimeService {
             case let .failed(e as PlatformError): return .failure(e.runtimeError)
             case let .failed(e): return .failure(RuntimeError("execution_failed", "\(e)", phase: .handler))
             }
-            let poll = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
+            let poll = withDesktop(.string(desk.desktopId), until: deadline, as: c, method: "wait") { d -> JSONValue in
                 guard d.binding?.generation == b.generation else {
                     throw RuntimeError("stale_observation", "the binding of desktop \(d.desktopId) changed", phase: .handler)
                 }
