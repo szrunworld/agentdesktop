@@ -53,7 +53,10 @@ cleanup() {
     if [ -n "${PROBE:-}" ] && [ -n "${PROBE_START:-}" ] && [ "$(ps -o lstart= -p "$PROBE" 2>/dev/null)" = "$PROBE_START" ]; then
         kill "$PROBE" 2>/dev/null
     fi
-    [ -n "${HOST:-}" ] && kill "$HOST" 2>/dev/null
+    # The test host too, only while its pid still has the recorded start time.
+    if [ -n "${HOST:-}" ] && [ -n "${HOST_START:-}" ] && [ "$(ps -o lstart= -p "$HOST" 2>/dev/null)" = "$HOST_START" ]; then
+        kill "$HOST" 2>/dev/null
+    fi
     [ -s "$DIR/search-list" ] && restore_search_list
     security delete-keychain "$KC" 2>/dev/null
     rm -rf "$DIR"
@@ -76,6 +79,7 @@ export AGENTDESKTOP_ENDPOINT="$EP" AGENTDESKTOP_KEYCHAIN="$KC"
 echo "== start Agent Desktop (test copy)"
 AGENTDESKTOP_SOCKET="$DIR/side.sock" "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
 HOST=$!
+HOST_START=$(ps -o lstart= -p "$HOST" 2>/dev/null)
 i=0; while [ ! -S "$EP" ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
 [ -S "$EP" ] && ok "Runtime listening at $EP" || { bad "Runtime did not start"; exit 1; }
 
