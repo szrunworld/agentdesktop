@@ -148,11 +148,11 @@ extension RuntimeService {
             let e = try exposedTarget(d, b, notSent: false)
             exposed = e
             if wantsImage {
-                // A window reaching past the screen edge is cut at the edge.
-                let s = d.screen.frame, f = e.window.frame
-                let x0 = max(f.x, s.x), y0 = max(f.y, s.y)
-                try capture(AgentDesktopProtocol.Rect(x: x0, y: y0, width: min(f.x + f.width, s.x + s.width) - x0,
-                                                      height: min(f.y + f.height, s.y + s.height) - y0))
+                // The window capture renders the whole window, also the part
+                // reaching past the screen edge, so the image's origin and
+                // scale are the window's own frame, never a frame cut at the
+                // edge (that would shift every image point).
+                try capture(e.window.frame)
             }
             // The read below replaces the backend's numbering: no element
             // reference of this Desktop holds until it is stored.

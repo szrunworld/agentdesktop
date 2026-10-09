@@ -56,10 +56,10 @@ final class FormPlatform: DesktopPlatform, @unchecked Sendable {
     /// Test double: the window alone, as the window's crop of this double's screen.
     func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
-        return try screenshot(screen, cropTo: w.frame, to: path)
+        return try windowImage(screen, frame: w.frame, to: path)
     }
 
-    func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
+    func windowImage(_ screen: ScreenHandle, frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
         let w = Int(frame.width) * 2, h = Int(frame.height) * 2
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!

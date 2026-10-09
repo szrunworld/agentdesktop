@@ -166,10 +166,6 @@ public protocol DesktopPlatform: Sendable {
     func window(on screen: ScreenHandle, pid: Int32, windowId: UInt32) -> PlatformWindow?
     /// Write a PNG of the whole screen; its size in pixels.
     func screenshot(_ screen: ScreenHandle, to path: String) throws -> (width: Int, height: Int)
-    /// Write a PNG of only `frame` (global points) of the screen; its size
-    /// in pixels. The Runtime asks for the bound window's frame after
-    /// proving nothing covers it, so the pixels are that window's.
-    func screenshot(_ screen: ScreenHandle, cropTo frame: Rect, to path: String) throws -> (width: Int, height: Int)
     /// On-screen normal windows that overlap the screen, front to back, as
     /// the window server orders them now.
     func stack(on screen: ScreenHandle) -> [PlatformWindow]

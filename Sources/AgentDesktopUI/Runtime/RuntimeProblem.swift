@@ -29,7 +29,33 @@ public struct RuntimeProblem: Equatable, Sendable {
             return
         }
         let (t, a) = Self.text(e.code)
-        self.init(code: e.code, title: t, advice: a, notSent: e.notSent ?? false)
+        // A refusal that names its reason says what the user can do instead.
+        let advice = e.details?["reason"]?.stringValue.flatMap(Self.reasonAdvice) ?? a
+        self.init(code: e.code, title: t, advice: advice, notSent: e.notSent ?? false)
+    }
+
+    /// Advice for refusals whose `details.reason` changes what to do.
+    static func reasonAdvice(_ reason: String) -> String? {
+        switch reason {
+        case "bind_requires_grant":
+            return "在逐窗口授权上线前，只能绑定由这个 Desktop 启动的应用。请改用“启动应用”。"
+        case "screen_capture_requires_grant":
+            return "这个 Desktop 还没有绑定窗口；没有整屏授权时不截整个屏幕。请先绑定窗口。"
+        case "no_launch_apps_configured":
+            return "未配置允许启动的应用。启动前必须能证明新进程确实由这次启动创建；目前没有任何应用通过这项验证，所以 AgentDesktop 不会打开它。"
+        case "launch_not_verified":
+            return "这个应用（或它的当前版本）还没有通过启动归属验证，AgentDesktop 不会打开它。应用更新后需要重新验证。"
+        case "launch_unprovable":
+            return "无法证明这个应用的新进程由这次启动创建（没有有效签名、只允许单实例或没有 Bundle ID），AgentDesktop 不会打开它。"
+        case "app_already_running":
+            return "这个应用已经在运行，是你正在使用的实例。Agent 不会再启动它，也不会动它的窗口。"
+        case "launch_refused_after_open":
+            return "应用已被打开，但无法证明新进程属于这次启动，所以没有移动或绑定它的窗口。它可能留在你的屏幕上，可以手动关闭。"
+        case "physical_desktop_requires_grant":
+            return "在逐窗口授权上线前，不能把你的显示器作为 Desktop。请使用虚拟 Desktop。"
+        default:
+            return nil
+        }
     }
 
     /// Whether this failure means the Runtime cannot be reached at all; the
