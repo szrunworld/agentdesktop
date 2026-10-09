@@ -312,6 +312,8 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     /// for a person. nil when the log exists but cannot be read or a line
     /// cannot be understood: then the migration must not run. A trailing
     /// half line is the append guard's business (no further appends).
+    static let knownStatuses: Set<String> = ["intent", "completed", "failed", "uncertain"]
+
     private func filesAwaitingAPersonInLog() -> Set<String>? {
         let url = directory.appendingPathComponent(Self.migrationLogName)
         let data: Data
@@ -325,8 +327,13 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         var lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
         if data.last != UInt8(ascii: "\n"), !lines.isEmpty { lines.removeLast() }
         for raw in lines {
+            // Only the four known statuses (a missing one counts as intent,
+            // which blocks the file); anything else, such as a typo, means the
+            // log cannot be trusted (Codex on #141).
             guard let l = try? JSONDecoder().decode(Line.self, from: Data(raw)) else { return nil }
-            latest[l.file + "/" + l.sessionId] = l.status ?? "intent"
+            let status = l.status ?? "intent"
+            guard Self.knownStatuses.contains(status) else { return nil }
+            latest[l.file + "/" + l.sessionId] = status
         }
         return Set(latest.filter { $0.value == "uncertain" || $0.value == "intent" }.keys)
     }

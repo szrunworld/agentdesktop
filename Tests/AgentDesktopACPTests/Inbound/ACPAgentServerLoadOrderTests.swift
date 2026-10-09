@@ -464,6 +464,21 @@ import Testing
         #expect(lines.filter { $0.file == "history" && $0.sessionId == "s1" }.map(\.status) == ["intent"])
     }
 
+    /// A line without a status counts as a lone intent: that file waits for a
+    /// person, the others go on, the migration is not complete.
+    @Test func aLineWithoutAStatusBlocksItsFile() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        try Data((#"{"file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n").utf8)
+            .write(to: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(isLegacy(dir, "s1.history.json"))
+        #expect(!isLegacy(dir, "s1.json"))
+        #expect(!fresh.migrated)
+    }
+
     /// Codex on #141: if the uncertain record itself cannot be written and
     /// the rename is later rolled back, the lone intent still keeps the file
     /// from being rewritten automatically.
@@ -484,11 +499,13 @@ import Testing
     }
 
     /// Kevin 2026-10-09: a log that cannot be understood stops the migration.
-    @Test func anUnreadableLogStopsTheMigration() throws {
+    @Test(arguments: ["not json\n",
+                      #"{"status":"uncertaib","file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n"])
+    func anUnreadableLogStopsTheMigration(_ content: String) throws {
         let (s, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }
         try legacySession(s, dir)
-        try Data("not json\n".utf8).write(to: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
+        try Data(content.utf8).write(to: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
         let fresh = ACPFileSessionStore(directory: dir)
         _ = try fresh.history(sessionId: "s1")
         #expect(fresh.migrationLogAttempts == 0)
