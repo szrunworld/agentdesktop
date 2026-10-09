@@ -69,8 +69,15 @@ final class BridgeDiagnostics: @unchecked Sendable {
     private var waitEnded: Set<UInt64> = []
     private let onEvent: (@Sendable (Event) -> Void)?
     private let reports = DispatchQueue(label: "agentdesktop.bridge.diagnostics")
+    private static let reportsKey = DispatchSpecificKey<Bool>()
 
-    init(onEvent: (@Sendable (Event) -> Void)? = nil) { self.onEvent = onEvent }
+    init(onEvent: (@Sendable (Event) -> Void)? = nil) {
+        self.onEvent = onEvent
+        reports.setSpecific(key: Self.reportsKey, value: true)
+    }
+
+    /// Tests: whether the caller runs on a recorder's report queue.
+    static var onReportQueue: Bool { DispatchQueue.getSpecific(key: reportsKey) == true }
 
     /// Tests: returns once every report queued so far has been handed on.
     func waitForReports() { reports.sync {} }

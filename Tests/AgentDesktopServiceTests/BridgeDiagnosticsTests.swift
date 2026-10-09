@@ -32,7 +32,7 @@ private let createParams: JSONValue = .obj([
 private func shape(_ r: Result<JSONValue, RuntimeError>) -> String {
     switch r {
     case let .success(v): return "ok " + (v.objectMembers?.map(\.0).sorted().joined(separator: ",") ?? v.encoded())
-    case let .failure(e): return "error \(e.code) notSent=\(e.notSent) \(e.message)"
+    case let .failure(e): return "error \(e.code) notSent=\(String(describing: e.notSent)) \(e.message)"
     }
 }
 
@@ -115,68 +115,65 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
     for secret in [secretKey, secretRequestId, "example.invalid", "Diag"] { #expect(!text.contains(secret), "\(secret)") }
 }
 
-// b9 and Codex on 062f5db, 53dc980 and 42108c5: the hook runs on neither
-// the connection thread nor the task, and only for a call whose own wait
-// has ended, even with calls in flight together. Here the hook blocks until
-// every call has answered: were it on the reply path, no call could answer
-// and the hook's wait would run out.
+// b9 and Codex on 062f5db, 53dc980, 42108c5 and d700f37: the hook runs on
+// the recorder's report queue (so on neither the connection thread nor the
+// task), and only for a call whose own wait has ended, even with calls in
+// flight together. On that queue the hook is held until every call has
+// answered, so no answer waits for it; called anywhere else it only notes
+// and never blocks, so a wrong recorder fails the test instead of hanging
+// it. No timeout decides anything.
 @Test func theHookRunsOffTheBridgeAndOnlyForCallsWhoseWaitEnded() async throws {
     let (s, dir) = try await service()
     defer { try? FileManager.default.removeItem(atPath: dir) }
+    // The hook touches nothing of the recorder: it notes what it got, where
+    // and when (monotonic), and the checks come after.
     final class Seen: @unchecked Sendable {
-        let lock = NSLock(); var threads: Set<UInt64> = []; var events: [BridgeDiagnostics.Event] = []
-        var beforeTheWaitEnded = 0; var hookWaitRanOut = 0; weak var recorder: BridgeDiagnostics?
+        let lock = NSLock(); var got: [(event: BridgeDiagnostics.Event, at: UInt64, onQueue: Bool)] = []
     }
     let seen = Seen()
     let allAnswered = DispatchSemaphore(value: 0)
     let recorder = BridgeDiagnostics(onEvent: { e in
-        var tid: UInt64 = 0
-        pthread_threadid_np(nil, &tid)
-        let ended = seen.recorder?.events.contains { $0.call == e.call && ($0.stage == .answered || $0.stage == .timedOut) } ?? false
-        seen.lock.withLock { seen.threads.insert(tid); seen.events.append(e); if !ended { seen.beforeTheWaitEnded += 1 } }
-        if allAnswered.wait(timeout: .now() + 3) == .timedOut { seen.lock.withLock { seen.hookWaitRanOut += 1 } }
+        let onQueue = BridgeDiagnostics.onReportQueue
+        seen.lock.withLock { seen.got.append((e, DispatchTime.now().uptimeNanoseconds, onQueue)) }
+        guard onQueue else { return }
+        allAnswered.wait()
         allAnswered.signal()
     })
-    seen.recorder = recorder
     await withTaskGroup(of: Void.self) { group in
         for _ in 0..<8 { group.addTask { _ = await answer(call("ai.connections.list", .obj([])), s, idempotent: false, recorder) } }
     }
     allAnswered.signal()
     recorder.waitForReports()
-    let bridgeThreads = Set(recorder.events.map(\.threadId))
-    let got = seen.lock.withLock { (seen.threads, seen.events, seen.beforeTheWaitEnded, seen.hookWaitRanOut) }
-    #expect(got.3 == 0, "the hook held up an answer")
-    #expect(got.0.isDisjoint(with: bridgeThreads))
-    #expect(got.2 == 0)
-    #expect(got.1.count == 8 * 6)
-    // Each call's stages are handed on in the order they were noted.
-    for c in Set(got.1.map(\.call)) {
-        let mine = got.1.filter { $0.call == c }.map(\.stage)
-        #expect(mine == recorder.events.filter { $0.call == c }.map(\.stage))
+    let got = seen.lock.withLock { seen.got }
+    #expect(got.allSatisfy { $0.onQueue })
+    #expect(got.count == 8 * 6)
+    let noted = recorder.events
+    for c in Set(noted.map(\.call)) {
+        let ended = noted.first { $0.call == c && ($0.stage == .answered || $0.stage == .timedOut) }?.uptimeNanos ?? .max
+        let mine = got.filter { $0.event.call == c }
+        // Handed on only once the call's own wait had ended...
+        #expect(mine.allSatisfy { $0.at >= ended }, "call \(c)")
+        // ...and in the order they were noted.
+        #expect(mine.map(\.event.stage) == noted.filter { $0.call == c }.map(\.stage))
     }
 }
 
-// Codex on a756034, b9: a timed-out call's stages that come after its wait
-// ended reach the hook after `timedOut`, in the order they were noted.
-@Test func stagesAfterATimeoutReachTheHookAfterIt() async throws {
-    let (s, dir) = try await service()
-    defer { try? FileManager.default.removeItem(atPath: dir) }
-    final class Got: @unchecked Sendable { let lock = NSLock(); var events: [BridgeDiagnostics.Event] = [] }
+// Codex on a756034, b9 on d700f37: a call's stages are held until its own
+// wait ends, and those that come later (a timed-out call's task) reach the
+// hook after `timedOut`, in the order they were noted. Driven step by step:
+// no scheduling decides it.
+@Test func stagesAreHeldUntilTheWaitEndsAndLateOnesFollowIt() {
+    final class Got: @unchecked Sendable { let lock = NSLock(); var stages: [BridgeDiagnostics.Stage] = [] }
     let got = Got()
-    let recorder = BridgeDiagnostics(onEvent: { e in got.lock.withLock { got.events.append(e) } })
-    for _ in 0..<20 {
-        _ = await answer(call("ai.connections.list", .obj([]), deadline: Date().addingTimeInterval(-1)), s, idempotent: false, recorder)
-    }
-    // Late stages land once the service answers; wait for them, then for their reports.
-    let until = Date().addingTimeInterval(5)
-    while recorder.events.filter({ $0.stage == .resultReady }).count < 20 && Date() < until { try await Task.sleep(nanoseconds: 10_000_000) }
+    let recorder = BridgeDiagnostics(onEvent: { e in got.lock.withLock { got.stages.append(e.stage) } })
+    let trace = recorder.begin(method: "ai.connections.list")
+    trace.note(.taskCreated)
+    trace.note(.waitStarted)
     recorder.waitForReports()
-    let delivered = got.lock.withLock { got.events }
-    var lateSeen = 0
-    for c in Set(recorder.events.map(\.call)) {
-        let noted = recorder.events.filter { $0.call == c }.map(\.stage)
-        #expect(delivered.filter { $0.call == c }.map(\.stage) == noted, "call \(c)")
-        if let end = noted.firstIndex(of: .timedOut), noted[(end + 1)...].contains(.taskStarted) { lateSeen += 1 }
-    }
-    #expect(lateSeen > 0, "no call's task started after its wait ran out")
+    #expect(got.lock.withLock { got.stages }.isEmpty)
+    trace.note(.timedOut)
+    trace.noteInTask(.taskStarted, taskPriority: 21)
+    trace.noteInTask(.resultReady)
+    recorder.waitForReports()
+    #expect(got.lock.withLock { got.stages } == [.entered, .taskCreated, .waitStarted, .timedOut, .taskStarted, .resultReady])
 }
