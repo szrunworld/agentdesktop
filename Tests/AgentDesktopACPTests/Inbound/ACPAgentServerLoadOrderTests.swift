@@ -184,7 +184,7 @@ import Testing
 
 @Suite struct ACPFileSessionStoreHistoryTests {
     private func store() -> (ACPFileSessionStore, URL) {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("acp-s-hist-\(UUID().uuidString)")
+        let dir = ACPTestScratch.dir("acp-s-hist")
         return (ACPFileSessionStore(directory: dir), dir)
     }
 

@@ -117,8 +117,7 @@ final class A4TestServer: @unchecked Sendable {
     private let nextId = STestLocked(100)
 
     init(port: A4TestPort = A4TestPort(), dir: URL? = nil) {
-        self.dir = dir ?? FileManager.default.temporaryDirectory
-            .appendingPathComponent("acp-a4-tests-\(UUID().uuidString)", isDirectory: true)
+        self.dir = dir ?? ACPTestScratch.dir("acp-a4-tests")
         self.port = port
         store = ACPFileSessionStore(directory: self.dir)
         var config = ACPAgentServerConfig()
@@ -315,8 +314,7 @@ final class A4TestClient: RuntimeClient {
 
 enum A4Test {
     static func port(_ server: A4TestRuntime, logPath: String? = nil) throws -> (ACPBridgeRuntimePort, String) {
-        let path = logPath ?? FileManager.default.temporaryDirectory
-            .appendingPathComponent("acp-a4-\(UUID().uuidString)").appendingPathComponent("submissions.json").path
+        let path = logPath ?? ACPTestScratch.dir("acp-a4").appendingPathComponent("submissions.json").path
         var config = ACPBridgeConfiguration()
         config.callTimeout = 5
         config.pollInterval = 0.01

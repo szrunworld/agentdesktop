@@ -195,8 +195,7 @@ enum CurTestBridge {
         config.pollInterval = 0.005
         config.maxReconnects = 2
         config.uid = 501
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("curtest-\(UUID().uuidString)").appendingPathComponent("submissions.json").path
+        let path = ACPTestScratch.dir("curtest").appendingPathComponent("submissions.json").path
         return ACPBridgeRuntimePort(makeClient: wire.factory, log: try ACPSubmissionLog(path: path), config: config)
     }
 
@@ -352,8 +351,7 @@ final class CurTestHarness: @unchecked Sendable {
     let runTask: Task<Void, Never>
 
     init(port: CurTestPort, dir: URL? = nil) {
-        self.dir = dir ?? FileManager.default.temporaryDirectory
-            .appendingPathComponent("acp-cur-tests-\(UUID().uuidString)", isDirectory: true)
+        self.dir = dir ?? ACPTestScratch.dir("acp-cur-tests")
         self.port = port
         store = ACPFileSessionStore(directory: self.dir)
         var config = ACPAgentServerConfig()
@@ -426,8 +424,7 @@ enum CurTestReal {
     }
 
     static func port() throws -> ACPBridgeRuntimePort {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("curtest-real-\(UUID().uuidString)").appendingPathComponent("submissions.json").path
+        let path = ACPTestScratch.dir("curtest-real").appendingPathComponent("submissions.json").path
         return ACPBridgeRuntimePort(makeClient: try factory(), log: try ACPSubmissionLog(path: path))
     }
 

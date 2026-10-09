@@ -103,7 +103,7 @@ import Testing
         let port = try CurTestReal.port()
         let last = try #require(try await port.snapshot(runId: runId).lastCursor)
         let caller = try await port.caller()
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("curtest-real-\(UUID().uuidString)")
+        let dir = ACPTestScratch.dir("curtest-real")
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = ACPFileSessionStore(directory: dir)
         try store.save(ACPSessionBinding(acpSessionId: "s1", principalId: caller.principalId, clientId: caller.clientId,

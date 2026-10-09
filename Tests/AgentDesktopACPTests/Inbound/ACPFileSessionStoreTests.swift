@@ -6,7 +6,7 @@ import Testing
 /// The file store, in temporary directories only.
 @Suite struct ACPFileSessionStoreTests {
     private func tempDir() -> URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent("acp-s-store-\(UUID().uuidString)/nested/sessions",
+        ACPTestScratch.dir("acp-s-store").appendingPathComponent("nested/sessions",
                                                                       isDirectory: true)
     }
 
