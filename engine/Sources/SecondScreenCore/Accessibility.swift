@@ -304,24 +304,44 @@ public enum AXActions {
         case unknown
     }
 
-    /// The outcome an AXUIElementPerformAction result proves.
+    /// The outcome an AXUIElementPerformAction result proves. Only a
+    /// refusal of the action itself proves nothing was done. An element
+    /// reported gone, or an attribute missing, after the call may be the
+    /// press's own doing ("Send" or "Close" removes its button), so those
+    /// are unknown (b9 on d0131b4): whether the element was there before
+    /// is checked before the call (`pressOnce`).
     public static func pressOutcome(_ result: AXError) -> PressOutcome {
         switch result {
         case .success: return .pressed
-        case .actionUnsupported, .invalidUIElement, .illegalArgument, .notImplemented, .apiDisabled,
-             .attributeUnsupported, .noValue, .invalidUIElementObserver:
+        case .actionUnsupported, .illegalArgument, .notImplemented, .apiDisabled:
             return .notPerformed
         default:
             // .cannotComplete (no answer in time, also while the app is busy
-            // mid-update), .failure and anything else: it may have pressed.
+            // mid-update), .invalidUIElement, .attributeUnsupported, .noValue,
+            // .failure and anything else: it may have pressed.
             return .unknown
         }
+    }
+
+    /// One press: the element is checked first (its role read), and only a
+    /// failure there, before any action was asked, is not performed; then
+    /// the action is asked once and its result judged by `pressOutcome`.
+    static func pressOnce(validate: () -> AXError, perform: () -> AXError) -> PressOutcome {
+        guard validate() == .success else { return .notPerformed }
+        return pressOutcome(perform())
+    }
+
+    /// The check `pressOnce` makes before pressing: the element still answers.
+    static func validate(_ element: AXUIElement) -> AXError {
+        var role: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
     }
 
     /// Press the element once (#172: no retry).
     public static func press(_ snapshot: AXSnapshot, index: Int) -> PressOutcome {
         guard let element = snapshot.handle(index) else { return .notPerformed }
-        return pressOutcome(AXUIElementPerformAction(element, kAXPressAction as CFString))
+        return pressOnce(validate: { validate(element) },
+                         perform: { AXUIElementPerformAction(element, kAXPressAction as CFString) })
     }
 
     /// How a write through accessibility went. Chromium (Electron apps,

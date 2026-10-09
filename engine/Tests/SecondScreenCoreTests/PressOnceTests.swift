@@ -9,11 +9,14 @@ import Testing
 @Suite struct PressOnceTests {
     @Test func whatEachAccessibilityResultProves() {
         #expect(AXActions.pressOutcome(.success) == .pressed)
-        for refused: AXError in [.actionUnsupported, .invalidUIElement, .illegalArgument, .notImplemented, .apiDisabled] {
+        for refused: AXError in [.actionUnsupported, .illegalArgument, .notImplemented, .apiDisabled] {
             #expect(AXActions.pressOutcome(refused) == .notPerformed, "\(refused.rawValue)")
         }
-        // No answer in time, or a failure that does not say: it may have pressed.
-        for unclear: AXError in [.cannotComplete, .failure, .notEnoughPrecision] {
+        // No answer in time, or a failure that does not say: it may have
+        // pressed. An element gone after the call may be gone because of it
+        // (b9 on d0131b4): "Send" or "Close" removes its own button.
+        for unclear: AXError in [.cannotComplete, .failure, .notEnoughPrecision, .invalidUIElement,
+                                 .attributeUnsupported, .noValue] {
             #expect(AXActions.pressOutcome(unclear) == .unknown, "\(unclear.rawValue)")
         }
     }
@@ -59,5 +62,17 @@ import Testing
         do { _ = try InputEngine.pressExplicitly(info) { .notPerformed }; Issue.record("went on") } catch {
             #expect(((error as? AccessibilityError)?.message ?? "").contains("nothing was pressed"))
         }
+    }
+
+    // b9 on d0131b4: only a failure of the check before the press is not
+    // performed; the same error after the press is unknown.
+    @Test func anElementGoneBeforeThePressIsNotPerformedButGoneAfterItIsUnknown() {
+        final class Asked { var perform = 0 }
+        let a = Asked()
+        #expect(AXActions.pressOnce(validate: { .invalidUIElement }, perform: { a.perform += 1; return .success }) == .notPerformed)
+        #expect(a.perform == 0, "nothing was asked of the element")
+        #expect(AXActions.pressOnce(validate: { .success }, perform: { a.perform += 1; return .invalidUIElement }) == .unknown)
+        #expect(a.perform == 1)
+        #expect(AXActions.pressOnce(validate: { .success }, perform: { .success }) == .pressed)
     }
 }

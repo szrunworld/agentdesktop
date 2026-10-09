@@ -162,7 +162,8 @@ public enum BackgroundInput {
         guard let windowElement, WindowMover.windowID(of: windowElement) == window.windowID,
               !isInWebArea(element)
         else { return .notPerformed }
-        return AXActions.pressOutcome(AXUIElementPerformAction(element, kAXPressAction as CFString))
+        return AXActions.pressOnce(validate: { AXActions.validate(element) },
+                                   perform: { AXUIElementPerformAction(element, kAXPressAction as CFString) })
     }
 
     private static func isInWebArea(_ element: AXUIElement) -> Bool {
