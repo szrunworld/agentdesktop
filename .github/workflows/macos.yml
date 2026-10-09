@@ -34,10 +34,18 @@ jobs:
       - name: Product unit tests
         timeout-minutes: 8
         run: swift test
+      - name: Test watchdog self-tests
+        timeout-minutes: 3
+        run: python3 -m unittest scripts/ci/test_test_watchdog.py -v
       - name: Native core unit tests
         timeout-minutes: 8
         run: |
-          swift test --package-path engine
+          # On a pseudo-terminal so each result line shows when written, and
+          # with a watchdog: after 150 s without output it lists the tests
+          # still running, samples every process of the run and fails, instead
+          # of the step sitting until its timeout with no evidence (#183).
+          python3 scripts/ci/test-watchdog.py --stall 150 --out "$RUNNER_TEMP/engine-test-watchdog" -- \
+            swift test --package-path engine
           # Reproduce executor starvation even on runners with many cores.
           # Apply strict mode to the test runner only; SwiftPM's own manifest
           # evaluation can stall under it on the CI toolchain.
@@ -48,6 +56,13 @@ jobs:
           LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 "$test_runner" \
             --test-bundle-path engine/.build/debug/AgentDesktopEnginePackageTests.xctest/Contents/MacOS/AgentDesktopEnginePackageTests \
             --testing-library swift-testing --filter ControlServerTests
+      - name: Keep the engine test watchdog's evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-test-watchdog
+          path: ${{ runner.temp }}/engine-test-watchdog
+          if-no-files-found: ignore
       - uses: actions/setup-node@v4
         with:
           node-version: 22
