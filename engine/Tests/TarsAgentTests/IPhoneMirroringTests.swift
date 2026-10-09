@@ -508,6 +508,116 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(fake.pressed.isEmpty)
     }
 
+    /// #182 (device): "iPhone in Use" stays after the phone is locked until
+    /// Connect is pressed. Without the user's word nothing is pressed (above);
+    /// with it, Connect is pressed and ready still needs steady looks.
+    @Test func aLockedPhonesInUsePageIsConnectedOnTheUsersWord() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["iPhone in Use", "Connect"]
+        fake.buttons = ["Connect"]
+        // The page stays one look after the press, then the phone shows.
+        fake.onSleep = { if fake.sleeps == 2 { fake.ax = [] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .ready && report.isReady)
+        #expect(report.readyReadings == IPhoneConnectionTracker.defaultStableReadings)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
+    }
+
+    /// The user was wrong: the phone was not locked and the page stays.
+    /// Not ready; the press stays unconfirmed and input refused.
+    @Test func anInUsePageThatStaysAfterConnectIsUnconfirmed() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["iPhone in Use", "Connect"]
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .pressedUnconfirmed && !report.isReady && report.timedOut)
+        #expect(fake.reconnectGate.reason(now: fake.clock) != nil)
+    }
+
+    /// A camera or microphone in use is not ended by a lock: nothing is
+    /// pressed even on the user's word.
+    @Test(arguments: ["iPhone Camera in Use", "iPhone Microphone in Use"])
+    func aCameraOrMicrophoneInUseIsNotPressed(page: String) throws {
+        let fake = FakeMirroring()
+        fake.ax = [page, "Connect"]
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(fake.pressed.isEmpty)
+        #expect(report.outcome == .needsUser)
+    }
+
+    /// Codex on #189: the same page read only through OCR's message ("…is
+    /// no longer in use"), with Connect the one control, is pressed too.
+    @Test func theInUseMessageReadByOCRIsConnectedOnTheUsersWord() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connect"]
+        fake.ocr = ["Connect when your iPhone is no longer in use."]
+        fake.buttons = ["Connect"]
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = []; fake.ocr = [] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .ready)
+    }
+
+    /// #189 review: a camera page that also says "iPhone in Use" is the
+    /// camera page, and not pressed.
+    @Test func aCameraPageThatAlsoSaysInUseIsNotPressed() throws {
+        let fake = FakeMirroring()
+        fake.ax = ["iPhone Camera in Use", "Your iPhone in Use by the camera", "Connect"]
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(report.label == "iPhone Camera in Use")
+        #expect(fake.pressed.isEmpty && report.outcome == .needsUser)
+    }
+
+    /// Codex on #189 (3c53e7f): a camera page whose generic sentence ("…is
+    /// no longer in use") is all that matched, or whose camera title only
+    /// OCR read, is the camera page, and not pressed.
+    @Test(arguments: [
+        (["Connect"], ["Connect when your iPhone camera is no longer in use."]),
+        (["Connect when your iPhone is no longer in use.", "Connect"], ["iPhone Camera in Use"]),
+        (["Connect"], ["当iPhone麦克风不再处于使用状态时连接"]),
+    ])
+    func aCameraOrMicrophonePageIsKnownByEitherSource(ax: [String], ocr: [String]) throws {
+        let fake = FakeMirroring()
+        fake.ax = ax
+        fake.ocr = ocr
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(fake.pressed.isEmpty)
+        #expect(report.outcome == .needsUser)
+        #expect(!IPhoneConnection.endsOnLock(report.label))
+    }
+
+    /// Codex on #189: after Connect, a page a lock does not end (the camera
+    /// in use) ends the wait at once as needing the user.
+    @Test func aCameraPageAfterConnectNeedsTheUser() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["iPhone in Use", "Connect"]
+        fake.buttons = ["Connect"]
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = ["iPhone Camera in Use", "Connect"] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .needsUser && !report.timedOut)
+        #expect(fake.sleeps == 1)
+    }
+
+    /// Codex on #189: the lock flow is offered only where a lock ends it.
+    @Test func theHintOffersTheLockFlowOnlyWhereALockEndsIt() {
+        #expect(IPhoneConnectionState.phoneInUse.hint(shown: "iPhone in Use").contains("--phone-locked"))
+        #expect(IPhoneConnectionState.phoneInUse.hint(shown: "is no longer in use").contains("--phone-locked"))
+        for page in ["iPhone Camera in Use", "iPhone相机使用中", "iPhone Microphone in Use", "iPhone麦克风使用中"] {
+            let hint = IPhoneConnectionState.phoneInUse.hint(shown: page)
+            #expect(!hint.contains("--phone-locked") && !hint.contains("lock it"), "\(page): \(hint)")
+        }
+    }
+
     @Test func reconnectGivesUpAtItsTimeout() throws {
         let fake = FakeMirroring()
         fake.ax = ["Connection Interrupted"]
@@ -1195,6 +1305,91 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let report = try phone.reconnect(timeout: 20)
         changed.wait()
         #expect(report.outcome == .needsUser && !report.isReady)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
+        // Codex on #142: the report says what the last read saw.
+        #expect(report.state == .authRequired && report.label == "iPhone Mirroring Is Locked")
+    }
+
+    /// Codex on #142: cancelled while the read before the press runs (a
+    /// capture and OCR take time): nothing is pressed and the gate is not
+    /// raised.
+    @Test func aCancelDuringTheReadBeforeThePressPressesNothing() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connection Paused", "Resume"]
+        fake.buttons = ["Resume"]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        var cancelled = false
+        phone.isCancelled = { cancelled }
+        var reads = 0
+        fake.onRecognize = { reads += 1; if reads == 2 { cancelled = true } }
+        #expect(throws: IPhoneError.self) { try phone.reconnect(timeout: 20) }
+        #expect(reads == 2)
+        #expect(fake.pressed.isEmpty)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
+    }
+
+    /// Codex on #142: cancelled while the read before confirming runs: the
+    /// gate stays up and nothing is reported ready.
+    @Test func aCancelDuringTheReadBeforeConfirmingLowersNothing() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        try fake.reconnectGate.raise("an earlier press")
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        var cancelled = false
+        phone.isCancelled = { cancelled }
+        // The steady looks, then the read under the lock.
+        let looks = IPhoneConnectionTracker.defaultStableReadings
+        var reads = 0
+        fake.onRecognize = { reads += 1; if reads == looks + 1 { cancelled = true } }
+        #expect(throws: IPhoneError.self) { try phone.reconnect(timeout: 20) }
+        #expect(reads == looks + 1)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
+    }
+
+    /// Codex on #142: the window is remade while the confirmation waits for
+    /// the lock. One ready look of the new window confirms nothing.
+    @Test func aWindowRemadeDuringTheLockWaitIsNotConfirmed() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        try fake.reconnectGate.raise("an earlier press")
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.gateLockWait = 5
+        let changed = DispatchSemaphore(value: 0)
+        fake.onSleep = {
+            guard fake.sleeps == 1, let fd = try? Self.holdLock(of: fake.reconnectGate) else { return }
+            Thread.detachNewThread {
+                Thread.sleep(forTimeInterval: 0.2)
+                fake.windowsByPID[42] = [IPhoneWindow(pid: 42, windowID: 8, frame: CGRect(x: 3010, y: 40, width: 330, height: 720))]
+                Self.release(fd)
+                changed.signal()
+            }
+        }
+        let report = try phone.reconnect(timeout: 20)
+        changed.wait()
+        #expect(!report.isReady)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
+    }
+
+    /// Codex on #142: a record that cannot be removed is not reported as a
+    /// confirmed phone.
+    @Test func aGateThatCannotBeRemovedIsNotReady() throws {
+        let fake = FakeMirroring()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("gate-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        fake.reconnectGate = HostFlag(url: directory.appendingPathComponent("gate"))
+        try fake.reconnectGate.raise("an earlier press")
+        // The gate lock's file made first, so only removing the record fails.
+        _ = try HostFlagLock(for: fake.reconnectGate, wait: 0).locked { }
+        // Its directory read-only: the record stays.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20)
+        #expect(!report.isReady)
+        #expect(report.blockedBy?.contains("could not be removed") == true)
         #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
     }
 
