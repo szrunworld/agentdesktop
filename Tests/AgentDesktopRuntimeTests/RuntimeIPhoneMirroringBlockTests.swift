@@ -250,3 +250,24 @@ func bindScene(_ backend: FixedBackend) throws -> (platform: FakePlatform, s: Ru
     #expect(FileManager.default.fileExists(atPath: own))
     #expect(MacBackend().executablePath(-1) == nil)
 }
+
+@Test func aShortcutForIPhoneMirroringIsRefusedBeforeItsMenuBarIsRead() throws {
+    // A key with modifiers (or a named key) reads the app's menu bar before
+    // the Desktop's lock; for iPhone Mirroring, or an unidentified app, not
+    // even that read happens (Codex P1 on b88dae6).
+    let backend = FixedBackend()
+    let sc = try scene(backend: backend)
+    sc.platform.menuReads = []
+    backend.opened.apps = [mirroring(pid: 101)]
+    for key in [#"{"kind":"key","key":"v","modifiers":["cmd"]}"#, #"{"kind":"key","key":"f5"}"#] {
+        let a = act(sc, key)
+        #expect(refusedAsMirroring(a), "\(key)")
+        #expect(failure(a)?.notSent == true)
+    }
+    backend.opened.apps = []
+    backend.opened.appListUnreadable = true
+    backend.opened.pathsUnreadable = true
+    #expect(refusedAsMirroring(act(sc, #"{"kind":"key","key":"v","modifiers":["cmd"]}"#), identity: "unverified"))
+    #expect(sc.platform.menuReads.isEmpty)
+    #expect(sc.platform.performed.isEmpty)
+}

@@ -132,7 +132,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         let e = els.last { $0.frame.map { point.x >= $0.x && point.x < $0.x + $0.width && point.y >= $0.y && point.y < $0.y + $0.height } ?? false }
         return PlatformHit(role: e?.role ?? "AXWindow", texts: [e?.label, e?.value].compactMap { $0 }, windowId: wins.first?.windowId)
     }
-    func menuItems(pid: Int32) -> [PlatformMenuItem]? { menu }
+    /// Menu bars read, by pid (#139: never iPhone Mirroring's).
+    var menuReads: [Int32] = []
+    func menuItems(pid: Int32) -> [PlatformMenuItem]? { lock.withLock { menuReads.append(pid) }; return menu }
     /// What has focus; by default nothing.
     /// What has focus; by default an editable text area of the app's window
     /// (where typing goes in the ordinary case).
