@@ -61,6 +61,11 @@ extension RuntimeService {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         createLock.lock()
         defer { createLock.unlock() }
+        // Waited for the lock: access is checked again (round-four review L2).
+        if c.role == .paired {
+            if let reason = c.cutReason { return .failure(Self.cutError(c, reason)) }
+            if let e = accessError(c, method: "desktop.create") { return .failure(e) }
+        }
         let id = DesktopRegistry.newId(prefix: "d")
         let name = p["name"]?.stringValue ?? id
         // Names are unique per creator: a client can neither probe nor take
@@ -157,6 +162,11 @@ extension RuntimeService {
     func launchApp(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         return withDesktop(p["desktopId"], as: c, method: "app.launch") { d in
+            // The app itself is checked again under the lock (round-four review L2).
+            if c.role == .paired, !appAllowed(c, bundleId: p["bundleId"]?.stringValue) {
+                throw RuntimeError("grant_missing", "starting this app needs a launch grant for it, which this client does not have",
+                                   phase: .request, notSent: true, details: .obj([("reason", .string("launch_requires_grant"))]))
+            }
             guard d.kind == .virtual else {
                 throw RuntimeError("invalid_target",
                                    "desktop \(d.desktopId) is physical: it binds windows the user's apps already show; app.launch is for virtual Desktops",
@@ -185,6 +195,12 @@ extension RuntimeService {
         return withDesktop(p["desktopId"], as: c, method: "window.bind") { d in
             guard let pid = p["pid"]?.intValue.map(Int32.init) else { throw RuntimeError.schemaInvalid("pid is required") }
             let wanted = p["windowId"]?.intValue.map(UInt32.init)
+            // The app is checked again under the lock, naming nothing (round-four review L2).
+            if c.role == .paired,
+               !appAllowed(c, bundleId: backend.applications(includeBackground: true).first { $0.process.pid == pid }?.bundleId) {
+                throw RuntimeError("grant_missing", "binding this window needs a grant for its app, which this client does not have",
+                                   phase: .request, notSent: true, details: .obj([("reason", .string("bind_requires_grant"))]))
+            }
             let process = backend.processIdentity(pid)
             guard process.startedAt != nil else { throw RuntimeError.notFound("no process \(pid)") }
             if d.kind == .virtual && bindsOnlyLaunchedProcesses && !d.launched.contains(process) {

@@ -75,8 +75,10 @@ public final class ConnectionState: @unchecked Sendable {
     /// A paired client's one owner-only call the user just confirmed: the
     /// connection acts as the owner for that request only (respond clears it).
     private(set) var elevatedFor: String?
-    func elevate(_ requestId: String) { elevatedFor = requestId }
-    func endElevation() { elevatedFor = nil }
+    /// The target grant revision the user approved a change of (if any).
+    private(set) var approvedTargetRevision: Int?
+    func elevate(_ requestId: String, targetRevision: Int? = nil) { elevatedFor = requestId; approvedTargetRevision = targetRevision }
+    func endElevation() { elevatedFor = nil; approvedTargetRevision = nil }
 
     func cut(_ reason: String) {
         closerLock.withLock { closer?() }
@@ -254,8 +256,19 @@ public final class RuntimeService: @unchecked Sendable {
             // per caller across every method (runtime/1 §1): the ledger
             // replays a done write, refuses the same id for another method or
             // other params, and keeps an unknown outcome unknown.
-            guard spec.mutation else { return answerExtension(request, handler, on: connection) }
-            return ledgeredExtension(request, handler, on: connection)
+            let response = spec.mutation ? ledgeredExtension(request, handler, on: connection)
+                                         : answerExtension(request, handler, on: connection)
+            // Access withdrawn while the service worked (round-four review
+            // M2): what it started for this caller after the revocation's
+            // sweep is cancelled now, and the answer is not given.
+            if connection.role == .paired, connection.cutReason != nil || accessError(connection, method: "runtime.status") != nil {
+                accessWithdrawn(connection.clientId)
+                if case .success = response.result {
+                    return .failure(request.requestId, connection.cutReason.map { Self.cutError(connection, $0) }
+                                    ?? accessError(connection, method: "runtime.status")!)
+                }
+            }
+            return response
         }
         guard let spec = contract.method(request.method), let method = RuntimeMethod(rawValue: request.method),
               implemented(method) else {
@@ -378,16 +391,13 @@ public final class RuntimeService: @unchecked Sendable {
             // A paired app counts what it may see (#153's note: global counts
             // told it about the host's Desktops, sessions and Runs).
             let paired = connection.role == .paired
-            var mine = RunStore.ListFilter()
-            mine.clientId = connection.clientId
-            mine.activeOnly = true
             return .success(RuntimeStatus(
                 instanceId: identity.instanceId, state: "running", startedAt: identity.startedAt,
                 uptimeSeconds: max(0, now().timeIntervalSince(startedAt)),
                 connections: paired ? openConnections.all.filter { $0.connection.clientId == connection.clientId }.count : connectionCount(),
                 desktops: paired ? desktops.list().filter { desktopAllowed(connection, $0.desktopId) }.count : desktops.count,
                 sessions: paired ? sessions.openCount(caller: connection.clientId) : sessions.openCount,
-                runs: paired ? runs.list(mine, after: nil, limit: 500).runs.count : execution.activeCount)
+                runs: paired ? activeRuns(of: connection.clientId).count : execution.activeCount)
                 .json.setting("inputAdmission", .string(execution.inputAdmission.rawValue)))
 
         case .capabilities:

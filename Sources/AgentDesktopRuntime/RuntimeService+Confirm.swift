@@ -156,7 +156,8 @@ extension RuntimeService {
     /// back for the minute).
     func cooldownKey(_ c: ConnectionState) -> String {
         if c.codeIdentity.level == .verified, let id = c.codeIdentity.identifier { return "code:" + id }
-        return "exe:" + (c.callerFacts["executable"]?.stringValue ?? c.connectionId)
+        // No executable known: all such callers share one key (round-four review L5).
+        return "exe:" + (c.callerFacts["executable"]?.stringValue ?? "unknown")
     }
 
     /// One program, for limits: verified code by its signing identifier;
@@ -243,6 +244,12 @@ extension RuntimeService {
                                 "\(method) needs a client whose code identity is verified (Developer ID, hardened runtime); use the Agent Desktop window",
                                 phase: .request, notSent: true, details: .obj([("reason", .string("unverified_identity"))]))
         }
+        // Refused by the user a moment ago: not asked again yet (round-four review L5).
+        if confirmationGate.coolingDown("admin:" + c.clientId, now: now()) {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "confirmation_cooldown")
+            return RuntimeError("permission_denied", "the user just refused this client's request; ask again in a minute",
+                                phase: .request, notSent: true, details: .obj([("reason", .string("confirmation_cooldown"))]))
+        }
         // The user must be able to read all of what they approve (review M1).
         guard request.params.encoded().count <= Self.maxConfirmableParams else {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "confirmation_too_large")
@@ -256,13 +263,27 @@ extension RuntimeService {
                                              ("codeIdentity", client.codeIdentity), ("grant", hub.grant(target)?.json ?? .null),
                                              ("sameProgramAsRequester", .bool(Self.sameProgram(client, c)))])))
         }
+        // What the user is shown is this revision of the target's grant; the
+        // change applies to that revision only (round-four review H1).
+        let seenRevision = target.flatMap { hub.grant($0)?.revision }
         if case let .failure(e) = confirm(.adminCall, by: c, action: method, details: .obj(details), runId: request.context.runId) {
+            if ["user_denied", "user_cancelled", "confirmation_timeout"].contains(e.details?["reason"]?.stringValue ?? "") {
+                confirmationGate.coolDown("admin:" + c.clientId, until: now().addingTimeInterval(ConfirmationGate.cooldown))
+            }
             return e
         }
         // Access may have gone while the user was deciding.
         if let reason = c.cutReason { return Self.cutError(c, reason) }
         if let e = accessError(c, method: "runtime.status") { return e }
-        c.elevate(request.requestId)
+        // The target changed meanwhile (the owner revoked or narrowed it):
+        // what was approved no longer means the same; nothing is applied.
+        if let target, hub.grant(target)?.revision != seenRevision
+            || (c.codeIdentity.level != .verified && !isReductive(request)) {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "target_changed")
+            return RuntimeError("conflict", "\(target) changed while the user was asked; ask again", phase: .handler, notSent: true,
+                                details: .obj([("reason", .string("target_changed"))]))
+        }
+        c.elevate(request.requestId, targetRevision: seenRevision)
         return nil
     }
 }

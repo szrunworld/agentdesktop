@@ -230,9 +230,26 @@ extension RuntimeService {
         guard let client = hub.client(id), client.state == "active" else { return .failure(.notFound("no active client \(id)")) }
         switch grantFrom(p, requested: nil, clientId: id) {
         case let .failure(e): return .failure(e)
-        case let .success(g):
+        case var .success(g):
+            let viaConfirmation = c.role != .owner
+            if viaConfirmation {
+                // A paired client's confirmed call never brings back a grant
+                // the owner revoked (that takes pairing again), and an
+                // unverified one cannot extend it, however long the user took.
+                guard let old = hub.grant(id), old.state == "active" else {
+                    return .failure(RuntimeError("conflict", "the grant of \(id) is not active; it pairs again", phase: .handler, notSent: true,
+                                                 details: .obj([("reason", .string("grant_not_active"))])))
+                }
+                if c.codeIdentity.level != .verified, g.expiresAt > old.expiresAt { g.expiresAt = old.expiresAt }
+            }
             let epoch = hub.policyEpoch
-            guard let saved = try? hub.setGrant(g) else {
+            let saved: HubStore.Grant
+            do {
+                saved = try hub.setGrant(g, expectedRevision: viaConfirmation ? c.approvedTargetRevision : nil)
+            } catch let e as RuntimeStoreError where viaConfirmation {
+                return .failure(RuntimeError("conflict", e.description, phase: .handler, notSent: true,
+                                             details: .obj([("reason", .string("target_changed"))])))
+            } catch {
                 return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable", phase: .handler, notSent: true))
             }
             // Narrowed: its connections are cut, it reconnects under the new grant.

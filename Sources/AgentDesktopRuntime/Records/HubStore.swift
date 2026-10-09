@@ -198,9 +198,16 @@ public final class HubStore: @unchecked Sendable {
 
     /// Replace a client's grant. Anything narrower than before bumps the
     /// policy epoch, so in-flight checks see it at once.
-    public func setGrant(_ g: Grant) throws -> Grant {
+    public func setGrant(_ g: Grant, expectedRevision: Int? = nil) throws -> Grant {
+        // Read, compare and write as one: a change the user confirmed against
+        // revision N is not applied over revision N+1 (round-four review H1).
+        writeLock.lock()
+        defer { writeLock.unlock() }
         var g = g
         let old = grant(g.clientId)
+        if let expectedRevision, old?.revision != expectedRevision {
+            throw RuntimeStoreError("the grant of \(g.clientId) changed while the user was asked")
+        }
         g.revision = (old?.revision ?? 0) + 1
         try putGrant(g)
         if let old, !Set(g.capabilities).isSuperset(of: old.capabilities) || !Set(g.desktops).isSuperset(of: old.desktops)
@@ -211,6 +218,8 @@ public final class HubStore: @unchecked Sendable {
     }
 
     /// The client keeps its record (soft delete) but nothing of it works.
+    private let writeLock = NSLock()
+
     public func revoke(_ clientId: String) throws -> Client? {
         guard client(clientId) != nil else { return nil }
         try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
@@ -325,7 +334,17 @@ public final class HubStore: @unchecked Sendable {
                   WHERE client_id LIKE 'unpaired:%' AND decision IN ('denied', 'requested')
                   ORDER BY rowid DESC LIMIT -1 OFFSET ?)
                 """, [.int(Int64(auditKeptUnpaired))])
-            try? db.execute("DELETE FROM auth_events WHERE rowid <= (SELECT MAX(rowid) FROM auth_events) - ?", [.int(Int64(auditKept))])
+            // Paired clients' refusals too have their own cap (round-four
+            // review L4); the overall cap removes only refusals, never a
+            // decision about access.
+            try? db.execute("""
+                DELETE FROM auth_events WHERE rowid IN (SELECT rowid FROM auth_events
+                  WHERE decision IN ('denied', 'withheld') ORDER BY rowid DESC LIMIT -1 OFFSET ?)
+                """, [.int(Int64(auditKeptRefusals))])
+            try? db.execute("""
+                DELETE FROM auth_events WHERE rowid IN (SELECT rowid FROM auth_events
+                  ORDER BY rowid DESC LIMIT -1 OFFSET ?) AND decision IN ('denied', 'withheld', 'requested')
+                """, [.int(Int64(auditKept))])
             try? db.execute("DELETE FROM pairings WHERE state != 'requested' AND client_id IS NULL AND expires_at < ?",
                             [.text(Timestamp.string(now().addingTimeInterval(-86_400)))])
         }
@@ -334,6 +353,7 @@ public final class HubStore: @unchecked Sendable {
     /// Retention (tests shrink them).
     var auditKept = 500_000
     var auditKeptUnpaired = 20_000
+    var auditKeptRefusals = 100_000
     var auditPruneEvery = 500
     private var auditWrites = 0
 

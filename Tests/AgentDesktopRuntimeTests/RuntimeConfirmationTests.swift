@@ -9,6 +9,14 @@ import Testing
 // bound to exactly what is applied; a client that paired as verified code
 // must be that code on every later connection.
 
+/// Blocking test bodies (sleeps, polling, semaphores) run on a plain
+/// thread, never on the cooperative pool other tests' services need.
+func offPoolConfirm(_ body: @escaping @Sendable () throws -> Void) async throws {
+    try await withCheckedThrowingContinuation { (k: CheckedContinuation<Void, Error>) in
+        Thread { do { try body(); k.resume() } catch { k.resume(throwing: error) } }.start()
+    }
+}
+
 /// A scripted trusted window: answers with `decide`, records what it saw.
 final class FakeConfirmer: TrustedConfirmer, @unchecked Sendable {
     private let lock = NSLock()
@@ -128,88 +136,96 @@ func pairThroughWindow(_ s: RuntimeService, _ c: ConnectionState, capabilities: 
 
 // MARK: The trusted window
 
-@Test func secAPairingIsGrantedOnlyByTheUsersApprovalOfExactlyWhatWasShown() throws {
-    let s = platformService()
-    s.codeVerifier = FakeVerifier(identities: ["boss": signedA])
-    let window = FakeConfirmer()
-    s.confirmer = window
-    let c = peer(s, "boss")
-    let (pairingId, credential) = try pairThroughWindow(s, c, capabilities: ["observe", "act"], desktops: ["created"], durationSeconds: 900)
-    let cred = try #require(credential)
-    let seen = try #require(window.requests.first)
-    #expect(seen.kind == .pairing)
-    #expect(seen.details == .obj([("capabilities", .array([.string("observe"), .string("act")])), ("desktops", .array([.string("created")])),
-                                  ("apps", .array([])), ("durationSeconds", .int(900))]))
-    #expect(seen.shortCode?.count == 6)
-    #expect(seen.requester["codeIdentity"]?["level"]?.stringValue == "verified")
-    #expect(seen.requester["codeIdentity"]?["teamId"]?.stringValue == "TEAMAAAAAA", "read from the peer, not sent by it")
-    #expect(s.hub.pairing(pairingId)?.state == "approved")
-    // Granted exactly that, no more, for that long from the approval.
-    let g = try #require(s.hub.grant(cred.clientId))
-    #expect(g.capabilities == ["observe", "act"] && g.desktops == ["created"] && g.apps.isEmpty)
-    #expect(g.expiresAt <= Timestamp.string(Date().addingTimeInterval(905)))
-    #expect(s.hub.client(cred.clientId)?.codeIdentity["requirement"]?.stringValue == signedA.requirement)
+@Test func secAPairingIsGrantedOnlyByTheUsersApprovalOfExactlyWhatWasShown() async throws {
+    try await offPoolConfirm {
+        let s = platformService()
+        s.codeVerifier = FakeVerifier(identities: ["boss": signedA])
+        let window = FakeConfirmer()
+        s.confirmer = window
+        let c = peer(s, "boss")
+        let (pairingId, credential) = try pairThroughWindow(s, c, capabilities: ["observe", "act"], desktops: ["created"], durationSeconds: 900)
+        let cred = try #require(credential)
+        let seen = try #require(window.requests.first)
+        #expect(seen.kind == .pairing)
+        #expect(seen.details == .obj([("capabilities", .array([.string("observe"), .string("act")])), ("desktops", .array([.string("created")])),
+                                      ("apps", .array([])), ("durationSeconds", .int(900))]))
+        #expect(seen.shortCode?.count == 6)
+        #expect(seen.requester["codeIdentity"]?["level"]?.stringValue == "verified")
+        #expect(seen.requester["codeIdentity"]?["teamId"]?.stringValue == "TEAMAAAAAA", "read from the peer, not sent by it")
+        #expect(s.hub.pairing(pairingId)?.state == "approved")
+        // Granted exactly that, no more, for that long from the approval.
+        let g = try #require(s.hub.grant(cred.clientId))
+        #expect(g.capabilities == ["observe", "act"] && g.desktops == ["created"] && g.apps.isEmpty)
+        #expect(g.expiresAt <= Timestamp.string(Date().addingTimeInterval(905)))
+        #expect(s.hub.client(cred.clientId)?.codeIdentity["requirement"]?.stringValue == signedA.requirement)
+    }
 }
 
 @Test(arguments: ["denied", "cancelled", "timedOut", "unavailable", "mismatch"])
-func secAnythingButAnApprovalGrantsNothing(_ answer: String) throws {
-    let s = platformService()
-    s.confirmer = FakeConfirmer { r in
-        switch answer {
-        case "denied": return .denied
-        case "cancelled": return .cancelled
-        case "timedOut": return .timedOut
-        case "unavailable": return .unavailable("no window")
-        default: return .approved(digest: String(r.digest.reversed()))   // approved, but something else
+func secAnythingButAnApprovalGrantsNothing(_ answer: String) async throws {
+    try await offPoolConfirm {
+        let s = platformService()
+        s.confirmer = FakeConfirmer { r in
+            switch answer {
+            case "denied": return .denied
+            case "cancelled": return .cancelled
+            case "timedOut": return .timedOut
+            case "unavailable": return .unavailable("no window")
+            default: return .approved(digest: String(r.digest.reversed()))   // approved, but something else
+            }
         }
+        let c = peer(s, "boss")
+        let (pairingId, credential) = try pairThroughWindow(s, c)
+        #expect(credential == nil)
+        #expect(s.hub.pairing(pairingId)?.state == "denied")
+        #expect(s.hub.clients().isEmpty)
+        let reason = ["denied": "user_denied", "cancelled": "user_cancelled", "timedOut": "confirmation_timeout",
+                      "unavailable": "no_trusted_ui", "mismatch": "confirmation_mismatch"][answer]!
+        #expect(s.hub.auditEvents().contains { $0["reason"]?.stringValue == reason }, "\(answer)")
     }
-    let c = peer(s, "boss")
-    let (pairingId, credential) = try pairThroughWindow(s, c)
-    #expect(credential == nil)
-    #expect(s.hub.pairing(pairingId)?.state == "denied")
-    #expect(s.hub.clients().isEmpty)
-    let reason = ["denied": "user_denied", "cancelled": "user_cancelled", "timedOut": "confirmation_timeout",
-                  "unavailable": "no_trusted_ui", "mismatch": "confirmation_mismatch"][answer]!
-    #expect(s.hub.auditEvents().contains { $0["reason"]?.stringValue == reason }, "\(answer)")
 }
 
-@Test func secWithoutATrustedWindowNothingIsApproved() throws {
-    let s = platformService()   // no confirmer
-    let c = peer(s, "boss")
-    _ = hello(s, c)
-    let id = try #require(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"x","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
-    Thread.sleep(forTimeInterval: 0.2)
-    #expect(s.hub.pairing(id)?.state == "requested", "waits for the host's own window, never approves itself")
-    #expect(s.hub.clients().isEmpty)
-    // A paired client's owner call is refused, not run.
-    let (app, _) = try pairedConnection(s, capabilities: ["observe"])
-    asVerified(app)
-    #expect(errorDetails(call(s, app, "hub.clients.list"))?["reason"]?.stringValue == "no_trusted_ui")
+@Test func secWithoutATrustedWindowNothingIsApproved() async throws {
+    try await offPoolConfirm {
+        let s = platformService()   // no confirmer
+        let c = peer(s, "boss")
+        _ = hello(s, c)
+        let id = try #require(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"x","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
+        Thread.sleep(forTimeInterval: 0.2)
+        #expect(s.hub.pairing(id)?.state == "requested", "waits for the host's own window, never approves itself")
+        #expect(s.hub.clients().isEmpty)
+        // A paired client's owner call is refused, not run.
+        let (app, _) = try pairedConnection(s, capabilities: ["observe"])
+        asVerified(app)
+        #expect(errorDetails(call(s, app, "hub.clients.list"))?["reason"]?.stringValue == "no_trusted_ui")
+    }
 }
 
 // MARK: Owner calls a paired client asks for
 
-@Test func secAClientCannotApproveOrWidenItsOwnAccess() throws {
-    let s = platformService()
-    let window = FakeConfirmer()
-    s.confirmer = window
-    let (app, id) = try pairedConnection(s, capabilities: ["observe"])
-    // Its own pairing requests, from another connection.
-    let other = peer(s, "boss")
-    _ = hello(s, other)
-    let pairingId = try #require(data(call(s, other, "hub.pairing.start", params: #"{"agentName":"me too","requested":{"capabilities":["act"]}}"#))?["pairingId"]?.stringValue)
-    #expect(waitFor { s.hub.pairing(pairingId)?.state != "requested" })
-    let asked = window.requests.count
-    // Approving pairings is the window's alone, never an IPC call.
-    #expect(errorDetails(call(s, app, "hub.pairing.approve", params: #"{"pairingId":"\#(pairingId)","grant":{"capabilities":["act"]}}"#))?["reason"]?.stringValue == "owner_only")
-    // Its own grant: refused before anyone is asked.
-    for (m, p) in [("hub.grants.set", #"{"clientId":"\#(id)","capabilities":["observe","act","desktop.manage"],"desktops":["created"],"durationSeconds":604800}"#),
-                   ("hub.grants.revoke", #"{"clientId":"\#(id)"}"#)] {
-        let r = call(s, app, m, params: p)
-        #expect(errorDetails(r)?["reason"]?.stringValue == "self_grant", "\(m)")
+@Test func secAClientCannotApproveOrWidenItsOwnAccess() async throws {
+    try await offPoolConfirm {
+        let s = platformService()
+        let window = FakeConfirmer()
+        s.confirmer = window
+        let (app, id) = try pairedConnection(s, capabilities: ["observe"])
+        // Its own pairing requests, from another connection.
+        let other = peer(s, "boss")
+        _ = hello(s, other)
+        let pairingId = try #require(data(call(s, other, "hub.pairing.start", params: #"{"agentName":"me too","requested":{"capabilities":["act"]}}"#))?["pairingId"]?.stringValue)
+        #expect(waitFor { s.hub.pairing(pairingId)?.state != "requested" })
+        let asked = window.requests.count
+        // Approving pairings is the window's alone, never an IPC call.
+        #expect(errorDetails(call(s, app, "hub.pairing.approve", params: #"{"pairingId":"\#(pairingId)","grant":{"capabilities":["act"]}}"#))?["reason"]?.stringValue == "owner_only")
+        // Its own grant: refused before anyone is asked.
+        for (m, p) in [("hub.grants.set", #"{"clientId":"\#(id)","capabilities":["observe","act","desktop.manage"],"desktops":["created"],"durationSeconds":604800}"#),
+                       ("hub.grants.revoke", #"{"clientId":"\#(id)"}"#)] {
+            let r = call(s, app, m, params: p)
+            #expect(errorDetails(r)?["reason"]?.stringValue == "self_grant", "\(m)")
+        }
+        #expect(window.requests.count == asked, "the user was not even asked")
+        #expect(s.hub.grant(id)?.capabilities == ["observe"])
     }
-    #expect(window.requests.count == asked, "the user was not even asked")
-    #expect(s.hub.grant(id)?.capabilities == ["observe"])
 }
 
 @Test func secAConfirmedOwnerCallRunsOnceAndOnlyThatCall() throws {
@@ -282,41 +298,45 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
 
 // MARK: S2: the code a client paired as
 
-@Test func secACopiedCredentialDoesNotWorkFromAnotherProgram() throws {
-    let s = platformService()
-    s.codeVerifier = FakeVerifier(identities: ["boss": signedA, "other": signedB, "python": script])
-    s.confirmer = FakeConfirmer()
-    let (_, credential) = try pairThroughWindow(s, peer(s, "boss"))
-    let cred = try #require(credential)
-    // The program it paired as: accepted.
-    let again = peer(s, "boss")
-    #expect(data(hello(s, again, cred))?["principal"]?["codeIdentityLevel"]?.stringValue == "verified")
-    // The same token from another signed program, a script, or a peer the
-    // kernel could not describe: refused.
-    for program in ["other", "python", nil] as [String?] {
-        let thief = peer(s, program)
-        let r = hello(s, thief, cred)
-        #expect(code(r) == "permission_denied", "\(program ?? "no token")")
-        #expect(errorDetails(r)?["reason"]?.stringValue == "code_identity_mismatch")
-        #expect(thief.role == .unpaired)
+@Test func secACopiedCredentialDoesNotWorkFromAnotherProgram() async throws {
+    try await offPoolConfirm {
+        let s = platformService()
+        s.codeVerifier = FakeVerifier(identities: ["boss": signedA, "other": signedB, "python": script])
+        s.confirmer = FakeConfirmer()
+        let (_, credential) = try pairThroughWindow(s, peer(s, "boss"))
+        let cred = try #require(credential)
+        // The program it paired as: accepted.
+        let again = peer(s, "boss")
+        #expect(data(hello(s, again, cred))?["principal"]?["codeIdentityLevel"]?.stringValue == "verified")
+        // The same token from another signed program, a script, or a peer the
+        // kernel could not describe: refused.
+        for program in ["other", "python", nil] as [String?] {
+            let thief = peer(s, program)
+            let r = hello(s, thief, cred)
+            #expect(code(r) == "permission_denied", "\(program ?? "no token")")
+            #expect(errorDetails(r)?["reason"]?.stringValue == "code_identity_mismatch")
+            #expect(thief.role == .unpaired)
+        }
+        // Saying who you are in the request changes nothing: refused by the contract.
+        let liar = peer(s, "python")
+        #expect(code(hello(s, liar, cred, extra: #","codeIdentity":{"teamId":"TEAMAAAAAA"}"#)) == "schema_invalid")
+        #expect(code(hello(s, peer(s, "python"), cred, extra: #","teamId":"TEAMAAAAAA""#)) == "schema_invalid")
     }
-    // Saying who you are in the request changes nothing: refused by the contract.
-    let liar = peer(s, "python")
-    #expect(code(hello(s, liar, cred, extra: #","codeIdentity":{"teamId":"TEAMAAAAAA"}"#)) == "schema_invalid")
-    #expect(code(hello(s, peer(s, "python"), cred, extra: #","teamId":"TEAMAAAAAA""#)) == "schema_invalid")
 }
 
-@Test func secAScriptClientIsShownAsSameUserOnly() throws {
-    let s = platformService()
-    s.codeVerifier = FakeVerifier(identities: ["python": script])
-    let window = FakeConfirmer()
-    s.confirmer = window
-    let (_, credential) = try pairThroughWindow(s, peer(s, "python"))
-    let cred = try #require(credential)
-    #expect(window.requests.first?.requester["codeIdentity"]?["level"]?.stringValue == "same_user")
-    #expect(s.hub.client(cred.clientId)?.codeIdentity["requirement"] == nil)
-    // Nothing binds it: the identity the window showed is what it gets.
-    #expect(data(hello(s, peer(s, "python"), cred))?["principal"]?["codeIdentityLevel"]?.stringValue == "same_user")
+@Test func secAScriptClientIsShownAsSameUserOnly() async throws {
+    try await offPoolConfirm {
+        let s = platformService()
+        s.codeVerifier = FakeVerifier(identities: ["python": script])
+        let window = FakeConfirmer()
+        s.confirmer = window
+        let (_, credential) = try pairThroughWindow(s, peer(s, "python"))
+        let cred = try #require(credential)
+        #expect(window.requests.first?.requester["codeIdentity"]?["level"]?.stringValue == "same_user")
+        #expect(s.hub.client(cred.clientId)?.codeIdentity["requirement"] == nil)
+        // Nothing binds it: the identity the window showed is what it gets.
+        #expect(data(hello(s, peer(s, "python"), cred))?["principal"]?["codeIdentityLevel"]?.stringValue == "same_user")
+    }
 }
 
 // MARK: Revocation and work already accepted
@@ -399,38 +419,40 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
     #expect(s.hub.grant(other)?.capabilities == ["observe"])
 }
 
-@Test func aFloodOfPairingsNeitherWaitsInLineNorDeniesRealOnes() throws {
-    let s = platformService()
-    let release = DispatchSemaphore(value: 0)
-    let window = FakeConfirmer { r in release.wait(); return .denied }
-    s.confirmer = window
-    // One process, many connections: one waiting request only.
-    let first = ConnectionState(socketPeer: getuid(), pid: 1, executable: "/tmp/flooder")
-    _ = hello(s, first)
-    #expect(data(call(s, first, "hub.pairing.start", params: #"{"agentName":"f","requested":{"capabilities":["observe"]}}"#)) != nil)
-    for _ in 0..<5 {
-        let c = ConnectionState(socketPeer: getuid(), pid: 1, executable: "/tmp/flooder")
-        _ = hello(s, c)
-        let r = call(s, c, "hub.pairing.start", params: #"{"agentName":"f","requested":{"capabilities":["observe"]}}"#)
-        #expect(errorDetails(r)?["reason"]?.stringValue == "pairing_busy")
+@Test func aFloodOfPairingsNeitherWaitsInLineNorDeniesRealOnes() async throws {
+    try await offPoolConfirm {
+        let s = platformService()
+        let release = DispatchSemaphore(value: 0)
+        let window = FakeConfirmer { r in release.wait(); return .denied }
+        s.confirmer = window
+        // One process, many connections: one waiting request only.
+        let first = ConnectionState(socketPeer: getuid(), pid: 1, executable: "/tmp/flooder")
+        _ = hello(s, first)
+        #expect(data(call(s, first, "hub.pairing.start", params: #"{"agentName":"f","requested":{"capabilities":["observe"]}}"#)) != nil)
+        for _ in 0..<5 {
+            let c = ConnectionState(socketPeer: getuid(), pid: 1, executable: "/tmp/flooder")
+            _ = hello(s, c)
+            let r = call(s, c, "hub.pairing.start", params: #"{"agentName":"f","requested":{"capabilities":["observe"]}}"#)
+            #expect(errorDetails(r)?["reason"]?.stringValue == "pairing_busy")
+        }
+        #expect(waitFor { window.requests.count == 1 })
+        // Other programs fill the line (one shown, the rest waiting)...
+        for n in 0..<(ConfirmationGate.maxWaiting - 1) {
+            let c = ConnectionState(socketPeer: getuid(), pid: Int32(10 + n), executable: "/tmp/other\(n)")
+            _ = hello(s, c)
+            #expect(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"o","requested":{"capabilities":["observe"]}}"#)) != nil)
+        }
+        Thread.sleep(forTimeInterval: 0.2)
+        // ...then a real app asks: the line is full, but that is not the user's
+        // no: it stays requested.
+        let real = ConnectionState(socketPeer: getuid(), pid: 3, executable: "/Applications/Boss.app/Contents/MacOS/Boss")
+        _ = hello(s, real)
+        let id = try #require(data(call(s, real, "hub.pairing.start", params: #"{"agentName":"boss","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
+        #expect(waitFor { s.hub.auditEvents().contains { $0["reason"]?.stringValue == "confirmation_busy" } })
+        Thread.sleep(forTimeInterval: 0.1)
+        #expect(s.hub.pairing(id)?.state == "requested")
+        for _ in 0..<ConfirmationGate.maxWaiting { release.signal() }
     }
-    #expect(waitFor { window.requests.count == 1 })
-    // Other programs fill the line (one shown, the rest waiting)...
-    for n in 0..<(ConfirmationGate.maxWaiting - 1) {
-        let c = ConnectionState(socketPeer: getuid(), pid: Int32(10 + n), executable: "/tmp/other\(n)")
-        _ = hello(s, c)
-        #expect(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"o","requested":{"capabilities":["observe"]}}"#)) != nil)
-    }
-    Thread.sleep(forTimeInterval: 0.2)
-    // ...then a real app asks: the line is full, but that is not the user's
-    // no: it stays requested.
-    let real = ConnectionState(socketPeer: getuid(), pid: 3, executable: "/Applications/Boss.app/Contents/MacOS/Boss")
-    _ = hello(s, real)
-    let id = try #require(data(call(s, real, "hub.pairing.start", params: #"{"agentName":"boss","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
-    #expect(waitFor { s.hub.auditEvents().contains { $0["reason"]?.stringValue == "confirmation_busy" } })
-    Thread.sleep(forTimeInterval: 0.1)
-    #expect(s.hub.pairing(id)?.state == "requested")
-    for _ in 0..<ConfirmationGate.maxWaiting { release.signal() }
 }
 
 @Test func aPairingEndsWithItsConnectionAndIsDecidedOnce() throws {
@@ -500,53 +522,57 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
     #expect(events.filter { ($0["clientId"]?.stringValue ?? "").hasPrefix("unpaired:") }.count <= 60, "strangers' refusals are bounded")
 }
 
-@Test func scriptsOfOneInterpreterPairSideBySideButARefusedOneWaits() throws {
-    let s = platformService()
-    let bothAsked = DispatchSemaphore(value: 0)
-    let window = FakeConfirmer { _ in bothAsked.wait(); bothAsked.signal(); return .denied }
-    s.confirmer = window
-    // Two python agents (same executable, different processes): both may ask.
-    let a = ConnectionState(socketPeer: getuid(), pid: 501, executable: "/usr/bin/python3")
-    let b = ConnectionState(socketPeer: getuid(), pid: 502, executable: "/usr/bin/python3")
-    for c in [a, b] {
-        _ = hello(s, c)
-        #expect(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#)) != nil)
+@Test func scriptsOfOneInterpreterPairSideBySideButARefusedOneWaits() async throws {
+    try await offPoolConfirm {
+        let s = platformService()
+        let bothAsked = DispatchSemaphore(value: 0)
+        let window = FakeConfirmer { _ in bothAsked.wait(); bothAsked.signal(); return .denied }
+        s.confirmer = window
+        // Two python agents (same executable, different processes): both may ask.
+        let a = ConnectionState(socketPeer: getuid(), pid: 501, executable: "/usr/bin/python3")
+        let b = ConnectionState(socketPeer: getuid(), pid: 502, executable: "/usr/bin/python3")
+        for c in [a, b] {
+            _ = hello(s, c)
+            #expect(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#)) != nil)
+        }
+        #expect(s.hub.pairings().count == 2, "both are waiting at once")
+        bothAsked.signal()
+        #expect(waitFor { window.requests.count == 2 })
+        #expect(waitFor { s.hub.pairings().isEmpty })
+        // Refused by the user: that program waits before asking again, and a
+        // new process of it does not start over.
+        let r = call(s, a, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#)
+        #expect(errorDetails(r)?["reason"]?.stringValue == "pairing_cooldown")
+        let fresh = ConnectionState(socketPeer: getuid(), pid: 999, executable: "/usr/bin/python3")
+        _ = hello(s, fresh)
+        #expect(errorDetails(call(s, fresh, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#))?["reason"]?.stringValue == "pairing_cooldown")
+        #expect(window.requests.count == 2)
     }
-    #expect(s.hub.pairings().count == 2, "both are waiting at once")
-    bothAsked.signal()
-    #expect(waitFor { window.requests.count == 2 })
-    #expect(waitFor { s.hub.pairings().isEmpty })
-    // Refused by the user: that program waits before asking again, and a
-    // new process of it does not start over.
-    let r = call(s, a, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#)
-    #expect(errorDetails(r)?["reason"]?.stringValue == "pairing_cooldown")
-    let fresh = ConnectionState(socketPeer: getuid(), pid: 999, executable: "/usr/bin/python3")
-    _ = hello(s, fresh)
-    #expect(errorDetails(call(s, fresh, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#))?["reason"]?.stringValue == "pairing_cooldown")
-    #expect(window.requests.count == 2)
 }
 
-@Test func aPairingThatFoundTheLineFullIsAskedOnceThereIsRoom() throws {
-    let s = platformService()
-    RuntimeService.busyRetry = 0.05
-    let release = DispatchSemaphore(value: 0)
-    let window = FakeConfirmer { r in
-        if r.requester["agentName"]?.stringValue == "real" { return .approved(digest: r.digest) }
-        release.wait(); return .denied
+@Test func aPairingThatFoundTheLineFullIsAskedOnceThereIsRoom() async throws {
+    try await offPoolConfirm {
+        let s = platformService()
+        RuntimeService.busyRetry = 0.05
+        let release = DispatchSemaphore(value: 0)
+        let window = FakeConfirmer { r in
+            if r.requester["agentName"]?.stringValue == "real" { return .approved(digest: r.digest) }
+            release.wait(); return .denied
+        }
+        s.confirmer = window
+        for n in 0..<ConfirmationGate.maxWaiting {
+            let c = ConnectionState(socketPeer: getuid(), pid: Int32(700 + n), executable: "/tmp/f\(n)")
+            _ = hello(s, c)
+            _ = call(s, c, "hub.pairing.start", params: #"{"agentName":"filler","requested":{"capabilities":["observe"]}}"#)
+        }
+        #expect(waitFor { window.requests.count == 1 })
+        let real = ConnectionState(socketPeer: getuid(), pid: 800, executable: "/Applications/Real.app/Contents/MacOS/Real")
+        _ = hello(s, real)
+        let id = try #require(data(call(s, real, "hub.pairing.start", params: #"{"agentName":"real","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
+        #expect(waitFor { s.hub.auditEvents().contains { $0["reason"]?.stringValue == "confirmation_busy" } })
+        for _ in 0..<ConfirmationGate.maxWaiting { release.signal() }
+        #expect(waitFor { s.hub.pairing(id)?.state == "approved" }, "asked and approved once the line had room")
     }
-    s.confirmer = window
-    for n in 0..<ConfirmationGate.maxWaiting {
-        let c = ConnectionState(socketPeer: getuid(), pid: Int32(700 + n), executable: "/tmp/f\(n)")
-        _ = hello(s, c)
-        _ = call(s, c, "hub.pairing.start", params: #"{"agentName":"filler","requested":{"capabilities":["observe"]}}"#)
-    }
-    #expect(waitFor { window.requests.count == 1 })
-    let real = ConnectionState(socketPeer: getuid(), pid: 800, executable: "/Applications/Real.app/Contents/MacOS/Real")
-    _ = hello(s, real)
-    let id = try #require(data(call(s, real, "hub.pairing.start", params: #"{"agentName":"real","requested":{"capabilities":["observe"]}}"#))?["pairingId"]?.stringValue)
-    #expect(waitFor { s.hub.auditEvents().contains { $0["reason"]?.stringValue == "confirmation_busy" } })
-    for _ in 0..<ConfirmationGate.maxWaiting { release.signal() }
-    #expect(waitFor { s.hub.pairing(id)?.state == "approved" }, "asked and approved once the line had room")
 }
 
 
@@ -590,4 +616,121 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
     #expect(data(call(s, owner, "hub.grants.revoke", params: #"{"clientId":"\#(a)"}"#)) != nil)
     #expect(data(call(s, owner, "hub.clients.revoke", params: #"{"clientId":"\#(b)"}"#)) != nil)
     #expect(seen.lock.withLock { seen.ids } == [a, b])
+}
+
+// MARK: Round-four review H1: what was approved applies only to what was shown
+
+@Test(arguments: ["revokeGrant", "narrow"], [false, true])
+func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerAction: String, _ verified: Bool) throws {
+    let s = platformService()
+    let owner = handshaken(s)
+    let (app, _) = try pairedConnection(s, capabilities: ["observe"], name: "asker")
+    if verified { asVerified(app) }
+    let (_, b) = try pairedConnection(s, capabilities: ["observe", "act", "desktop.manage"], desktops: ["created"], name: "b")
+    // The owner acts while the window is up; then the user approves.
+    s.confirmer = FakeConfirmer { r in
+        if ownerAction == "revokeGrant" {
+            _ = call(s, owner, "hub.grants.revoke", params: #"{"clientId":"\#(b)"}"#)
+        } else {
+            _ = call(s, owner, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe"],"desktops":[]}"#)
+        }
+        return .approved(digest: r.digest)
+    }
+    let before = try #require(s.hub.grant(b))
+    // A "narrowing" of what B had when the window opened.
+    let r = call(s, app, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe","act"],"desktops":["created"],"durationSeconds":60}"#)
+    #expect(errorDetails(r)?["reason"]?.stringValue == "target_changed", "\(ownerAction) verified=\(verified)")
+    let after = try #require(s.hub.grant(b))
+    if ownerAction == "revokeGrant" {
+        #expect(after.state == "revoked", "the owner's revocation holds")
+    } else {
+        #expect(after.capabilities == ["observe"] && after.desktops.isEmpty, "the owner's narrowing holds")
+    }
+    #expect(after.revision == before.revision + 1, "only the owner's change was applied")
+}
+
+@Test func anUnverifiedClientsNarrowingNeverExtendsTheExpiry() async throws {
+    try await offPoolConfirm {
+        let s = platformService()
+        s.confirmer = FakeConfirmer { r in Thread.sleep(forTimeInterval: 1.2); return .approved(digest: r.digest) }
+        let (app, _) = try pairedConnection(s, capabilities: ["observe"], name: "asker")
+        let (_, b) = try pairedConnection(s, capabilities: ["observe", "act"], name: "b")
+        var g = try #require(s.hub.grant(b))
+        g.expiresAt = Timestamp.string(Date().addingTimeInterval(30))
+        try s.hub.putGrant(g)
+        let old = g.expiresAt
+        // Just under what is left: a narrowing when asked, longer by the time it
+        // took to answer. Refused on the second look, or clamped: never later.
+        _ = call(s, app, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe"],"desktops":[],"durationSeconds":29}"#)
+        #expect(try #require(s.hub.grant(b)).expiresAt <= old, "the user's time to answer did not become extra grant time")
+        // Well within: applied, and still not later.
+        #expect(data(call(s, app, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe"],"desktops":[],"durationSeconds":10}"#)) != nil)
+        #expect(try #require(s.hub.grant(b)).expiresAt <= old)
+    }
+}
+
+@Test func aConfirmedCallNeverBringsBackARevokedGrant() throws {
+    let s = platformService()
+    let owner = handshaken(s)
+    s.confirmer = FakeConfirmer()
+    let (app, _) = try pairedConnection(s, capabilities: ["observe"], name: "asker")
+    asVerified(app)
+    let (_, b) = try pairedConnection(s, capabilities: ["observe"], name: "b")
+    #expect(data(call(s, owner, "hub.grants.revoke", params: #"{"clientId":"\#(b)"}"#)) != nil)
+    let r = call(s, app, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe"],"desktops":[]}"#)
+    #expect(errorDetails(r)?["reason"]?.stringValue == "grant_not_active")
+    #expect(s.hub.grant(b)?.state == "revoked")
+}
+
+/// Round-four review M2: the owner revokes a client while a confirmed AI call
+/// of it is still being served; what that call started is cancelled after
+/// it, and its answer is not given.
+@Test func aServiceCallThatOutlivesTheRevocationIsCleanedUpAfterIt() throws {
+    let s = platformService()
+    let owner = handshaken(s)
+    s.confirmer = FakeConfirmer()
+    let (app, id) = try pairedConnection(s, capabilities: ["observe"], name: "verified-app")
+    asVerified(app)
+    final class Log: @unchecked Sendable { let lock = NSLock(); var withdrawn = 0; var started = 0 }
+    let log = Log()
+    s.onAccessWithdrawn { _ in log.lock.withLock { log.withdrawn += 1 } }
+    s.registerExtensions(["ai.models.refresh": { _ in
+        // The revocation lands while the service is working...
+        _ = call(s, owner, "hub.clients.revoke", params: #"{"clientId":"\#(id)"}"#)
+        // ...and only then does the service start its operation.
+        log.lock.withLock { log.started += 1 }
+        return .success(.obj([("operationId", .string("op_1")), ("state", .string("queued"))]))
+    }])
+    let r = call(s, app, "ai.models.refresh", params: #"{"connectionId":"conn_1","expectedRevision":1}"#)
+    #expect(code(r) != nil, "\(r.json.encoded())")
+    #expect(log.lock.withLock { log.started } == 1)
+    #expect(log.lock.withLock { log.withdrawn } == 2, "once by the revocation, once more after the call")
+    #expect(data(r) == nil, "the revoked client does not get the answer")
+}
+
+@Test func aClientRefusedByTheUserCannotAskAgainAtOnce() throws {
+    let s = platformService()
+    let window = FakeConfirmer { _ in .denied }
+    s.confirmer = window
+    let (app, _) = try pairedConnection(s, capabilities: ["observe"], name: "pest")
+    let (_, b) = try pairedConnection(s, capabilities: ["observe"], name: "b")
+    #expect(errorDetails(call(s, app, "hub.clients.revoke", params: #"{"clientId":"\#(b)"}"#))?["reason"]?.stringValue == "user_denied")
+    #expect(errorDetails(call(s, app, "hub.clients.revoke", params: #"{"clientId":"\#(b)"}"#))?["reason"]?.stringValue == "confirmation_cooldown")
+    #expect(window.requests.count == 1, "the user was asked once")
+}
+
+@Test func strangersAndPairedClientsTogetherCannotFlushAccessDecisions() throws {
+    let s = platformService()
+    s.hub.auditKeptUnpaired = 30
+    s.hub.auditKeptRefusals = 60
+    s.hub.auditKept = 80
+    s.hub.auditPruneEvery = 10
+    let owner = handshaken(s)
+    let (_, victim) = try pairedConnection(s, capabilities: ["observe"], name: "victim")
+    #expect(data(call(s, owner, "hub.clients.revoke", params: #"{"clientId":"\#(victim)"}"#)) != nil)
+    let (noisy, _) = try pairedConnection(s, capabilities: ["observe"], name: "noisy")
+    for _ in 0..<300 { _ = call(s, noisy, "hub.clients.list") }      // unverified_identity, no prompt
+    let events = s.hub.auditEvents(limit: 10_000)
+    #expect(events.contains { $0["clientId"]?.stringValue == victim && $0["decision"]?.stringValue == "revoked" })
+    #expect(events.filter { $0["decision"]?.stringValue == "denied" }.count <= 70)
 }

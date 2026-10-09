@@ -159,6 +159,9 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
             lines.append("期限：批准后 " + (seconds >= 3600 ? "\(seconds / 3600) 小时\(seconds % 3600 / 60 > 0 ? " \(seconds % 3600 / 60) 分钟" : "")" : "\(max(1, seconds / 60)) 分钟"))
         case .adminCall:
             lines.append("操作：\(inert(r.action, max: 80))")
+            if r.action.hasPrefix("ai.connections.") || r.action.hasPrefix("ai.credentials.") {
+                lines.append("⚠️ 这会改变全局的 AI 连接：之后主窗口的截图和文字会发往这里配置的服务")
+            }
             if let t = r.details["target"] {
                 lines.append("作用对象：\(inert(t["agentName"]?.stringValue, max: 64))（\(inert(t["clientId"]?.stringValue, max: 80))）")
                 lines.append("对象的代码身份：" + identityText(t["codeIdentity"]))
