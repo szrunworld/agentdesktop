@@ -286,12 +286,19 @@ extension RuntimeService {
         if let e = accessError(c, method: "runtime.status") { return e }
         // The target changed meanwhile (the owner revoked or narrowed it):
         // what was approved no longer means the same; nothing is applied.
-        if let target, hub.grant(target)?.revision != seenRevision
-            || (c.codeIdentity.level != .verified && !(isSelf && changesAccess && isReductive(request)))
-            || (isSelf && changesAccess && !isReductive(request)) {
-            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "target_changed")
-            return RuntimeError("conflict", "\(target) changed while the user was asked; ask again", phase: .handler, notSent: true,
-                                details: .obj([("reason", .string("target_changed"))]))
+        // Checked again, each with its own reason (focused review L3).
+        let recheck: (String, String)? = {
+            if let target, hub.grant(target)?.revision != seenRevision { return ("target_changed", "\(target) changed while the user was asked; ask again") }
+            if isSelf, changesAccess, !isReductive(request) { return ("self_grant", "by now this would not only take access away; ask again") }
+            if c.codeIdentity.level != .verified, !(isSelf && changesAccess && isReductive(request)) {
+                return ("unverified_identity", "an unverified client may only give up its own access")
+            }
+            return nil
+        }()
+        if let (reason, message) = recheck {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: reason)
+            return RuntimeError(reason == "target_changed" ? "conflict" : "permission_denied", message, phase: .handler, notSent: true,
+                                details: .obj([("reason", .string(reason))]))
         }
         c.elevate(request.requestId, targetRevision: seenRevision)
         return nil

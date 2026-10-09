@@ -138,8 +138,13 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         case "hub.clients.revoke": return ["变化：移除这个客户端，它的凭据永久失效，Run 全部停止"]
         case "hub.grants.revoke": return ["变化：收回它的全部授权，Run 全部停止"]
         case "hub.grants.set":
-            guard let old, old != .null else { return ["变化：设定新授权（当前没有有效授权）"] }
+            guard let old, old != .null else { return ["⚠️ 变化：设定新授权（当前没有有效授权）"] }
             var out: [String] = []
+            if old["state"]?.stringValue != "active" {
+                out.append("⚠️ 原授权已被撤销：这次会重新给予访问（系统会拒绝执行）")
+            } else if let exp = old["expiresAt"]?.stringValue, exp < Timestamp.string(Date()) {
+                out.append("⚠️ 原授权已过期：这次会恢复访问")
+            }
             for (label, key) in [("能力", "capabilities"), ("Desktop", "desktops"), ("App", "apps")] {
                 let before = Set(list(old[key])), after = Set(list(params?[key]))
                 let removed = before.subtracting(after).sorted(), added = after.subtracting(before).sorted()
@@ -147,10 +152,16 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
                 if !added.isEmpty { out.append("⚠️ 变化：新增\(label) " + added.map { inert($0, max: 120) }.joined(separator: "、")) }
             }
             let seconds = params?["durationSeconds"]?.intValue ?? 3600
-            out.append("变化：期限改为批准后 \(seconds / 60) 分钟（原到期：\(inert(old["expiresAt"]?.stringValue, max: 40))）")
+            out.append("变化：期限改为批准后 \(durationText(seconds))（原到期：\(inert(old["expiresAt"]?.stringValue, max: 40))；不会晚于原到期）")
             return out
         default: return []
         }
+    }
+
+    /// An exact duration: hours, minutes and seconds as they are.
+    static func durationText(_ s: Int) -> String {
+        let h = s / 3600, m = s % 3600 / 60, sec = s % 60
+        return [h > 0 ? "\(h) 小时" : nil, m > 0 ? "\(m) 分" : nil, sec > 0 || s == 0 ? "\(sec) 秒" : nil].compactMap { $0 }.joined(separator: " ")
     }
 
     static let capabilityNames = ["observe": "查看（截图、元素、列表）", "act": "操作（点击、输入）",

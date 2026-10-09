@@ -240,7 +240,9 @@ extension RuntimeService {
                     return .failure(RuntimeError("conflict", "the grant of \(id) is not active; it pairs again", phase: .handler, notSent: true,
                                                  details: .obj([("reason", .string("grant_not_active"))])))
                 }
-                if c.codeIdentity.level != .verified, g.expiresAt > old.expiresAt { g.expiresAt = old.expiresAt }
+                // Never later than it was, for an unverified caller or for any
+                // client changing its own grant (R1; focused review L1).
+                if c.codeIdentity.level != .verified || id == c.clientId, g.expiresAt > old.expiresAt { g.expiresAt = old.expiresAt }
             }
             let epoch = hub.policyEpoch
             let saved: HubStore.Grant

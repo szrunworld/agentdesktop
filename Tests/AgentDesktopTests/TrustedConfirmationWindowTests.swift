@@ -38,3 +38,18 @@ import Testing
         #expect(!text.unicodeScalars.contains { [0x202E, 0x2066, 0x2028, 0x2029].contains($0.value) })
     }
 }
+
+@Test func theWindowStatesTheChangeExactly() {
+    #expect(TrustedConfirmationWindow.durationText(59) == "59 秒")
+    #expect(TrustedConfirmationWindow.durationText(90) == "1 分 30 秒")
+    #expect(TrustedConfirmationWindow.durationText(3600) == "1 小时")
+    let expired = JSONValue.obj([("capabilities", .array([.string("observe"), .string("act")])), ("desktops", .array([])), ("apps", .array([])),
+                                 ("expiresAt", .string("2020-01-01T00:00:00.000Z")), ("state", .string("active"))])
+    let lines = TrustedConfirmationWindow.changeLines("hub.grants.set", old: expired,
+                                                      params: .obj([("capabilities", .array([.string("observe")])), ("durationSeconds", .int(90))]))
+    #expect(lines.contains { $0.contains("已过期") && $0.contains("恢复访问") }, "\(lines)")
+    #expect(lines.contains { $0.contains("去掉能力") && $0.contains("act") })
+    #expect(lines.contains { $0.contains("1 分 30 秒") })
+    let revoked = expired.setting("state", .string("revoked"))
+    #expect(TrustedConfirmationWindow.changeLines("hub.grants.set", old: revoked, params: .obj([])).contains { $0.contains("已被撤销") })
+}

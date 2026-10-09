@@ -677,7 +677,8 @@ func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerActio
         // Well within (from a fresh connection: a narrowing cuts the old one):
         // applied, and still not later.
         let (again, _) = try reconnectAs(s, app)
-        _ = call(s, again, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe"],"desktops":[],"durationSeconds":10}"#)
+        #expect(data(call(s, again, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe"],"desktops":[],"durationSeconds":10}"#)) != nil,
+                "a real narrowing of its own grant is applied")
         #expect(try #require(s.hub.grant(b)).expiresAt <= old)
     }
 }
@@ -781,4 +782,33 @@ func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerActio
     }])
     _ = call(s, app, "ai.models.refresh", params: #"{"connectionId":"conn_1","expectedRevision":1}"#)
     #expect(log.lock.withLock { log.withdrawn } == 0, "a narrower grant keeps the client's approved work")
+}
+
+
+@Test func anUnverifiedClientRefusedByTheUserWaitsBeforeAskingAgain() throws {
+    let s = platformService()
+    let window = FakeConfirmer { _ in .denied }
+    s.confirmer = window
+    let (app, id) = try pairedConnection(s, capabilities: ["observe", "act"], name: "script")   // same_user
+    let narrow = #"{"clientId":"\#(id)","capabilities":["observe"],"desktops":[],"durationSeconds":60}"#
+    #expect(errorDetails(call(s, app, "hub.grants.set", params: narrow))?["reason"]?.stringValue == "user_denied")
+    #expect(errorDetails(call(s, app, "hub.grants.set", params: narrow))?["reason"]?.stringValue == "confirmation_cooldown")
+    #expect(window.requests.count == 1)
+}
+
+@Test func aClientNarrowingItsOwnGrantNeverEndsLaterWhateverItsIdentity() async throws {
+    try await offPoolConfirm {
+        for verified in [false, true] {
+            let s = platformService()
+            s.confirmer = FakeConfirmer { r in Thread.sleep(forTimeInterval: 0.3); return .approved(digest: r.digest) }
+            let (app, id) = try pairedConnection(s, capabilities: ["observe", "act"], name: "self")
+            if verified { asVerified(app) }
+            var g = try #require(s.hub.grant(id))
+            g.expiresAt = Timestamp.string(Date().addingTimeInterval(20))
+            try s.hub.putGrant(g)
+            let old = g.expiresAt
+            _ = call(s, app, "hub.grants.set", params: #"{"clientId":"\#(id)","capabilities":["observe"],"desktops":[],"durationSeconds":19}"#)
+            #expect(try #require(s.hub.grant(id)).expiresAt <= old, "verified=\(verified)")
+        }
+    }
 }
