@@ -118,3 +118,16 @@ Kevin 裁决：两者都登记为"未经明确授权的合并事件"，不回滚
 ### Kevin 新规则（2026-10-09）
 
 今后执行者在合并前，必须先列出具体 PR、最新 SHA、审核状态和 CI 状态，**取得 Kevin 明确确认后才能合并**。
+
+## 合并后安全回归：main 30b65f4（#144、#153、#159、#151 都已合入；b9，2026-10-09）
+
+| 项目 | 结果 |
+|---|---|
+| GitHub CI（macOS，run 37883027217） | ✅ success |
+| 引擎 `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --package-path engine` | ✅ 249 个，全部通过 |
+| 根包 `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test`（本机，load average 约 32） | ❌ 899 个，18 个问题；全部是计时类测试 |
+| 失败的 4 组测试单独重跑 3 次（88 个） | ✅ 3/3 全部通过 |
+
+- 根包整跑时失败的 4 组测试：SingleEndpoint（Runtime 超时未应答）、WDAClient 截止时间、ACP prompt 取消、ACP resume 等待。
+- 这些失败都发生在本机高负载时（同时有其他会话在跑回归），单独重跑后全部通过，没有一处是安全断言失败。
+- 这些计时测试在高负载下不稳定，应作为测试稳定性问题另行跟踪（同类：#147、#161）。
