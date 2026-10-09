@@ -155,3 +155,28 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
         #expect(mine == recorder.events.filter { $0.call == c }.map(\.stage))
     }
 }
+
+// Codex on a756034, b9: a timed-out call's stages that come after its wait
+// ended reach the hook after `timedOut`, in the order they were noted.
+@Test func stagesAfterATimeoutReachTheHookAfterIt() async throws {
+    let (s, dir) = try await service()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Got: @unchecked Sendable { let lock = NSLock(); var events: [BridgeDiagnostics.Event] = [] }
+    let got = Got()
+    let recorder = BridgeDiagnostics(onEvent: { e in got.lock.withLock { got.events.append(e) } })
+    for _ in 0..<20 {
+        _ = await answer(call("ai.connections.list", .obj([]), deadline: Date().addingTimeInterval(-1)), s, idempotent: false, recorder)
+    }
+    // Late stages land once the service answers; wait for them, then for their reports.
+    let until = Date().addingTimeInterval(5)
+    while recorder.events.filter({ $0.stage == .resultReady }).count < 20 && Date() < until { try await Task.sleep(nanoseconds: 10_000_000) }
+    recorder.waitForReports()
+    let delivered = got.lock.withLock { got.events }
+    var lateSeen = 0
+    for c in Set(recorder.events.map(\.call)) {
+        let noted = recorder.events.filter { $0.call == c }.map(\.stage)
+        #expect(delivered.filter { $0.call == c }.map(\.stage) == noted, "call \(c)")
+        if let end = noted.firstIndex(of: .timedOut), noted[(end + 1)...].contains(.taskStarted) { lateSeen += 1 }
+    }
+    #expect(lateSeen > 0, "no call's task started after its wait ran out")
+}

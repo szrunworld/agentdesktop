@@ -103,19 +103,20 @@ final class BridgeDiagnostics: @unchecked Sendable {
         let now = DispatchTime.now().uptimeNanoseconds
         var tid: UInt64 = 0
         pthread_threadid_np(nil, &tid)
-        let due = lock.withLock { () -> [Event] in
+        lock.withLock {
             if stage == .entered { entered[call] = now }
             let start = entered[call] ?? now
             let e = Event(call: call, stage: stage, method: method, uptimeNanos: now, sinceEnteredNanos: now &- start,
                           threadId: tid, mainThread: Thread.isMainThread, taskPriority: taskPriority)
             recorded.append(e)
-            guard onEvent != nil else { return [] }
+            guard let onEvent else { return }
             unreported[call, default: []].append(e)
             if stage == .answered || stage == .timedOut { waitEnded.insert(call) }
-            guard waitEnded.contains(call) else { return [] }
-            return unreported.removeValue(forKey: call) ?? []
+            guard waitEnded.contains(call), let due = unreported.removeValue(forKey: call) else { return }
+            // Queued under the lock (Codex on a756034, b9): a call's batches
+            // reach the hook in the order they were noted. `async` never
+            // waits, so the lock is held no longer.
+            reports.async { for e in due { onEvent(e) } }
         }
-        guard let onEvent, !due.isEmpty else { return }
-        reports.async { for e in due { onEvent(e) } }
     }
 }
