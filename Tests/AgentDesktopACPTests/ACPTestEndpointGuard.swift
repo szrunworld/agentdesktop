@@ -90,8 +90,19 @@ final class ACPTestVerifiedClient: RuntimeClient, @unchecked Sendable {
         return id
     }
     private func ensure() throws { if !verified { _ = try handshake() } }
-    func call(_ request: RuntimeRequest) throws -> JSONValue { try ensure(); return try inner.call(request) }
-    func subscribe(runId: String?, after: Int?) throws -> JSONValue { try ensure(); return try inner.subscribe(runId: runId, after: after) }
-    func nextEvent() throws -> PushedEvent { try ensure(); return try inner.nextEvent() }
-    func close() { inner.close() }
+    /// A lost connection makes the inner client reconnect on its next call;
+    /// that new connection is checked again before anything else is sent
+    /// (Codex on #141). Each connection is also kernel-pinned in its
+    /// transport, so this second layer never stands alone.
+    private func guarded<T>(_ body: () throws -> T) throws -> T {
+        try ensure()
+        do { return try body() } catch {
+            if let e = error as? RuntimeError, e.code == "connection_lost" { verified = false }
+            throw error
+        }
+    }
+    func call(_ request: RuntimeRequest) throws -> JSONValue { try guarded { try inner.call(request) } }
+    func subscribe(runId: String?, after: Int?) throws -> JSONValue { try guarded { try inner.subscribe(runId: runId, after: after) } }
+    func nextEvent() throws -> PushedEvent { try guarded { try inner.nextEvent() } }
+    func close() { verified = false; inner.close() }
 }

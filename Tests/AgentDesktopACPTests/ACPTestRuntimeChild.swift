@@ -76,7 +76,8 @@ final class ACPTestRuntimeChild: @unchecked Sendable {
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
-        for fd: Int32 in [0, 1, 2] { posix_spawn_file_actions_addinherit_np(&actions, fd) }
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        for fd: Int32 in [1, 2] { posix_spawn_file_actions_addinherit_np(&actions, fd) }
         var pid: pid_t = 0
         let rc = posix_spawn(&pid, executable, &actions, &attr, &cArgs, &cEnv)
         guard rc == 0 else {

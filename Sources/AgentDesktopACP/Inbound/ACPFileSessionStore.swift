@@ -184,41 +184,52 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         defer { close(lockFd) }
         guard flock(lockFd, LOCK_EX) == 0 else { throw ACPFileSessionStoreError.io("flock errno \(errno)") }
         defer { flock(lockFd, LOCK_UN) }
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        // Any doubt leaves the migration pending, so a later call retries;
+        // meanwhile reads scrub format-1 files in memory (Codex on #141).
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        var log: [MigrationLogEntry] = []
         var failed = false
         for name in names.sorted() where name.hasSuffix(".json") && !name.hasPrefix(".") {
             let url = directory.appendingPathComponent(name)
-            guard let data = Self.readNoFollow(url) else { continue }
+            let data: Data
+            switch Self.readNoFollow(url) {
+            case let .success(d): data = d
+            case .failure(.gone): continue
+            case .failure: failed = true; continue
+            }
+            var entry: MigrationLogEntry
+            let out: Data
             if name.hasSuffix(".history.json") {
                 guard var r = try? JSONDecoder().decode(HistoryRecord.self, from: data), r.format < 2 else { continue }
-                let runIds = Set((try? read(fileURL(r.acpSessionId)))??.runIds ?? [])
-                var entry = MigrationLogEntry(at: Self.now(), file: "history", sessionId: r.acpSessionId,
-                                              entries: r.entries.count)
+                // Only a binding that is really absent means "no Runs"; any
+                // other read failure would clear every status line for good.
+                let runIds: Set<String>
+                do { runIds = Set(try read(fileURL(r.acpSessionId))?.runIds ?? []) } catch { failed = true; continue }
+                entry = MigrationLogEntry(at: Self.now(), file: "history", sessionId: r.acpSessionId, entries: r.entries.count)
                 r = Self.scrubbed(r, runIds: runIds, stats: &entry)
-                do {
-                    try writeAtomically(try encoder.encode(r), to: url)
-                } catch {
-                    entry.error = Self.errorCode(error); failed = true
-                }
-                log.append(entry)
+                guard let encoded = try? encoder.encode(r) else { failed = true; continue }
+                out = encoded
             } else {
                 guard var r = try? JSONDecoder().decode(Record.self, from: data), r.format < 2 else { continue }
-                var entry = MigrationLogEntry(at: Self.now(), file: "binding", sessionId: r.acpSessionId, entries: 0)
+                entry = MigrationLogEntry(at: Self.now(), file: "binding", sessionId: r.acpSessionId, entries: 0)
                 entry.titleReset = r.title != "对话"
                 r.title = "对话"
                 r.format = 2
-                do {
-                    try writeAtomically(try encoder.encode(r), to: url)
-                } catch {
-                    entry.error = Self.errorCode(error); failed = true
-                }
-                log.append(entry)
+                guard let encoded = try? encoder.encode(r) else { failed = true; continue }
+                out = encoded
+            }
+            // The log line is written (and synced) before the file changes:
+            // no log, no rewrite, so the audit trail is never missing a file.
+            guard appendMigrationLog([entry]) else { failed = true; continue }
+            do {
+                try writeAtomically(out, to: url)
+            } catch {
+                entry.error = Self.errorCode(error)
+                _ = appendMigrationLog([entry])
+                failed = true
             }
         }
-        appendMigrationLog(log)
         migrated = !failed
     }
 
@@ -240,17 +251,30 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
 
     public static let migrationLogName = "migration-log.jsonl"
 
-    private func appendMigrationLog(_ entries: [MigrationLogEntry]) {
-        guard !entries.isEmpty else { return }
+    /// Append whole lines and fsync; false on any failure or short write.
+    private func appendMigrationLog(_ entries: [MigrationLogEntry]) -> Bool {
+        guard !entries.isEmpty else { return true }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var lines = Data()
-        for e in entries { if let d = try? encoder.encode(e) { lines += d + Data("\n".utf8) } }
+        for e in entries {
+            guard let d = try? encoder.encode(e) else { return false }
+            lines += d + Data("\n".utf8)
+        }
         let fd = open(directory.appendingPathComponent(Self.migrationLogName).path,
                       O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0o600)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else { return false }
         defer { close(fd) }
-        _ = lines.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        let ok = lines.withUnsafeBytes { raw -> Bool in
+            var offset = 0
+            while offset < raw.count {
+                let n = write(fd, raw.baseAddress! + offset, raw.count - offset)
+                if n <= 0 { return false }
+                offset += n
+            }
+            return true
+        }
+        return ok && fsync(fd) == 0
     }
 
     private static func scrubbed(_ r: HistoryRecord, runIds: Set<String>, stats: inout MigrationLogEntry) -> HistoryRecord {
@@ -279,10 +303,12 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         return f.string(from: Date())
     }
 
-    private static func readNoFollow(_ url: URL) -> Data? {
+    enum ReadFailure: Error { case gone, failed }
+
+    private static func readNoFollow(_ url: URL) -> Result<Data, ReadFailure> {
         let fd = open(url.path, O_RDONLY | O_NOFOLLOW)
-        guard fd >= 0 else { return nil }
-        return FileHandle(fileDescriptor: fd, closeOnDealloc: true).readDataToEndOfFile()
+        guard fd >= 0 else { return .failure(errno == ENOENT ? .gone : .failed) }
+        return .success(FileHandle(fileDescriptor: fd, closeOnDealloc: true).readDataToEndOfFile())
     }
 
     private func historyURL(_ id: String) -> URL { directory.appendingPathComponent("\(id).history.json") }

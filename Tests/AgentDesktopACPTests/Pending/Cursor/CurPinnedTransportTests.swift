@@ -104,6 +104,8 @@ struct CurPinnedTransportTests {
     /// impostor listener (if any) received.
     struct Outcome: Sendable {
         var refused = false
+        /// Why it was refused, so a CI failure says what happened.
+        var reason = ""
         var reply: Data?
         var impostorBytes = 0
     }
@@ -119,7 +121,7 @@ struct CurPinnedTransportTests {
             defer { t.close() }
             return Outcome(reply: try? t.exchange(Data("{\"method\":\"runtime.handshake\"}".utf8)))
         } catch {
-            return Outcome(refused: error is ACPTestPinnedTransport.Refused)
+            return Outcome(refused: error is ACPTestPinnedTransport.Refused, reason: "\(error)")
         }
     }
 
@@ -143,7 +145,7 @@ struct CurPinnedTransportTests {
     @Test("[Mock] the child this test launched is accepted and answers")
     func launchedChildIsAccepted() async throws {
         let o = try await Self.scenario(impostor: false)
-        #expect(!o.refused)
+        #expect(!o.refused, "\(o.reason)")
         #expect(o.reply == Data("{}".utf8))
     }
 
@@ -202,7 +204,7 @@ struct CurPinnedTransportTests {
         #expect(o.refused)
     }
 
-    @Test("[Mock] the socket table cannot be read (lsof failed): refused")
+    @Test("[Mock] the kernel's socket table cannot be read: refused")
     func unknownSocketTableFailsClosed() async throws {
         let o = try await Self.scenario(impostor: false, tableFails: true)
         #expect(o.refused)
@@ -239,6 +241,7 @@ struct CurPinnedTransportTests {
         let eof = try await offPool { () -> Bool in
             var fds: [Int32] = [0, 0]
             precondition(pipe(&fds) == 0)
+            for fd in fds { _ = fcntl(fd, F_SETFD, FD_CLOEXEC) } // this process's own spawns must not keep it either
             let child = try ACPTestRuntimeChild.launch(executable: "/bin/sleep", arguments: ["30"], waitForEndpoint: false)
             defer { child.stop(); close(fds[0]) }
             close(fds[1])
@@ -250,18 +253,37 @@ struct CurPinnedTransportTests {
         #expect(eof)
     }
 
-    @Test("[Mock] lsof fields: a socket bound in the product directory names its holder")
-    func lsofFieldsAreParsed() {
+    @Test("[Mock] product holders: a socket bound in the product directory names its holder")
+    func productHoldersAreFound() {
         let dir = "/Users/x/Library/Application Support/AgentDesktop"
-        let text = "p101\nn\(dir)/runtime.sock\np202\nn/tmp/adt-1/side.runtime.sock\np303\nn\(dir)-other/x.sock\n"
-        let table = ACPTestPinnedTransport.table(lsofFields: text)
-        #expect(table.count == 3)
+        let table: [(pid: pid_t, name: String)] = [(101, dir + "/runtime.sock"), (202, "/private/tmp/adt-1/side.runtime.sock"),
+                                                   (303, dir + "-other/x.sock")]
         #expect(ACPTestPinnedTransport.holders(table, productDirs: [dir]) == [101])
     }
 
-    @Test("[Mock] the real socket table is readable (no product needed)")
-    func realSocketTableAnswers() async throws {
-        #expect(try await offPool { ACPTestPinnedTransport.unixSocketTable() != nil })
+    @Test("[Mock] the kernel's socket table lists the child's listener, not this process's client socket")
+    func realSocketTableIsRight() async throws {
+        let (rows, childPid, endpoint) = try await offPool { () -> ([String], pid_t, String) in
+            let child = try Self.standIn()
+            defer { child.stop() }
+            // A connected client in this process must not count as a holder.
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            defer { close(fd) }
+            var addr = SocketOptions.address(child.runtimeEndpoint)!
+            _ = withUnsafePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+            }
+            let table = ACPTestPinnedTransport.unixSocketTable() ?? []
+            let at = table.filter { $0.name == ACPTestPinnedTransport.normalised(child.runtimeEndpoint) }
+            return (at.map { "\($0.pid)" }, child.pid, child.runtimeEndpoint)
+        }
+        #expect(Set(rows) == ["\(childPid)"], "\(endpoint): \(rows)")
+    }
+
+    @Test("[Mock] names are normalised through the directory's realpath")
+    func namesAreNormalised() {
+        #expect(ACPTestPinnedTransport.normalised("/tmp/x-does-not-matter/../") != "")
+        #expect(ACPTestPinnedTransport.normalised("/tmp/s.sock") == "/private/tmp/s.sock")
     }
 
     @Test("[Mock] Listeners nobody connects to leave no directory behind")

@@ -29,10 +29,13 @@
   - `/runs` 里不属于本会话的 id 行。
 - 标题一律改为「对话」。
 - 迁移日志 `migration-log.jsonl`（0600）：每个文件一行，记录 sessionId、条目数、用户条目清洗数、Agent 条目改写数和保留数、标题是否重置、错误码。**不记录任何原文。**
+- 顺序：每个文件先把日志行写入并 fsync，再改写文件；日志写不进去就不改写这个文件。
+- 任何疑问都让迁移保持"未完成"，下次读写时重试：目录读不了、文件打不开（文件已被删除除外）、对应的绑定文件读不了（只有绑定文件确实不存在时，才把它当成"没有 Run"）、编码失败、改写失败。在此期间，读取 format 1 文件时会在内存里清洗。
 - 边角情况：
-  - 某个文件改写失败时，它保持 format 1，错误写进日志；之后每次读取都在内存里按同样规则清洗，不会原样返回；下一个 store 实例会重试。
+  - 某个文件改写失败时，它保持 format 1，错误另记一行日志；在内存里清洗后返回，不会原样返回；同一个 store 下次读写时就会重试。
   - 无法解码的文件会被跳过（和以前一样不会被读取）。
-  - 绑定文件丢失时，历史里所有 `/runs` id 行都按"不属于本会话"处理。
+  - 绑定文件确实不存在时，历史里所有状态行都按"不属于本会话"清除。
+  - 旧版本写下的其他状态句式（比如"任务 <run>：…"、"结果待核实"），不在严格匹配的格式里，会被清除。这是故意选择的安全默认。
   - 迁移完成后，第二个 store 实例不再改写，也不再写日志。
 - **限制：原地改写只保证当前可访问的历史文件已经脱敏，不等于安全擦除。** 旧内容可能还留在 APFS 快照、Time Machine 备份或存储介质的旧数据块里。验收和对外说明只能写"当前历史文件已脱敏"，不得写"所有历史副本均不可恢复"。
 
@@ -41,16 +44,16 @@
 `ACPTestRuntimeChild` 负责启动和回收子进程，`ACPTestPinnedTransport` 负责在每条连接上核对对端身份。
 
 1. **独立目录：** 每次启动都用 `mkdtemp` 新建 `/tmp/adt-acp-XXXXXX`，权限 0700。子进程只拿到 `AGENTDESKTOP_SOCKET=<目录>/side.sock`，其余 `AGENTDESKTOP_*` 环境变量全部清掉。
-2. **进程由测试掌握：** 用 `posix_spawn` 启动，并清空继承来的信号屏蔽。测试持有 pid，只有测试自己调用 `waitpid` 回收；子进程被回收之前，它的 pid 不可能被别的进程占用。
+2. **进程由测试掌握：** 用 `posix_spawn` 启动，清空继承来的信号屏蔽；`POSIX_SPAWN_CLOEXEC_DEFAULT` 让子进程不继承任何描述符，stdin 指向 /dev/null，只保留 stdout/stderr。测试持有 pid，只有测试自己调用 `waitpid` 回收；子进程被回收之前，它的 pid 不可能被别的进程占用。
 3. **启动即确认可识别：** 启动后立刻通过 `task_name_for_pid` + `TASK_AUDIT_TOKEN` 确认内核能识别这个子进程。识别不了就终止子进程、启动失败（fail closed）。
 4. **连接后、发出任何字节前，按顺序检查：**
    - 路径必须正好是该子进程的 endpoint，并通过 `ACPTestEndpointGuard`（socket 类型、属主是当前用户、不是符号链接或硬链接、不在产品目录）；
    - 用 `LOCAL_PEERPID` 和 `LOCAL_PEERTOKEN` 读取对端，两者必须一致；
    - `getpeereid` 必须是当前用户；
    - `child.owns(pid)`：pid 相同，且子进程尚未被回收；
-   - 在 lsof 列出的 Unix socket 表里，绑定在该 endpoint 上的进程只有这个子进程；
+   - 在内核给出的 Unix socket 表里（`proc_listallpids` + `PROC_PIDFDSOCKETINFO`，路径先按目录 realpath 规范化），绑定在该 endpoint 上的进程只有这个子进程；
    - 对端程序路径必须读得到，且不在 `/Applications`；
-   - `lsof -b -nP -U -F pn` 能正常运行，且对端没有在产品目录下绑定 socket。
+   - 能读到内核的进程列表，且对端没有在产品目录下绑定 socket。不再使用 lsof：它在不同 macOS 版本上 NAME 列的格式不一样，CI 上曾因此把合法子进程误拒。
 
    任何一项不满足就关闭连接并拒绝。
 5. **没有 PID 回退：** 没有子进程就拒绝（fail closed）。外部传入的 endpoint 或 PID 都不再被接受。
@@ -77,7 +80,7 @@ ACP_TEST_RUNTIME_BINARY="$(swift build --show-bin-path)/AgentDesktopApp" \
 - 路径检查后 socket 被替换；
 - 其他路径；
 - 产品持有者；
-- lsof 失败；
+- 内核 socket 表读不到；
 - 没有子进程。
 
 这些测试统计对端实际收到的字节数，每个拒绝场景都断言为 0。

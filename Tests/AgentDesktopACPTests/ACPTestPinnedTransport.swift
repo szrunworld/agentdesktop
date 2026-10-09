@@ -18,8 +18,8 @@ import Foundation
 /// 2. it runs as this user;
 /// 3. its executable is readable and not the installed product under
 ///    /Applications;
-/// 4. it has no socket bound in the product data directory (read-only
-///    lookup, never by connecting); an unreadable socket table → refuse.
+/// 4. it has no socket bound in the product data directory (read from the
+///    kernel, never by connecting); an unreadable process list → refuse.
 /// Any failure closes the descriptor unused. Because the check is on the
 /// connected descriptor itself, a socket swapped between the path check and
 /// the connect, a reused path after the child exited, or a handshake that
@@ -86,7 +86,7 @@ final class ACPTestPinnedTransport: RuntimeTransport {
             throw Refused(reason: "peer \(pid) runs the installed product \(exe)")
         }
         guard let table = socketTable() else {
-            throw Refused(reason: "the Unix socket table cannot be read")
+            throw Refused(reason: "the kernel's process list cannot be read")
         }
         if Self.holders(table, productDirs: Self.productDirectories()).contains(pid) {
             throw Refused(reason: "peer \(pid) holds the product's sockets")
@@ -94,8 +94,10 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         // The socket bound at the endpoint must be held by the child alone.
         // LOCAL_PEERPID is fixed when the socket is created; this closes the
         // case of a socket made by an earlier holder of the same pid and
-        // inherited by another process (b9, third review).
-        let atEndpoint = Set(table.filter { $0.name == child.runtimeEndpoint }.map(\.pid))
+        // inherited by another process (b9, third review). The table comes
+        // from the kernel, not lsof, whose NAME column format varies.
+        let endpoint = Self.normalised(child.runtimeEndpoint)
+        let atEndpoint = Set(table.filter { $0.name == endpoint }.map(\.pid))
         guard atEndpoint == [child.pid] else {
             throw Refused(reason: "the endpoint is held by \(atEndpoint.sorted()), not only the child \(child.pid)")
         }
@@ -135,34 +137,54 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         return n > 0 ? String(cString: buf) : nil
     }
 
-    /// Every Unix socket with a bound name, from `lsof -b -nP -U -F pn`
-    /// (read-only; never connects). Matching on the bound name means a
-    /// socket whose file was renamed or unlinked still counts. nil when lsof
-    /// fails: the caller then refuses.
+    /// Every Unix socket with a bound name in every process this user can
+    /// inspect, read from the kernel (proc_listallpids, PROC_PIDLISTFDS,
+    /// PROC_PIDFDSOCKETINFO); never connects, no external tool. Names are
+    /// normalised (directory realpath), so a socket bound through a /tmp
+    /// alias, or whose file was renamed or unlinked, still counts. A client
+    /// socket has no bound name and is not listed. nil when the process
+    /// list cannot be read: the caller then refuses. Processes of other
+    /// users cannot be inspected; they cannot bind inside the child's 0700
+    /// directory either.
     static func unixSocketTable() -> [(pid: pid_t, name: String)]? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        p.arguments = ["-b", "-nP", "-U", "-F", "pn"]
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        // Any non-zero exit is unknown (b9): with -U there are always sockets.
-        guard p.terminationStatus == 0 else { return nil }
-        return table(lsofFields: String(decoding: data, as: UTF8.self))
+        let count = proc_listallpids(nil, 0)
+        guard count > 0 else { return nil }
+        var pids = [pid_t](repeating: 0, count: Int(count) + 64)
+        let got = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        guard got > 0 else { return nil }
+        var rows: [(pid: pid_t, name: String)] = []
+        for pid in pids.prefix(Int(got)) where pid > 0 {
+            let size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+            guard size > 0 else { continue }
+            var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(size) / MemoryLayout<proc_fdinfo>.size + 16)
+            let used = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * MemoryLayout<proc_fdinfo>.size))
+            guard used > 0 else { continue }
+            for f in fds.prefix(Int(used) / MemoryLayout<proc_fdinfo>.size) where f.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+                var info = socket_fdinfo()
+                let want = Int32(MemoryLayout<socket_fdinfo>.size)
+                guard proc_pidfdinfo(pid, f.proc_fd, PROC_PIDFDSOCKETINFO, &info, want) == want,
+                      info.psi.soi_kind == SOCKINFO_UN else { continue }
+                var path = info.psi.soi_proto.pri_un.unsi_addr.ua_sun.sun_path
+                let capacity = MemoryLayout.size(ofValue: path)
+                let name = withUnsafePointer(to: &path) {
+                    $0.withMemoryRebound(to: UInt8.self, capacity: capacity) {
+                        String(decoding: UnsafeBufferPointer(start: $0, count: strnlen(UnsafeRawPointer($0).assumingMemoryBound(to: CChar.self), capacity)), as: UTF8.self)
+                    }
+                }
+                guard !name.isEmpty else { continue }
+                rows.append((pid, normalised(name)))
+            }
+        }
+        return rows
     }
 
-    /// `lsof -F pn` output → (pid, socket name) rows.
-    static func table(lsofFields text: String) -> [(pid: pid_t, name: String)] {
-        var out: [(pid: pid_t, name: String)] = []
-        var current: pid_t?
-        for line in text.split(whereSeparator: \.isNewline) {
-            if line.hasPrefix("p") { current = pid_t(line.dropFirst()) }
-            else if line.hasPrefix("n"), let pid = current { out.append((pid, String(line.dropFirst()))) }
-        }
-        return out
+    /// realpath of the directory plus the file name (the file itself may be
+    /// gone); the name unchanged when the directory cannot be resolved.
+    static func normalised(_ path: String) -> String {
+        let dir = (path as NSString).deletingLastPathComponent
+        guard let r = realpath(dir, nil) else { return path }
+        defer { free(r) }
+        return String(cString: r) + "/" + (path as NSString).lastPathComponent
     }
 
     /// Pids with a socket bound in a product directory.
