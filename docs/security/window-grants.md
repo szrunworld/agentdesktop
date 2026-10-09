@@ -48,6 +48,8 @@ owner（宿主进程内的主窗口、GUI 端口、AI 服务）就是用户本�
 3. bundleId：同一 pid 换了程序（exec），不匹配；
 4. Desktop 和 clientId。
 
+读不到进程启动时间的窗口不能授权（`window_identity_unverified`）：没有启动时间就分不清 pid 复用。
+
 而且失效是**粘滞**的：任何一次检查发现窗口已关闭、进程已变、App 已变，这条授权立刻标为 `ended`，以后即使出现同 ID、同进程的窗口也不会恢复。macOS 的 WindowServer 在一次登录会话内单调分配窗口 ID，不会把已关闭窗口的 ID 立即重新分配；粘滞失效再加一道保险：只要关闭被看到过一次，授权就不会被继承。
 
 已知残余：如果窗口关闭后、在任何一次检查之前，同一进程的同一窗口 ID 被重新分配，检查无法区分。按 WindowServer 的分配方式，这在一次会话内不会发生；登出 / WindowServer 重启会让所有进程重启，进程身份不再匹配。
@@ -63,7 +65,7 @@ owner（宿主进程内的主窗口、GUI 端口、AI 服务）就是用户本�
 - 申请时，每种权限都要求客户端授权里有对应能力：`observe` 和 `persist` 需要 `observe` 能力，`act` 需要 `act` 能力；`window.bind` 本身还需要 `desktop.manage`。
 - **没有 `persist` 时**，`observe` 的截图仍然要写到文件才能交给客户端，但只作为**临时**文件：
   - 标记 `transient: true`，`expiresAt` 为 120 秒后；
-  - 过期、授权被撤销或失效时立刻删除；不因所在 Run 未结束而保留；
+  - 到期时由定时任务删除（即使之后没有任何请求），授权被撤销或失效时立刻删除；不因所在 Run 未结束而保留；
   - 只有在授权仍有效且仍有 `observe` 时才能用 `artifact.show` / `artifact.read` 读到；
   - Runtime 重启时，上次留下的临时截图一律删除。
 - 元素文字（标题、按钮、输入框内容）只在 `observe` / `wait` 的回复里出现，不写入请求账本、Run 事件、审计或日志。Run 事件和动作回执只含窗口 ID、坐标、元素引用，不含窗口内容。
@@ -86,7 +88,7 @@ owner（宿主进程内的主窗口、GUI 端口、AI 服务）就是用户本�
   - Desktop：ID 和类型。物理 Desktop 额外警告“这是你自己屏幕上的真实窗口”；
   - 权限逐项写明（查看 / 操作 / 保存），以及期限。
   所有非 Runtime 核实的文字（标题、自报名称）一律惰性显示。默认按钮是“拒绝”。
-- 确认结果绑定到展示内容的 digest：确认的是哪个窗口、哪些权限、多久，Runtime 就记录哪个。拒绝、取消、超时、无法验证身份：一律拒绝（`permission_denied`，reason 同 A4）。之后 60 秒内同一客户端不能再申请（`window_grant_cooldown`）。
+- 确认结果绑定到展示内容的 digest：确认的是哪个窗口、哪些权限、多久，Runtime 就记录哪个。写入时与客户端授权的修改共用同一把锁，并核对客户端授权仍是确认后检查时的那个版本、仍包含该 App；否则不记录（`target_changed`）。拒绝、取消、超时、无法验证身份：一律拒绝（`permission_denied`，reason 同 A4）。之后 60 秒内同一客户端不能再申请（`window_grant_cooldown`）。
 - 用户确认期间窗口关闭或进程变化：确认后再核对一次，不一致则拒绝（`target_changed`），不记录授权。
 - 代码身份未验证（`same_user`、`shared_interpreter`）的客户端也可以申请（与配对一致），确认窗口如实标出其身份级别。
 - `hub.windows.list`：已配对客户端只看到自己的窗口授权；owner 看到全部。

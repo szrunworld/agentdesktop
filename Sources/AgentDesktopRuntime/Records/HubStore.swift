@@ -276,11 +276,16 @@ public final class HubStore: @unchecked Sendable {
 
     // MARK: Window grants
 
-    public func addWindowGrant(_ g: WindowGrant) throws {
+    /// Record a window grant, only while the client's grant is still the
+    /// revision its scope was checked against (`parentRevision`, under the
+    /// same lock as every grant change; Codex on 59ea934) and still names
+    /// the window's app.
+    public func addWindowGrant(_ g: WindowGrant, parentRevision: Int? = nil) throws {
         writeLock.lock()
         defer { writeLock.unlock() }
-        // A client removed while the user was asked gets nothing.
-        guard client(g.clientId)?.state == "active", grant(g.clientId)?.state == "active" else {
+        // A client removed, or its grant changed, while the user was asked gets nothing.
+        guard client(g.clientId)?.state == "active", let parent = grant(g.clientId), parent.state == "active",
+              parent.apps.contains(g.bundleId), parentRevision.map({ $0 == parent.revision }) ?? true else {
             throw RuntimeStoreError("\(g.clientId) lost its access while the user was asked")
         }
         try db.execute("""

@@ -178,6 +178,9 @@ public final class RuntimeService: @unchecked Sendable {
     /// bar, notifications and any window dragged there). Tests turn this
     /// off; the product never does.
     var refusesScreenCaptureWithoutBinding = true
+    /// How long a screenshot taken under a window grant without persist is
+    /// kept (window-grants.md); tests shorten it.
+    var transientArtifactLifetime = RuntimeService.transientArtifactSeconds
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date

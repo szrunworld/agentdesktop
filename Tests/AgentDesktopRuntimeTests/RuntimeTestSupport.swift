@@ -30,6 +30,7 @@ struct FixedBackend: RuntimeBackend {
     var restarted: Set<Int32> = []
     func processIdentity(_ pid: Int32) -> ProcessIdentity {
         let again = restarted.contains(pid) || opened.lock.withLock { opened.restarted.contains(pid) }
+        if opened.lock.withLock({ opened.startUnknown.contains(pid) }) { return ProcessIdentity(pid: pid, startedAt: nil) }
         return ProcessIdentity(pid: pid, startedAt: again ? "2026-10-08T09:00:00.000Z" : "2026-10-08T01:00:00.000Z")
     }
     /// Windows a test opens later, in front of every other (a reference, so
@@ -40,13 +41,15 @@ struct FixedBackend: RuntimeBackend {
         let lock = NSLock()
         var closed: Set<UInt32> = []
         var restarted: Set<Int32> = []
+        /// Processes whose start time cannot be read.
+        var startUnknown: Set<Int32> = []
     }
     var opened = Opened()
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
         // The window server's list could not be read: the backend gets none.
         if opened.listUnreadable { return [] }
         let closed = opened.lock.withLock { opened.closed }
-        let restarted = opened.lock.withLock { opened.restarted }
+        let restarted = opened.lock.withLock { opened.restarted.union(opened.startUnknown) }
         return (opened.windows + wins).filter { (pid == nil || $0.process.pid == pid) && (bundleId == nil || $0.bundleId == bundleId)
             && (includeOffscreen || $0.onScreen) && !closed.contains($0.windowId) }
             .map { w in

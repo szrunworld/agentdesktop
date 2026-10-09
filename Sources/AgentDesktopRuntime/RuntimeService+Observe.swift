@@ -107,7 +107,7 @@ extension RuntimeService {
                         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.persist", decision: "used",
                                   reason: "\(g.windowGrantId) observe")
                     } else {
-                        transientUntil = now().addingTimeInterval(Self.transientArtifactSeconds)
+                        transientUntil = now().addingTimeInterval(transientArtifactLifetime)
                     }
                 }
                 let info: ArtifactStore.Info

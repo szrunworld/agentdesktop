@@ -248,6 +248,11 @@ extension RuntimeService {
         guard let w = candidates.first, backend.processIdentity(w.process.pid) == w.process else {
             return refuse("window_not_grantable", notGrantable)
         }
+        // Without its start time a process launch cannot be told from a
+        // later one under the same pid: no grant (Codex on 59ea934).
+        guard w.process.startedAt != nil else {
+            return refuse("window_identity_unverified", "the window's process launch cannot be identified; it cannot be granted")
+        }
         let requested = Double(p["durationSeconds"]?.intValue ?? Int(Self.defaultGrantDuration))
         let untilClientGrant = (Timestamp.date(cg.expiresAt) ?? now()).timeIntervalSince(now())
         // What the user is shown; the grant then ends at that long after the
@@ -273,22 +278,25 @@ extension RuntimeService {
         if let reason = c.cutReason { return .failure(Self.cutError(c, reason)) }
         if let e = accessError(c, method: "hub.windows.request") { return .failure(e) }
         // Never past the client's grant as it is now, in absolute time (Codex
-        // on 7629d6b: an interval taken before the prompt outlived it).
+        // on 7629d6b: an interval taken before the prompt outlived it). The
+        // checks below hold for this revision of it; the store records the
+        // window grant only if it is still that revision.
+        let parent = hub.grant(c.clientId)
         let afterApproval = Timestamp.string(now().addingTimeInterval(Double(seconds)))
-        let clientExpiry = hub.grant(c.clientId)?.expiresAt ?? nowString
+        let clientExpiry = parent?.expiresAt ?? nowString
         let grant = HubStore.WindowGrant(
             windowGrantId: DesktopRegistry.newId(prefix: "wg"), clientId: c.clientId, desktopId: d.desktopId, windowId: w.windowId,
             process: w.process, bundleId: bundleId, appName: w.appName, permissions: permissions, state: "active", endedReason: nil,
             createdAt: nowString, expiresAt: min(afterApproval, clientExpiry), confirmationId: confirmation)
         if d.state == "destroyed" || desktops.find(d.desktopId) == nil || !desktopAllowed(c, d.desktopId) || !appAllowed(c, bundleId: bundleId)
-            || permissions.contains(where: { !(hub.grant(c.clientId)?.capabilities.contains(Self.capability(forWindowPermission: $0)) ?? false) })
+            || permissions.contains(where: { !(parent?.capabilities.contains(Self.capability(forWindowPermission: $0)) ?? false) })
             || windowGrantFailure(grant) != nil
             || (d.kind == .physical && platform?.window(on: d.screen, pid: w.process.pid, windowId: w.windowId) == nil) {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.windows.request", decision: "denied", reason: "target_changed")
             return .failure(RuntimeError("conflict", "the window or this client's access changed while the user was asked; ask again",
                                          phase: .handler, notSent: true, details: .obj([("reason", .string("target_changed"))])))
         }
-        do { try hub.addWindowGrant(grant) } catch {
+        do { try hub.addWindowGrant(grant, parentRevision: parent?.revision ?? -1) } catch {
             return .failure(RuntimeError("conflict", "this client's access changed while the user was asked; ask again",
                                          phase: .handler, notSent: true, details: .obj([("reason", .string("target_changed"))])))
         }

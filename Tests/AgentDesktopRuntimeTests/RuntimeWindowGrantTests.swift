@@ -570,3 +570,42 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     #expect(!(data(call(st.s, other, "desktop.list"))?.encoded() ?? "").contains(mine))
     #expect(data(call(st.s, st.app, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"]?["windowGrantId"]?.stringValue == mine)
 }
+
+@Test func aTransientScreenshotGoesAtItsExpiryWithNothingElseHappening() async throws {
+    try await offPoolConfirm {
+        let (sc, _, _, _) = try calculatorScene(["observe"])
+        sc.s.transientArtifactLifetime = 0.3
+        let image = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"])
+        let id = try #require(image["artifactId"]?.stringValue)
+        let file = try #require(sc.s.artifacts.file(of: id))
+        #expect(FileManager.default.fileExists(atPath: file))
+        let end = Date().addingTimeInterval(5)
+        while FileManager.default.fileExists(atPath: file) && Date() < end { Thread.sleep(forTimeInterval: 0.05) }
+        #expect(!FileManager.default.fileExists(atPath: file), "deleted on time, with no later request")
+    }
+}
+
+@Test func aWindowWhoseProcessLaunchCannotBeIdentifiedIsNotGrantable() throws {
+    let st = try Stage()
+    st.backend.opened.lock.withLock { _ = st.backend.opened.startUnknown.insert(202) }
+    #expect(st.reason(st.request(["observe"])) == "window_identity_unverified")
+    #expect(st.confirmer.requests.isEmpty)
+}
+
+@Test func aWindowGrantIsRecordedOnlyAgainstTheParentRevisionItWasCheckedFor() throws {
+    let st = try Stage()
+    let parent = try #require(st.s.hub.grant(st.appId))
+    let g = HubStore.WindowGrant(windowGrantId: "wg_race", clientId: st.appId, desktopId: st.desk, windowId: 12,
+                                 process: st.backend.processIdentity(202), bundleId: wechat, appName: "微信", permissions: ["observe"],
+                                 state: "active", endedReason: nil, createdAt: Timestamp.string(Date()),
+                                 expiresAt: Timestamp.string(Date().addingTimeInterval(60)), confirmationId: nil)
+    // The owner changed the app's grant after the checks: nothing is recorded.
+    _ = try st.s.hub.setGrant(parent)
+    #expect(throws: (any Error).self) { try st.s.hub.addWindowGrant(g, parentRevision: parent.revision) }
+    // Nor for an app the grant does not name.
+    var other = g
+    other.windowGrantId = "wg_other"
+    other.bundleId = "com.apple.calculator"
+    #expect(throws: (any Error).self) { try st.s.hub.addWindowGrant(other) }
+    #expect(st.s.hub.windowGrant("wg_race") == nil && st.s.hub.windowGrant("wg_other") == nil)
+}

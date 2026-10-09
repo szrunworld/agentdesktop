@@ -463,6 +463,14 @@ public final class ArtifactStore: @unchecked Sendable {
         guard FileManager.default.createFile(atPath: sidecar, contents: Data(meta.encoded().utf8),
                                              attributes: [.posixPermissions: 0o600])
         else { throw RuntimeError("internal_error", "cannot record artifact \(artifactId)", phase: .handler) }
+        if let transientUntil {
+            // Gone at its expiry even if nothing else happens meanwhile
+            // (Codex on 59ea934).
+            sweeper.asyncAfter(deadline: .now() + max(0, transientUntil.timeIntervalSince(clock()))) { [weak self] in
+                guard let self else { return }
+                self.purgeTransients(now: self.clock())
+            }
+        }
         lock.withLock {
             if let transientUntil { transients[artifactId] = (transientUntil, windowGrantId) }
             usageTotal += Int64(data.count)
