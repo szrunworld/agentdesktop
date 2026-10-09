@@ -142,8 +142,12 @@ class WatchdogTests(unittest.TestCase):
                 [sys.executable, "-S", "-c",
                  f'import subprocess; subprocess.Popen(["/bin/sleep", "{secs}"], start_new_session=True, '
                  'stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)'],
-                env={"WATCHDOG_NO_SUDO": "1"})
-            self.assertEqual(code, 0)
+                # Deterministic on any machine (CI, 63b7816): no sudo, no
+                # snapshots (one could catch the parent alive on a slow
+                # runner), and every environment read as unreadable (a
+                # runner may well show /bin/sleep's).
+                env={"WATCHDOG_NO_SUDO": "1", "WATCHDOG_NO_SNAPSHOTS": "1", "WATCHDOG_FAKE_UNREADABLE": "all"})
+            self.assertEqual(code, 0, log)
             self.assertIn("unverifiable (left alone)", log)
             self.assertIn(marker, log)
             with open(os.path.join(out, "diagnosis.json")) as f:

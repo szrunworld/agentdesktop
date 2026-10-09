@@ -65,6 +65,11 @@ DIAGNOSIS_BUDGET = float(os.environ.get("WATCHDOG_DIAGNOSIS_BUDGET", "150"))
 SAMPLE = os.environ.get("WATCHDOG_SAMPLE", "sample")
 # The self-tests turn sudo off to act out a machine without passwordless sudo.
 USE_SUDO = os.environ.get("WATCHDOG_NO_SUDO") != "1"
+# Self-test switches, so a case does not depend on one machine's timing or on
+# what its kernel shows: no snapshots at all, and environments treated as
+# unreadable ("all", or a comma list of pids).
+SNAPSHOTS = os.environ.get("WATCHDOG_NO_SNAPSHOTS") != "1"
+FAKE_UNREADABLE = os.environ.get("WATCHDOG_FAKE_UNREADABLE", "")
 
 
 MARKER = "TEST_WATCHDOG_RUN"
@@ -75,6 +80,8 @@ def process_environment(pid):
     """The environment of a process from KERN_PROCARGS2, or None when the
     kernel refuses. For platform binaries such as /bin/sleep it answers with
     the environment stripped (an empty list) unless the caller is root."""
+    if FAKE_UNREADABLE == "all" or str(pid) in FAKE_UNREADABLE.split(","):
+        return []
     mib = (ctypes.c_int * 2)(1, 8)  # CTL_KERN, KERN_ARGMAX
     argmax, n = ctypes.c_int(), ctypes.c_size_t(ctypes.sizeof(ctypes.c_int))
     if _libc.sysctl(mib, 2, ctypes.byref(argmax), ctypes.byref(n), None, 0) != 0:
@@ -175,7 +182,7 @@ class Run:
 
     def snapshot(self, force=False):
         now = time.monotonic()
-        if not force and now - self.last_snapshot < 1.0:
+        if not SNAPSHOTS or (not force and now - self.last_snapshot < 1.0):
             return
         self.last_snapshot = now
         procs = processes()
