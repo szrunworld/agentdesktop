@@ -26,6 +26,13 @@ struct ACPMigrationLogValidationTests {
         #expect(ok(#"{"at":"2026-10-09T00:00:00.123Z","entries":0,"file":"binding","sessionId":"s1","status":"intent"}"#))
     }
 
+    @Test func membersAreReadWithKeysDecodedAndValuesAsWritten() throws {
+        let m = try #require(ACPFileSessionStore.topLevelMembers(Data(#" {"a\u0062":1.50, "s":"x\"}y", "o":{"k":[1,"]"]}} "#.utf8)))
+        #expect(m.map(\.key) == ["ab", "s", "o"])
+        #expect(m.map(\.rawValue) == ["1.50", #""x\"}y""#, #"{"k":[1,"]"]}"#])
+        #expect(ACPFileSessionStore.topLevelMembers(Data("[1]".utf8)) == nil)
+    }
+
     @Test(arguments: [
         // ① not a JSON object
         "", "not json", "[]", #""s1""#, "42", "null",
@@ -58,6 +65,11 @@ struct ACPMigrationLogValidationTests {
         #"{"at":"2026-10-09T00:00:00Z","entries":3.0,"file":"history","sessionId":"s1","status":"completed"}"#,
         #"{"at":"2026-10-09T00:00:00Z","entries":9223372036854775808,"file":"history","sessionId":"s1","status":"completed"}"#,
         #"{"at":"2026-10-09T00:00:00Z","entries":3,"entries":3,"file":"history","sessionId":"s1","status":"completed"}"#,
+        // a repeated deciding field (b9 on #178), also through an escaped key
+        #"{"at":"2026-10-09T00:00:00Z","entries":3,"file":"history","sessionId":"s1","status":"uncertain","status":"completed"}"#,
+        #"{"at":"2026-10-09T00:00:00Z","entries":3,"file":"history","file":"binding","sessionId":"s1","status":"uncertain"}"#,
+        #"{"at":"2026-10-09T00:00:00Z","entries":3,"file":"history","sessionId":"s1","sessionId":"s2","status":"uncertain"}"#,
+        #"{"at":"2026-10-09T00:00:00Z","entries":3,"file":"history","sessionId":"s1","status":"uncertain","st\u0061tus":"completed"}"#,
         #"{"at":"2026-02-31T00:00:00Z","entries":3,"file":"history","sessionId":"s1","status":"completed"}"#,
         #"{"at":"2026-10-09T00:00:00Zjunk","entries":3,"file":"history","sessionId":"s1","status":"completed"}"#,
         #"{"at":"2026-10-09T25:00:00Z","entries":3,"file":"history","sessionId":"s1","status":"completed"}"#,

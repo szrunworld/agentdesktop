@@ -334,6 +334,11 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     static func validLogRecord(_ raw: Data) -> (status: String, file: String, sessionId: String)? {
         guard !raw.isEmpty,
               let object = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
+              // Every key once (b9 on #178): with a repeated key, which value
+              // JSONSerialization keeps is not defined, so a repeated status,
+              // file or sessionId could let a blocked file through.
+              let members = topLevelMembers(raw), members.count == object.count,
+              Set(members.map(\.key)).count == members.count,
               requiredLogFields.isSubset(of: object.keys), allowedLogFields.isSuperset(of: object.keys),
               let status = object["status"] as? String, knownStatuses.contains(status),
               let file = object["file"] as? String, file == "history" || file == "binding",
@@ -349,7 +354,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             // through Double, so 9007199254740992.5 would look whole. The key
             // must appear once, its value only digits, fitting Int.
             guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
-                  let token = soleNumberToken(of: key, in: raw),
+                  let token = members.first(where: { $0.key == key })?.rawValue,
                   token.allSatisfy({ $0.isASCII && $0.isNumber }), Int(token) != nil else { return nil }
         }
         if let t = object["titleReset"] {
@@ -361,14 +366,71 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         return (status, file, sessionId)
     }
 
-    /// The raw number text of `"key": <number>` in a JSON line, when the key
-    /// occurs exactly once outside string values; nil otherwise.
-    private static func soleNumberToken(of key: String, in raw: Data) -> String? {
-        let text = String(decoding: raw, as: UTF8.self)
-        guard let re = try? NSRegularExpression(pattern: #"(?<!\\)"\#(key)"\s*:\s*(-?[0-9][0-9.eE+-]*)"#) else { return nil }
-        let matches = re.matches(in: text, range: NSRange(text.startIndex..., in: text))
-        guard matches.count == 1, let r = Range(matches[0].range(at: 1), in: text) else { return nil }
-        return String(text[r])
+    /// The members of a top-level JSON object in order: each key decoded the
+    /// way JSON decodes it (so "st\u0061tus" is "status") and the raw text of
+    /// its value. nil if the text is not one object. Used to count keys and
+    /// to read numbers exactly as written; the line is already known to be
+    /// valid JSON.
+    static func topLevelMembers(_ raw: Data) -> [(key: String, rawValue: String)]? {
+        let b = [UInt8](raw)
+        var i = 0
+        func ws() { while i < b.count, [0x20, 0x09, 0x0A, 0x0D].contains(b[i]) { i += 1 } }
+        func skipString() -> Bool {      // at the opening quote
+            guard i < b.count, b[i] == 0x22 else { return false }
+            i += 1
+            while i < b.count {
+                if b[i] == 0x5C { i += 2; continue }
+                if b[i] == 0x22 { i += 1; return true }
+                i += 1
+            }
+            return false
+        }
+        func skipValue() -> Bool {
+            guard i < b.count else { return false }
+            switch b[i] {
+            case 0x22: return skipString()
+            case 0x7B, 0x5B:
+                var depth = 0
+                while i < b.count {
+                    if b[i] == 0x22 { guard skipString() else { return false }; continue }
+                    if b[i] == 0x7B || b[i] == 0x5B { depth += 1 }
+                    if b[i] == 0x7D || b[i] == 0x5D { depth -= 1; if depth == 0 { i += 1; return true } }
+                    i += 1
+                }
+                return false
+            default:
+                let start = i
+                while i < b.count, ![0x2C, 0x7D, 0x5D, 0x20, 0x09, 0x0A, 0x0D].contains(b[i]) { i += 1 }
+                return i > start
+            }
+        }
+        var out: [(key: String, rawValue: String)] = []
+        ws()
+        guard i < b.count, b[i] == 0x7B else { return nil }
+        i += 1
+        ws()
+        if i < b.count, b[i] == 0x7D { i += 1; ws(); return i == b.count ? out : nil }
+        while true {
+            ws()
+            let keyStart = i
+            guard skipString(),
+                  let key = try? JSONSerialization.jsonObject(with: Data(b[keyStart..<i]), options: .fragmentsAllowed) as? String
+            else { return nil }
+            ws()
+            guard i < b.count, b[i] == 0x3A else { return nil }
+            i += 1
+            ws()
+            let valueStart = i
+            guard skipValue() else { return nil }
+            out.append((key, String(decoding: b[valueStart..<i], as: UTF8.self)))
+            ws()
+            guard i < b.count else { return nil }
+            if b[i] == 0x2C { i += 1; continue }
+            guard b[i] == 0x7D else { return nil }
+            i += 1
+            ws()
+            return i == b.count ? out : nil
+        }
     }
 
     /// Strict ISO 8601 (Codex on #141: the formatter alone is lenient): the
