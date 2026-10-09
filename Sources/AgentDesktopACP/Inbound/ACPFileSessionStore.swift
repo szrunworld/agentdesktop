@@ -329,9 +329,14 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         }
         struct Line: Decodable { var status: String?; var file: String; var sessionId: String }
         var latest: [String: String] = [:]
-        var lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
-        if data.last != UInt8(ascii: "\n"), !lines.isEmpty { lines.removeLast() }
+        // Keep empty pieces: a blank line is a record that cannot be
+        // understood, not one to skip (Codex on #141). The piece after the
+        // final newline is always empty; without a final newline the last
+        // piece is a half line, which the append guard handles.
+        var lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false)
+        if !lines.isEmpty { lines.removeLast() }
         for raw in lines {
+            guard !raw.isEmpty else { return nil }
             // Only the four known statuses (a missing one counts as intent,
             // which blocks the file); anything else, such as a typo, means the
             // log cannot be trusted (Codex on #141).

@@ -520,7 +520,11 @@ import Testing
                       #"{"status":"uncertain","file":"histroy","sessionId":"s1","at":"t","entries":0}"# + "\n",
                       #"{"status":"uncertain","file":"history","sessionId":"","at":"t","entries":0}"# + "\n",
                       #"{"status":"uncertain","file":"history","sessionId":"../s1","at":"t","entries":0}"# + "\n",
-                      #"{"status":"uncertain","file":"history","sessionId":"s 1","at":"t","entries":0}"# + "\n"])
+                      #"{"status":"uncertain","file":"history","sessionId":"s 1","at":"t","entries":0}"# + "\n",
+                      "\n",
+                      #"{"status":"intent","file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n\n",
+                      #"{"status":"intent","file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n\n"
+                        + #"{"status":"completed","file":"binding","sessionId":"s1","at":"t","entries":0}"# + "\n"])
     func anUnreadableLogStopsTheMigration(_ content: String) throws {
         let (s, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }
