@@ -171,9 +171,20 @@ extension RuntimeService {
                                    "desktop \(d.desktopId) is physical: it binds windows the user's apps already show; app.launch is for virtual Desktops",
                                    phase: .handler, notSent: true)
             }
+            // #139: refused by name or by path, for every caller.
+            if Self.isBlocked(bundleId: p["bundleId"]?.stringValue)
+                || p["path"]?.stringValue.map({ Self.isBlocked(bundleId: Self.bundleId(atPath: $0)) }) == true {
+                throw Self.blockedAppError()
+            }
             let (pid, windows) = try platform.launch(on: d.screen, bundleId: p["bundleId"]?.stringValue,
                                                      path: p["path"]?.stringValue,
                                                      newInstance: p["newInstance"]?.boolValue ?? false)
+            // A path the check above could not read may still have opened
+            // it: it is closed again and not kept as this Desktop's app.
+            if Self.isBlocked(bundleId: runningBundleId(pid)) {
+                _ = platform.quit(pid: pid)
+                throw Self.blockedAppError(notSent: false)
+            }
             d.launched.append(backend.processIdentity(pid))
             return .obj([
                 ("desktopId", .string(d.desktopId)),
@@ -200,6 +211,9 @@ extension RuntimeService {
                 throw RuntimeError("grant_missing", "binding this window needs a grant for its app, which this client does not have",
                                    phase: .request, notSent: true, details: .obj([("reason", .string("bind_requires_grant"))]))
             }
+            // #139, after the grant check so a refusal names no app the
+            // caller may not see.
+            if Self.isBlocked(bundleId: runningBundleId(pid)) { throw Self.blockedAppError() }
             let process = backend.processIdentity(pid)
             // The grant check comes first: a refusal says nothing about
             // whether a process with that pid exists.

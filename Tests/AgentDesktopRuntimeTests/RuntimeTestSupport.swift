@@ -25,7 +25,7 @@ struct FixedBackend: RuntimeBackend {
     var platform: Platform { Platform(os: "macos", osVersion: "15.1.0", arch: "arm64") }
     func permissions() -> BackendPermissions { perms }
     func features() -> [String] { ["apps.list", "windows.list"] }
-    func applications(includeBackground: Bool) -> [AppSummary] { apps }
+    func applications(includeBackground: Bool) -> [AppSummary] { opened.apps + apps }
     /// Processes the test has "restarted": same pid, other start time.
     var restarted: Set<Int32> = []
     func processIdentity(_ pid: Int32) -> ProcessIdentity {
@@ -33,7 +33,11 @@ struct FixedBackend: RuntimeBackend {
     }
     /// Windows a test opens later, in front of every other (a reference, so
     /// a test can change it after the Runtime took its copy of the backend).
-    final class Opened: @unchecked Sendable { var windows: [WindowSummary] = []; var listUnreadable = false }
+    final class Opened: @unchecked Sendable {
+        var windows: [WindowSummary] = []; var listUnreadable = false
+        /// Apps started after the Runtime took its copy (#139).
+        var apps: [AppSummary] = []
+    }
     var opened = Opened()
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
         // The window server's list could not be read: the backend gets none.

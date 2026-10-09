@@ -24,6 +24,9 @@ extension RuntimeService {
             }
             return RuntimeError("stale_observation", message, phase: .handler, notSent: notSent, details: .obj(details))
         }
+        // #139: bind refuses it already; checked again at every observe and
+        // act, so no binding made another way reaches the phone.
+        if Self.isBlocked(bundleId: runningBundleId(b.process.pid)) { throw Self.blockedAppError(notSent: notSent) }
         guard let window = platform.window(on: d.screen, pid: b.process.pid, windowId: b.windowId) else {
             throw refuse("window_gone", "window \(b.windowId) is no longer on desktop \(d.desktopId); bind a window again")
         }
