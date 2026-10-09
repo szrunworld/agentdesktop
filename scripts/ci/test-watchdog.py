@@ -494,10 +494,19 @@ def report_failed_discovery(run, out_dir, exit_status, last_output):
               "seconds_since_last_output": round(time.monotonic() - last_output, 1),
               "command_exit_status": exit_status, "processes": [],
               "steps": [{"step": "processes of the run", "status": status, "detail": detail}]}
+    # Processes nobody could check, kept when the recheck failed, are
+    # reported here too: this path runs first (Codex on #197).
+    if run.unverifiable:
+        report["unverifiable"] = [{"pid": pid, "command": cmd} for pid, cmd in run.unverifiable.items()]
+        report["steps"].append({"step": "environment check", "status": "incomplete",
+                                "detail": f"{len(run.unverifiable)} process(es) could not be checked "
+                                          f"({run.sudo_problem or 'sudo ps did not show them'}); not stopped"})
     with open(os.path.join(out_dir, "diagnosis.json"), "w") as f:
         json.dump(report, f, indent=1, ensure_ascii=False)
     print(f"\n=== test-watchdog: the command exited ({exit_status}); the check for processes left behind "
           f"is {status}: {detail} ===", flush=True)
+    for pid, cmd in run.unverifiable.items():
+        print(f"  unverifiable (left alone): {pid} {cmd[:160]}", flush=True)
     print(f"::warning title=test-watchdog::could not check for processes left behind by the run ({detail}); "
           f"the command's exit status ({exit_status}) is kept", flush=True)
     print(f"=== report in {out_dir} ===", flush=True)

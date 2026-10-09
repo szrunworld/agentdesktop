@@ -421,6 +421,22 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(run.unverifiable, {424242: "/bin/sleep 100"})
         self.assertEqual(run.discovery_problems, ["ps: exit 2"])
 
+    def test_a_failed_leftover_check_still_reports_the_unverifiable(self):
+        # Codex on #197: when the recheck fails, the processes kept as
+        # unverifiable must reach the failed-discovery report.
+        wd = self.load()
+        run = wd.Run(999999, None, uuid.uuid4().hex, time.time())
+        run.root_alive = False
+        run.discovery_problems = ["ps: exit 2"]
+        run.sudo_problem = "sudo turned off"
+        run.unverifiable = {424242: "/bin/sleep 100"}
+        out = tempfile.mkdtemp(prefix="watchdog-test-")
+        wd.report_failed_discovery(run, out, 0, time.monotonic())
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        self.assertEqual(report["unverifiable"], [{"pid": 424242, "command": "/bin/sleep 100"}])
+        self.assertEqual([s["step"] for s in report["steps"]], ["processes of the run", "environment check"])
+
 
 if __name__ == "__main__":
     unittest.main()
