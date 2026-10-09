@@ -195,6 +195,7 @@ Kevin 裁决：两者都登记为"未经明确授权的合并事件"，不回滚
 | #175 | 10-09 08:50:13 | 6feb4f1 → 99a93ae | ✅ 同上 | b9 复核 d0131b4 → 6feb4f1；Codex 👍，没有意见 | build 通过 | 会话自述：b9（`--match-head-commit`），42 书面确认未操作 | — | 不需要 | 待 Kevin 验收；真机 Not Verified |
 | #127 | 10-09 07:27:54 | bea1a26 → 1a3fa22 | ✅ Kevin 在会话 97500e22 中 06:56:43Z 下达"PR #127 最终裁决：允许合并"（第 5 项："允许合并 #127。不再把彻底解决共享剪贴板竞争问题作为合并阻断条件。"） | 独立审核；Codex 对 bea1a26 "Didn't find any major issues" 👍，15 条行内意见都已回复 | build 通过 | 会话自述：iPhone 线（2ndscreen-b2 / 97500e22），`--match-head-commit bea1a26` | — | 不需要 | 待 Kevin 验收 |
 | #142 | 10-09 09:08:53 | cea2610 → 5dbe2e8 | ✅ Kevin 在会话 97500e22 中 09:02:28Z 说"合并 #142"；事后在 b9 会话中确认"授权了" | 独立审核没有阻断（F1/F3/F5 已修，其余转 #179/#180）；Codex 对 02716bd、cea2610 三次 Completed，没有意见，但也没有 👍（Kevin 08:52 的验收裁决接受了这一点） | build 通过（GitHub CI 和本地 10 步 CI 都通过，engine strict 334 个） | **Kevin 本人在 GitHub 网页上手动合并**（他在 97500e22 中说"#142 我手动merge了"） | — | 不需要 | 已验收（Kevin 08:52）；真机 A2、A5、A6、S3 记为"未验证（Kevin 豁免）" |
+| #186 | 10-09 09:25:51 | c785b9c → 9d9f7ec | ✅ Kevin 在会话 97500e22 中回答"可以合并 #186 吗？"时说"可以合并" | **合并前没有独立会话审核**，只有 Codex（Didn't find any major issues，👍）；b9 事后补审通过 | build 通过；合并后 main CI 通过 | 会话自述：iPhone 线（2ndscreen-b2），`--match-head-commit c785b9c` | b9 事后补审：只改测试，没有问题 | 不需要 | 已合并；#156、#161 自动关闭 |
 
 ### #119–#123 的后续要求（Kevin 2026-10-09）
 
