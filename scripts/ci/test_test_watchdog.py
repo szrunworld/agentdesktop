@@ -269,6 +269,55 @@ class WatchdogTests(unittest.TestCase):
         finally:
             subprocess.run(["pkill", "-f", tag], capture_output=True)
 
+    def load(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("watchdog", WATCHDOG)
+        wd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wd)
+        return wd
+
+    def test_a_stall_reports_the_stopped_command_as_stopped(self):
+        # #194: the killed command must not be reported as still running
+        # while it waits to be reaped.
+        code, log, _, out = self.run_watchdog(
+            [sys.executable, "-c",
+             'import threading; print("◇ Test stuck() started."); l=threading.Lock(); l.acquire(); l.acquire()'],
+            stall=3)
+        self.assertEqual(code, 124, log)
+        self.assertNotIn("could not stop", log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        self.assertEqual([s["status"] for s in report["steps"] if s["step"] == "stop"], ["ok"])
+        self.assertNotIn("not_stopped", report)
+
+    def test_a_zombie_is_not_a_process_of_the_run(self):
+        # #194: an exited child its parent has not reaped is not running.
+        wd = self.load()
+        parent = subprocess.Popen(
+            [sys.executable, "-c", "import os, sys, time\npid = os.fork()\nif pid == 0: os._exit(0)\n"
+             "print(pid, flush=True)\ntime.sleep(60)"], stdout=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            zombie = int(parent.stdout.readline())
+            time.sleep(0.3)
+            state = subprocess.run(["ps", "-o", "stat=", "-p", str(zombie)], capture_output=True, text=True).stdout
+            self.assertTrue(state.strip().startswith("Z"), f"not a zombie: {state!r}")
+            run = wd.Run(parent.pid, None, uuid.uuid4().hex, time.time())
+            members = run.members()
+            self.assertIn(parent.pid, members)
+            self.assertNotIn(zombie, members)
+        finally:
+            parent.kill()
+            parent.wait()
+
+    def test_a_command_line_with_spaces_is_parsed_whole(self):
+        wd = self.load()
+        row = " 812   1  812  501 S+   Thu Oct  9 13:36:03 2026     /usr/bin/python3 -c print('a  b') --flag x"
+        pid, ppid, pgid, uid, stat, start, command = wd.parse_ps_row(row)
+        self.assertEqual((pid, ppid, pgid, uid, stat), (812, 1, 812, 501, "S+"))
+        self.assertEqual(time.localtime(start)[:6], (2026, 10, 9, 13, 36, 3))
+        self.assertEqual(command, "/usr/bin/python3 -c print('a  b') --flag x")
+        self.assertIsNone(wd.parse_ps_row(" 812 1 812 501 S+ not a date at all here x"))
+
 
 if __name__ == "__main__":
     unittest.main()

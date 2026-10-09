@@ -139,23 +139,37 @@ WAITING = ("semaphore_wait", "__psynch_cvwait", "__ulock_wait", "__psynch_mutexw
            "mach_msg", "kevent", "read", "__wait4", "waitUntilExit", "dispatch_sync", "_dispatch_sync")
 
 
+def parse_ps_row(row):
+    """One row of `ps -o pid=,ppid=,pgid=,uid=,stat=,lstart=,command=`:
+    (pid, ppid, pgid, uid, stat, start, command), or None. Every column but
+    the last has a fixed number of fields (lstart has five), so the command
+    is the rest of the row, spaces and all."""
+    parts = row.split(None, 10)
+    if len(parts) < 11 or not all(p.isdigit() for p in parts[:4]):
+        return None
+    try:
+        start = time.mktime(time.strptime(" ".join(parts[5:10]), "%a %b %d %H:%M:%S %Y"))
+    except ValueError:
+        return None
+    return int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3]), parts[4], start, parts[10].rstrip()
+
+
 def processes(deadline=None):
-    """pid -> (ppid, pgid, start, command) for every process; start is the
-    process start time (with the pid it identifies a process; pids are
-    reused)."""
-    ok, rows, _ = run_step(["ps", "-axo", "pid=,ppid=,pgid=,uid=,lstart=,command="], timeout=within(deadline, 10))
+    """pid -> (ppid, pgid, start, command) for every live process; start is
+    the process start time (with the pid it identifies a process; pids are
+    reused). Zombies are left out: they have already exited, cannot be
+    killed and run nothing (b9 on #194)."""
+    ok, rows, _ = run_step(["ps", "-axo", "pid=,ppid=,pgid=,uid=,stat=,lstart=,command="],
+                           timeout=within(deadline, 10))
     procs = {}
     for row in rows.splitlines():
-        parts = row.split()
-        if len(parts) < 10 or not all(p.isdigit() for p in parts[:4]):
+        parsed = parse_ps_row(row)
+        if parsed is None:
             continue
-        if int(parts[3]) != os.getuid():
+        pid, ppid, pgid, uid, stat, start, command = parsed
+        if uid != os.getuid() or stat.startswith("Z"):
             continue  # only this user's processes can belong to the run
-        try:
-            start = time.mktime(time.strptime(" ".join(parts[4:9]), "%a %b %d %H:%M:%S %Y"))
-        except ValueError:
-            continue
-        procs[int(parts[0])] = (int(parts[1]), int(parts[2]), start, " ".join(parts[9:]))
+        procs[pid] = (ppid, pgid, start, command)
     return procs
 
 
@@ -181,8 +195,8 @@ class Run:
     A remembered pid counts only while its start time is unchanged.
     """
 
-    def __init__(self, root, tty, marker, started_at):
-        self.root, self.tty = root, tty
+    def __init__(self, root, tty, marker, started_at, child=None):
+        self.root, self.tty, self.child = root, tty, child
         self.marker, self.started_at = marker, started_at
         self.seen = {}  # pid -> (start, command)
         self.unverifiable = {}  # pid -> command: started since the run, environment unreadable
@@ -254,8 +268,8 @@ class Run:
         for pid, (_, _, start, cmd) in procs.items():
             if pid in known or pid in helpers or start < self.started_at - 1:
                 continue
-            if cmd == "<defunct>" or (cmd.startswith("(") and cmd.endswith(")")):
-                continue  # already exited (a zombie, or gone while ps ran)
+            if cmd.startswith("(") and cmd.endswith(")"):
+                continue  # gone while ps ran (zombies are already left out)
             env = process_environment(pid)
             # For platform binaries the kernel returns the arguments with the
             # environment stripped, not an error: an empty environment cannot
@@ -296,6 +310,15 @@ class Run:
                 os.killpg(self.root, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
+            # Reap the command at once, within a limit: unreaped, it would
+            # be reported as not stopped (#194). Once reaped its pid and group
+            # id may be reused, so from then on neither is used.
+            if self.child is not None:
+                try:
+                    self.child.wait(timeout=2)
+                    self.root_alive = False
+                except subprocess.TimeoutExpired:
+                    pass
         # Up to five rounds of kill, wait, look again: a leftover may start a
         # detached child just before it dies, and the last look must be acted
         # on (Codex on #188). Each round kills only confirmed processes, as
@@ -501,7 +524,7 @@ def main():
     started_at = time.time()
     child = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, start_new_session=True, env=env)
     os.close(slave)
-    run = Run(child.pid, tty, marker, started_at)
+    run = Run(child.pid, tty, marker, started_at, child)
     output = Output()
     while True:
         ready, _, _ = select.select([master], [], [], 0.25)
