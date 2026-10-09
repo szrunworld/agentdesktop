@@ -20,17 +20,37 @@ struct ControlServerTests {
                 Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        #expect(connected == 0, "connect: \(String(cString: strerror(errno)))")
+        guard connected == 0 else {
+            close(fd)
+            throw ControlClientError.io("connect: \(String(cString: strerror(errno)))")
+        }
+        // A broken server should fail the test, not hold a worker forever.
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        guard setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
+              setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else {
+            close(fd)
+            throw ControlClientError.io("could not set client timeout")
+        }
         return fd
     }
 
-    nonisolated private static func request(_ path: String) throws -> ControlResponse {
+    nonisolated private static func blockingRequest(_ path: String) throws -> ControlResponse {
         let fd = try connect(path)
         defer { close(fd) }
         var payload = try JSONEncoder().encode(ControlRequest(command: .screenList))
         payload.append(0x0A)
         try writeAll(fd, payload)
         return try JSONDecoder().decode(ControlResponse.self, from: try readLine(fd))
+    }
+
+    /// Blocking socket I/O must not occupy Swift's cooperative executor:
+    /// the server schedules its main-actor handler through that executor too.
+    nonisolated private static func request(_ path: String) async throws -> ControlResponse {
+        try await withCheckedThrowingContinuation { continuation in
+            Thread {
+                continuation.resume(with: Result { try blockingRequest(path) })
+            }.start()
+        }
     }
 
     @Test func aClientThatConnectsAndLeavesDoesNotRunTheHandlerOrEndTheHost() async throws {
@@ -50,7 +70,7 @@ struct ControlServerTests {
         try await Task.sleep(for: .milliseconds(200))
         #expect(handled.value == 0, "an empty connection must not reach the handler")
 
-        let response = try await Task.detached { try Self.request(path) }.value
+        let response = try await Self.request(path)
         #expect(response.error == "pong")
         #expect(handled.value == 1)
     }
@@ -71,7 +91,7 @@ struct ControlServerTests {
         close(fd)  // gone before the handler answers
         try await Task.sleep(for: .milliseconds(600))
 
-        let response = try await Task.detached { try Self.request(path) }.value
+        let response = try await Self.request(path)
         #expect(response.error == "late", "the host still answers after a client left mid-request")
     }
 }

@@ -8,7 +8,7 @@ import Testing
 // this store is in AgentDesktopGUITests/RunsSQLiteTests.swift.
 
 private func dbPath() throws -> String {
-    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("adruns-\(UUID().uuidString)")
+    let dir = ScratchDirectory.url("adruns")
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     return dir.appendingPathComponent("config.sqlite").path
 }

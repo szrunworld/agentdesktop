@@ -93,7 +93,7 @@ struct Rig {
     let app: AiApplicationHandlers
 
     init(fixtureCodec: Bool = false) throws {
-        dir = FileManager.default.temporaryDirectory.appendingPathComponent("adcap-\(UUID().uuidString)")
+        dir = ScratchDirectory.url("adcap")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         store = try ConfigStore(path: dir.appendingPathComponent("config.sqlite").path, credentials: creds,
                                 digestKey: Data(repeating: 3, count: 32),

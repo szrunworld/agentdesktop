@@ -142,6 +142,13 @@ public final class ArtifactStore: @unchecked Sendable {
     /// its bytes once it is registered.
     private var usage: [String: (count: Int, bytes: Int64)] = [:]
     private var usageTotal: Int64 = 0
+    /// A scratch store (a Runtime without storage, as in tests): its
+    /// directory goes with it, so test runs leave nothing in the temp folder.
+    var removesDirectoryWhenDone = false
+
+    deinit {
+        if removesDirectoryWhenDone { try? FileManager.default.removeItem(atPath: directory) }
+    }
 
     public init(directory: String, now: @escaping () -> Date = Date.init) throws {
         self.directory = directory
