@@ -63,6 +63,8 @@ STEP_TIMEOUT = float(os.environ.get("WATCHDOG_STEP_TIMEOUT", "30"))
 DIAGNOSIS_BUDGET = float(os.environ.get("WATCHDOG_DIAGNOSIS_BUDGET", "150"))
 # The sampler; the self-tests point it at a tool that fails.
 SAMPLE = os.environ.get("WATCHDOG_SAMPLE", "sample")
+# The self-tests turn sudo off to act out a machine without passwordless sudo.
+USE_SUDO = os.environ.get("WATCHDOG_NO_SUDO") != "1"
 
 
 MARKER = "TEST_WATCHDOG_RUN"
@@ -71,8 +73,8 @@ _libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
 def process_environment(pid):
     """The environment of a process from KERN_PROCARGS2, or None when the
-    kernel will not show it (platform binaries such as /bin/sleep need
-    root)."""
+    kernel refuses. For platform binaries such as /bin/sleep it answers with
+    the environment stripped (an empty list) unless the caller is root."""
     mib = (ctypes.c_int * 2)(1, 8)  # CTL_KERN, KERN_ARGMAX
     argmax, n = ctypes.c_int(), ctypes.c_size_t(ctypes.sizeof(ctypes.c_int))
     if _libc.sysctl(mib, 2, ctypes.byref(argmax), ctypes.byref(n), None, 0) != 0:
@@ -217,12 +219,15 @@ class Run:
             if cmd == "<defunct>" or (cmd.startswith("(") and cmd.endswith(")")):
                 continue  # already exited (a zombie, or gone while ps ran)
             env = process_environment(pid)
-            if env is None:
+            # For platform binaries the kernel returns the arguments with the
+            # environment stripped, not an error: an empty environment cannot
+            # be checked either (nor can one emptied with env -i).
+            if not env:
                 unread.append(pid)
             elif tag in env:
                 found[pid] = cmd
         self.unverifiable = {}
-        if unread:
+        if unread and USE_SUDO:
             ok, out, _ = run_step(["sudo", "-n", "ps", "-E", "-ww", "-o", "pid=,command=", "-p",
                                    ",".join(map(str, unread))], timeout=10)
             readable = set()
@@ -234,6 +239,8 @@ class Run:
                         if tag in row:
                             found[int(head[0])] = procs[int(head[0])][3]
             self.unverifiable = {pid: procs[pid][3] for pid in unread if pid not in readable}
+        elif unread:
+            self.unverifiable = {pid: procs[pid][3] for pid in unread}
         return found
 
     def stop(self):
@@ -316,13 +323,18 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
         for pid, cmd in run.unverifiable.items():
             print(f"  unverifiable (left alone): {pid} {cmd[:160]}", flush=True)
 
+    def remaining():
+        return DIAGNOSIS_BUDGET - (time.monotonic() - began)
+
     for pid, cmd in procs.items():
         name = f"sample {pid}"
-        if time.monotonic() - began > DIAGNOSIS_BUDGET:
-            step(name, "skipped", "diagnosis budget used up")
+        # Each step gets at most what is left of the budget (Codex on #188);
+        # too little left for a 3 s sample and it is skipped.
+        if remaining() < 5:
+            step(name, "skipped", f"diagnosis budget left: {max(remaining(), 0):.0f} s")
             continue
         path = os.path.join(out_dir, f"sample-{pid}.txt")
-        ok, _, detail = run_step([SAMPLE, str(pid), "3", "-file", path])
+        ok, _, detail = run_step([SAMPLE, str(pid), "3", "-file", path], timeout=min(STEP_TIMEOUT, remaining()))
         if not ok or not os.path.exists(path):
             step(name, "failed", detail)
             continue
@@ -331,15 +343,35 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
         for line in summarise(open(path, errors="replace").read()):
             print(line, flush=True)
 
-    if time.monotonic() - began > DIAGNOSIS_BUDGET:
-        step("spindump", "skipped", "diagnosis budget used up")
+    if not USE_SUDO:
+        step("spindump", "skipped", "sudo turned off")
+    elif remaining() < 10:
+        step("spindump", "skipped", f"diagnosis budget left: {max(remaining(), 0):.0f} s")
     else:
         target = next(iter(procs), run.root)
         ok, _, detail = run_step(["sudo", "-n", "spindump", str(target), "5", "-file",
-                                  os.path.join(out_dir, "spindump.txt")], timeout=90)
+                                  os.path.join(out_dir, "spindump.txt")], timeout=min(90, remaining()))
         step("spindump", "ok" if ok else "unavailable", detail)
     missing = [s["step"] for s in report["steps"] if s["status"] != "ok"]
     print(f"=== reports in {out_dir}; incomplete steps: {', '.join(missing) or 'none'} ===", flush=True)
+
+
+def report_unverifiable(run, out_dir, exit_status, last_output):
+    os.makedirs(out_dir, exist_ok=True)
+    report = {"trigger": "unverifiable processes at exit",
+              "why": "processes started since the run began whose environment could not be read; not stopped",
+              "seconds_since_last_output": round(time.monotonic() - last_output, 1),
+              "command_exit_status": exit_status, "processes": [],
+              "unverifiable": [{"pid": pid, "command": cmd} for pid, cmd in run.unverifiable.items()],
+              "steps": [{"step": "environment check", "status": "incomplete",
+                         "detail": f"{len(run.unverifiable)} process(es) could not be checked; not stopped"}]}
+    with open(os.path.join(out_dir, "diagnosis.json"), "w") as f:
+        json.dump(report, f, indent=1, ensure_ascii=False)
+    print(f"\n=== test-watchdog: the command exited ({exit_status}); {len(run.unverifiable)} process(es) started "
+          "since the run began could not be checked (unverifiable, not stopped) ===", flush=True)
+    for pid, cmd in run.unverifiable.items():
+        print(f"  unverifiable (left alone): {pid} {cmd[:160]}", flush=True)
+    print(f"=== report in {out_dir}; incomplete steps: environment check ===", flush=True)
 
 
 def main():
@@ -406,6 +438,13 @@ def main():
             # leftover (a Runtime, a helper, a background task): evidence,
             # then stop it and fail.
             left = run.members()
+            if not left and run.unverifiable:
+                # Nothing confirmed as the run's, but processes started since
+                # it began could not be checked: reported, left alone, and the
+                # command's own status kept (Codex and b9 on #188; locally
+                # they are likely other sessions', and CI has sudo).
+                report_unverifiable(run, args.out, child.returncode, last_output)
+                return child.returncode
             if left:
                 diagnose(run, started, finished, args.out,
                          f"the command exited ({child.returncode}) but {len(left)} process(es) of its run remain",

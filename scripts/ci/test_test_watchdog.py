@@ -131,5 +131,45 @@ class WatchdogTests(unittest.TestCase):
         self.assertTrue(any(s["status"] == "failed" and "timed out" in s["detail"] for s in report["steps"]))
 
 
+    def test_unverifiable_leftovers_are_reported_left_alone_and_do_not_fail_the_run(self):
+        # Codex and b9 on #188: a detached platform binary (whose environment
+        # only root can read) with sudo off, as on a machine without
+        # passwordless sudo: reported, not stopped, the command's status kept.
+        secs = str(3000 + uuid.uuid4().int % 900)
+        marker = f"sleep {secs}"
+        try:
+            code, log, _, out = self.run_watchdog(
+                [sys.executable, "-S", "-c",
+                 f'import subprocess; subprocess.Popen(["/bin/sleep", "{secs}"], start_new_session=True, '
+                 'stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)'],
+                env={"WATCHDOG_NO_SUDO": "1"})
+            self.assertEqual(code, 0)
+            self.assertIn("unverifiable (left alone)", log)
+            self.assertIn(marker, log)
+            with open(os.path.join(out, "diagnosis.json")) as f:
+                report = json.load(f)
+            self.assertEqual(report["trigger"], "unverifiable processes at exit")
+            self.assertTrue(any(marker in u["command"] for u in report["unverifiable"]))
+            self.assertTrue(alive(marker), "an unverifiable process was stopped")
+        finally:
+            subprocess.run(["pkill", "-f", marker], capture_output=True)
+
+    def test_every_step_stays_within_the_diagnosis_budget(self):
+        hang = os.path.join(tempfile.mkdtemp(prefix="watchdog-hang-"), "sample")
+        with open(hang, "w") as f:
+            f.write("#!/bin/sh\nsleep 30\n")
+        os.chmod(hang, 0o755)
+        code, _, took, out = self.run_watchdog(
+            [sys.executable, "-c", 'import threading; print("◇ Test stuck() started."); '
+             'l=threading.Lock(); l.acquire(); l.acquire()'],
+            stall=3, env={"WATCHDOG_SAMPLE": hang, "WATCHDOG_STEP_TIMEOUT": "20", "WATCHDOG_DIAGNOSIS_BUDGET": "6"})
+        self.assertEqual(code, 124)
+        self.assertLess(took, 20, "a step ran past the diagnosis budget")
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        statuses = {s["step"]: s["status"] for s in report["steps"]}
+        self.assertTrue(any(k.startswith("sample") and v == "failed" for k, v in statuses.items()))
+
+
 if __name__ == "__main__":
     unittest.main()
