@@ -121,22 +121,29 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
     for secret in [secretKey, secretRequestId, "example.invalid", "Diag"] { #expect(!text.contains(secret), "\(secret)") }
 }
 
-// b9 and Codex on 062f5db: the hook (here, a slow one) never runs on the
-// task, so it cannot hold the cooperative thread or delay the signal.
+// b9 and Codex on 062f5db and 53dc980: the hook (here, a slow one) never
+// runs on the task, nor before the wait has ended, so it cannot hold the
+// cooperative thread, delay the signal or use up the deadline.
 @Test func theHookRunsOnlyOnTheConnectionThreadAndAfterTheSignal() async throws {
     let (s, dir) = try await service()
     defer { try? FileManager.default.removeItem(atPath: dir) }
-    final class Seen: @unchecked Sendable { let lock = NSLock(); var threads: Set<UInt64> = []; var stages: [BridgeDiagnostics.Stage] = [] }
+    final class Seen: @unchecked Sendable {
+        let lock = NSLock(); var threads: Set<UInt64> = []; var stages: [BridgeDiagnostics.Stage] = []
+        var beforeTheWaitEnded = 0; weak var recorder: BridgeDiagnostics?
+    }
     let seen = Seen()
     let recorder = BridgeDiagnostics(onEvent: { e in
         var tid: UInt64 = 0
         pthread_threadid_np(nil, &tid)
-        seen.lock.withLock { seen.threads.insert(tid); seen.stages.append(e.stage) }
+        let ended = seen.recorder?.events.contains { $0.call == e.call && ($0.stage == .answered || $0.stage == .timedOut) } ?? false
+        seen.lock.withLock { seen.threads.insert(tid); seen.stages.append(e.stage); if !ended { seen.beforeTheWaitEnded += 1 } }
         Thread.sleep(forTimeInterval: 0.05)
     })
+    seen.recorder = recorder
     for _ in 0..<3 { _ = await answer(call("ai.connections.list", .obj([])), s, idempotent: false, recorder) }
     let callers = Set(recorder.events.filter { $0.stage == .entered }.map(\.threadId))
     #expect(seen.lock.withLock { seen.threads }.isSubset(of: callers))
+    #expect(seen.lock.withLock { seen.beforeTheWaitEnded } == 0)
     // The task's stages still reach the hook, later, from a connection thread.
     #expect(seen.lock.withLock { seen.stages }.contains(.taskStarted))
 }

@@ -8,13 +8,15 @@ import Foundation
 ///
 /// It records the method name only: no params, no requestId, no credential.
 ///
-/// The task's own stages are only appended to memory: `onEvent` (which may
-/// write to stderr) is called on the connection thread, never on the
-/// cooperative thread whose availability is what the timeline measures, and
-/// never before the waiter is signalled (b9 and Codex on 062f5db). So a
-/// task's stages reach `onEvent` with the connection's next stage: the last
-/// call's `resultReady`, and a timed-out call's late stages, only with the
-/// next call on that bridge (all are in `events` at once).
+/// Every stage is only appended to memory when it happens. `onEvent` (which
+/// may write to stderr) is called once the connection thread's wait has
+/// ended (`answered` or `timedOut`), with everything not yet passed on, in
+/// order: never on the cooperative thread whose availability the timeline
+/// measures, never before the waiter is signalled, and never inside the
+/// time the request's deadline allows (Codex on 062f5db and 53dc980, b9).
+/// So the last call's `resultReady`, and a timed-out call's late stages,
+/// reach `onEvent` only with the next call on that bridge (all are in
+/// `events` at once).
 final class BridgeDiagnostics: @unchecked Sendable {
     enum Stage: String, Sendable {
         /// `answer` was called (on the connection thread).
@@ -75,9 +77,11 @@ final class BridgeDiagnostics: @unchecked Sendable {
         let call: UInt64
         let method: String
 
-        /// On the connection thread: noted, and everything not yet passed
-        /// to `onEvent` is passed now, in order.
-        func note(_ stage: Stage) { recorder.note(call, stage, method: method, report: true) }
+        /// On the connection thread. When the wait has ended, everything not
+        /// yet passed to `onEvent` is passed now, in order.
+        func note(_ stage: Stage) {
+            recorder.note(call, stage, method: method, report: stage == .answered || stage == .timedOut)
+        }
 
         /// On the task: noted in memory only.
         func noteInTask(_ stage: Stage, taskPriority: UInt8? = nil) {
@@ -88,7 +92,7 @@ final class BridgeDiagnostics: @unchecked Sendable {
     /// A new call, with `entered` noted.
     func begin(method: String) -> Trace {
         let call = lock.withLock { () -> UInt64 in nextCall += 1; return nextCall }
-        note(call, .entered, method: method, report: true)
+        note(call, .entered, method: method, report: false)
         return Trace(recorder: self, call: call, method: method)
     }
 
