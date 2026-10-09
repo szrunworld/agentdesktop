@@ -464,6 +464,22 @@ import Testing
         #expect(lines.filter { $0.file == "history" && $0.sessionId == "s1" }.map(\.status) == ["intent"])
     }
 
+    /// A legacy file whose session id does not match its file name is left
+    /// alone (a block record could not be tied to it); the others migrate and
+    /// the migration is not complete.
+    @Test func aLegacyFileWhoseIdDoesNotMatchItsNameIsLeftAlone() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        // s1's history copied under another name: content still says s1.
+        try raw(dir, "s1.history.json").write(to: dir.appendingPathComponent("s9.history.json"), atomically: true, encoding: .utf8)
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(isLegacy(dir, "s9.history.json"))
+        #expect(!isLegacy(dir, "s1.history.json") && !isLegacy(dir, "s1.json"))
+        #expect(!fresh.migrated)
+    }
+
     /// A line without a status counts as a lone intent: that file waits for a
     /// person, the others go on, the migration is not complete.
     @Test func aLineWithoutAStatusBlocksItsFile() throws {
@@ -500,7 +516,11 @@ import Testing
 
     /// Kevin 2026-10-09: a log that cannot be understood stops the migration.
     @Test(arguments: ["not json\n",
-                      #"{"status":"uncertaib","file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n"])
+                      #"{"status":"uncertaib","file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n",
+                      #"{"status":"uncertain","file":"histroy","sessionId":"s1","at":"t","entries":0}"# + "\n",
+                      #"{"status":"uncertain","file":"history","sessionId":"","at":"t","entries":0}"# + "\n",
+                      #"{"status":"uncertain","file":"history","sessionId":"../s1","at":"t","entries":0}"# + "\n",
+                      #"{"status":"uncertain","file":"history","sessionId":"s 1","at":"t","entries":0}"# + "\n"])
     func anUnreadableLogStopsTheMigration(_ content: String) throws {
         let (s, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -225,6 +225,10 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             let out: Data
             if name.hasSuffix(".history.json") {
                 guard var r = try? JSONDecoder().decode(HistoryRecord.self, from: data), r.format < 2 else { continue }
+                // The block key is the session id; it must be the one in the
+                // file name too, else a record could miss its file. A mismatch
+                // is left alone for a person (like reads, which refuse it).
+                guard name == "\(r.acpSessionId).history.json", (try? Self.checkId(r.acpSessionId)) != nil else { failed = true; continue }
                 // Only a binding that is really absent means "no Runs"; any
                 // other read failure would clear every status line for good.
                 let runIds: Set<String>
@@ -235,6 +239,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
                 out = encoded
             } else {
                 guard var r = try? JSONDecoder().decode(Record.self, from: data), r.format < 2 else { continue }
+                guard name == "\(r.acpSessionId).json", (try? Self.checkId(r.acpSessionId)) != nil else { failed = true; continue }
                 entry = MigrationLogEntry(at: Self.now(), file: "binding", sessionId: r.acpSessionId, entries: 0)
                 entry.titleReset = r.title != "对话"
                 r.title = "对话"
@@ -332,7 +337,11 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             // log cannot be trusted (Codex on #141).
             guard let l = try? JSONDecoder().decode(Line.self, from: Data(raw)) else { return nil }
             let status = l.status ?? "intent"
-            guard Self.knownStatuses.contains(status) else { return nil }
+            // Every field that decides which file is blocked must be valid
+            // (b9, #141): a known status, a known file kind, and a session id
+            // that passes the same check as session file names.
+            guard Self.knownStatuses.contains(status), l.file == "history" || l.file == "binding",
+                  (try? Self.checkId(l.sessionId)) != nil else { return nil }
             latest[l.file + "/" + l.sessionId] = status
         }
         return Set(latest.filter { $0.value == "uncertain" || $0.value == "intent" }.keys)
