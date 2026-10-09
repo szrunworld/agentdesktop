@@ -33,6 +33,17 @@ Kevin 2026-10-09 要求：strict 和 engine 的失败要有具体用例、main �
 
 另外，完整的 `swift test`（非 strict）958 项通过。
 
+### 再一轮交替对照（main `de99f69` 对 #137 `0845f9e`，各 4 轮，负载 4–6）
+
+| 轮次 | main | #137 |
+| --- | --- | --- |
+| 1 | 退出码 1：`SingleEndpointTests.aKeyReusedForOtherParamsOrAnotherMethodIsRefusedAndRunsNothing`、`aiMethodsAnswerOnTheRuntimeEndpointInRuntimeTerms` | 退出码 1：同样这两项 |
+| 2 | 0 | 0 |
+| 3 | 0 | 0 |
+| 4 | 0 | 0 |
+
+两边在同一轮、同两项上失败，失败率相同（各 1/4）。在此之前，#137 `0845f9e` 单独跑的两轮里也有一轮是这两项失败。这两项单独运行（`--filter SingleEndpointTests`）在 strict 下连续 3 次通过。原因是协作线程池被并行运行的其他测试占满时，AI 服务的异步应答超时，属于 main 上已有的偶发问题。
+
 ### engine，各 3 轮（与 A4 无关：#137 的 `engine/` 与 main 完全一致）
 
 | 轮次 | main | #137 |
@@ -52,6 +63,6 @@ Kevin 2026-10-09 要求：strict 和 engine 的失败要有具体用例、main �
 
 ## 3. 结论
 
-- 合入 main `de99f69` 之后，#137 的 strict 连续 3 轮通过，`swift test` 958 项通过。
+- 合入 main `de99f69` 之后：#137 在 strict 下 9 轮中 7 轮通过，失败的 2 轮都只有 SingleEndpoint 那两项。main 在同期交替运行中出现了同样的失败，失败率相同。`swift test` 961 项通过。
 - engine 的本机崩溃在 main 上同样稳定出现，与 A4 无关，需要 #151 的负责方排查。CI 上通过。
 - 原始日志保存在本次会话的 scratchpad（`baseline/`）里，未放进仓库。复现方式见上面的命令。
