@@ -72,7 +72,7 @@ extension RuntimeService {
             }
         }
 
-        let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date)) { d -> JSONValue in
+        let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date), as: c, method: "act") { d -> JSONValue in
             guard let b = d.binding else {
                 throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler, notSent: true)
             }
@@ -276,7 +276,7 @@ extension RuntimeService {
             // As in observe: checks under the lock, the read on the AX threads
             // without it, then the store under the lock.
             var bound: TargetBinding?
-            let checked = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
+            let checked = withDesktop(.string(desk.desktopId), until: deadline, as: c, method: "wait") { d -> JSONValue in
                 guard let b = d.binding else {
                     throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler)
                 }
@@ -300,7 +300,7 @@ extension RuntimeService {
             case let .failed(e as PlatformError): return .failure(e.runtimeError)
             case let .failed(e): return .failure(RuntimeError("execution_failed", "\(e)", phase: .handler))
             }
-            let poll = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
+            let poll = withDesktop(.string(desk.desktopId), until: deadline, as: c, method: "wait") { d -> JSONValue in
                 guard d.binding?.generation == b.generation else {
                     throw RuntimeError("stale_observation", "the binding of desktop \(d.desktopId) changed", phase: .handler)
                 }

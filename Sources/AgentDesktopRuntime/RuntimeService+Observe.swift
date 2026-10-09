@@ -52,7 +52,7 @@ extension RuntimeService {
         var exposed: (window: PlatformWindow, stack: [StackEntry])?
 
         // 1. Under the lock: checks and screenshot.
-        let first = withDesktop(.string(desk.desktopId), until: requestDeadline) { d -> JSONValue in
+        let first = withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
             stored.binding = d.binding
             /// The screen, or with a binding only the bound window's frame.
             func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
@@ -146,7 +146,7 @@ extension RuntimeService {
         }
 
         // 3. Under the lock again: still the same exposed window; store.
-        return withDesktop(.string(desk.desktopId), until: requestDeadline) { d -> JSONValue in
+        return withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
             var targetJSON: JSONValue = .null
             var elementsJSON: [JSONValue] = []
             if let b = stored.binding, let before = exposed {

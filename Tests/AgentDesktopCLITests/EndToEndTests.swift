@@ -183,12 +183,20 @@ final class WindowSaysYes: TrustedConfirmer, @unchecked Sendable {
     #expect(paired?.encoded().contains("adt1_") == false, "the token is not printed")
     #expect(window.actions == ["hub.pairing.start"])
     #expect(run(["desktop", "list"]).0 == 0)
-    // An owner call: the window is asked, then it runs.
+    // This CLI's code is not verified (no Developer ID yet, A4 R1): sensitive
+    // owner calls are refused without asking.
     let (lc, listed) = run(["agents", "list"])
-    #expect(lc == 0)
-    #expect(listed?["data"]?["clients"]?.arrayValue?.count == 1)
-    #expect(window.actions == ["hub.pairing.start", "hub.clients.list"])
+    #expect(lc == 4)
+    #expect(listed?["error"]?["details"]?["reason"]?.stringValue == "unverified_identity")
+    #expect(window.actions == ["hub.pairing.start"])
     // Its own grant: refused without asking.
     #expect(run(["agents", "grant", clientId, "--capabilities", "observe,act"]).0 == 4)
-    #expect(window.actions.count == 2)
+    // Taking another app's access away: the window is asked, then it is done.
+    let pairing = try service.hub.startPairing(connectionId: "conn_x", agentName: "other", publisher: nil, requested: .obj([]), callerFacts: .obj([]))
+    let (other, _) = try service.hub.approve(pairing, grant: HubStore.Grant(clientId: "", capabilities: ["observe"], desktops: [], apps: [],
+                                                                            expiresAt: Timestamp.string(Date().addingTimeInterval(600)),
+                                                                            revision: 0, state: "active"))
+    #expect(run(["agents", "revoke", other.clientId]).0 == 0)
+    #expect(window.actions == ["hub.pairing.start", "hub.clients.revoke"])
+    #expect(service.hub.client(other.clientId)?.state == "revoked")
 }

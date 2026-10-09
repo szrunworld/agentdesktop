@@ -38,7 +38,7 @@ extension RuntimeService {
         // Bounded waiting: one open request per program, a few in all (review M3).
         let open = hub.pairings()
         let program = gateKey(c)
-        if confirmationGate.coolingDown(program, now: now()) {
+        if confirmationGate.coolingDown(cooldownKey(c), now: now()) {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.pairing.start", decision: "denied", reason: "pairing_cooldown")
             return .failure(RuntimeError("permission_denied", "the user just refused this program; try again in a minute",
                                          phase: .request, notSent: true, details: .obj([("reason", .string("pairing_cooldown"))])))
@@ -107,7 +107,7 @@ extension RuntimeService {
         case let .failure(e):
             try? hub.deny(current)
             if ["user_denied", "user_cancelled", "confirmation_timeout"].contains(e.details?["reason"]?.stringValue ?? "") {
-                confirmationGate.coolDown(gateKey(c), until: now().addingTimeInterval(ConfirmationGate.cooldown))
+                confirmationGate.coolDown(cooldownKey(c), until: now().addingTimeInterval(ConfirmationGate.cooldown))
             }
         }
     }
@@ -204,11 +204,18 @@ extension RuntimeService {
         guard (try? hub.revoke(id)) ?? nil != nil, let client = hub.client(id) else { return .failure(.notFound("no client \(id)")) }
         // The linearization point: from here nothing more reaches the app.
         cutConnections(of: id, reason: "client_revoked")
+        accessWithdrawn(id)
         execution.stopRuns(ofClient: id, reason: "client_revoked")
         // Its sessions close too, so they hold no Desktop open.
         sessions.closeAll(caller: id, at: nowString)
         hub.audit(connectionId: c.connectionId, clientId: id, method: "hub.clients.revoke", decision: "revoked", reason: "owner")
         return .success(client.json)
+    }
+
+    /// Tell the in-process services that started work for `clientId` (the AI
+    /// service's operations) to stop it (A4 R4).
+    func accessWithdrawn(_ clientId: String) {
+        for observer in accessObservers.all { observer(clientId) }
     }
 
     func listGrants() -> Result<JSONValue, RuntimeError> {
@@ -251,6 +258,7 @@ extension RuntimeService {
             return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable", phase: .handler, notSent: true))
         }
         cutConnections(of: id, reason: "grant_revoked")
+        accessWithdrawn(id)
         execution.stopRuns(ofClient: id, reason: "grant_revoked")
         hub.audit(connectionId: c.connectionId, clientId: id, method: "hub.grants.revoke", decision: "revoked", reason: "owner")
         return .success(saved.json)

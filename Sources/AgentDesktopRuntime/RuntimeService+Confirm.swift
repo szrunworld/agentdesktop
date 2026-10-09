@@ -80,6 +80,13 @@ final class ConfirmationGate: @unchecked Sendable {
     }
 }
 
+final class AccessObservers: @unchecked Sendable {
+    private let lock = NSLock()
+    private var list: [@Sendable (String) -> Void] = []
+    func add(_ o: @escaping @Sendable (String) -> Void) { lock.withLock { list.append(o) } }
+    var all: [@Sendable (String) -> Void] { lock.withLock { list } }
+}
+
 extension RuntimeService {
     /// How long the user has to answer.
     static let confirmationTimeout: TimeInterval = 120
@@ -115,6 +122,24 @@ extension RuntimeService {
         return Self.programKey(callerFacts: c.callerFacts, codeIdentity: c.codeIdentity.json, fallback: c.connectionId)
     }
 
+    /// Owner calls that only take access away: an unverified client may still
+    /// ask the user for these (to revoke, to narrow, to stop everything).
+    func isReductive(_ request: RuntimeRequest) -> Bool {
+        switch request.method {
+        case "hub.clients.revoke", "hub.grants.revoke", "runtime.stopAll":
+            return true
+        case "hub.grants.set":
+            let p = request.params
+            guard let id = p["clientId"]?.stringValue, let old = hub.grant(id), old.state == "active" else { return false }
+            func list(_ v: JSONValue?) -> Set<String> { Set((v?.arrayValue ?? []).compactMap(\.stringValue)) }
+            let seconds = Double(p["durationSeconds"]?.intValue ?? Int(Self.defaultGrantDuration))
+            return list(p["capabilities"]).isSubset(of: old.capabilities) && list(p["desktops"]).isSubset(of: old.desktops)
+                && list(p["apps"]).isSubset(of: old.apps) && Timestamp.string(now().addingTimeInterval(seconds)) <= old.expiresAt
+        default:
+            return false
+        }
+    }
+
     /// Whether a target client paired as the program now asking (review L3):
     /// same requirement, same signing identifier, or same executable file.
     static func sameProgram(_ client: HubStore.Client, _ c: ConnectionState) -> Bool {
@@ -123,6 +148,15 @@ extension RuntimeService {
         if let i = theirs.identifier, i == c.codeIdentity.identifier { return true }
         if let e = client.callerFacts["executable"]?.stringValue, e == c.callerFacts["executable"]?.stringValue { return true }
         return false
+    }
+
+    /// Who waits after the user said no: verified code by its signing
+    /// identifier, anything else by its executable, so starting a new process
+    /// does not start over (a refusal holds every script of that interpreter
+    /// back for the minute).
+    func cooldownKey(_ c: ConnectionState) -> String {
+        if c.codeIdentity.level == .verified, let id = c.codeIdentity.identifier { return "code:" + id }
+        return "exe:" + (c.callerFacts["executable"]?.stringValue ?? c.connectionId)
     }
 
     /// One program, for limits: verified code by its signing identifier;
@@ -199,6 +233,15 @@ extension RuntimeService {
         if let spec = contract.method(method) {
             let v = contract.validate(request.params, spec.params)
             if !v.isEmpty { return .schemaInvalid("params break \(spec.params)", violations: v) }
+        }
+        // A4 R1: code whose identity cannot be bound (same_user, an
+        // interpreter) gets no sensitive management, even with the user's
+        // confirmation; it may only ask for what takes access away.
+        if c.codeIdentity.level != .verified, !isReductive(request) {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "unverified_identity")
+            return RuntimeError("permission_denied",
+                                "\(method) needs a client whose code identity is verified (Developer ID, hardened runtime); use the Agent Desktop window",
+                                phase: .request, notSent: true, details: .obj([("reason", .string("unverified_identity"))]))
         }
         // The user must be able to read all of what they approve (review M1).
         guard request.params.encoded().count <= Self.maxConfirmableParams else {

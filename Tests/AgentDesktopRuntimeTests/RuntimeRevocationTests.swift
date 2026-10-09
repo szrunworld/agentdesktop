@@ -101,7 +101,9 @@ private func reads(_ p: FakePlatform) -> Int { p.lock.withLock { p.calls.filter 
         let r = try #require(box.response)
         #expect(code(r) == "client_revoked", "no matches, no snapshot after the revocation: \(r.json.encoded())")
         #expect(r.json.encoded().contains("继续") == false)
-        #expect(s.hub.auditEvents().contains { $0["decision"]?.stringValue == "withheld" && $0["method"]?.stringValue == "wait" })
+        // Stopped either by the check after the Desktop lock or by the one before the answer.
+    #expect(s.hub.auditEvents().contains { $0["method"]?.stringValue == "wait"
+        && ($0["decision"]?.stringValue == "withheld" || ($0["reason"]?.stringValue ?? "").hasPrefix("after_lock")) })
     }
 }
 
@@ -339,5 +341,46 @@ func secTheCheckThenSendRaceSendsNothingAfterTheWithdrawal(_ how: String) async 
         #expect(data(call(s, owner, "hub.grants.set", params: #"{"clientId":"\#(id)","capabilities":["observe","act","desktop.manage","run","unit.run"],"desktops":["created"],"apps":["com.apple.calculator"],"durationSeconds":7200}"#)) != nil)
         #expect(sc.c.cutReason == nil)
         #expect(data(act(sc, clickContinue)) != nil)
+    }
+}
+
+// MARK: A4 R3: access is checked again once the Desktop's lock is held
+
+@Test(arguments: ["revoke", "narrow"])
+func secARequestWaitingForTheDesktopLockDoesNothingAfterTheWithdrawal(_ how: String) async throws {
+    try await offPool {
+        let platform = FakePlatform()
+        let s = platformService(platform)
+        let owner = handshaken(s)
+        let (sc, id, _) = try pairedScene(s, platform)
+        let desk = try #require(s.desktops.find(sc.desktop))
+        let calls: [(String, String, String?)] = [
+            ("desktop.destroy", #"{"desktopId":"\#(sc.desktop)"}"#, nil),
+            ("app.launch", #"{"desktopId":"\#(sc.desktop)","bundleId":"com.apple.calculator"}"#, nil),
+            ("window.unbind", #"{"desktopId":"\#(sc.desktop)"}"#, nil),
+            ("session.open", #"{"desktopId":"\#(sc.desktop)"}"#, nil),
+            ("observe", #"{"screenshot":false}"#, #"{"sessionId":"\#(sc.session)"}"#),
+        ]
+        let before = platform.lock.withLock { platform.calls.count }
+        // Hold the lock: every request passes its first check, then waits.
+        desk.lock.lock()
+        var waiting: [(Box, DispatchSemaphore)] = []
+        for (m, p, ctx) in calls { waiting.append(callOnThread(s, sc.c, m, params: p, context: ctx)) }
+        Thread.sleep(forTimeInterval: 0.3)
+        #expect(waiting.allSatisfy { $0.0.response == nil }, "they are waiting for the lock")
+        if how == "revoke" {
+            #expect(data(call(s, owner, "hub.clients.revoke", params: #"{"clientId":"\#(id)"}"#)) != nil)
+        } else {
+            #expect(data(call(s, owner, "hub.grants.set", params: #"{"clientId":"\#(id)","capabilities":["observe"],"desktops":[]}"#)) != nil)
+        }
+        desk.lock.unlock()
+        for (i, (box, done)) in waiting.enumerated() {
+            #expect(done.wait(timeout: .now() + 5) == .success)
+            #expect(box.response.flatMap(code) != nil, "\(calls[i].0) went ahead after the \(how)")
+        }
+        let after = platform.lock.withLock { Array(platform.calls[before...]) }
+        #expect(!after.contains { $0.hasPrefix("destroy") || $0.hasPrefix("launch") || $0.hasPrefix("screenshot") }, "\(after)")
+        #expect(s.desktops.find(sc.desktop) != nil, "the Desktop is still there")
+        #expect(s.hub.auditEvents().contains { ($0["reason"]?.stringValue ?? "").hasPrefix("after_lock") })
     }
 }

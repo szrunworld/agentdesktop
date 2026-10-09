@@ -137,6 +137,9 @@ public final class RuntimeService: @unchecked Sendable {
     /// confirmation. Set before the server starts.
     public var confirmer: TrustedConfirmer?
     let confirmationGate = ConfirmationGate()
+    let accessObservers = AccessObservers()
+    /// Called with a clientId whose access was revoked (A4 R4).
+    public func onAccessWithdrawn(_ observer: @escaping @Sendable (String) -> Void) { accessObservers.add(observer) }
     /// Reads socket peers' code identities (A4 S2); tests replace it.
     public var codeVerifier: CodeIdentityVerifier = SecurityCodeIdentityVerifier()
     /// Tests only: runs on a pushing connection between its access check and
@@ -407,10 +410,10 @@ public final class RuntimeService: @unchecked Sendable {
             return .success(.obj([("windows", .array(windows.map(\.json)))]))
 
         case .desktopCreate: return createDesktop(p, connection)
-        case .desktopDestroy: return destroyDesktop(p)
-        case .appLaunch: return launchApp(p)
-        case .windowBind: return bindWindow(p)
-        case .windowUnbind: return unbindWindow(p)
+        case .desktopDestroy: return destroyDesktop(p, connection)
+        case .appLaunch: return launchApp(p, connection)
+        case .windowBind: return bindWindow(p, connection)
+        case .windowUnbind: return unbindWindow(p, connection)
         case .sessionOpen: return openSession(p, connection)
         case .sessionShow: return showSession(p, connection)
         case .sessionClose: return closeSession(p, connection)

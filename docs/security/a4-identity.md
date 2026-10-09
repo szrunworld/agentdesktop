@@ -39,6 +39,7 @@ Runtime 在接受连接时，通过 `LOCAL_PEERTOKEN` 取得对端进程的内�
 以下操作必须由用户在宿主 App 的可信窗口里确认：
 - **配对**：App 调用 `hub.pairing.start` 后，宿主弹出确认窗口。窗口显示申请方名称、Runtime 读到的代码身份、程序路径和 pid、配对码，以及要授予的权限、Desktop / App 范围和期限。
 - **配对客户端请求的 owner 方法**：`runtime.stopAll`、`runtime.enableInput`、`ai.*`、`hub.clients.*`、`hub.grants.*`、`hub.connections.list`。每次调用都单独确认，窗口显示方法和完整参数。
+  - **R1（Kevin 2026-10-09）**：代码身份不是 `verified` 的客户端（`same_user`、`shared_interpreter`）无论是否经过确认，都**不能**获得敏感管理权限：`ai.*`、`hub.clients.list/show`、`hub.grants.list`、`hub.connections.list`、`runtime.enableInput`，以及任何扩大或延长授权的 `hub.grants.set`，一律返回 `unverified_identity`，不弹窗。它们只能请求**收回权限**的操作：`hub.clients.revoke`、`hub.grants.revoke`、只缩小范围且不延长期限的 `hub.grants.set`、`runtime.stopAll`，并且仍须用户在窗口里亲自确认。在 S4 之前，本产品 CLI 也属于 `same_user`，所以开发版的 CLI 无法执行 `agents list` 或 `ai …` 这类管理命令。
 
 确认规则：
 - 默认按钮是「拒绝」（Return / Escape 都是拒绝）。点「批准…」之后，还要通过系统的用户身份验证（Touch ID 或登录密码，LocalAuthentication）。别的进程即使能用辅助功能点按钮，也无法替用户完成这一步。
@@ -85,6 +86,17 @@ Runtime 在接受连接时，通过 `LOCAL_PEERTOKEN` 取得对端进程的内�
 | 撤销后重连 | 旧凭据永久失效；重新配对得到新的 clientId | 续期后用原凭据重连 |
 | 扩大授权 | 不切断连接 | 不涉及 |
 
+### 拿到 Desktop 锁之后再查一次（R3）
+
+所有在 Desktop 锁下执行的动作（`desktop.destroy`、`app.launch`、`window.bind/unbind`、`session.open`、`observe`、`act`、`wait`），在**拿到锁之后、执行受保护动作之前**，都会对配对客户端再做一次完整检查：连接是否已被切断、client 是否有效、grant 是否有效、能力是否覆盖、Desktop 是否在范围内。等锁期间被撤销或收窄的请求不会执行，审计 reason 以 `after_lock:` 开头。
+
+### 撤销后的后台工作（R4）
+
+- 新的 Run、尚未开始的动作：一律拒绝（请求检查、拿锁后检查、投递前检查三道关）。
+- 正在进行的 Run：该客户端的所有 Run 停止（`client_revoked` / `grant_revoked` / `grant_narrowed`）。已经越过投递边界的动作按 ADR v2.2 的停止竞态规则收尾：回执保留，结果不明的保持 unknown，不会被当作没有发生。
+- 它经确认发起的 AI 后台任务（`ai.tests.start`、`ai.models.refresh`）：撤销 client 或撤销 grant 时，宿主通知 AI 服务取消该调用方所有排队中和执行中的 operation，不再继续调用模型。收窄 grant 不会取消已批准的工作。
+- 撤销之后，任何新的敏感动作都无法再借用已撤销的授权发起。
+
 ### 撤销的线性化边界
 
 `hub.clients.revoke`、`hub.grants.revoke`，以及收窄范围的 `hub.grants.set`，按以下顺序执行：
@@ -115,10 +127,10 @@ ACP bridge、BOSS Agent、WeChat Agent 都是外部 App，必须各自配对（�
 - 隔离级别取决于客户端的代码身份（见「代码身份」一节）：`same_user` 级别的客户端，凭据被同用户进程复制后仍可使用；这类客户端在确认窗口里会如实标出。本产品 CLI 要到 S4（Developer ID + hardened runtime）之后才能达到 `verified`。
 - 能调试或注入其他进程的程序（root、关闭 SIP、`get-task-allow`、用户授予的高级权限），以及用户自己在钥匙串里点了「始终允许」、或在确认窗口里批准了不该批准的申请，都超出应用层能防御的范围。
 - callerFacts（pid、可执行文件路径）只做展示，不参与认证；参与认证的是内核 audit token 对应的代码签名。
-- 撤销与副作用的竞态：`desktop.destroy`、`app.launch`、`window.bind` 在通过授权后，可能要等待 Desktop 锁（最长 30 秒），等待期间不会再检查授权。如果这段时间里授权被收窄或撤销，已经受理的请求仍会执行完（回复会因连接已切断而发不出去）。act 和 wait 在动作发出前会再检查一次。这一点在 A4 之前就存在，也与「已受理的动作按规则执行」一致。
 - 确认窗口重算的 digest 用的是同一进程内的同一份数据，本身不提供额外保证。真正起作用的是「参数完整显示、过大即拒绝、不可信文字一律惰性显示」。
 - 解释器名单不可能列全：内嵌脚本引擎的签名程序无法识别，Apple 平台二进制没有 Team ID，会按 same_user 处理（保守）。
 - 已批准、正在执行的 owner 操作（例如 `ai.tests.start`、`ai.models.refresh` 产生的后台任务）是用户亲自批准的，撤销请求方之后它们会继续执行完。撤销只阻止新的请求和尚未开始的动作（评审 L2）。
 - 钥匙串（S3）的残余风险：同用户进程可以抢先在登录钥匙串里写入同 service/account 的条目，让 CLI 以攻击者的身份工作；任何进程也都可以直接执行 CLI 来借用它的凭据（confused deputy）。要等 S4 签名之后，改用 Data Protection 钥匙串和 access group 才能消除（评审 L7，未实测）。
 - 未配对连接可以调用 `runtime.capabilities`，它会暴露方法列表和屏幕录制 / 辅助功能权限状态（契约规定开放，属于信息暴露，不能借此执行任何操作）。
+- 发布阻断项 S4 见 `docs/release/a4-release-gate.md`（`scripts/verify-release-signing.sh`）。
 - 详见 `docs/security/a4-credential-assessment.md`。

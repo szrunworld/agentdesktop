@@ -44,6 +44,13 @@ let signedB = CodeIdentity(level: .verified, identifier: "com.example.other", te
                            requirement: "identifier \"com.example.other\" and anchor apple generic and certificate leaf[subject.OU] = TEAMBBBBBB")
 let script = CodeIdentity(level: .sameUser, identifier: "python3")
 
+/// Mark a test connection as verified code (Developer ID, hardened runtime).
+@discardableResult
+func asVerified(_ c: ConnectionState) -> ConnectionState {
+    c.codeIdentity = signedA
+    return c
+}
+
 /// A socket connection whose kernel-reported program is `program`.
 func peer(_ s: RuntimeService, _ program: String?) -> ConnectionState {
     let c = ConnectionState(socketPeer: getuid(), pid: 4242, executable: "/opt/\(program ?? "x")")
@@ -176,6 +183,7 @@ func secAnythingButAnApprovalGrantsNothing(_ answer: String) throws {
     #expect(s.hub.clients().isEmpty)
     // A paired client's owner call is refused, not run.
     let (app, _) = try pairedConnection(s, capabilities: ["observe"])
+    asVerified(app)
     #expect(errorDetails(call(s, app, "hub.clients.list"))?["reason"]?.stringValue == "no_trusted_ui")
 }
 
@@ -209,6 +217,7 @@ func secAnythingButAnApprovalGrantsNothing(_ answer: String) throws {
     let window = FakeConfirmer()
     s.confirmer = window
     let (app, id) = try pairedConnection(s, capabilities: ["observe"], name: "cli")
+    asVerified(app)
     let (_, other) = try pairedConnection(s, capabilities: ["observe", "act"], name: "wechat")
     let listed = try #require(data(call(s, app, "hub.clients.list")))
     #expect(listed["clients"]?.arrayValue?.count == 2)
@@ -242,7 +251,9 @@ func secAnythingButAnApprovalGrantsNothing(_ answer: String) throws {
                 let window = FakeConfirmer { r in release.wait(); return .approved(digest: r.digest) }
                 s.confirmer = window
                 let (app, _) = try pairedConnection(s, capabilities: ["observe"])
+                asVerified(app)
                 let (app2, _) = try reconnectAs(s, app)
+                asVerified(app2)
                 let done = DispatchSemaphore(value: 0)
                 Thread { _ = s.respond(to: Data(requestLine("hub.clients.list", id: "first").utf8), on: app); done.signal() }.start()
                 #expect(waitFor { window.requests.count == 1 })
@@ -379,6 +390,7 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
     let window = FakeConfirmer()
     s.confirmer = window
     let (app, _) = try pairedConnection(s, capabilities: ["observe"], name: "cli")
+    asVerified(app)
     let (_, other) = try pairedConnection(s, capabilities: ["observe"], name: "other")
     let apps = (0..<60).map { #""com.example.a-rather-long-bundle-identifier.app\#($0)""# }.joined(separator: ",")
     let r = call(s, app, "hub.grants.set", params: #"{"clientId":"\#(other)","capabilities":["observe","act"],"desktops":[],"apps":[\#(apps)]}"#)
@@ -490,7 +502,8 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
 
 @Test func scriptsOfOneInterpreterPairSideBySideButARefusedOneWaits() throws {
     let s = platformService()
-    let window = FakeConfirmer { _ in .denied }
+    let bothAsked = DispatchSemaphore(value: 0)
+    let window = FakeConfirmer { _ in bothAsked.wait(); bothAsked.signal(); return .denied }
     s.confirmer = window
     // Two python agents (same executable, different processes): both may ask.
     let a = ConnectionState(socketPeer: getuid(), pid: 501, executable: "/usr/bin/python3")
@@ -499,11 +512,17 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
         _ = hello(s, c)
         #expect(data(call(s, c, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#)) != nil)
     }
+    #expect(s.hub.pairings().count == 2, "both are waiting at once")
+    bothAsked.signal()
     #expect(waitFor { window.requests.count == 2 })
     #expect(waitFor { s.hub.pairings().isEmpty })
-    // Refused by the user: that process waits before asking again.
+    // Refused by the user: that program waits before asking again, and a
+    // new process of it does not start over.
     let r = call(s, a, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#)
     #expect(errorDetails(r)?["reason"]?.stringValue == "pairing_cooldown")
+    let fresh = ConnectionState(socketPeer: getuid(), pid: 999, executable: "/usr/bin/python3")
+    _ = hello(s, fresh)
+    #expect(errorDetails(call(s, fresh, "hub.pairing.start", params: #"{"agentName":"py","requested":{"capabilities":["observe"]}}"#))?["reason"]?.stringValue == "pairing_cooldown")
     #expect(window.requests.count == 2)
 }
 
@@ -528,4 +547,47 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
     #expect(waitFor { s.hub.auditEvents().contains { $0["reason"]?.stringValue == "confirmation_busy" } })
     for _ in 0..<ConfirmationGate.maxWaiting { release.signal() }
     #expect(waitFor { s.hub.pairing(id)?.state == "approved" }, "asked and approved once the line had room")
+}
+
+
+// MARK: A4 R1: unverified code gets no sensitive management
+
+@Test func unverifiedCodeMayOnlyAskForWhatTakesAccessAway() throws {
+    let s = platformService()
+    let window = FakeConfirmer()
+    s.confirmer = window
+    let (script, _) = try pairedConnection(s, capabilities: ["observe"], name: "py")   // same_user
+    let (_, other) = try pairedConnection(s, capabilities: ["observe", "act"], desktops: ["created"], name: "other")
+    // Sensitive: refused without even asking.
+    for (m, p) in [("hub.clients.list", "{}"), ("hub.connections.list", "{}"), ("ai.connections.list", "{}"),
+                   ("runtime.enableInput", "{}"),
+                   ("hub.grants.set", #"{"clientId":"\#(other)","capabilities":["observe","act","desktop.manage"],"desktops":["created"]}"#)] {
+        let r = call(s, script, m, params: p)
+        #expect(errorDetails(r)?["reason"]?.stringValue == "unverified_identity", "\(m)")
+    }
+    // A shared interpreter counts as unverified too.
+    let (node, _) = try pairedConnection(s, capabilities: ["observe"], name: "node")
+    node.codeIdentity = CodeIdentity(level: .sharedInterpreter, identifier: "node", teamId: "HX7739G8FX", hardenedRuntime: true, requirement: "r")
+    #expect(errorDetails(call(s, node, "hub.clients.list"))?["reason"]?.stringValue == "unverified_identity")
+    #expect(window.requests.isEmpty, "the user was not asked")
+    // Taking access away: asked, then done.
+    #expect(data(call(s, script, "hub.grants.set", params: #"{"clientId":"\#(other)","capabilities":["observe"],"desktops":["created"],"durationSeconds":60}"#)) != nil)
+    #expect(data(call(s, script, "hub.clients.revoke", params: #"{"clientId":"\#(other)"}"#)) != nil)
+    #expect(window.requests.map(\.action) == ["hub.grants.set", "hub.clients.revoke"])
+    #expect(s.hub.client(other)?.state == "revoked")
+}
+
+@Test func revokingAClientOrItsGrantTellsTheServicesNarrowingDoesNot() throws {
+    let s = platformService()
+    final class Seen: @unchecked Sendable { let lock = NSLock(); var ids: [String] = [] }
+    let seen = Seen()
+    s.onAccessWithdrawn { id in seen.lock.withLock { seen.ids.append(id) } }
+    let owner = handshaken(s)
+    let (_, a) = try pairedConnection(s, capabilities: ["observe", "act"], name: "a")
+    let (_, b) = try pairedConnection(s, capabilities: ["observe"], name: "b")
+    #expect(data(call(s, owner, "hub.grants.set", params: #"{"clientId":"\#(a)","capabilities":["observe"],"desktops":[]}"#)) != nil)
+    #expect(seen.lock.withLock { seen.ids }.isEmpty, "a narrower grant keeps its approved work")
+    #expect(data(call(s, owner, "hub.grants.revoke", params: #"{"clientId":"\#(a)"}"#)) != nil)
+    #expect(data(call(s, owner, "hub.clients.revoke", params: #"{"clientId":"\#(b)"}"#)) != nil)
+    #expect(seen.lock.withLock { seen.ids } == [a, b])
 }

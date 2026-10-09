@@ -23,7 +23,12 @@ extension RuntimeService {
     /// `until` (the request's deadline) or after `desktopLockWait`: a
     /// Desktop held by a slow operation delays its callers only that long,
     /// and nothing is done when the wait ends.
-    func withDesktop(_ id: JSONValue?, until: Date? = nil, _ body: (DesktopRecord) throws -> JSONValue) -> Result<JSONValue, RuntimeError> {
+    /// Run `body` under the Desktop's lock. With a caller, its access is
+    /// checked once more after the lock is held, right before anything is
+    /// done (A4 R3): a request that waited for the lock while the owner
+    /// revoked or narrowed its access does nothing.
+    func withDesktop(_ id: JSONValue?, until: Date? = nil, as c: ConnectionState? = nil, method: String = "",
+                     _ body: (DesktopRecord) throws -> JSONValue) -> Result<JSONValue, RuntimeError> {
         switch desktop(id) {
         case let .failure(e): return .failure(e)
         case let .success(d):
@@ -35,6 +40,11 @@ extension RuntimeService {
             }
             defer { d.lock.unlock() }
             guard d.state != "destroyed" else { return .failure(.notFound("no desktop \(d.desktopId)")) }
+            if let c, let e = recheckAct(c, desktopId: d.desktopId, method: method) {
+                hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied",
+                          reason: "after_lock: " + (e.details?["reason"]?.stringValue ?? e.code))
+                return .failure(e)
+            }
             do {
                 return .success(try body(d))
             } catch let e as RuntimeError {
@@ -96,9 +106,9 @@ extension RuntimeService {
         }
     }
 
-    func destroyDesktop(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
+    func destroyDesktop(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
-        return withDesktop(p["desktopId"]) { d in
+        return withDesktop(p["desktopId"], as: c, method: "desktop.destroy") { d in
             if let holder = execution.holder(of: d.desktopId) {
                 throw RuntimeError("conflict", "run \(holder) controls desktop \(d.desktopId); cancel it first",
                                    phase: .handler, details: .obj([("holderRunId", .string(holder))]))
@@ -142,9 +152,9 @@ extension RuntimeService {
         }
     }
 
-    func launchApp(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
+    func launchApp(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
-        return withDesktop(p["desktopId"]) { d in
+        return withDesktop(p["desktopId"], as: c, method: "app.launch") { d in
             guard d.kind == .virtual else {
                 throw RuntimeError("invalid_target",
                                    "desktop \(d.desktopId) is physical: it binds windows the user's apps already show; app.launch is for virtual Desktops",
@@ -168,9 +178,9 @@ extension RuntimeService {
     }
 
     /// Move the window onto the Desktop and make it the Desktop's target.
-    func bindWindow(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
+    func bindWindow(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
-        return withDesktop(p["desktopId"]) { d in
+        return withDesktop(p["desktopId"], as: c, method: "window.bind") { d in
             guard let pid = p["pid"]?.intValue.map(Int32.init) else { throw RuntimeError.schemaInvalid("pid is required") }
             let wanted = p["windowId"]?.intValue.map(UInt32.init)
             let process = backend.processIdentity(pid)
@@ -209,8 +219,8 @@ extension RuntimeService {
         }
     }
 
-    func unbindWindow(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
-        withDesktop(p["desktopId"]) { d in
+    func unbindWindow(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
+        withDesktop(p["desktopId"], as: c, method: "window.unbind") { d in
             if d.binding != nil {
                 d.generation += 1
                 d.binding = nil
@@ -220,7 +230,7 @@ extension RuntimeService {
     }
 
     func openSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
-        withDesktop(p["desktopId"]) { d in
+        withDesktop(p["desktopId"], as: c, method: "session.open") { d in
             sessions.open(desktopId: d.desktopId, caller: c.clientId, at: nowString).json
         }
     }
