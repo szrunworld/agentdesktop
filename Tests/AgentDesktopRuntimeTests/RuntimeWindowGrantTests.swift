@@ -749,3 +749,15 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     #expect(revoked.windowGrants == [id])
     #expect(st.s.hub.windowGrant(id)?.state == "revoked")
 }
+
+@Test func anEndingThatCannotBeSavedStillDeletesItsTransients() throws {
+    let (sc, _, g, _) = try calculatorScene(["observe"])
+    let image = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"])
+    let id = try #require(image["artifactId"]?.stringValue)
+    let path = sc.s.artifacts.path(for: id, ext: "png")
+    #expect(FileManager.default.fileExists(atPath: path))
+    sc.s.hub.failsWindowGrantWrites = true
+    sc.s.endWindowGrant(g, reason: "window_closed")
+    #expect(!FileManager.default.fileExists(atPath: path), "deleted though the ending is not saved yet")
+    #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "ended")
+}

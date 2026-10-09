@@ -61,7 +61,14 @@ extension RuntimeService {
     }
 
     func endWindowGrantSaved(_ g: HubStore.WindowGrant, state: String = "ended", reason: String, by c: ConnectionState? = nil) throws {
-        guard try hub.endWindowGrant(g.windowGrantId, state: state, reason: reason) else { return }
+        let ended: Bool
+        do { ended = try hub.endWindowGrant(g.windowGrantId, state: state, reason: reason) } catch {
+            // Ended in memory all the same (the store's tombstone): what was
+            // kept only under it goes now (Codex on 1481ed3).
+            artifacts.removeTransients(windowGrantId: g.windowGrantId)
+            throw error
+        }
+        guard ended else { return }
         artifacts.removeTransients(windowGrantId: g.windowGrantId)
         hub.audit(connectionId: c?.connectionId ?? "runtime", clientId: g.clientId, method: "hub.windows", decision: state == "revoked" ? "revoked" : "ended",
                   reason: "\(g.windowGrantId) \(reason)")
