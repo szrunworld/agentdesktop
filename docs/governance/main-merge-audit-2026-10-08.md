@@ -186,6 +186,7 @@ Kevin 裁决：两者都登记为"未经明确授权的合并事件"，不回滚
 | #153 | 10-09 04:14:13 | 3403e05 → 5237340 | ⚠️ 授权 SHA 不一致（统一裁决写 d9a5e75；9c 自述收到的是 3403e05） | b9、42 审过 | build 通过 | 会话自述：9c | 42 合并后复审没有问题 | 不需要 | 待 Kevin 验收 |
 | #159 | 10-09 04:14:51 | e3a803b → c258686 | ✅ | b9 审过 | build 通过 | 会话自述：42 | — | 不需要 | 待 Kevin 验收 |
 | #151 | 10-09 04:15:34 | f61931f → 30b65f4 | ✅（用户配置推迟到 #137） | b9、42 审过 | build 通过 | 会话自述：42 | — | 不需要 | 待 Kevin 验收 |
+| #160 | 10-09 04:36:29 | 50dd5ae → de99f69 | ✅ Kevin 授权，仅限 50dd5ae；指定 b9 统一协调 | b9 独立复审 50dd5ae | build 通过 | 会话自述：b9（Kevin 指定的唯一执行者；80、42 书面确认未操作），`gh pr merge 160 --merge --match-head-commit 50dd5ae…` | — | 不需要 | 待 Kevin 验收 |
 
 ### #119–#123 的后续要求（Kevin 2026-10-09）
 
@@ -213,3 +214,15 @@ Kevin 裁决：两者都登记为"未经明确授权的合并事件"，不回滚
   - `app.launch` Calculator 被拒（`permission_denied`、`launch_requires_grant`、notSent），前后都没有 Calculator 进程；
   - 应用列表和窗口列表被拒；
   - stop-all 成功，enable-input 被拒。
+
+### #160 合并记录（b9，2026-10-09）
+
+- 合并前核对（04:36Z）：
+  - head 仍是 `50dd5ae161aab0e04a746def635dbbd6f69369ea`；
+  - 没有 Codex 意见，也没有新的阻断意见；
+  - CI build=SUCCESS，PR 状态 CLEAN；
+  - 差异只有 `Tests/AgentDesktopIOSTests/WDAClientTests.swift`（+48 −9），与审核范围一致。
+- 执行前已书面通知 80（作者）和 42：由 b9 唯一执行；两者都回复没有合并，也不会合并或推送。
+- 合并提交 `de99f69`，父提交是 main `30b65f4` 和 `50dd5ae`。
+- `gh` 当时返回网络错误（EOF），但 API 随后确认 PR 已在 04:36:29Z 合并；没有重复执行。
+- main CI（run 37884677368）：合并后正在运行，结果见下一次更新。
