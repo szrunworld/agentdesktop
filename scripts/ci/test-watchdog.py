@@ -103,6 +103,14 @@ def process_environment(pid):
     return [p.decode("utf-8", "replace") for p in parts[argc:] if p]
 
 
+def within(deadline, limit):
+    """A step's time limit: its own, or less when a deadline is nearer
+    (never below half a second, so the step can still answer)."""
+    if deadline is None:
+        return limit
+    return max(0.5, min(limit, deadline - time.monotonic()))
+
+
 def run_step(args, timeout=None):
     """Run an external step with a time limit; (ok, stdout, detail)."""
     limit = timeout or STEP_TIMEOUT
@@ -131,11 +139,11 @@ WAITING = ("semaphore_wait", "__psynch_cvwait", "__ulock_wait", "__psynch_mutexw
            "mach_msg", "kevent", "read", "__wait4", "waitUntilExit", "dispatch_sync", "_dispatch_sync")
 
 
-def processes():
+def processes(deadline=None):
     """pid -> (ppid, pgid, start, command) for every process; start is the
     process start time (with the pid it identifies a process; pids are
     reused)."""
-    ok, rows, _ = run_step(["ps", "-axo", "pid=,ppid=,pgid=,uid=,lstart=,command="], timeout=10)
+    ok, rows, _ = run_step(["ps", "-axo", "pid=,ppid=,pgid=,uid=,lstart=,command="], timeout=within(deadline, 10))
     procs = {}
     for row in rows.splitlines():
         parts = row.split()
@@ -201,27 +209,43 @@ class Run:
                     changed = True
         return {pid: procs[pid][3] for pid in found if pid in procs}
 
-    def members(self):
-        """pid -> command of every live process of the run."""
-        procs = processes()
+    def members(self, deadline=None):
+        """pid -> command of every live process of the run. With a deadline,
+        every step is limited to the time left (Codex on #188)."""
+        procs = processes(deadline)
         live = self._tree(procs)
         for pid, (start, cmd) in self.seen.items():
             if pid in procs and procs[pid][2] == start:
                 live[pid] = procs[pid][3]
         if self.tty:
-            _, out, _ = run_step(["lsof", "-t", self.tty], timeout=10)
+            _, out, _ = run_step(["lsof", "-t", self.tty], timeout=within(deadline, 10))
             for t in out.split():
                 if t.isdigit() and int(t) in procs and int(t) != os.getpid():
                     live[int(t)] = procs[int(t)][3]
-        live.update(self._marked(procs, set(live)))
+        live.update(self._marked(procs, set(live), deadline))
         return dict(sorted(live.items()))
 
-    def _marked(self, procs, known):
+    def _own_helpers(self, procs):
+        """The watchdog's own helper processes (ps, lsof, sudo and what they
+        start), which are never part of the run (Codex on #188: the snapshot
+        ps showed up as an unverifiable leftover)."""
+        mine = {os.getpid()}
+        changed = True
+        while changed:
+            changed = False
+            for pid, (ppid, _, _, _) in procs.items():
+                if ppid in mine and pid not in mine and pid != self.root:
+                    mine.add(pid)
+                    changed = True
+        return mine
+
+    def _marked(self, procs, known, deadline=None):
         """Processes started since the run began that carry its marker."""
         tag = f"{MARKER}={self.marker}"
         found, unread = {}, []
+        helpers = self._own_helpers(procs)
         for pid, (_, _, start, cmd) in procs.items():
-            if pid in known or pid == os.getpid() or start < self.started_at - 1:
+            if pid in known or pid in helpers or start < self.started_at - 1:
                 continue
             if cmd == "<defunct>" or (cmd.startswith("(") and cmd.endswith(")")):
                 continue  # already exited (a zombie, or gone while ps ran)
@@ -236,7 +260,7 @@ class Run:
         self.unverifiable = {}
         if unread and USE_SUDO:
             ok, out, _ = run_step(["sudo", "-n", "ps", "-E", "-ww", "-o", "pid=,command=", "-p",
-                                   ",".join(map(str, unread))], timeout=10)
+                                   ",".join(map(str, unread))], timeout=within(deadline, 10))
             readable = set()
             if ok:
                 for row in out.splitlines():
@@ -248,6 +272,11 @@ class Run:
             self.unverifiable = {pid: procs[pid][3] for pid in unread if pid not in readable}
         elif unread:
             self.unverifiable = {pid: procs[pid][3] for pid in unread}
+        if self.unverifiable:
+            # Only what is still there, as the same process (same start time).
+            now = processes(deadline)
+            self.unverifiable = {pid: cmd for pid, cmd in self.unverifiable.items()
+                                 if pid in now and now[pid][2] == procs[pid][2]}
         return found
 
     def stop(self):
@@ -317,7 +346,7 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
         f.write("\n".join(open_tests) + "\n")
     step("unfinished tests", "ok")
 
-    procs = run.members()
+    procs = run.members(deadline=began + DIAGNOSIS_BUDGET)
     report["processes"] = [{"pid": pid, "command": cmd} for pid, cmd in procs.items()]
     step("processes of the run", "ok", f"{len(procs)} found")
     print("processes of the run:", flush=True)
@@ -381,6 +410,40 @@ def report_unverifiable(run, out_dir, exit_status, last_output):
     print(f"=== report in {out_dir}; incomplete steps: environment check ===", flush=True)
 
 
+class Output:
+    """The command's output: echoed as it comes, parsed for test results,
+    and the time of the last byte. The main loop and the final drain both
+    go through take() (Codex on #188)."""
+
+    def __init__(self):
+        self.started, self.finished = [], set()
+        self.last = time.monotonic()
+        self._pending = b""
+
+    def take(self, data):
+        self.last = time.monotonic()
+        sys.stdout.buffer.write(data)
+        sys.stdout.flush()
+        self._pending += data
+        *lines, self._pending = self._pending.split(b"\n")
+        for raw in lines:
+            self._line(raw)
+
+    def finish(self):
+        """The last line may have no newline."""
+        if self._pending:
+            self._line(self._pending)
+            self._pending = b""
+        sys.stdout.flush()
+
+    def _line(self, raw):
+        line = ANSI.sub("", raw.decode("utf-8", "replace"))
+        if (m := FINISHED.search(line)):
+            self.finished.add(m.group(1) or m.group(2))
+        elif (m := STARTED.search(line)):
+            self.started.append(m.group(1) or m.group(2))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stall", type=float, default=120)
@@ -399,9 +462,7 @@ def main():
     child = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, start_new_session=True, env=env)
     os.close(slave)
     run = Run(child.pid, tty, marker, started_at)
-    started, finished = [], set()
-    last_output = time.monotonic()
-    pending = b""
+    output = Output()
     while True:
         ready, _, _ = select.select([master], [], [], 0.25)
         if ready:
@@ -410,17 +471,7 @@ def main():
             except OSError:
                 data = b""
             if data:
-                last_output = time.monotonic()
-                sys.stdout.buffer.write(data)
-                sys.stdout.flush()
-                pending += data
-                *lines, pending = pending.split(b"\n")
-                for raw in lines:
-                    line = ANSI.sub("", raw.decode("utf-8", "replace"))
-                    if (m := FINISHED.search(line)):
-                        finished.add(m.group(1) or m.group(2))
-                    elif (m := STARTED.search(line)):
-                        started.append(m.group(1) or m.group(2))
+                output.take(data)
         # Checked on every turn, data or not (Codex on #188): a leftover
         # writing to the terminal must not keep the exit from being seen.
         if child.poll() is None:
@@ -439,8 +490,8 @@ def main():
                     break
                 if not data:
                     break
-                sys.stdout.buffer.write(data)
-            sys.stdout.flush()
+                output.take(data)  # the same parser (Codex on #188)
+            output.finish()
             # The command is done; anything of its run still alive is a
             # leftover (a Runtime, a helper, a background task): evidence,
             # then stop it and fail.
@@ -450,21 +501,21 @@ def main():
                 # it began could not be checked: reported, left alone, and the
                 # command's own status kept (Codex and b9 on #188; locally
                 # they are likely other sessions', and CI has sudo).
-                report_unverifiable(run, args.out, child.returncode, last_output)
+                report_unverifiable(run, args.out, child.returncode, output.last)
                 return child.returncode
             if left:
-                diagnose(run, started, finished, args.out,
+                diagnose(run, output.started, output.finished, args.out,
                          f"the command exited ({child.returncode}) but {len(left)} process(es) of its run remain",
-                         "leftover processes", last_output, child.returncode)
+                         "leftover processes", output.last, child.returncode)
                 run.stop()
                 print("test-watchdog: stopped processes left behind by the run (exit 124)", flush=True)
                 return 124
             return child.returncode
-        if time.monotonic() - last_output > args.stall:
+        if time.monotonic() - output.last > args.stall:
             run.snapshot(force=True)
-            diagnose(run, started, finished, args.out,
+            diagnose(run, output.started, output.finished, args.out,
                      f"output stalled for {args.stall:.0f} s (waiting on something, not necessarily a deadlock)",
-                     "output stalled", last_output, None)
+                     "output stalled", output.last, None)
             run.stop()
             child.wait()
             print(f"test-watchdog: stopped after output stalled for {args.stall:.0f} s (exit 124)", flush=True)

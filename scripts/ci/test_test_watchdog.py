@@ -175,5 +175,45 @@ class WatchdogTests(unittest.TestCase):
         self.assertTrue(any(k.startswith("sample") and v == "failed" for k, v in statuses.items()))
 
 
+    def test_a_clean_run_never_reports_the_watchdogs_own_helpers(self):
+        # Codex on #188: the snapshot's own ps, gone by the time it was
+        # checked, was reported as an unverifiable leftover of every run.
+        code, log, _, _ = self.run_watchdog(
+            ["sh", "-c", "echo hi; exit 0"],
+            env={"WATCHDOG_NO_SUDO": "1", "WATCHDOG_FAKE_UNREADABLE": "all"})
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("ps -axo", log)
+        self.assertNotIn("lsof -t", log)
+
+    def test_output_read_while_draining_is_parsed_like_the_rest(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("watchdog", WATCHDOG)
+        wd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wd)
+        out = wd.Output()
+        out.take("◇ Test a() started.\n◇ Test \"b c\" st".encode())
+        out.take("arted.\n✔ Test a() passed after 0.1 seconds.\n✘ Test \"b c\" failed".encode())
+        out.finish()  # the last line has no newline
+        self.assertEqual(out.started, ["a()", "b c"])
+        self.assertEqual(out.finished, {"a()", "b c"})
+
+    def test_results_printed_just_before_exit_reach_the_diagnosis(self):
+        code, _, _, out = self.run_watchdog(
+            ["sh", "-c", "(sleep 30 &); echo '◇ Test a() started.'; echo '✔ Test a() passed after 0.1 seconds.'; exit 0"])
+        self.assertEqual(code, 124)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        self.assertEqual(report["tests_finished"], 1)
+        self.assertEqual(report["tests_unfinished"], [])
+
+    def test_process_discovery_is_charged_to_the_budget(self):
+        code, _, took, _ = self.run_watchdog(
+            [sys.executable, "-c", 'import threading; print("◇ Test stuck() started."); '
+             'l=threading.Lock(); l.acquire(); l.acquire()'],
+            stall=3, env={"WATCHDOG_DIAGNOSIS_BUDGET": "0.5", "WATCHDOG_NO_SUDO": "1"})
+        self.assertEqual(code, 124)
+        self.assertLess(took, 15)
+
+
 if __name__ == "__main__":
     unittest.main()
