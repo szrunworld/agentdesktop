@@ -14,6 +14,11 @@ started and none had finished. Two things hid the cause:
   without a password), a summary goes to the log and the full reports to
   --out, and the command is stopped with exit status 124.
 
+If the command exits but processes of its run remain (a Runtime, a
+helper, a background task that may still hold the terminal), the same
+evidence is collected, they are stopped and the status is 124: output is
+drained without blocking, so a leftover can never hang the watchdog.
+
 Otherwise the command's own exit status is returned. Usage:
 
     test-watchdog.py --stall 120 --out DIR -- swift test --package-path engine
@@ -36,22 +41,45 @@ WAITING = ("semaphore_wait", "__psynch_cvwait", "__ulock_wait", "__psynch_mutexw
            "mach_msg", "kevent", "read", "__wait4", "waitUntilExit", "dispatch_sync", "_dispatch_sync")
 
 
-def tree(root):
-    """pid -> command for root and all its descendants."""
-    rows = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+def processes():
+    """pid -> (ppid, pgid, command) for every process."""
+    rows = subprocess.run(["ps", "-axo", "pid=,ppid=,pgid=,command="], capture_output=True, text=True).stdout
     procs = {}
     for row in rows.splitlines():
-        parts = row.strip().split(None, 2)
-        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
-            procs[int(parts[0])] = (int(parts[1]), parts[2])
-    found, changed = {root}, True
+        parts = row.strip().split(None, 3)
+        if len(parts) == 4 and all(p.isdigit() for p in parts[:3]):
+            procs[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3])
+    return procs
+
+
+def tree(root):
+    """pid -> command for everything the run started: root, its descendants,
+    and anything still in its process group (orphans are re-parented to
+    launchd once the root exits, but keep the group)."""
+    procs = processes()
+    found = {pid for pid, (_, pgid, _) in procs.items() if pgid == root}
+    found.add(root)
+    changed = True
     while changed:
         changed = False
-        for pid, (ppid, _) in procs.items():
+        for pid, (ppid, _, _) in procs.items():
             if ppid in found and pid not in found:
                 found.add(pid)
                 changed = True
-    return {pid: procs[pid][1] for pid in sorted(found) if pid in procs}
+    return {pid: procs[pid][2] for pid in sorted(found) if pid in procs}
+
+
+def stop_all(root):
+    """Kill the process group, then every remaining process of the run."""
+    try:
+        os.killpg(root, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    for pid in tree(root):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
 
 
 def summarise(sample_text, limit=400):
@@ -75,9 +103,9 @@ def summarise(sample_text, limit=400):
     return out[:limit]
 
 
-def diagnose(child_pid, started, finished, out_dir):
+def diagnose(child_pid, started, finished, out_dir, why):
     os.makedirs(out_dir, exist_ok=True)
-    print("\n=== test-watchdog: no output for the stall limit; collecting evidence (#183) ===", flush=True)
+    print(f"\n=== test-watchdog: {why}; collecting evidence (#183) ===", flush=True)
     open_tests = [t for t in started if t not in finished]
     print(f"tests started: {len(started)}, finished: {len(finished)}, still running: {len(open_tests)}", flush=True)
     for t in open_tests[:50]:
@@ -146,20 +174,35 @@ def main():
                         started.append(m.group(1) or m.group(2))
                 continue
         if child.poll() is not None:
-            # Drain whatever is left, then return the command's own status.
-            try:
-                while (data := os.read(master, 65536)):
-                    sys.stdout.buffer.write(data)
-            except OSError:
-                pass
+            # Drain what is left, never blocking: a process the run left
+            # behind can hold the terminal open forever (b9 on #188).
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select([master], [], [], 0.5)
+                if not ready:
+                    continue
+                try:
+                    data = os.read(master, 65536)
+                except OSError:
+                    break
+                if not data:
+                    break
+                sys.stdout.buffer.write(data)
             sys.stdout.flush()
+            # The command is done; anything of its run still alive is a
+            # leftover (a Runtime, a helper, a background task): evidence,
+            # then stop it and fail.
+            left = {pid: cmd for pid, cmd in tree(child.pid).items() if pid != child.pid}
+            if left:
+                diagnose(child.pid, started, finished, args.out,
+                         f"the command exited ({child.returncode}) but {len(left)} process(es) of its run remain")
+                stop_all(child.pid)
+                print("test-watchdog: stopped processes left behind by the run (exit 124)", flush=True)
+                return 124
             return child.returncode
         if time.monotonic() - last_output > args.stall:
-            diagnose(child.pid, started, finished, args.out)
-            try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            diagnose(child.pid, started, finished, args.out, f"no output for {args.stall:.0f} s")
+            stop_all(child.pid)
             child.wait()
             print(f"test-watchdog: stopped after {args.stall:.0f} s without output (exit 124)", flush=True)
             return 124
