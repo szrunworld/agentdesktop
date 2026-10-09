@@ -31,10 +31,17 @@ extension RuntimeService {
         backend.applications(includeBackground: true).first { $0.process.pid == pid }?.bundleId
     }
 
-    static func blockedAppError(notSent: Bool = true) -> RuntimeError {
-        RuntimeError("permission_denied",
-                     "iPhone Mirroring is not controlled through desktop methods: input to it reaches the phone without the iPhone protections. It stays refused until the iPhone device session is accepted",
-                     phase: .handler, notSent: notSent,
-                     details: .obj([("reason", .string("iphone_mirroring_blocked"))]))
+    /// `launched` and `quit` only for a launch found to be it afterwards:
+    /// the process, and whether it was quit (only one this launch provably
+    /// started is).
+    static func blockedAppError(notSent: Bool = true, launched: ProcessIdentity? = nil, quit: Bool = false) -> RuntimeError {
+        var details: [(String, JSONValue)] = [("reason", .string("iphone_mirroring_blocked"))]
+        var message = "iPhone Mirroring is not controlled through desktop methods: input to it reaches the phone without the iPhone protections. It stays refused until the iPhone device session is accepted"
+        if let launched {
+            details += [("process", launched.json), ("quit", .bool(quit))]
+            message += quit ? "; the launch had started it and it was quit"
+                : "; it could not be proven that this launch started it, so it was left running"
+        }
+        return RuntimeError("permission_denied", message, phase: .handler, notSent: notSent, details: .obj(details))
     }
 }

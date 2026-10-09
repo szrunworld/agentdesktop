@@ -176,14 +176,25 @@ extension RuntimeService {
                 || p["path"]?.stringValue.map({ Self.isBlocked(bundleId: Self.bundleId(atPath: $0)) }) == true {
                 throw Self.blockedAppError()
             }
+            // What was already running, to tell the user's own iPhone
+            // Mirroring from one this launch started.
+            let mirroringBefore = Set(backend.applications(includeBackground: true)
+                .filter { Self.isBlocked(bundleId: $0.bundleId) }.map(\.process.pid))
+            // At the precision start times are kept in (milliseconds).
+            let launchedAfter = Timestamp.date(nowString) ?? now()
             let (pid, windows) = try platform.launch(on: d.screen, bundleId: p["bundleId"]?.stringValue,
                                                      path: p["path"]?.stringValue,
                                                      newInstance: p["newInstance"]?.boolValue ?? false)
             // A path the check above could not read may still have opened
-            // it: it is closed again and not kept as this Desktop's app.
+            // it. It is never kept as this Desktop's app. It is quit only
+            // when this launch provably started it: not running before, and
+            // started after the launch began. Otherwise it is left alone.
             if Self.isBlocked(bundleId: runningBundleId(pid)) {
-                _ = platform.quit(pid: pid)
-                throw Self.blockedAppError(notSent: false)
+                let process = backend.processIdentity(pid)
+                let ours = !mirroringBefore.contains(pid)
+                    && process.startedAt.flatMap(Timestamp.date).map { $0 >= launchedAfter } == true
+                let quit = ours && platform.quit(pid: pid)
+                throw Self.blockedAppError(notSent: false, launched: process, quit: quit)
             }
             d.launched.append(backend.processIdentity(pid))
             return .obj([

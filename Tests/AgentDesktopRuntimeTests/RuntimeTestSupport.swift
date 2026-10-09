@@ -29,14 +29,17 @@ struct FixedBackend: RuntimeBackend {
     /// Processes the test has "restarted": same pid, other start time.
     var restarted: Set<Int32> = []
     func processIdentity(_ pid: Int32) -> ProcessIdentity {
-        ProcessIdentity(pid: pid, startedAt: restarted.contains(pid) ? "2026-10-08T09:00:00.000Z" : "2026-10-08T01:00:00.000Z")
+        if let at = opened.startedAt[pid] { return ProcessIdentity(pid: pid, startedAt: at) }
+        return ProcessIdentity(pid: pid, startedAt: restarted.contains(pid) ? "2026-10-08T09:00:00.000Z" : "2026-10-08T01:00:00.000Z")
     }
     /// Windows a test opens later, in front of every other (a reference, so
     /// a test can change it after the Runtime took its copy of the backend).
     final class Opened: @unchecked Sendable {
         var windows: [WindowSummary] = []; var listUnreadable = false
-        /// Apps started after the Runtime took its copy (#139).
+        /// Apps started after the Runtime took its copy, and start times
+        /// that differ from the fixed one (#139).
         var apps: [AppSummary] = []
+        var startedAt: [Int32: String] = [:]
     }
     var opened = Opened()
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
@@ -206,6 +209,7 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
 
     func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws -> (pid: Int32, windows: [PlatformWindow]) {
         note("launch \(bundleId ?? path ?? "?") on \(screen.name)")
+        onLaunch?()
         guard bundleId != "com.example.missing" else { throw PlatformError(.refused, "give a bundle ID of an installed app") }
         // The engine's answer when the launch hands back a process that was
         // already running: refused before anything is moved or bound.
@@ -314,6 +318,8 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     }
 
     var quit: [Int32] = []
+    /// Runs as a launch starts its app (#139).
+    var onLaunch: (() -> Void)?
     func quit(pid: Int32) -> Bool { lock.withLock { quit.append(pid) }; return true }
     var performed: [PlatformAction] = []
     /// Fail the next action: before or after dispatch.

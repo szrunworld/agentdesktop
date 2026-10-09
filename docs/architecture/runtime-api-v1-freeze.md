@@ -111,6 +111,21 @@ socket 客户端：
 - AI 配置只读开放：socket 客户端能读到全局 AI 连接的 `baseUrl` 和 `credentialRef`（钥匙串条目 ID，不是密钥本身）。
 - `runtime.status` 向 socket 客户端返回全局计数（Desktop、会话、活动 Run），其中包括主窗口的。只泄露数量，不泄露内容。
 
+### 2.2 安全策略拒绝：iPhone 镜像（#139，Kevin 2026-10-09 裁决）
+
+iPhone 镜像（`com.apple.ScreenContinuity`）是普通 macOS 应用，但对它的输入会直接到达手机，绕开 iPhone 专用的保护（粘贴事务、剪贴板暂缓恢复、跨进程输入阻断、状态判断、G2 限制）。**在 iPhone 设备会话正式验收之前，任何主体（包括 owner）都不能通过通用 Desktop API 操作它。** 由 Runtime 强制执行，不依赖客户端。
+
+| 入口 | 行为 |
+| --- | --- |
+| `app.launch`（bundleId，大小写不敏感；或路径，包括包内文件和软链接） | 拒绝，不调用平台 |
+| `app.launch` 启动后才发现是它 | 不记为 Desktop 的应用，不绑定；只有能证明是本次启动创建的进程（启动前不在运行、启动时间晚于本次启动开始）才退出它，用户原本在运行的镜像不动。`details.quit` 说明是否退出，`notSent: false` |
+| `window.bind`（虚拟或物理 Desktop） | 在授权检查之后拒绝，不移动窗口 |
+| 指向它的已有绑定上的 `observe` / `act` / `wait` | 拒绝，在截图、读取元素、发送输入之前；act 在请求账本中记为 `failed` |
+
+- 错误：`permission_denied`，`details.reason = iphone_mirroring_blocked`。这是**安全策略拒绝，不是授权不足**：任何 grant、capability 或配对都不能解除。不新增错误码，不改已有错误码语义（不使用 `capability_missing` / `unsupported_backend`，以免被理解为补授权或技术不支持）。
+- 应用列表、窗口列表等只读方法照常列出它。
+- 合并本项不代表 iPhone 设备会话具备发布条件。解除封禁必须单独提 PR，完成设备会话授权、安全隔离和真机验收，并获得新的明确授权。
+
 ## 3. Run：一个 RunStore，两类生命周期
 
 已在 PR1 实现的模型不变：`kind`（act / exec / unit）、`ownership`、`origin`、`lifetime`、`phase`/`outcome`/`quiescence`、`revision`。
