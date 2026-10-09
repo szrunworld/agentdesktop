@@ -41,7 +41,7 @@ Runtime 在接受连接时，通过 `LOCAL_PEERTOKEN` 取得对端进程的内�
 - **配对客户端请求的 owner 方法**：`runtime.enableInput`、`ai.*`、`hub.clients.*`、`hub.grants.*`、`hub.connections.list`。每次调用都单独确认，窗口显示方法和完整参数。
 - **`runtime.stopAll`**（按 #153 的收紧计划）：配对 App 凭 `run` 能力可以直接调用，但只停止**它自己的** Run（`closingReason` 为 `client_stop`），不关闭全局输入准入，也不需要确认。全局停止并关闭输入准入只有 owner（宿主窗口）能做。未配对连接不能调用。
 - **`runtime.status`**：对配对 App，Desktop、会话、Run、连接数只计它能看到或属于它的部分。
-  - **R1（Kevin 2026-10-09）**：代码身份不是 `verified` 的客户端（`same_user`、`shared_interpreter`）无论是否经过确认，都**不能**获得敏感管理权限：`ai.*`、`hub.clients.list/show`、`hub.grants.list`、`hub.connections.list`、`runtime.enableInput`，以及任何扩大或延长授权的 `hub.grants.set`，一律返回 `unverified_identity`，不弹窗。它们只能请求**收回权限**的操作：`hub.clients.revoke`、`hub.grants.revoke`、只缩小范围且不延长期限的 `hub.grants.set`，并且仍须用户在窗口里亲自确认。在 S4 之前，本产品 CLI 也属于 `same_user`，所以开发版的 CLI 无法执行 `agents list` 或 `ai …` 这类管理命令。
+  - **R1（Kevin 2026-10-09）**：代码身份不是 `verified` 的客户端（`same_user`、`shared_interpreter`）无论是否经过确认，都**不能**获得敏感管理权限：`ai.*`、`hub.clients.list/show`、`hub.grants.list`、`hub.connections.list`、`runtime.enableInput`，以及任何扩大或延长授权的 `hub.grants.set`，一律返回 `unverified_identity`，不弹窗。按 Kevin 的 R1 正式裁决（2026-10-09），它们只能放弃**自己**的权限：撤销自己（`hub.clients.revoke`）、收回自己的授权（`hub.grants.revoke`）、把自己的授权缩小且不延长（`hub.grants.set`），并且仍须 owner 在可信窗口里用 Touch ID / 密码亲自确认。窗口会写明「作用对象就是请求方自己」以及具体去掉了哪些能力、Desktop、App 和新的期限。它们**不能**影响任何其他客户端，即使只是收回权限也不行（`unverified_identity`，不弹窗）。确认后会再核对一次：目标授权变了、身份无法确认或 Touch ID 失败时，一律拒绝。任何客户端都不能扩大、延长或恢复自己的权限（`self_grant`）。在 S4 之前，本产品 CLI 也属于 `same_user`，所以开发版的 CLI 无法执行 `agents list` 或 `ai …` 这类管理命令。
 
 确认规则：
 - 默认按钮是「拒绝」（Return / Escape 都是拒绝）。点「批准…」之后，还要通过系统的用户身份验证（Touch ID 或登录密码，LocalAuthentication）。别的进程即使能用辅助功能点按钮，也无法替用户完成这一步。

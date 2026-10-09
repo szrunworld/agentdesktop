@@ -122,8 +122,9 @@ extension RuntimeService {
         return Self.programKey(callerFacts: c.callerFacts, codeIdentity: c.codeIdentity.json, fallback: c.connectionId)
     }
 
-    /// Owner calls that only take access away: an unverified client may still
-    /// ask the user for these (to revoke, to narrow, to stop everything).
+    /// Owner calls that only take access away (revoke, or a grants.set that
+    /// neither adds nor extends anything). An unverified client may ask the
+    /// user for these about its own access only.
     func isReductive(_ request: RuntimeRequest) -> Bool {
         switch request.method {
         case "hub.clients.revoke", "hub.grants.revoke":
@@ -226,7 +227,10 @@ extension RuntimeService {
     func confirmAdminCall(_ request: RuntimeRequest, _ c: ConnectionState) -> RuntimeError? {
         let method = request.method
         let target = request.params["clientId"]?.stringValue
-        if target == c.clientId, ["hub.grants.set", "hub.grants.revoke"].contains(method) {
+        let isSelf = target == c.clientId
+        let changesAccess = ["hub.grants.set", "hub.grants.revoke", "hub.clients.revoke"].contains(method)
+        // Its own access: only ever less of it (Kevin, R1 ruling of 2026-10-09).
+        if isSelf, changesAccess, !isReductive(request) {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "self_grant")
             return RuntimeError("permission_denied", "an app cannot change its own grant; the user does that in the Agent Desktop window",
                                 phase: .request, notSent: true, details: .obj([("reason", .string("self_grant"))]))
@@ -238,10 +242,12 @@ extension RuntimeService {
         // A4 R1: code whose identity cannot be bound (same_user, an
         // interpreter) gets no sensitive management, even with the user's
         // confirmation; it may only ask for what takes access away.
-        if c.codeIdentity.level != .verified, !isReductive(request) {
+        // Kevin's R1 ruling: it may only give up its OWN access (revoke itself,
+        // narrow its own grant), never touch another client's.
+        if c.codeIdentity.level != .verified, !(isSelf && changesAccess && isReductive(request)) {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "unverified_identity")
             return RuntimeError("permission_denied",
-                                "\(method) needs a client whose code identity is verified (Developer ID, hardened runtime); use the Agent Desktop window",
+                                "\(method) needs a client whose code identity is verified (Developer ID, hardened runtime); an unverified client may only give up its own access",
                                 phase: .request, notSent: true, details: .obj([("reason", .string("unverified_identity"))]))
         }
         // Refused by the user a moment ago: not asked again yet (round-four review L5).
@@ -263,7 +269,8 @@ extension RuntimeService {
         if let target, let client = hub.client(target) {
             details.append(("target", .obj([("clientId", .string(target)), ("agentName", .string(client.agentName)),
                                              ("codeIdentity", client.codeIdentity), ("grant", shownGrant?.json ?? .null),
-                                             ("sameProgramAsRequester", .bool(Self.sameProgram(client, c)))])))
+                                             ("isRequester", .bool(target == c.clientId)),
+                                             ("sameProgramAsRequester", .bool(target != c.clientId && Self.sameProgram(client, c)))])))
         }
         // What the user is shown is this revision of the target's grant; the
         // change applies to that revision only (round-four review H1).
@@ -280,7 +287,8 @@ extension RuntimeService {
         // The target changed meanwhile (the owner revoked or narrowed it):
         // what was approved no longer means the same; nothing is applied.
         if let target, hub.grant(target)?.revision != seenRevision
-            || (c.codeIdentity.level != .verified && !isReductive(request)) {
+            || (c.codeIdentity.level != .verified && !(isSelf && changesAccess && isReductive(request)))
+            || (isSelf && changesAccess && !isReductive(request)) {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "target_changed")
             return RuntimeError("conflict", "\(target) changed while the user was asked; ask again", phase: .handler, notSent: true,
                                 details: .obj([("reason", .string("target_changed"))]))

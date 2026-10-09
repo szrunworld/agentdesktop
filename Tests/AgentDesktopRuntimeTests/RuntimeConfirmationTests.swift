@@ -217,11 +217,11 @@ func secAnythingButAnApprovalGrantsNothing(_ answer: String) async throws {
         let asked = window.requests.count
         // Approving pairings is the window's alone, never an IPC call.
         #expect(errorDetails(call(s, app, "hub.pairing.approve", params: #"{"pairingId":"\#(pairingId)","grant":{"capabilities":["act"]}}"#))?["reason"]?.stringValue == "owner_only")
-        // Its own grant: refused before anyone is asked.
-        for (m, p) in [("hub.grants.set", #"{"clientId":"\#(id)","capabilities":["observe","act","desktop.manage"],"desktops":["created"],"durationSeconds":604800}"#),
-                       ("hub.grants.revoke", #"{"clientId":"\#(id)"}"#)] {
-            let r = call(s, app, m, params: p)
-            #expect(errorDetails(r)?["reason"]?.stringValue == "self_grant", "\(m)")
+        // More of its own access: refused before anyone is asked.
+        for p in [#"{"clientId":"\#(id)","capabilities":["observe","act","desktop.manage"],"desktops":["created"],"durationSeconds":604800}"#,
+                  #"{"clientId":"\#(id)","capabilities":["observe"],"desktops":[],"durationSeconds":604800}"#] {
+            let r = call(s, app, "hub.grants.set", params: p)
+            #expect(errorDetails(r)?["reason"]?.stringValue == "self_grant", "\(p)")
         }
         #expect(window.requests.count == asked, "the user was not even asked")
         #expect(s.hub.grant(id)?.capabilities == ["observe"])
@@ -582,7 +582,7 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
     let s = platformService()
     let window = FakeConfirmer()
     s.confirmer = window
-    let (script, _) = try pairedConnection(s, capabilities: ["observe"], name: "py")   // same_user
+    let (script, scriptId) = try pairedConnection(s, capabilities: ["observe", "act"], name: "py")   // same_user
     let (_, other) = try pairedConnection(s, capabilities: ["observe", "act"], desktops: ["created"], name: "other")
     // Sensitive: refused without even asking.
     for (m, p) in [("hub.clients.list", "{}"), ("hub.connections.list", "{}"), ("ai.connections.list", "{}"),
@@ -596,11 +596,20 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
     node.codeIdentity = CodeIdentity(level: .sharedInterpreter, identifier: "node", teamId: "HX7739G8FX", hardenedRuntime: true, requirement: "r")
     #expect(errorDetails(call(s, node, "hub.clients.list"))?["reason"]?.stringValue == "unverified_identity")
     #expect(window.requests.isEmpty, "the user was not asked")
-    // Taking access away: asked, then done.
-    #expect(data(call(s, script, "hub.grants.set", params: #"{"clientId":"\#(other)","capabilities":["observe"],"desktops":["created"],"durationSeconds":60}"#)) != nil)
-    #expect(data(call(s, script, "hub.clients.revoke", params: #"{"clientId":"\#(other)"}"#)) != nil)
+    // Kevin's R1 ruling: not even taking another client's access away.
+    for (m, p) in [("hub.grants.set", #"{"clientId":"\#(other)","capabilities":["observe"],"desktops":["created"],"durationSeconds":60}"#),
+                   ("hub.grants.revoke", #"{"clientId":"\#(other)"}"#), ("hub.clients.revoke", #"{"clientId":"\#(other)"}"#)] {
+        #expect(errorDetails(call(s, script, m, params: p))?["reason"]?.stringValue == "unverified_identity", "\(m) on another client")
+    }
+    #expect(window.requests.isEmpty && s.hub.client(other)?.state == "active")
+    // Giving up its own access: asked, then done.
+    #expect(data(call(s, script, "hub.grants.set", params: #"{"clientId":"\#(scriptId)","capabilities":["observe"],"desktops":[],"durationSeconds":60}"#)) != nil)
+    #expect(window.requests.last?.details["target"]?["isRequester"] == .bool(true))
+    // (narrowing cut its connection: it comes back on a new one)
+    let (back, _) = try reconnectAs(s, script)
+    #expect(data(call(s, back, "hub.clients.revoke", params: #"{"clientId":"\#(scriptId)"}"#)) != nil)
     #expect(window.requests.map(\.action) == ["hub.grants.set", "hub.clients.revoke"])
-    #expect(s.hub.client(other)?.state == "revoked")
+    #expect(s.hub.client(scriptId)?.state == "revoked")
 }
 
 @Test func revokingAClientOrItsGrantTellsTheServicesNarrowingDoesNot() throws {
@@ -624,9 +633,10 @@ func reconnectAs(_ s: RuntimeService, _ c: ConnectionState) throws -> (Connectio
 func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerAction: String, _ verified: Bool) throws {
     let s = platformService()
     let owner = handshaken(s)
-    let (app, _) = try pairedConnection(s, capabilities: ["observe"], name: "asker")
+    // A verified client changes another's grant; an unverified one only its own.
+    let (app, askerId) = try pairedConnection(s, capabilities: ["observe", "act", "desktop.manage"], desktops: ["created"], name: "asker")
     if verified { asVerified(app) }
-    let (_, b) = try pairedConnection(s, capabilities: ["observe", "act", "desktop.manage"], desktops: ["created"], name: "b")
+    let b = verified ? try pairedConnection(s, capabilities: ["observe", "act", "desktop.manage"], desktops: ["created"], name: "b").1 : askerId
     // The owner acts while the window is up; then the user approves.
     s.confirmer = FakeConfirmer { r in
         if ownerAction == "revokeGrant" {
@@ -639,7 +649,8 @@ func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerActio
     let before = try #require(s.hub.grant(b))
     // A "narrowing" of what B had when the window opened.
     let r = call(s, app, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe","act"],"desktops":["created"],"durationSeconds":60}"#)
-    #expect(errorDetails(r)?["reason"]?.stringValue == "target_changed", "\(ownerAction) verified=\(verified)")
+    #expect(data(r) == nil, "\(ownerAction) verified=\(verified)")
+    if verified { #expect(errorDetails(r)?["reason"]?.stringValue == "target_changed") }
     let after = try #require(s.hub.grant(b))
     if ownerAction == "revokeGrant" {
         #expect(after.state == "revoked", "the owner's revocation holds")
@@ -653,8 +664,8 @@ func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerActio
     try await offPoolConfirm {
         let s = platformService()
         s.confirmer = FakeConfirmer { r in Thread.sleep(forTimeInterval: 1.2); return .approved(digest: r.digest) }
-        let (app, _) = try pairedConnection(s, capabilities: ["observe"], name: "asker")
-        let (_, b) = try pairedConnection(s, capabilities: ["observe", "act"], name: "b")
+        // Its own grant: the only one an unverified client may narrow.
+        let (app, b) = try pairedConnection(s, capabilities: ["observe", "act"], name: "asker")
         var g = try #require(s.hub.grant(b))
         g.expiresAt = Timestamp.string(Date().addingTimeInterval(30))
         try s.hub.putGrant(g)
@@ -663,8 +674,10 @@ func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerActio
         // took to answer. Refused on the second look, or clamped: never later.
         _ = call(s, app, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe"],"desktops":[],"durationSeconds":29}"#)
         #expect(try #require(s.hub.grant(b)).expiresAt <= old, "the user's time to answer did not become extra grant time")
-        // Well within: applied, and still not later.
-        #expect(data(call(s, app, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe"],"desktops":[],"durationSeconds":10}"#)) != nil)
+        // Well within (from a fresh connection: a narrowing cuts the old one):
+        // applied, and still not later.
+        let (again, _) = try reconnectAs(s, app)
+        _ = call(s, again, "hub.grants.set", params: #"{"clientId":"\#(b)","capabilities":["observe"],"desktops":[],"durationSeconds":10}"#)
         #expect(try #require(s.hub.grant(b)).expiresAt <= old)
     }
 }
@@ -713,6 +726,7 @@ func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerActio
     let window = FakeConfirmer { _ in .denied }
     s.confirmer = window
     let (app, _) = try pairedConnection(s, capabilities: ["observe"], name: "pest")
+    asVerified(app)
     let (_, b) = try pairedConnection(s, capabilities: ["observe"], name: "b")
     #expect(errorDetails(call(s, app, "hub.clients.revoke", params: #"{"clientId":"\#(b)"}"#))?["reason"]?.stringValue == "user_denied")
     #expect(errorDetails(call(s, app, "hub.clients.revoke", params: #"{"clientId":"\#(b)"}"#))?["reason"]?.stringValue == "confirmation_cooldown")

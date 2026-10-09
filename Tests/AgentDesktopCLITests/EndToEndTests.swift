@@ -191,12 +191,15 @@ final class WindowSaysYes: TrustedConfirmer, @unchecked Sendable {
     #expect(window.actions == ["hub.pairing.start"])
     // Its own grant: refused without asking.
     #expect(run(["agents", "grant", clientId, "--capabilities", "observe,act"]).0 == 4)
-    // Taking another app's access away: the window is asked, then it is done.
+    // Another app's access: not even to take it away (R1); its own: asked, then done.
     let pairing = try service.hub.startPairing(connectionId: "conn_x", agentName: "other", publisher: nil, requested: .obj([]), callerFacts: .obj([]))
     let (other, _) = try service.hub.approve(pairing, grant: HubStore.Grant(clientId: "", capabilities: ["observe"], desktops: [], apps: [],
                                                                             expiresAt: Timestamp.string(Date().addingTimeInterval(600)),
                                                                             revision: 0, state: "active"))
-    #expect(run(["agents", "revoke", other.clientId]).0 == 0)
+    #expect(run(["agents", "revoke", other.clientId]).0 == 4)
+    #expect(window.actions == ["hub.pairing.start"])
+    #expect(service.hub.client(other.clientId)?.state == "active")
+    _ = run(["agents", "revoke", clientId])     // its own: the reply may not arrive (its connection is cut)
     #expect(window.actions == ["hub.pairing.start", "hub.clients.revoke"])
-    #expect(service.hub.client(other.clientId)?.state == "revoked")
+    #expect(service.hub.client(clientId)?.state == "revoked")
 }

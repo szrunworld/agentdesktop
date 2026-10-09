@@ -131,6 +131,28 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         }
     }
 
+    /// The change a grant call makes, spelled out against the grant shown.
+    static func changeLines(_ action: String, old: JSONValue?, params: JSONValue?) -> [String] {
+        func list(_ v: JSONValue?) -> [String] { (v?.arrayValue ?? []).compactMap(\.stringValue) }
+        switch action {
+        case "hub.clients.revoke": return ["变化：移除这个客户端，它的凭据永久失效，Run 全部停止"]
+        case "hub.grants.revoke": return ["变化：收回它的全部授权，Run 全部停止"]
+        case "hub.grants.set":
+            guard let old, old != .null else { return ["变化：设定新授权（当前没有有效授权）"] }
+            var out: [String] = []
+            for (label, key) in [("能力", "capabilities"), ("Desktop", "desktops"), ("App", "apps")] {
+                let before = Set(list(old[key])), after = Set(list(params?[key]))
+                let removed = before.subtracting(after).sorted(), added = after.subtracting(before).sorted()
+                if !removed.isEmpty { out.append("变化：去掉\(label) " + removed.map { inert($0, max: 120) }.joined(separator: "、")) }
+                if !added.isEmpty { out.append("⚠️ 变化：新增\(label) " + added.map { inert($0, max: 120) }.joined(separator: "、")) }
+            }
+            let seconds = params?["durationSeconds"]?.intValue ?? 3600
+            out.append("变化：期限改为批准后 \(seconds / 60) 分钟（原到期：\(inert(old["expiresAt"]?.stringValue, max: 40))）")
+            return out
+        default: return []
+        }
+    }
+
     static let capabilityNames = ["observe": "查看（截图、元素、列表）", "act": "操作（点击、输入）",
                                   "desktop.manage": "管理 Desktop（创建、启动 App、绑定窗口）", "run": "运行与事件",
                                   "unit.run": "运行任务单元"]
@@ -166,7 +188,9 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
                 lines.append("作用对象：\(inert(t["agentName"]?.stringValue, max: 64))（\(inert(t["clientId"]?.stringValue, max: 80))）")
                 lines.append("对象的代码身份：" + identityText(t["codeIdentity"]))
                 if let g = t["grant"], g != .null { lines.append("对象当前授权：\(inert(g.encoded(), max: 2000))") }
+                if t["isRequester"]?.boolValue == true { lines.append("作用对象就是请求方自己：它在放弃自己的权限") }
                 if t["sameProgramAsRequester"]?.boolValue == true { lines.append("⚠️ 作用对象与请求方是同一个程序：这可能是在给自己扩权") }
+                lines += changeLines(r.action, old: t["grant"], params: r.details["params"])
             }
             // Shown in full: the Runtime refuses anything too large to show.
             lines.append("完整参数：" + inert((r.details["params"] ?? r.details).encoded(), max: 4000))
