@@ -165,7 +165,14 @@ extension RuntimeService {
                                 throw RuntimeError("stale_observation", "a menu opened while input was sent",
                                                    phase: .handler, details: .obj([("reason", .string("menu_opened_by_action"))]))
                             }
-                            if let now = platform.focusedControl(pid: b.process.pid)?.windowId, now != b.windowId {
+                            // Dispatched only when focus is known to be still in
+                            // the bound window; unreadable is unknown (Codex on
+                            // 9ed802d).
+                            guard let now = platform.focusedControl(pid: b.process.pid)?.windowId else {
+                                throw RuntimeError("stale_observation", "keyboard focus could not be read after input was sent",
+                                                   phase: .handler, details: .obj([("reason", .string("focus_unverified_after_send"))]))
+                            }
+                            if now != b.windowId {
                                 throw RuntimeError("stale_observation", "keyboard focus moved to window \(now) while input was sent",
                                                    phase: .handler, details: .obj([("reason", .string("focus_moved"))]))
                             }

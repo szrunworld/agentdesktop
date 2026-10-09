@@ -31,10 +31,12 @@ struct FixedBackend: RuntimeBackend {
     }
     /// Windows a test opens later, in front of every other (a reference, so
     /// a test can change it after the Runtime took its copy of the backend).
-    final class Opened: @unchecked Sendable { var windows: [WindowSummary] = [] }
+    final class Opened: @unchecked Sendable { var windows: [WindowSummary] = []; var listUnreadable = false }
     var opened = Opened()
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
-        (opened.windows + wins).filter { (pid == nil || $0.process.pid == pid) && (bundleId == nil || $0.bundleId == bundleId)
+        // The window server's list could not be read: the backend gets none.
+        if opened.listUnreadable { return [] }
+        return (opened.windows + wins).filter { (pid == nil || $0.process.pid == pid) && (bundleId == nil || $0.bundleId == bundleId)
             && (includeOffscreen || $0.onScreen) }
     }
 }

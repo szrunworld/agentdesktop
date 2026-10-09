@@ -113,9 +113,10 @@ func openSibling(_ backend: FixedBackend) {
 
 @Test func untilGrantsAVirtualDesktopBindsOnlyAppsItLaunchedAndCapturesTheWindowAlone() throws {
     let platform = FakePlatform()
+    let backend = FixedBackend()
     let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                           backend: FixedBackend(), platform: platform)
+                           backend: backend, platform: platform)
     #expect(s.bindsOnlyLaunchedProcesses && s.refusesScreenCaptureWithoutBinding, "the product defaults")
     let c = handshaken(s)
     let d = try created(s, c)
@@ -130,6 +131,12 @@ func openSibling(_ backend: FixedBackend) {
     // An app launched on the Desktop can be bound; its observation is the window alone.
     let launched = try #require(data(call(s, c, "app.launch", params: #"{"desktopId":"\#(d)","bundleId":"com.apple.Notes"}"#)))
     let pid = try #require(launched["process"]?["pid"]?.intValue)
+    // The window server lists the launched app's window, as on a real machine.
+    let w = try #require(launched["windows"]?.arrayValue?.first)
+    backend.opened.windows.append(WindowSummary(
+        windowId: UInt32(try #require(w["windowId"]?.intValue)), process: ProcessIdentity(pid: Int32(pid), startedAt: nil),
+        appName: "Notes", bundleId: "com.apple.Notes", title: "",
+        frame: Rect(x: 0, y: 0, width: 400, height: 300), onScreen: true))
     #expect(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":\#(pid)}"#)) != nil)
     let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
     #expect(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) != nil)
@@ -308,4 +315,41 @@ func aMenuAppearingWithTheInputMakesTheDeliveryUnknown(_ after: Bool?) throws {
         #expect(failure(r)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
     }
     #expect(sc.platform.performed.count == 2)
+}
+
+// Codex on 9ed802d (P1), and the audit of every "cannot be read" branch:
+// before the send it refuses (notSent), after the send it is unknown.
+@Test(arguments: ["no focus", "focus without a window"])
+func focusThatCannotBeReadAfterTheSendIsUnknown(_ how: String) throws {
+    let sc = try scene()
+    let bound = try #require(sc.s.desktops.find(sc.desktop)?.binding?.windowId)
+    sc.platform.focusedHit = PlatformHit(role: "AXTextArea", texts: [], windowId: bound, focused: true, editable: true)
+    sc.platform.onPerform = {
+        sc.platform.focusFollowsWindow = false
+        sc.platform.focusedHit = how == "no focus" ? nil
+            : PlatformHit(role: "AXTextArea", texts: [], windowId: nil, focused: true, editable: true)
+    }
+    let r = act(sc, #"{"kind":"key","key":"a"}"#)
+    #expect(code(r) == "action_delivery_unknown")
+    #expect(failure(r)?.notSent != true)
+    #expect(failure(r)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
+}
+
+@Test func aWindowListThatCannotBeReadRefusesBeforeAndIsUnknownAfter() throws {
+    let backend = FixedBackend()
+    let sc = try scene(backend: backend)
+    // Before the send: which window of the app is in front cannot be told.
+    backend.opened.listUnreadable = true
+    let before = act(sc, #"{"kind":"click","target":{"elementRef":"el_0"}}"#)
+    #expect(code(before) == "stale_observation")
+    #expect(failure(before)?.details?["reason"]?.stringValue == "window_list_unverified")
+    #expect(failure(before)?.notSent == true)
+    #expect(sc.platform.performed.isEmpty)
+    // After the send: unknown, never dispatched.
+    backend.opened.listUnreadable = false
+    sc.platform.onPerform = { backend.opened.listUnreadable = true }
+    let after = act(sc, #"{"kind":"click","target":{"elementRef":"el_0"}}"#)
+    #expect(code(after) == "action_delivery_unknown")
+    #expect(failure(after)?.notSent != true)
+    #expect(sc.platform.performed.count == 1)
 }
