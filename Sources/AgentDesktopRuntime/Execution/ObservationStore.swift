@@ -132,8 +132,6 @@ public final class ArtifactStore: @unchecked Sendable {
     private var freeQueriesAsked: UInt64 = 0
     private var freeAnswerFrom: UInt64 = 0
     private var refreshingFree = false
-    /// Concurrent: a retry is not queued behind a query that hangs.
-    private let freeSpaceQueue = DispatchQueue(label: "agentdesktop.artifacts.freespace", qos: .utility, attributes: .concurrent)
     private var refreshStarted: Date?
     /// Volume queries started and not yet answered: a volume that hangs
     /// every query must not pile up threads, one retry every 30 s.
@@ -242,10 +240,17 @@ public final class ArtifactStore: @unchecked Sendable {
         }
         guard go else { return }
         // Its own queue: a long sweep must not leave the answer to age out.
-        freeSpaceQueue.async { [self] in
+        // Its own thread (at most `maxFreeQueries` at once), not a shared
+        // dispatch pool: on a busy 3-core machine whose pool threads other
+        // work holds, a queued query never ran and every screenshot was
+        // refused as disk_unknown.
+        let thread = Thread { [self] in
             refreshFreeSpace()
             lock.withLock { freeQueriesInFlight -= 1 }
         }
+        thread.name = "agentdesktop.artifacts.freespace"
+        thread.qualityOfService = .userInitiated
+        thread.start()
     }
 
     /// Usage from the records on disk, once, at start (nothing else runs yet).
