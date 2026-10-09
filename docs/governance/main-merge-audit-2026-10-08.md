@@ -546,3 +546,5 @@ Kevin 原话：
 - #196 ae5083e：修复了超时分支不重扫的问题；新增 `Run.signal()`，每次发 SIGKILL 前，用 proc_pidinfo 读出进程的启动时间，与 ps 记录核对，对不上就不杀。b9 复审通过。剩余残余：同一秒内 pid 被复用仍识别不出。合并申请前还需要：Codex 审完、CI 通过、resolve 一条讨论线程。未授权。
 - #199 ec56012：Codex 在 b88dae6 上报了一条 P1：act 在读取菜单栏之前，没有先做 iPhone 镜像检查。ec56012 已修复并补了测试，b9 复审通过。合并申请前还需要：Codex 审完、CI 通过；SingleEndpointTests 超时要和 origin/main 对照。未授权。
 - #196 ae5083e 更正：b9 撤回复审通过。Codex 新提了一条 P2「Preserve subsecond process identity before signaling」：同一秒内 pid 被复用时仍可能杀错进程。b9 原本把它当作残余接受，属于判断错误；按后果判断（可能杀掉无关进程）属于阻断。已请 69 改为比较完整的 (sec, usec) 内核启动时间。
+- #196 a523ae8：进程身份改用内核里精确到微秒的启动时间核对；读取 marker 前后再核对一次身份。b9 复审通过，并 resolve 了 Codex 线程。非阻断项：其他用户的进程读不到身份，会被整个剔除，导致 not_stopped 少报，建议改为单独标记 unverifiable。合并申请前还需要：Codex 审完、CI 通过。未授权。
+- #204 f3ec8ef：补了反向测试（文字相同、位置不同的真实提示框仍会挡住剪贴板归还），变异验证有效。b9 复审通过。还需要 Codex 审完、CI 通过。未授权。
