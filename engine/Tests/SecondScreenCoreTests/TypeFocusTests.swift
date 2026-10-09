@@ -12,7 +12,7 @@ import Testing
     @Test func everyCharacterIsSentWhileFocusStaysInTheWindow() throws {
         let r = Recorder()
         try BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11,
-                                           focusedWindow: { _ in r.reads += 1; return 11 },
+                                           focusedWindow: { _ in r.reads += 1; return 11 }, menuOpen: { _ in false },
                                            post: { _, _ in r.posted += 1 }, pause: 0)
         #expect(r.reads == 3, "read again before each character")
         #expect(r.posted == 6, "a key down and up per character")
@@ -23,7 +23,7 @@ import Testing
         // A character opened a window that took focus after the second one.
         do {
             try BackgroundInput.typeCharacters("abcdef", pid: 7, windowID: 11,
-                                               focusedWindow: { _ in r.reads += 1; return r.reads <= 2 ? 11 : 99 },
+                                               focusedWindow: { _ in r.reads += 1; return r.reads <= 2 ? 11 : 99 }, menuOpen: { _ in false },
                                                post: { _, _ in r.posted += 1 }, pause: 0)
             Issue.record("typing went on after focus left")
         } catch {
@@ -39,7 +39,7 @@ import Testing
     func focusElsewhereOrUnreadableBeforeTheFirstCharacterTypesNothing(_ focus: CGWindowID?) {
         let r = Recorder()
         do {
-            try BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11, focusedWindow: { _ in focus },
+            try BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11, focusedWindow: { _ in focus }, menuOpen: { _ in false },
                                                post: { _, _ in r.posted += 1 }, pause: 0)
             Issue.record("typed without focus in the window")
         } catch {
@@ -52,12 +52,45 @@ import Testing
         let r = Recorder()
         do {
             try BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11,
-                                               focusedWindow: { _ in r.reads += 1; return r.reads == 1 ? 11 : nil },
+                                               focusedWindow: { _ in r.reads += 1; return r.reads == 1 ? 11 : nil }, menuOpen: { _ in false },
                                                post: { _, _ in r.posted += 1 }, pause: 0)
             Issue.record("typing went on with focus unknown")
         } catch {
             #expect("\(error)".contains("after 1 of 3"))
         }
         #expect(r.posted == 2)
+    }
+
+    // Codex on bd3d830 (P1): a click into the web field, or a character,
+    // opens a menu (an autocomplete list) while focus stays in the field.
+    // Typing stops at once; what went out is counted, never called none.
+    @Test func aMenuOpeningWhileTypingStopsTheRest() {
+        let r = Recorder()
+        final class Menu { var checks = 0 }
+        let m = Menu()
+        do {
+            try BackgroundInput.typeCharacters("abcdef", pid: 7, windowID: 11, focusedWindow: { _ in 11 },
+                                               menuOpen: { _ in m.checks += 1; return m.checks <= 2 ? false : true },
+                                               post: { _, _ in r.posted += 1 }, pause: 0)
+            Issue.record("typing went on with a menu open")
+        } catch {
+            let msg = (error as? AccessibilityError)?.message ?? "\(error)"
+            #expect(msg.contains("after 2 of 6 characters were submitted"), "\(msg)")
+            #expect(!msg.contains("no character was submitted"))
+        }
+        #expect(r.posted == 4, "only the two characters before the menu")
+    }
+
+    @Test(arguments: [Optional(true), nil])
+    func aMenuOpenOrUnreadableBeforeTheFirstCharacterTypesNothing(_ menu: Bool?) {
+        let r = Recorder()
+        do {
+            try BackgroundInput.typeCharacters("abc", pid: 7, windowID: 11, focusedWindow: { _ in 11 },
+                                               menuOpen: { _ in menu }, post: { _, _ in r.posted += 1 }, pause: 0)
+            Issue.record("typed with a menu open")
+        } catch {
+            #expect(((error as? AccessibilityError)?.message ?? "").contains("no character was submitted"))
+        }
+        #expect(r.posted == 0)
     }
 }

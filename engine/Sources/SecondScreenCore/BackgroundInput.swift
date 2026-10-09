@@ -257,6 +257,7 @@ public enum BackgroundInput {
         try FocusGuard.shared.protect(target: window.pid) {
             try typeCharacters(text, pid: window.pid, windowID: window.windowID,
                                focusedWindow: { ClipboardProbe.focusedWindowID(pid: $0) },
+                               menuOpen: { ClipboardProbe.menuOpen(pid: $0) },
                                post: { SkyLight.postKey($0, to: $1) })
         }
         return "event.unicode"
@@ -266,10 +267,20 @@ public enum BackgroundInput {
     /// (tests): a character is posted only after the focused window was
     /// read again and is still `windowID`.
     static func typeCharacters(_ text: String, pid: pid_t, windowID: CGWindowID,
-                               focusedWindow: (pid_t) -> CGWindowID?, post: (CGEvent, pid_t) -> Void,
-                               pause: TimeInterval = 0.004) throws {
+                               focusedWindow: (pid_t) -> CGWindowID?, menuOpen: (pid_t) -> Bool?,
+                               post: (CGEvent, pid_t) -> Void, pause: TimeInterval = 0.004) throws {
         let total = text.count
         for (sent, character) in text.enumerated() {
+            // A menu open now (a click into a web field before typing, or a
+            // character typed so far, may have opened one, such as an
+            // autocomplete list), or a state that cannot be read: whose menu
+            // it is cannot be proved, and the next character could choose in
+            // it. Typing stops (Codex on bd3d830; Kevin 2026-10-09).
+            guard menuOpen(pid) == false else {
+                throw AccessibilityError(sent == 0
+                    ? "a menu of the app is open, or its state cannot be read; no character was submitted"
+                    : "a menu of the app opened, or its state could not be read, after \(sent) of \(total) characters were submitted to the input interface (whether the app received them is not known); the rest was not submitted")
+            }
             guard focusedWindow(pid) == windowID else {
                 throw AccessibilityError(sent == 0
                     ? "keyboard focus is not in window \(windowID); no character was submitted"
