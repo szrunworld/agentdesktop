@@ -114,10 +114,30 @@ func officesCutCopyPasteKeysAreRefused(_ k: String) throws {
     // An item that says nothing at all cannot be judged.
     platform.hitAt = hit("AXMenuItem", [], window: nil, inMenu: true)
     expectRefusal(act(sc, clickAt(100, 100)), path: "menu_item_unverified")
-    // A menu item that is read and is not paste, copy or cut is fine.
+    // Since #163 (Kevin 2026-10-09) no menu item is clicked, whatever it
+    // says: whose menu it is cannot be proved.
     platform.hitAt = hit("AXMenuItem", ["Look Up “word”"], window: nil, inMenu: true)
+    expectRefusal(act(sc, clickAt(100, 100)), path: "menu_open")
+    #expect(platform.performed.isEmpty)
+}
+
+// b9 on ca11096 (P1): another window of the app opened a menu that lies over
+// the bound window. Clicking its "Close Window" or "Delete" would act on that
+// unbound window: refused, like any menu. Clicking the bound window itself
+// (not covered by the menu) still goes through, and closes a menu.
+@Test(arguments: ["Close Window", "Delete", "Move to Trash"])
+func aMenuOverTheBoundWindowIsNeverClicked(_ item: String) throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    platform.menuShown = true
+    platform.hitAt = { _, _ in PlatformHit(role: "AXMenuItem", texts: [item], windowId: 4242, inMenu: true) }
+    expectRefusal(act(sc, clickAt(100, 100)), path: "menu_open")
+    platform.hitAt = { _, _ in PlatformHit(role: "AXMenuBarItem", texts: ["File"], windowId: nil, inMenu: true) }
+    expectRefusal(act(sc, clickAt(100, 100)), path: "menu_open")
+    #expect(platform.performed.isEmpty)
+    // A blank spot of the bound window: sent.
+    platform.hitAt = { _, _ in PlatformHit(role: "AXGroup", texts: [], windowId: 11) }
     sent(act(sc, clickAt(100, 100)))
-    #expect(platform.performed.count == 1)
 }
 
 @Test(arguments: [
@@ -265,8 +285,11 @@ func aControlWhoseNameSaysPasteCopyOrCutIsRefusedInAnyLanguage(_ role: String, _
     // The pasteboard is touched only where a person asks for it (the main
     // window's copy button) or by the iPhone path, which is not linked into
     // the Runtime (G1) and is held to G2 when it is.
+    // IPhoneMirroring.swift holds the clipboard lease around a screenshot
+    // and an input so neither runs during a paste (#127); it does not read
+    // or write the pasteboard.
     let allowed: Set<String> = ["Forms.swift", "PasteboardSnapshot.swift", "ClipboardLease.swift", "HostFlag.swift",
-                                "IPhonePaste.swift", "IPhoneCapabilities.swift"]
+                                "IPhonePaste.swift", "IPhoneCapabilities.swift", "IPhoneMirroring.swift"]
     for f in product + engine {
         let text = try String(contentsOf: f, encoding: .utf8)
         if text.contains("NSPasteboard") || text.contains("PasteboardSnapshot") || text.contains("ClipboardLease") {
@@ -483,8 +506,11 @@ func aControlCharacterKeyIsRefused(_ k: String) throws {
     for k in ["return", "space", "enter"] { expectRefusal(act(sc, key(k, [])), path: "menu_open") }
     expectRefusal(act(sc, #"{"kind":"key","key":" "}"#), path: "menu_open")
     expectRefusal(act(sc, #"{"kind":"type","text":"p "}"#), path: "menu_open")
-    // Arrows still move through it; only activation is refused.
-    sent(act(sc, key("down", [])))
+    // Arrows too, since #163 (Kevin 2026-10-09): with a menu open no key is
+    // sent, because whose menu it is cannot be proved.
+    let arrow = act(sc, key("down", []))
+    #expect(failure(arrow)?.details?["reason"]?.stringValue == "menu_open")
+    #expect(platform.performed.isEmpty)
     platform.menuShown = nil
     expectRefusal(act(sc, key("return", [])), path: "menu_unverified")
     platform.menuShown = false

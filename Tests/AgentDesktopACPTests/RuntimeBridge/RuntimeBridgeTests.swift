@@ -195,6 +195,51 @@ import Testing
         }
     }
 
+    /// Review C-1 on #132: a log written before the F-1 fix is scrubbed on
+    /// load, not only on the next write, and codes are allowlisted on load.
+    /// Codex on #141 (853e867): a scrub that is not known to be durable is
+    /// not reported as success; loading fails instead.
+    @Test func aScrubWhoseDirectorySyncFailsDoesNotLoad() throws {
+        let path = RTest.tempLogPath()
+        try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let legacy = #"{"version":1,"entries":[{"submissionKey":"sess-1/prompt-1","requestId":"acp-sub-x","method":"unit.run","state":"refused","refusalCode":"weird_CODE","refusalMessage":"token=secret","updatedAt":"2099-01-01T00:00:00Z"}]}"#
+        try legacy.write(toFile: path, atomically: true, encoding: .utf8)
+        #expect(throws: (any Error).self) { _ = try ACPSubmissionLog(path: path, dirFsyncFault: true) }
+        // Without the fault the same file loads and is scrubbed.
+        _ = try ACPSubmissionLog(path: path)
+        #expect(!(try String(contentsOfFile: path, encoding: .utf8)).contains("secret"))
+    }
+
+    @Test func aPreFixLogIsScrubbedOnLoad() throws {
+        let secret = "sk-live-CANARY-legacy-91b2"
+        let path = RTest.tempLogPath()
+        try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let legacy = #"{"version":1,"entries":[{"submissionKey":"sess-1/prompt-1","requestId":"acp-sub-x","method":"unit.run","state":"refused","refusalCode":"weird_CODE","refusalMessage":"token=\#(secret)","updatedAt":"2099-01-01T00:00:00Z"}]}"#
+        try legacy.write(toFile: path, atomically: true, encoding: .utf8)
+        let log = try ACPSubmissionLog(path: path)
+        let onDisk = try String(contentsOfFile: path, encoding: .utf8)
+        let leaked = onDisk.contains(secret)
+        #expect(!leaked, "legacy refusal message survived the load")
+        let rawCodeLeft = onDisk.contains("weird_CODE")
+        #expect(!rawCodeLeft)
+        #expect(log.entry("sess-1/prompt-1")?.refusalCode == "unlisted_error")
+    }
+
+    /// Codex review P1 on #141: an expired pre-fix entry must not keep its
+    /// clear text on disk just because the retention check skips it.
+    @Test func anExpiredPreFixEntryIsRemovedFromDisk() throws {
+        let secret = "sk-live-CANARY-expired-5d0e"
+        let path = RTest.tempLogPath()
+        try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let legacy = #"{"version":1,"entries":[{"submissionKey":"old/prompt","requestId":"acp-sub-old","method":"unit.run","state":"refused","refusalCode":"weird_OLD","refusalMessage":"token=\#(secret)","updatedAt":"2000-01-01T00:00:00Z"}]}"#
+        try legacy.write(toFile: path, atomically: true, encoding: .utf8)
+        let log = try ACPSubmissionLog(path: path)
+        #expect(log.entry("old/prompt") == nil)
+        let onDisk = try String(contentsOfFile: path, encoding: .utf8)
+        let leaked = onDisk.contains(secret) || onDisk.contains("weird_OLD") || onDisk.contains("old/prompt")
+        #expect(!leaked, "an expired legacy entry stayed on disk")
+    }
+
     @Test func certainlyNotSentMayBeSentLater() async throws {
         let server = RTestRuntime()
         server.methods.append("unit.run")

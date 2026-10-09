@@ -40,7 +40,7 @@ import Testing
         try? await Task.sleep(for: .milliseconds(100))
         #expect(count(h2, sid) == 1)
         // The conversation itself is still replayed.
-        #expect(h2.connection.updatesFor(sid).contains(.userMessage("go")))
+        #expect(h2.connection.updatesFor(sid).contains(.userMessage(ACPAgentServer.userInputPlaceholder)))
     }
 
     /// A history written before this fix may hold the notice; a load
@@ -59,7 +59,7 @@ import Testing
         defer { h2.connection.close() }
         h2.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
         _ = await h2.connection.waitReply(1)
-        #expect(h2.connection.updatesBeforeReply(1, sid).contains(.userMessage("hi")))
+        #expect(h2.connection.updatesBeforeReply(1, sid).contains(.userMessage(ACPAgentServer.userInputPlaceholder)))
         let before = h2.connection.updatesBeforeReply(1, sid).filter {
             if case let .agentMessage(t) = $0 { return t.hasPrefix(ACPAgentServer.identityNoticePrefix) }
             return false

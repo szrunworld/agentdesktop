@@ -98,7 +98,7 @@ enum RuntimeContractData {
         },
         "notSent": {
           "type": "boolean",
-          "description": "true only when it is certain the request never reached the Runtime"
+          "description": "not_performed: true only when the Runtime (or the client, before sending) can prove this request sent no input and made no write with an outside effect, whether or not it reached the Runtime. Never true for a partial send, a timeout, a lost connection, a missing receipt or an unknown outcome. Not a licence to retry: a retry is judged again by authorization, Run state, stops, policy and the request ledger."
         },
         "details": {
           "type": "object"

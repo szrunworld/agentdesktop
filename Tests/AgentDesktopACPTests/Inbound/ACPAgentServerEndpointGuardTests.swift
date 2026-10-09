@@ -7,7 +7,7 @@ import Testing
 @Suite struct ACPAgentServerEndpointGuardTests {
     /// A fake home with the product directory created, plus a side directory.
     private func fakeHome() throws -> (root: URL, guard: ACPAgentServerEndpointGuard) {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("acp-s-guard-\(UUID().uuidString)")
+        let root = ACPTestScratch.dir("acp-s-guard")
         let product = root.appendingPathComponent("home/Library/Application Support/AgentDesktop")
         try FileManager.default.createDirectory(at: product, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("side"), withIntermediateDirectories: true)
@@ -127,7 +127,7 @@ import Testing
 
     @Test func refusesEveryProductSocketWithoutConnecting() throws {
         try #require(binary != nil, "agentdesktop-acp-dev is not built under .build")
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("acp-s-dev-\(UUID().uuidString)")
+        let root = ACPTestScratch.dir("acp-s-dev")
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home").path
         let product = home + "/Library/Application Support/AgentDesktop"

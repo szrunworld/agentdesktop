@@ -271,7 +271,7 @@ class RTestClient: RuntimeClient {
 
 enum RTest {
     static func tempLogPath() -> String {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rtest-\(UUID().uuidString)")
+        let dir = ACPTestScratch.dir("rtest")
         return dir.appendingPathComponent("submissions.json").path
     }
 

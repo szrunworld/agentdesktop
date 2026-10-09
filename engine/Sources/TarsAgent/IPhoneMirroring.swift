@@ -13,11 +13,34 @@ public struct IPhoneWindow: Equatable {
     public var windowID: CGWindowID
     /// Global points, top-left origin.
     public var frame: CGRect
+    /// The window's title, read through accessibility (the window server's
+    /// name otherwise); nil when neither gives one.
+    public var title: String?
 
-    public init(pid: pid_t, windowID: CGWindowID, frame: CGRect) {
+    public init(pid: pid_t, windowID: CGWindowID, frame: CGRect, title: String? = nil) {
         self.pid = pid
         self.windowID = windowID
         self.frame = frame
+        self.title = title
+    }
+
+    /// Titles of the window that shows the phone, by the Mac's language.
+    /// Mirroring's other windows ("iPhone Mirroring Settings", …) are not
+    /// it; an unknown title is not taken for it either.
+    public static let phoneWindowTitles: Set<String> = ["iPhone Mirroring", "iPhone镜像"]
+
+    /// Whether this is the window that shows the phone: its title is
+    /// exactly one of `phoneWindowTitles`.
+    ///
+    /// Only the languages whose status pages `IPhoneConnection` recognises
+    /// are listed. On a Mac in another language (French "Recopie de
+    /// l’iPhone", German "iPhone-Synchronisierung") the phone window is not
+    /// bound and every command fails with `no_phone_window`: a status page
+    /// in that language would read as ready, and a tap could press
+    /// Mirroring's own buttons. Add a language here only together with its
+    /// status phrases and controls.
+    public var isPhoneWindow: Bool {
+        title.map(Self.phoneWindowTitles.contains) ?? false
     }
 }
 
@@ -54,7 +77,10 @@ public protocol IPhoneMirroringSystem {
     /// `windowID`: only that window's; nil for all the process's windows.
     /// Another window of the app (its Settings) carries texts that are not
     /// the phone's state, such as "password or Touch ID is required".
-    func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String]
+    /// nil when they could not be read (no Accessibility permission, a read
+    /// that failed, no window `windowID`), which is not the same as a window
+    /// that has none: `[]`.
+    func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String]?
     /// Press the first button of the process whose title is in `titles`,
     /// in `windowID` only when given; the title pressed, or nil when there
     /// is none.
@@ -67,6 +93,78 @@ public protocol IPhoneMirroringSystem {
     /// Where the phone's input barrier is kept for every process: raised
     /// when nobody knows what an input did, lowered by the next screenshot.
     var inputBarrier: HostFlag { get }
+    /// Raised for every process when a reconnect presses Connect / Resume /
+    /// Try Again, lowered only by a reconnect that reports the phone
+    /// confirmed ready: input is refused while it is up, and while its
+    /// record cannot be read.
+    var reconnectGate: HostFlag { get }
+    /// Whether some process is in a paste: holding the clipboard lease, or
+    /// waiting out a phone that may still fetch (the pending mark). While it
+    /// is, a screenshot shows a field in flux and lowers no barrier.
+    var pasteInProgress: Bool { get }
+    /// Runs `body` with no paste able to begin meanwhile (holding the
+    /// clipboard lease), if none is under way; false, without running it,
+    /// when one is.
+    func whileNoPaste(_ body: () -> Void) -> Bool
+    /// `body`'s result, run holding the clipboard lease with no paste
+    /// pending, so none can start meanwhile; nil, without running it, when a
+    /// paste holds the lease or one is pending.
+    func withoutPaste<T>(_ body: () throws -> T) throws -> T?
+}
+
+/// Changes to a `HostFlag` made by one process at a time: an exclusive
+/// `flock` on a file beside it, so reading it and changing it is one step
+/// against every process that changes it this way. A reader that acts on
+/// what it read (input sent only while the flag is down) holds it shared:
+/// readers run side by side, never while a change is being made.
+struct HostFlagLock {
+    let url: URL
+    let wait: TimeInterval
+
+    init(for flag: HostFlag, wait: TimeInterval) {
+        // Not the flag's own ".lock": HostFlag takes that one for each read
+        // and change, which this lock's holder makes, and a second flock on
+        // the same file from the same process waits for ever.
+        url = flag.url.deletingLastPathComponent().appendingPathComponent(flag.url.lastPathComponent + ".gate.lock")
+        self.wait = wait
+    }
+
+    /// Why `body` did not run.
+    enum Failure: LocalizedError, Equatable {
+        /// Another process held the lock all of `wait`.
+        case busy(path: String)
+        /// The caller gave up waiting (stopped, out of time) first.
+        case gaveUp
+
+        var errorDescription: String? {
+            switch self {
+            case .busy(let path): return "another process holds \(path)"
+            case .gaveUp: return "gave up waiting for the lock"
+            }
+        }
+    }
+
+    /// Run `body` holding the lock, exclusive or `shared`; throws, without
+    /// running it, when the lock cannot be had within `wait` (`.busy`), or
+    /// as soon as `giveUp` says so while waiting (`.gaveUp`).
+    func locked<T>(shared: Bool = false, giveUp: () -> Bool = { false }, _ body: () throws -> T) throws -> T {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        let fd = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        defer { close(fd) }
+        let end = Date().addingTimeInterval(wait)
+        while flock(fd, (shared ? LOCK_SH : LOCK_EX) | LOCK_NB) != 0 {
+            guard errno == EWOULDBLOCK || errno == EINTR else { throw Failure.busy(path: url.path) }
+            // Before the wait's own end: a caller stopped by then was
+            // stopped, the lock was not merely busy.
+            if giveUp() { throw Failure.gaveUp }
+            guard Date() < end else { throw Failure.busy(path: url.path) }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        defer { flock(fd, LOCK_UN) }
+        return try body()
+    }
 }
 
 // MARK: Observation
@@ -165,6 +263,12 @@ public enum IPhoneConnectionState: String, CaseIterable {
     /// Something only the user can fix: Bluetooth or Wi-Fi off, iCloud,
     /// setup, restrictions.
     case needsUser
+    /// Not known: Mirroring's own texts could not be read through
+    /// accessibility, or the picture shows a status phrase that nothing of
+    /// Mirroring's own confirms (it may be a status page, or a phone app
+    /// showing the same words). Treated as not ready: nothing is handed out
+    /// or sent until a look shows the phone for certain.
+    case uncertain
 
     public var hint: String {
         switch self {
@@ -174,6 +278,10 @@ public enum IPhoneConnectionState: String, CaseIterable {
         case .authRequired: return "unlock the iPhone or authenticate on the Mac (Touch ID or password)"
         case .reconnecting: return "iPhone Mirroring is connecting; wait and look again"
         case .needsUser: return "iPhone Mirroring needs the user (Bluetooth, Wi-Fi, iCloud or setup)"
+        case .uncertain:
+            return "cannot tell whether iPhone Mirroring shows the phone (its own texts could not be read, or the "
+                + "picture shows a status phrase nothing confirms); look again, check Accessibility permission, "
+                + "or look at the window"
         }
     }
 }
@@ -232,33 +340,42 @@ public enum IPhoneConnection {
     static let statusControls: Set<String> = reconnectButtons.union(["Cancel", "取消", "OK", "好"])
 
     /// The state the texts show, and the status text that says so; ready
-    /// when none is a status page. OCR spacing, case and hyphen variants do
-    /// not matter.
+    /// only when nothing suggests a status page. OCR spacing, case and
+    /// hyphen variants do not matter.
     ///
     /// `texts` are accessibility texts of the phone's window: Mirroring's
     /// own, never the phone's (the phone's picture has no accessibility
-    /// elements), so a status phrase counts wherever it appears.
+    /// elements), so a status phrase in them counts wherever it appears.
+    /// nil means they could not be read: then nothing is known and the
+    /// state is `uncertain`, never ready.
     ///
-    /// `ocr` texts come from the picture, which is the phone's own screen
-    /// when connected: a phone app showing "Connecting to Wi-Fi", "Timed
-    /// Out" or "Unlock iPhone" is not a status page. An OCR line counts only
-    /// with evidence that the window is Mirroring's status page: one of its
-    /// status controls (`statusControls`) among the accessibility texts.
-    /// With that evidence the window is known to be a status page, so a
-    /// status phrase counts anywhere in a line, as the rules hold sentence
-    /// fragments ("has ended due to iPhone use") that OCR reads inside the
-    /// page's full message. Without that evidence OCR alone never makes the
-    /// window anything but ready.
-    public static func classify(_ texts: [String], ocr: [String] = []) -> (state: IPhoneConnectionState, label: String?) {
+    /// `ocr` texts come from the picture, which may be a status page or the
+    /// phone's own screen. A status phrase anywhere in them counts as that
+    /// state when one of the status page's own controls (`statusControls`)
+    /// is among the accessibility texts. Without such a control it may be a
+    /// phone app showing "Connecting to Wi-Fi", "Timed Out" or "Unlock
+    /// iPhone", or a status page whose texts were not exposed: `uncertain`,
+    /// so the window is refused rather than guessed ready.
+    public static func classify(_ texts: [String]?, ocr: [String] = []) -> (state: IPhoneConnectionState, label: String?) {
+        guard let texts else { return (.uncertain, nil) }
         let own = texts.map(normalize)
         let controls = Set(statusControls.map(normalize))
         let corroborated = own.contains(where: controls.contains)
-        let seen = corroborated ? ocr.map(normalize) : []
+        let seen = ocr.map(normalize)
         for (label, state) in rules {
             let key = normalize(label)
-            if own.contains(where: { $0.contains(key) }) || seen.contains(where: { $0.contains(key) }) {
-                return (state, label)
-            }
+            if own.contains(where: { $0.contains(key) }) { return (state, label) }
+        }
+        for (label, state) in rules {
+            let key = normalize(label)
+            if seen.contains(where: { $0.contains(key) }) { return (corroborated ? state : .uncertain, label) }
+        }
+        // A status page's own control with no phrase read (its title drawn,
+        // not exposed): still a status page, not the phone, whose picture
+        // carries no accessibility elements at all. Its Try Again or Resume
+        // must not take a tap meant for the phone.
+        if corroborated, let control = texts.first(where: { controls.contains(normalize($0)) }) {
+            return (.uncertain, control)
         }
         return (.ready, nil)
     }
@@ -274,6 +391,152 @@ public enum IPhoneConnection {
             }
         }
         return out
+    }
+}
+
+// MARK: Connection lifecycle
+
+/// Where a connection attempt stands, as `iphone reconnect` sees it:
+/// disconnected → connecting → connected → verifying → ready. Only `ready`
+/// lets reconnect report success and input continue after a press.
+public enum IPhoneConnectionPhase: String {
+    /// A status page that needs a press or the user, or nothing yet seen.
+    case disconnected
+    /// A button was pressed or Mirroring says it is connecting; the phone
+    /// has not been seen since.
+    case connecting
+    /// The phone was seen once in this generation; nothing more is known
+    /// (2026-10-09 F8: "ready" a moment after Resume, then "iPhone
+    /// Mirroring Is Locked").
+    case connected
+    /// The phone has been seen more than once, spaced apart, with nothing
+    /// else in between; not yet for long enough.
+    case verifying
+    /// The phone was seen `stableReadings` times in a row, at least
+    /// `spacing` apart, in the same window, all in this generation.
+    case ready
+}
+
+/// One look at the phone's window, stamped with the connection generation
+/// current when the look began.
+public struct IPhoneConnectionObservation: Equatable {
+    public var generation: Int
+    public var state: IPhoneConnectionState
+    public var label: String?
+    /// The window looked at; nil when the look failed.
+    public var windowID: CGWindowID?
+    /// When the look began.
+    public var at: Date
+
+    public init(generation: Int, state: IPhoneConnectionState, label: String? = nil,
+                windowID: CGWindowID?, at: Date) {
+        self.generation = generation
+        self.state = state
+        self.label = label
+        self.windowID = windowID
+        self.at = at
+    }
+}
+
+/// Decides when a connection is ready from looks at the window, and only
+/// from looks of the current generation. Every Connect / Resume / Try Again
+/// press starts a new generation: a look that began before it, or that
+/// belongs to an earlier one (a slow read, an earlier reconnect), is
+/// dropped and changes nothing. Ready needs `stableReadings` ready looks in
+/// a row, each at least `spacing` after the last counted one, of the same
+/// window; any look that is not ready starts the count again.
+public struct IPhoneConnectionTracker {
+    public static let defaultStableReadings = 4
+    public static let defaultSpacing: TimeInterval = 1
+
+    public let stableReadings: Int
+    public let spacing: TimeInterval
+
+    public private(set) var generation = 0
+    public private(set) var phase: IPhoneConnectionPhase = .disconnected
+    /// When the current generation began; earlier looks do not count.
+    public private(set) var since: Date = .distantPast
+    /// True from a press until a reconnect reports ready (`confirm()`):
+    /// input to the phone is refused meanwhile. Neither a later check
+    /// without a press nor steady ready looks alone clear it: a reconnect
+    /// that saw the phone but was held back (an input barrier, its timeout)
+    /// leaves it up.
+    public private(set) var awaitingConfirmation = false
+    /// The last look counted in this generation.
+    public private(set) var latest: IPhoneConnectionObservation?
+    /// Ready looks counted in a row, and the window they were of.
+    public private(set) var readyStreak = 0
+    private var streakWindow: CGWindowID?
+    private var lastReadyAt: Date?
+
+    public init(stableReadings: Int = defaultStableReadings, spacing: TimeInterval = defaultSpacing) {
+        self.stableReadings = max(1, stableReadings)
+        self.spacing = spacing
+    }
+
+    /// Start a new generation at `now`, after a press (`pressed`) or for a
+    /// fresh check; what was seen before counts no more.
+    @discardableResult
+    public mutating func begin(at now: Date, pressed: Bool) -> Int {
+        generation += 1
+        since = now
+        if pressed { awaitingConfirmation = true }
+        phase = pressed ? .connecting : .disconnected
+        latest = nil
+        resetStreak()
+        return generation
+    }
+
+    /// Count `look` if it is of this generation; false when dropped.
+    @discardableResult
+    public mutating func record(_ look: IPhoneConnectionObservation) -> Bool {
+        guard look.generation == generation, look.at >= since else { return false }
+        if let latest, look.at < latest.at { return false }
+        latest = look
+        switch look.state {
+        case .ready:
+            guard let window = look.windowID else {
+                resetStreak()
+                phase = .connecting
+                return true
+            }
+            if streakWindow != window {
+                // Another window is another session: start over with it.
+                resetStreak()
+                streakWindow = window
+            }
+            if let last = lastReadyAt, look.at.timeIntervalSince(last) < spacing - 0.001 {
+                // Too soon after the last counted look to say anything new.
+                return true
+            }
+            readyStreak += 1
+            lastReadyAt = look.at
+            phase = readyStreak >= stableReadings ? .ready : (readyStreak == 1 ? .connected : .verifying)
+        case .reconnecting, .uncertain:
+            resetStreak()
+            phase = .connecting
+        case .disconnected, .phoneInUse, .authRequired, .needsUser:
+            resetStreak()
+            phase = .disconnected
+        }
+        return true
+    }
+
+    /// Whether the ready looks were of `windowID`.
+    public func isReady(window windowID: CGWindowID?) -> Bool {
+        phase == .ready && windowID != nil && streakWindow == windowID && latest?.state == .ready
+    }
+
+    /// Every condition for ready held and it was reported: input may go
+    /// on. Only while the phase is ready.
+    public mutating func confirm() {
+        if phase == .ready { awaitingConfirmation = false }
+    }
+
+    private mutating func resetStreak() {
+        readyStreak = 0
+        streakWindow = nil
+        lastReadyAt = nil
     }
 }
 
@@ -411,10 +674,42 @@ public struct IPhoneLifecycle {
 /// accessibility and Vision.
 public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     public let bundleID: String
+    /// The clipboard lease and pending mark every paste uses
+    /// (`PasteTransaction`'s defaults); settable for tests.
+    public var leaseURL: URL = ClipboardLease.defaultURL
+    public var pendingMark: HostFlag = .named("clipboard.pending")
 
     /// One phone per Mac (iPhone Mirroring mirrors one at a time), so one
     /// barrier.
-    public var inputBarrier: HostFlag { .named("iphone-input-barrier") }
+    /// Lowered only by a screenshot: an unreadable record stays up.
+    public var inputBarrier: HostFlag { .named("iphone-input-barrier", unreadableExpires: false) }
+    /// Lowered only by a reconnect that confirms the phone: an unreadable
+    /// record stays up, as for the barrier.
+    public var reconnectGate: HostFlag { .named("iphone-reconnect-unconfirmed", unreadableExpires: false) }
+
+    public var pasteInProgress: Bool {
+        if pendingMark.reason() != nil { return true }
+        guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return true }
+        lease.release()
+        return false
+    }
+
+    public func withoutPaste<T>(_ body: () throws -> T) throws -> T? {
+        guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return nil }
+        defer { lease.release() }
+        guard pendingMark.reason() == nil else { return nil }
+        return try body()
+    }
+
+    public func whileNoPaste(_ body: () -> Void) -> Bool {
+        guard let lease = try? ClipboardLease.acquire(at: leaseURL, timeout: 0) else { return false }
+        defer { lease.release() }
+        // Under the lease no paste can start; one that left a pending mark
+        // is still under way.
+        guard pendingMark.reason() == nil else { return false }
+        body()
+        return true
+    }
 
     public init(bundleID: String = IPhoneAgentScreen.bundleID) {
         self.bundleID = bundleID
@@ -434,7 +729,28 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
     }
 
     public func windows(pid: pid_t) -> [IPhoneWindow] {
-        WindowMover.windows(ofPID: pid).map { IPhoneWindow(pid: $0.pid, windowID: $0.windowID, frame: $0.frame) }
+        let titles = Self.accessibilityTitles(of: pid)
+        return WindowMover.windows(ofPID: pid).map {
+            IPhoneWindow(pid: $0.pid, windowID: $0.windowID, frame: $0.frame,
+                         title: titles[$0.windowID] ?? ($0.title.isEmpty ? nil : $0.title))
+        }
+    }
+
+    /// The titles of the process's windows through accessibility, by window.
+    private static func accessibilityTitles(of pid: pid_t) -> [CGWindowID: String] {
+        var windows: AnyObject?
+        guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString,
+                                            &windows) == .success,
+              let list = windows as? [AXUIElement] else { return [:] }
+        var titles: [CGWindowID: String] = [:]
+        for window in list {
+            var title: AnyObject?
+            guard let id = WindowMover.windowID(of: window),
+                  AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &title) == .success,
+                  let text = title as? String, !text.isEmpty else { continue }
+            titles[id] = text
+        }
+        return titles
     }
 
     public func captureWindow(screen: String, pid: pid_t, windowID: CGWindowID) throws -> IPhoneWindowCapture {
@@ -477,12 +793,12 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
     }
 
-    public func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String] {
-        Self.elements(of: pid, windowID: windowID).flatMap(\.labels)
+    public func accessibilityLabels(pid: pid_t, windowID: CGWindowID?) -> [String]? {
+        Self.elements(of: pid, windowID: windowID)?.flatMap(\.labels)
     }
 
     public func pressButton(titled titles: Set<String>, pid: pid_t, windowID: CGWindowID?) -> String? {
-        for element in Self.elements(of: pid, windowID: windowID) where element.button {
+        for element in Self.elements(of: pid, windowID: windowID) ?? [] where element.button {
             if let title = element.labels.first(where: titles.contains) {
                 AXUIElementPerformAction(element.element, kAXPressAction as CFString)
                 return title
@@ -514,33 +830,56 @@ public struct LiveIPhoneMirroringSystem: IPhoneMirroringSystem {
 
     /// Texts and buttons of the process's windows. SwiftUI carries a
     /// button's text as its title or description, a text's as its value.
-    private static func elements(of pid: pid_t, windowID: CGWindowID?) -> [Element] {
+    /// nil when they could not be read: no Accessibility permission, the
+    /// windows, a child list or an element's role, title, description or
+    /// value could not be read, no window `windowID`, or more elements than
+    /// are read. An attribute or child list the element does not have
+    /// (`noValue`, `attributeUnsupported`) is not a failure.
+    private static func elements(of pid: pid_t, windowID: CGWindowID?) -> [Element]? {
+        guard AXIsProcessTrusted() else { return nil }
         let app = AXUIElementCreateApplication(pid)
         var windows: AnyObject?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows) == .success,
-              var list = windows as? [AXUIElement] else { return [] }
-        if let windowID { list = list.filter { WindowMover.windowID(of: $0) == windowID } }
+              var list = windows as? [AXUIElement] else { return nil }
+        if let windowID {
+            list = list.filter { WindowMover.windowID(of: $0) == windowID }
+            guard !list.isEmpty else { return nil }
+        }
         var found: [Element] = []
+        var failed = false
         func visit(_ element: AXUIElement, depth: Int) {
-            guard depth < 10, found.count < 200 else { return }
+            guard !failed else { return }
+            guard depth < 10, found.count < 200 else { failed = true; return }
             var children: AnyObject?
-            guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
-                  let list = children as? [AXUIElement] else { return }
+            switch AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) {
+            case .success: break
+            case .noValue, .attributeUnsupported: return
+            default: failed = true; return
+            }
+            guard let list = children as? [AXUIElement] else { return }
+            /// The attribute, nil when the element has none; a read that
+            /// failed otherwise fails the whole read.
+            func read(_ child: AXUIElement, _ attribute: String) -> AnyObject? {
+                var value: AnyObject?
+                switch AXUIElementCopyAttributeValue(child, attribute as CFString, &value) {
+                case .success: return value
+                case .noValue, .attributeUnsupported: return nil
+                default: failed = true; return nil
+                }
+            }
             for child in list {
-                var role: AnyObject?
-                AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &role)
+                let role = read(child, kAXRoleAttribute)
                 let labels = [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute]
                     .compactMap { attribute -> String? in
-                        var value: AnyObject?
-                        AXUIElementCopyAttributeValue(child, attribute as CFString, &value)
-                        return (value as? String).flatMap { $0.isEmpty ? nil : $0 }
+                        (read(child, attribute) as? String).flatMap { $0.isEmpty ? nil : $0 }
                     }
+                guard !failed else { return }
                 let button = (role as? String) == kAXButtonRole
                 if button || !labels.isEmpty { found.append(Element(element: child, button: button, labels: labels)) }
                 if !button { visit(child, depth: depth + 1) }
             }
         }
         list.forEach { visit($0, depth: 0) }
-        return found
+        return failed ? nil : found
     }
 }

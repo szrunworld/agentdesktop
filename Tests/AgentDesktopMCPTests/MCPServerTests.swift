@@ -15,7 +15,7 @@ final class MCPPlatform: DesktopPlatform, @unchecked Sendable {
         PlatformHit(role: "AXButton", texts: [], windowId: 3)
     }
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
-    func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: nil) }
+    func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: 3) }
     func menuOpen(pid: Int32) -> Bool? { false }
     func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
 
@@ -74,7 +74,14 @@ struct MCPBackend: RuntimeBackend {
         [AppSummary(process: ProcessIdentity(pid: 4, startedAt: "2026-10-08T01:00:00.000Z"), bundleId: "com.apple.Notes",
                     name: "Notes", active: false, hidden: false)]
     }
-    func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [AgentDesktopProtocol.WindowSummary] { [] }
+    /// The bound window is in its app's list, as on a real machine (#163
+    /// refuses input when it is not: the list could not be read).
+    func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [AgentDesktopProtocol.WindowSummary] {
+        guard pid == nil || pid == 4 else { return [] }
+        return [WindowSummary(windowId: 3, process: ProcessIdentity(pid: 4, startedAt: nil), appName: "备忘录",
+                              bundleId: "com.apple.Notes", title: "购物清单",
+                              frame: Rect(x: 3010, y: 10, width: 500, height: 400), onScreen: true)]
+    }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: "2026-10-08T01:00:00.000Z") }
 }
 
