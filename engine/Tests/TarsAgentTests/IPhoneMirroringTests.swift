@@ -28,6 +28,17 @@ class FakeMirroring: IPhoneMirroringSystem {
     var sleeps = 0
     var onSleep: (() -> Void)?
     var createFails = false
+    var pasteInProgress = false
+    func withoutPaste<T>(_ body: () throws -> T) throws -> T? {
+        guard !pasteInProgress else { return nil }
+        return try body()
+    }
+    func whileNoPaste(_ body: () -> Void) -> Bool {
+        guard !pasteInProgress else { return false }
+        body()
+        return true
+    }
+    var deliverThrows = false
     var inputBarrier = HostFlag(url: FileManager.default.temporaryDirectory
         .appendingPathComponent("agentdesktop-barrier-\(UUID().uuidString)/iphone-input-barrier"))
     var createdScreens = 0
@@ -55,8 +66,10 @@ class FakeMirroring: IPhoneMirroringSystem {
                                    windowID: windowID, frame: frame)
     }
 
+    struct TransportLost: Error {}
     func deliver(_ request: ControlRequest) throws -> ControlResponse {
         delivered.append(request)
+        if deliverThrows, request.command == .input { throw TransportLost() }
         if request.command == .screenCreate {
             if createFails { return .failure("a screen named \"\(request.screen ?? "")\" already exists") }
             createdScreens += 1
@@ -1098,10 +1111,18 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
 /// are made one process at a time (a lock beside the gate's file), so a
 /// newer press is never lowered or overwritten by an older reconnect.
 @Suite struct IPhoneReconnectGateLockTests {
+    /// Integrating with #127: HostFlag locks "<flag>.lock" for each read and
+    /// change, which the gate lock's holder makes (raising the gate); the
+    /// same file for both deadlocked the process on its own flock.
+    @Test func theGateLockIsNotTheFlagsOwnLock() {
+        let gate = HostFlag(url: FileManager.default.temporaryDirectory.appendingPathComponent("gate-\(UUID().uuidString)"))
+        #expect(HostFlagLock(for: gate, wait: 0).url.path != gate.url.path + ".lock")
+    }
+
     /// Hold the gate's lock as another process would.
     static func holdLock(of gate: HostFlag) throws -> Int32 {
         try FileManager.default.createDirectory(at: gate.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let fd = open(gate.url.path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        let fd = open(HostFlagLock(for: gate, wait: 0).url.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard fd >= 0, flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw IPhoneError("test", "cannot lock") }
         return fd
     }
@@ -1221,7 +1242,7 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
         try FileManager.default.createDirectory(at: fake.reconnectGate.url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        let fd = open(fake.reconnectGate.url.path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        let fd = open(HostFlagLock(for: fake.reconnectGate, wait: 0).url.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         #expect(fd >= 0 && flock(fd, LOCK_SH | LOCK_NB) == 0)
         defer { flock(fd, LOCK_UN); close(fd) }
         #expect(try phone.perform(tap(3100, 300)).ok)

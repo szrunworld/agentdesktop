@@ -95,7 +95,8 @@ func openSibling(_ backend: FixedBackend) {
     #expect(r["verification"]?.stringValue == "not_requested")
 }
 
-@Test func aDesktopWithoutABindingStillShowsTheWholeScreen() throws {
+@Test func aDesktopWithoutABindingShowsTheWholeScreenOnlyWhereThatIsAllowed() throws {
+    // Tests that switch the restriction off (as scene() does) keep the old behaviour…
     let sc = try scene()
     let c = handshaken(sc.s)
     let d = try created(sc.s, c)
@@ -103,6 +104,37 @@ func openSibling(_ backend: FixedBackend) {
     let screen = try #require(sc.s.desktops.find(d)?.screen)
     #expect(o["image"]?["transform"]?["originX"]?.doubleValue == screen.frame.x)
     #expect(o["target"] == .null)
+    // …the product refuses it until a screen-level grant exists.
+    sc.s.refusesScreenCaptureWithoutBinding = true
+    let refused = call(sc.s, c, "observe", context: #"{"desktopId":"\#(d)"}"#)
+    #expect(code(refused) == "invalid_target")
+    #expect(failure(refused)?.details?["reason"]?.stringValue == "screen_capture_requires_grant")
+}
+
+@Test func untilGrantsAVirtualDesktopBindsOnlyAppsItLaunchedAndCapturesTheWindowAlone() throws {
+    let platform = FakePlatform()
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                           backend: FixedBackend(), platform: platform)
+    #expect(s.bindsOnlyLaunchedProcesses && s.refusesScreenCaptureWithoutBinding, "the product defaults")
+    let c = handshaken(s)
+    let d = try created(s, c)
+    // One of the user's own apps (pid 101) cannot be pulled onto the agent screen.
+    let refused = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
+    #expect(code(refused) == "permission_denied")
+    #expect(failure(refused)?.details?["reason"]?.stringValue == "bind_requires_grant")
+    #expect(!platform.calls.contains { $0.hasPrefix("move") }, "the user's window is not moved")
+    // No screenshot of the whole screen without a bound window.
+    #expect(code(call(s, c, "observe", context: #"{"desktopId":"\#(d)"}"#)) == "invalid_target")
+    #expect(!platform.calls.contains { $0.hasPrefix("screenshot") })
+    // An app launched on the Desktop can be bound; its observation is the window alone.
+    let launched = try #require(data(call(s, c, "app.launch", params: #"{"desktopId":"\#(d)","bundleId":"com.apple.Notes"}"#)))
+    let pid = try #require(launched["process"]?["pid"]?.intValue)
+    #expect(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":\#(pid)}"#)) != nil)
+    let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
+    #expect(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) != nil)
+    #expect(platform.calls.contains { $0.hasSuffix(" window") }, "window capture: \(platform.calls)")
+    #expect(!platform.calls.contains { $0 == "screenshot \(d)" }, "never the whole screen")
 }
 
 @Test func aWindowAppearingElsewhereOnTheScreenDoesNotVoidTheObservation() throws {

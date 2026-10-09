@@ -47,17 +47,24 @@ extension RuntimeService {
         }
     }
 
-    func createDesktop(_ p: JSONValue) -> Result<JSONValue, RuntimeError> {
+    func createDesktop(_ p: JSONValue, origin: ConnectionOrigin = .host) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         createLock.lock()
         defer { createLock.unlock() }
         let id = DesktopRegistry.newId(prefix: "d")
         let name = p["name"]?.stringValue ?? id
-        if desktops.names().contains(name) {
+        let taken = socketsSeeOnlyTheirOwn ? desktops.names(createdBy: origin) : desktops.names()
+        if taken.contains(name) {
             return .failure(RuntimeError("conflict", "a desktop named \(name) exists", phase: .handler))
         }
         do {
             if let physical = p["physical"] {
+                guard physicalDesktopsEnabled else {
+                    return .failure(RuntimeError("permission_denied",
+                                                 "physical Desktops are disabled until per-window grants exist: attaching your screen and binding its windows needs your authorization for each window",
+                                                 phase: .handler, notSent: true,
+                                                 details: .obj([("reason", .string("physical_desktop_requires_grant"))])))
+                }
                 // A physical Desktop: attach one of the user's displays; nothing is created.
                 guard p["width"] == nil, p["height"] == nil else {
                     return .failure(.invalidArgument("a physical Desktop takes the display's size; leave out width and height"))
@@ -72,15 +79,15 @@ extension RuntimeService {
                     wanted = nil
                 }
                 let screen = try platform.attachDisplay(wanted)
-                if let other = desktops.physical(displayId: screen.displayId) {
-                    return .failure(RuntimeError("conflict", "desktop \(other.desktopId) already attaches display \(screen.displayId)",
-                                                 phase: .handler, details: .obj([("desktopId", .string(other.desktopId))])))
+                if desktops.physical(displayId: screen.displayId) != nil {
+                    return .failure(RuntimeError("conflict", "another desktop already attaches display \(screen.displayId)",
+                                                 phase: .handler))
                 }
-                let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical)
+                let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, kind: .physical, createdBy: origin)
                 return .success(desktopJSON(d))
             }
             let screen = try platform.createScreen(name: id, width: p["width"]?.intValue, height: p["height"]?.intValue)
-            let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString)
+            let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, createdBy: origin)
             return .success(desktopJSON(d))
         } catch let e as PlatformError {
             return .failure(e.runtimeError)
@@ -167,6 +174,14 @@ extension RuntimeService {
             guard let pid = p["pid"]?.intValue.map(Int32.init) else { throw RuntimeError.schemaInvalid("pid is required") }
             let wanted = p["windowId"]?.intValue.map(UInt32.init)
             let process = backend.processIdentity(pid)
+            // The grant check comes first: a refusal says nothing about
+            // whether a process with that pid exists.
+            if d.kind == .virtual && bindsOnlyLaunchedProcesses && !d.launched.contains(process) {
+                throw RuntimeError("permission_denied",
+                                   "only an app launched on desktop \(d.desktopId) can be bound until per-window grants exist; launch it there with app.launch",
+                                   phase: .handler, notSent: true,
+                                   details: .obj([("reason", .string("bind_requires_grant"))]))
+            }
             guard process.startedAt != nil else { throw RuntimeError.notFound("no process \(pid)") }
             if d.kind == .physical {
                 // Never move the user's window: it must already be on this display.
@@ -208,19 +223,19 @@ extension RuntimeService {
 
     func openSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         withDesktop(p["desktopId"]) { d in
-            sessions.open(desktopId: d.desktopId, caller: c.peerUID, at: nowString).json
+            sessions.open(desktopId: d.desktopId, caller: callerKey(c), at: nowString).json
         }
     }
 
     func showSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["sessionId"]?.stringValue ?? ""
-        guard let s = sessions.find(id, caller: c.peerUID) else { return .failure(.notFound("no session \(id)")) }
+        guard let s = sessions.find(id, caller: callerKey(c)) else { return .failure(.notFound("no session \(id)")) }
         return .success(s.json)
     }
 
     func closeSession(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["sessionId"]?.stringValue ?? ""
-        guard sessions.find(id, caller: c.peerUID) != nil, let s = sessions.close(id, at: nowString) else {
+        guard sessions.find(id, caller: callerKey(c)) != nil, let s = sessions.close(id, at: nowString) else {
             return .failure(.notFound("no session \(id)"))
         }
         return .success(s.json)
@@ -228,7 +243,7 @@ extension RuntimeService {
 
     func showRequest(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["requestId"]?.stringValue ?? ""
-        guard let r = try? ledger.record(caller: c.peerUID, requestId: id) else {
+        guard let r = try? ledger.record(caller: callerKey(c), requestId: id) else {
             return .failure(.notFound("no request \(id) within the last \(RequestLedger.retentionDays) days"))
         }
         var m: [(String, JSONValue)] = [("requestId", .string(r.requestId)), ("method", .string(r.method)),

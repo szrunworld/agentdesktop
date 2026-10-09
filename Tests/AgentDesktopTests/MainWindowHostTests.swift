@@ -1,5 +1,5 @@
 import AgentDesktopProtocol
-import AgentDesktopRuntime
+@testable import AgentDesktopRuntime
 import AgentDesktopUI
 import AppKit
 import Foundation
@@ -43,9 +43,9 @@ struct MainWindowHostTests {
     // The in-process port answers runtime/1 through the Runtime itself, as
     // the owner, on a connection of its own.
     @Test func inProcessPortSpeaksRuntime1() async throws {
-        let service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_ui", pid: getpid(), startedAt: Timestamp.string(Date()),
+        let service = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_ui", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                                endpoint: "/tmp/none.sock", buildSource: "unknown"),
-                                     backend: EmptyBackend())
+                                     backend: EmptyBackend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
         let port = InProcessRuntimePort(service: service)
         #expect(!port.isSample)
         do {

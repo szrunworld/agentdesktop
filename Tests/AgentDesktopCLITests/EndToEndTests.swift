@@ -1,6 +1,6 @@
 import AgentDesktopClient
 import AgentDesktopProtocol
-import AgentDesktopRuntime
+@testable import AgentDesktopRuntime
 import Foundation
 import Testing
 @testable import AgentDesktopCLI
@@ -33,7 +33,7 @@ final class LiveRuntime {
         path = dir + "/runtime.sock"
         let identity = RuntimeIdentity(instanceId: "rt_live", pid: getpid(), startedAt: Timestamp.string(Date()),
                                        endpoint: path, buildSource: "unknown")
-        server = RuntimeServer(path: path, service: RuntimeService(identity: identity, backend: backend))
+        server = RuntimeServer(path: path, service: { let s = RuntimeService(identity: identity, backend: backend); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }())
         try server.start()
     }
 

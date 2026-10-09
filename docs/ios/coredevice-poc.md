@@ -17,7 +17,7 @@
 
 矩阵规则：
 
-- **按设备出矩阵，不跨设备合并**：探测到的每台设备（usbmux 序列号 / remotepairingd / tunneld 原始隧道映射 / RSD 的 UDID）各有一张矩阵，放在 `capabilities_by_device`；顶层 `capabilities` 只是其中一个 UDID 的矩阵（`--udid` 指定；未指定时取唯一 / 第一台，并在 `target_selection` 写明）。lockdown 事实、tunneld 隧道、RSD 服务列表都按该 UDID 过滤，RSD 证据里带隧道接口名，便于按传输方式区分。tunneld 列出某台设备、但其 RSD 端点打不开时（上游 `get_tunneld_devices()` 会静默跳过这条隧道），该设备仍会出现在 `devices` 里，`tunnel_tunneld` 记为 unsupported 并保留隧道信息与 RSD 失败原因。
+- **按设备出矩阵，不跨设备合并**：探测到的每台设备（usbmux 序列号 / remotepairingd / RSD 的 UDID，以及 RSD 打不开的 tunneld 隧道键）各有一张矩阵，放在 `capabilities_by_device`；顶层 `capabilities` 只是其中一个 UDID 的矩阵（`--udid` 指定；未指定时取唯一 / 第一台，并在 `target_selection` 写明）。lockdown 事实、tunneld 隧道、RSD 服务列表都按该 UDID 过滤，RSD 证据里带隧道接口名，便于按传输方式区分。tunneld 的映射键是它的 remote identifier，不保证等于硬件 UDID，所以探测逐条打开每个键下的每条隧道记录的 RSD（`rsd_services.result.entries[].tunnel_key` / `tunnel_index`，每个打开的 RSD 都会关闭，含失败和超时路径），按 RSD 报告的 UDID 把隧道归到设备上。某条隧道的 RSD 打不开时（上游 `get_tunneld_devices()` 会静默跳过它），失败原因记在 `failed_tunnels`；若这个键对不上任何已知 UDID，就以隧道键作为标识列入 `devices` 和 `tunneld_only_devices`，`tunnel_tunneld` 记为 unsupported 并保留隧道信息与 RSD 失败原因；自动选择 `capabilities` 时优先选有真实 UDID 的设备。
 - **服务被公布 ≠ 操作可用**：RSD 服务是否被公布单独上报为 `service_advertised_*`；截图、屏幕流、HID、剪贴板这些操作探测脚本从不执行，所以无论服务是否被公布都保持 `unverified`，证据写 `NOT_RUN` 和公布情况。
 
 | 项目 | 状态 | 证据 / 原因 |

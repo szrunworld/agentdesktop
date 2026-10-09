@@ -45,7 +45,7 @@ extension RuntimeService {
     func ledgeredExtension(_ request: RuntimeRequest, _ handler: ExtensionMethod, on c: ConnectionState) -> RuntimeResponse {
         let begin: RequestLedger.Begin
         do {
-            begin = try ledger.begin(caller: c.peerUID, request)
+            begin = try ledger.begin(caller: callerKey(c), request)
         } catch {
             return .failure(request.requestId, RuntimeError("audit_unavailable", "the request ledger is unavailable", phase: .request,
                                                             notSent: true))
@@ -66,9 +66,9 @@ extension RuntimeService {
             case let .failure(e) where !["request_acceptance_unknown", "action_delivery_unknown"].contains(e.code):
                 // The service refused or failed it before any effect, and
                 // forgot the key itself: so does the ledger, for a retry.
-                try? ledger.forget(caller: c.peerUID, requestId: request.requestId)
+                try? ledger.forget(caller: callerKey(c), requestId: request.requestId)
             default:
-                try? ledger.finish(caller: c.peerUID, requestId: request.requestId, response.result)
+                try? ledger.finish(caller: callerKey(c), requestId: request.requestId, response.result)
             }
             return response
         }
