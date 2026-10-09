@@ -52,8 +52,8 @@ public enum RuntimeBridge {
             traced?.noteInTask(.taskStarted, taskPriority: Task.currentPriority.rawValue)
             box.outcome = await router.answer(method: call.method, params: call.params, deadline: deadline,
                                               idempotencyKey: idempotent ? call.requestId : nil)
-            done.signal()
             traced?.noteInTask(.resultReady)
+            done.signal()
         }
         traced?.note(.taskCreated)
         let until = call.deadline ?? Date().addingTimeInterval(defaultWait)

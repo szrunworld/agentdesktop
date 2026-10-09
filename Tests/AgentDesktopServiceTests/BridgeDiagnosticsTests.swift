@@ -67,19 +67,12 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
     defer { try? FileManager.default.removeItem(atPath: dir) }
     let recorder = BridgeDiagnostics()
     _ = await answer(call("ai.connections.list", .obj([])), s, idempotent: false, recorder)
-    // resultReady is noted after the signal (b9 on 3bca1c2): it may land just
-    // after `answer` returns.
-    let until = Date().addingTimeInterval(2)
-    while !recorder.events.contains(where: { $0.stage == .resultReady }) && Date() < until {
-        try await Task.sleep(nanoseconds: 10_000_000)
-    }
     let e = Dictionary(recorder.events.map { ($0.stage, $0) }, uniquingKeysWith: { a, _ in a })
     try #require(Set(e.keys) == [.entered, .taskCreated, .waitStarted, .taskStarted, .resultReady, .answered],
-                 "stages after 2 s: \(e.keys.map(\.rawValue).sorted())")
+                 "stages: \(e.keys.map(\.rawValue).sorted())")
     let at = { (s: BridgeDiagnostics.Stage) in e[s]?.uptimeNanos ?? 0 }
     #expect(at(.entered) <= at(.taskCreated) && at(.taskCreated) <= at(.waitStarted) && at(.waitStarted) <= at(.answered))
-    // resultReady is noted after the signal, so it may follow `answered`.
-    #expect(at(.entered) <= at(.taskStarted) && at(.taskStarted) <= at(.resultReady))
+    #expect(at(.entered) <= at(.taskStarted) && at(.taskStarted) <= at(.resultReady) && at(.resultReady) <= at(.answered))
     #expect(e[.entered]?.sinceEnteredNanos == 0)
     // The connection thread notes its own stages; the task runs elsewhere.
     let caller = e[.entered]?.threadId ?? 0
@@ -144,6 +137,7 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
     let callers = Set(recorder.events.filter { $0.stage == .entered }.map(\.threadId))
     #expect(seen.lock.withLock { seen.threads }.isSubset(of: callers))
     #expect(seen.lock.withLock { seen.beforeTheWaitEnded } == 0)
-    // The task's stages still reach the hook, later, from a connection thread.
-    #expect(seen.lock.withLock { seen.stages }.contains(.taskStarted))
+    // The task's stages reach the hook too, from the connection thread,
+    // the last call's resultReady included (Codex on 42108c5).
+    #expect(seen.lock.withLock { seen.stages.filter { $0 == .taskStarted || $0 == .resultReady }.count } == 6)
 }

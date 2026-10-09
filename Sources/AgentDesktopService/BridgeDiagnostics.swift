@@ -14,9 +14,8 @@ import Foundation
 /// order: never on the cooperative thread whose availability the timeline
 /// measures, never before the waiter is signalled, and never inside the
 /// time the request's deadline allows (Codex on 062f5db and 53dc980, b9).
-/// So the last call's `resultReady`, and a timed-out call's late stages,
-/// reach `onEvent` only with the next call on that bridge (all are in
-/// `events` at once).
+/// A timed-out call's late stages reach `onEvent` only with the next call
+/// on that bridge (they are in `events` at once).
 final class BridgeDiagnostics: @unchecked Sendable {
     enum Stage: String, Sendable {
         /// `answer` was called (on the connection thread).
@@ -28,7 +27,8 @@ final class BridgeDiagnostics: @unchecked Sendable {
         case waitStarted
         /// The task began to run (on a cooperative thread).
         case taskStarted
-        /// The service answered and the waiter was signalled.
+        /// The service answered; the task is about to signal (noted in
+        /// memory only, so it delays the signal by an append).
         case resultReady
         /// The wait ended with the service's answer.
         case answered
