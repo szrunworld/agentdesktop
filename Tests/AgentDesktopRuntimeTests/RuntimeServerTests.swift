@@ -102,17 +102,21 @@ func startServer(_ path: String, backend: RuntimeBackend = FixedBackend()) throw
     let path = dir + "/r.sock"
     let server = try startServer(path)
     defer { server.stop() }
-    let results = await withTaskGroup(of: Bool.self) { group in
+    // Sixteen blocking socket clients, each on its own thread: on the
+    // cooperative pool they would hold every thread of a strict pool
+    // while the handshakes run, and stall other suites' async work.
+    let results = await withCheckedContinuation { (k: CheckedContinuation<[Bool], Never>) in
+        final class Results: @unchecked Sendable { let lock = NSLock(); var all: [Bool] = [] }
+        let r = Results()
         for _ in 0..<16 {
-            group.addTask {
+            Thread {
                 let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"), credential: testOwner)
                 defer { c.close() }
-                return (try? c.call(RuntimeRequest(.windowList))["windows"]?.arrayValue?.count) == 2
-            }
+                let ok = (try? c.call(RuntimeRequest(.windowList))["windows"]?.arrayValue?.count) == 2
+                let done: [Bool]? = r.lock.withLock { r.all.append(ok); return r.all.count == 16 ? r.all : nil }
+                if let done { k.resume(returning: done) }
+            }.start()
         }
-        var all: [Bool] = []
-        for await r in group { all.append(r) }
-        return all
     }
     #expect(results.count == 16 && results.allSatisfy { $0 })
 }
