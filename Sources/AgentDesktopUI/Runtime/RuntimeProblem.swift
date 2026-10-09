@@ -49,6 +49,8 @@ public struct RuntimeProblem: Equatable, Sendable {
             return "无法证明这个应用的新进程由这次启动创建（没有有效签名、只允许单实例或没有 Bundle ID），AgentDesktop 不会打开它。"
         case "app_already_running":
             return "这个应用已经在运行，是你正在使用的实例。Agent 不会再启动它，也不会动它的窗口。"
+        case "launch_failed":
+            return "系统的启动调用失败了，无法确定应用是否已经启动。AgentDesktop 不会自动重试，也没有移动或绑定任何窗口；请查看屏幕后再决定是否重新启动。"
         case "launch_refused_after_open":
             return "应用已被打开，但无法证明新进程属于这次启动，所以没有移动或绑定它的窗口。它可能留在你的屏幕上，可以手动关闭。"
         case "physical_desktop_requires_grant":
