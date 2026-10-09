@@ -12,7 +12,9 @@ import Testing
 let unclearPress = "the accessibility press of element 0 got no clear answer; it may have pressed, so no further click was sent"
 
 @Test func anUnclearPressIsNeverTakenAsNotPerformed() {
-    #expect(!EnginePlatform.preDispatchFailures.contains { unclearPress.lowercased().contains($0.lowercased()) })
+    // #173: an unclear press records "unknown" (AXActions.pressOnce), which
+    // is never not performed, whatever the message says.
+    #expect(!EnginePlatform.notPerformed(delivery: "unknown"))
 }
 
 @Test func anUnclearClickIsUnknownAndNotRunAgainOnRetryOrCancel() throws {

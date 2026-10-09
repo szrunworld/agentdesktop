@@ -248,31 +248,13 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         return ElementRead(window: Self.window(w), elements: elements, truncated: response.elementsTruncated)
     }
 
-    /// Engine refusals that happen before any event is posted: target
-    /// lookups and argument checks in InputEngine.perform.
-    static let preDispatchFailures = [
-        "has no window", "has no on-screen window", "is not on screen", "is outside the window",
-        "no element", "give --index", "needs --value", "needs the field named", "permission",
-        "has no frame to click", "does not take its text", "unknown key", "no screen named",
-        // A one-character key with no key code is typed (#171 §1.1): stopped
-        // before its character, nothing was submitted (#163). Typing itself is
-        // never judged by text (notPerformed), until #173.
-        "no character was submitted",
-    ]
-
     /// Whether an engine failure proves the action performed nothing (#170
-    /// not_performed). The engine says so only in its message text, which is
-    /// weak evidence (#173). A click may already have pressed through
-    /// accessibility before falling back to events, and typing may already
-    /// have clicked a web field or submitted characters, so for those two a
-    /// failure is never taken as not performed until the engine reports it
-    /// structurally (#173): the delivery is unknown. Keys and scrolls fail
-    /// before any input, and keep the text match.
-    static func notPerformed(_ message: String, kind: PlatformAction.Kind) -> Bool {
-        switch kind {
-        case .click, .type: return false
-        case .key, .scroll: return preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
-        }
+    /// not_performed). Only the engine's structured record says so (#173):
+    /// `delivery` == "notPerformed", set by the execution path itself before
+    /// anything was submitted. "submitted", "unknown" or no record at all
+    /// (an engine that does not say) is never not performed.
+    static func notPerformed(delivery: String?) -> Bool {
+        delivery == "notPerformed"
     }
 
     public func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
@@ -295,7 +277,7 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         let response = handle(r)
         guard response.ok else {
             let message = response.error ?? "the engine refused the action"
-            let before = Self.notPerformed(message, kind: action.kind)
+            let before = Self.notPerformed(delivery: response.delivery)
             var e = Self.classify(message)
             e.beforeDispatch = before
             throw e
