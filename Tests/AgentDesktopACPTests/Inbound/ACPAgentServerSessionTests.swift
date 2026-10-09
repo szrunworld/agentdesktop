@@ -250,7 +250,8 @@ import Testing
         _ = await h.connection.waitReply(i)
         let raw = try String(contentsOf: h.dir.appendingPathComponent("\(sid).json"), encoding: .utf8)
         #expect(!raw.contains("secret"))
-        #expect(try h.store.load(sessionId: sid)?.title == "my ••• plan")
+        #expect(!raw.contains("plan"))
+        #expect(try h.store.load(sessionId: sid)?.title == "对话")
     }
 }
 

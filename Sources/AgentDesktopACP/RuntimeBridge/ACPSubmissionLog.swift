@@ -47,6 +47,8 @@ public final class ACPSubmissionLog: @unchecked Sendable {
     private let now: @Sendable () -> Date
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
+    /// Fault injection for tests only: the directory fsync after a rename fails.
+    private let dirFsyncFault: Bool
 
     /// The default location beside the Runtime's own data.
     public static func defaultPath(home: String = NSHomeDirectory()) -> String {
@@ -55,9 +57,15 @@ public final class ACPSubmissionLog: @unchecked Sendable {
 
     /// Loads `path`. An unreadable or corrupt file is an error, never an
     /// empty log: forgetting a record could make a retry send twice.
-    public init(path: String, now: @escaping @Sendable () -> Date = { Date() }) throws {
+    public convenience init(path: String, now: @escaping @Sendable () -> Date = { Date() }) throws {
+        try self.init(path: path, now: now, dirFsyncFault: false)
+    }
+
+    /// Internal: tests inject a failing directory fsync.
+    init(path: String, now: @escaping @Sendable () -> Date = { Date() }, dirFsyncFault: Bool) throws {
         self.path = path
         self.now = now
+        self.dirFsyncFault = dirFsyncFault
         let dir = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
@@ -69,17 +77,28 @@ public final class ACPSubmissionLog: @unchecked Sendable {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: path])
         }
         let cutoff = now().addingTimeInterval(-Double(Self.retentionDays) * 86400)
+        // A file written before the F-1 fix may still hold refusal messages
+        // or unlisted codes in clear text: rewrite it once, right away.
+        var scrub = false
         for item in list {
             guard let key = item["submissionKey"]?.stringValue, let rid = item["requestId"]?.stringValue,
                   let method = item["method"]?.stringValue,
                   let state = item["state"]?.stringValue.flatMap(State.init(rawValue:)),
                   let at = item["updatedAt"]?.stringValue
             else { throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: path]) }
-            if let d = Self.date(at), d < cutoff { continue }
+            // Check sensitive fields before the retention skip, and rewrite
+            // the file whenever an entry is dropped, so nothing expired stays
+            // on disk either (Codex review P1 on #141).
+            if item["refusalMessage"] != nil { scrub = true }
+            let rawCode = item["refusalCode"]?.stringValue
+            let code = rawCode.map(ACPRedactor.errorCode)
+            if rawCode != code { scrub = true }
+            if let d = Self.date(at), d < cutoff { scrub = true; continue }
             entries[key] = Entry(submissionKey: key, requestId: rid, method: method, state: state,
-                                 runId: item["runId"]?.stringValue, refusalCode: item["refusalCode"]?.stringValue,
+                                 runId: item["runId"]?.stringValue, refusalCode: code,
                                  refusalMessage: nil, updatedAt: at)
         }
+        if scrub { try persist() }
     }
 
     public func entry(_ submissionKey: String) -> Entry? {
@@ -99,6 +118,10 @@ public final class ACPSubmissionLog: @unchecked Sendable {
         e.updatedAt = Self.stamp(now())
         let previous = entries[e.submissionKey]
         entries[e.submissionKey] = e
+        // If only the directory fsync failed, the file may already hold the
+        // new entry while memory rolls back; the caller sees an error and the
+        // next successful persist rewrites the file from memory. No sensitive
+        // text is involved: refusal messages are never stored (b9, #141).
         do { try persist() } catch {
             entries[e.submissionKey] = previous
             throw error
@@ -109,6 +132,8 @@ public final class ACPSubmissionLog: @unchecked Sendable {
     public func remove(_ submissionKey: String) throws {
         lock.lock(); defer { lock.unlock() }
         let previous = entries.removeValue(forKey: submissionKey)
+        // Same as `record`: a failed directory fsync may leave the file
+        // without the entry while memory keeps it; the next persist rewrites it.
         do { try persist() } catch {
             entries[submissionKey] = previous
             throw error
@@ -155,6 +180,14 @@ public final class ACPSubmissionLog: @unchecked Sendable {
             unlink(tmp)
             throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
         }
+        // The rename is only durable once the directory is (Codex on #141):
+        // after a scrub, a power loss must not bring back the old file with
+        // its sensitive text. Not durable is an error.
+        let dir = (path as NSString).deletingLastPathComponent
+        let dfd = open(dir.isEmpty ? "." : dir, O_RDONLY | O_DIRECTORY)
+        guard dfd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(dfd) }
+        guard !dirFsyncFault, fsync(dfd) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 
     private static func stamp(_ d: Date) -> String {
@@ -163,9 +196,14 @@ public final class ACPSubmissionLog: @unchecked Sendable {
         return f.string(from: d)
     }
 
+    /// Accepts timestamps with or without fractional seconds. An entry whose
+    /// time cannot be read is kept (dropping it could allow a resend), but
+    /// its sensitive fields are still scrubbed on load.
     private static func date(_ s: String) -> Date? {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return d }
+        f.formatOptions = [.withInternetDateTime]
         return f.date(from: s)
     }
 }
