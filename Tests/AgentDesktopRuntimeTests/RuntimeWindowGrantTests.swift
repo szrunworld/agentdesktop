@@ -928,3 +928,18 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     let pngs = ((try? FileManager.default.contentsOfDirectory(atPath: sc.s.artifacts.directory)) ?? []).filter { $0.hasSuffix(".png") }
     #expect(pngs.isEmpty, "\(pngs)")
 }
+
+@Test func keptScreenshotsAreNotReadablePastTheGrantsTime() throws {
+    let (sc, _, g, _) = try calculatorScene(["observe", "persist"])
+    let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+    #expect(data(call(sc.s, sc.c, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil)
+    // The window grant's time runs out while the client's grant goes on.
+    var expired = g
+    expired.windowGrantId = "wg_short"
+    expired.expiresAt = Timestamp.string(Date().addingTimeInterval(-1))
+    try sc.s.hub.addWindowGrant(expired)
+    let info = try #require(sc.s.artifacts.info(id))
+    var moved = info
+    moved.windowGrantId = "wg_short"
+    #expect(sc.s.windowArtifactRefusal(moved, sc.c))
+}

@@ -227,6 +227,8 @@ extension RuntimeService {
         if info.expiresAt == nil {
             guard c.role == .paired, let id = info.windowGrantId else { return false }
             guard let g = hub.windowGrant(id) else { return true }
+            // Never past the time the user approved (Codex on 77e03c5).
+            if g.expiresAt <= nowString { return true }
             if g.state == "active" { return false }
             // Kept past the window's own end (it closed, its process or
             // Desktop went), never past the user taking it back: revoked, or
