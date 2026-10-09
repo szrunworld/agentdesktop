@@ -15,7 +15,12 @@ func which(_ tool: String) -> String? {
     return nil
 }
 
-func runLive(_ tool: String, _ args: [String], in dir: String, endpoint: String) throws -> (Int32, String) {
+/// How long one SDK's live run may take (#187): a Runtime change that makes
+/// the run wait forever fails the test instead of holding CI.
+let liveRunLimit: TimeInterval = 120
+
+func runLive(_ tool: String, _ args: [String], in dir: String, endpoint: String,
+             limit: TimeInterval = liveRunLimit) throws -> (Int32, String) {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: tool)
     p.arguments = args
@@ -27,10 +32,33 @@ func runLive(_ tool: String, _ args: [String], in dir: String, endpoint: String)
     let out = Pipe()
     p.standardOutput = out
     p.standardError = out
+    final class Collected: @unchecked Sendable { let lock = NSLock(); var data = Data() }
+    let collected = Collected()
+    out.fileHandleForReading.readabilityHandler = { h in
+        let chunk = h.availableData
+        collected.lock.withLock { collected.data.append(chunk) }
+    }
     try p.run()
-    let data = out.fileHandleForReading.readDataToEndOfFile()
-    p.waitUntilExit()
-    return (p.terminationStatus, String(decoding: data, as: UTF8.self))
+    let deadline = Date().addingTimeInterval(limit)
+    while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+    var timedOut = false
+    if p.isRunning {
+        // Its own children first (node --test runs the file in a child that
+        // holds the pipe), then itself; only this run's processes.
+        timedOut = true
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-TERM", "-P", String(p.processIdentifier)]
+        try? pkill.run()
+        pkill.waitUntilExit()
+        p.terminate()
+        p.waitUntilExit()
+    }
+    out.fileHandleForReading.readabilityHandler = nil
+    let rest = (try? out.fileHandleForReading.readToEnd()) ?? nil
+    let text = String(decoding: collected.lock.withLock { collected.data } + (rest ?? Data()), as: UTF8.self)
+    if timedOut { return (-1, "timed out after \(Int(limit)) s (#187); output so far:\n" + text) }
+    return (p.terminationStatus, text)
 }
 
 @Test(.enabled(if: which("python3") != nil)) func pythonSDKLive() throws {
@@ -44,7 +72,7 @@ func runLive(_ tool: String, _ args: [String], in dir: String, endpoint: String)
 
 @Test(.enabled(if: which("node") != nil)) func typescriptSDKLive() throws {
     let h = try MCPHarness()
-    let (code, out) = try runLive(which("node")!, ["--test", "test/client.test.ts"],
+    let (code, out) = try runLive(which("node")!, ["--test", "--test-timeout=90000", "test/client.test.ts"],
                                   in: "sdks/typescript", endpoint: h.dir + "/runtime.sock")
     #expect(code == 0, "\(out)")
     #expect(out.contains("LIVE-OK"), "\(out)")

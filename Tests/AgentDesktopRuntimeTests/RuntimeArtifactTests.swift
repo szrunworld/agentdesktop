@@ -449,8 +449,15 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
     let store = try ArtifactStore(directory: dir, now: { clock.now })
     store.freeBytes = { 100 << 30 }
     store.refreshFreeSpace()
+    // The background refresh that admit starts is held until the check is
+    // over (#181): otherwise it could answer first, stamped with the set-back
+    // clock, and the stale answer would not be seen.
+    let gate = DispatchSemaphore(value: 0)
+    store.freeBytes = { gate.wait(); return 100 << 30 }
     clock.now = clock.now.addingTimeInterval(-3600)
     #expect(throws: RuntimeError.self) { try store.admit(bucket: "session:s") }
+    for _ in 0..<ArtifactStore.maxFreeQueries { gate.signal() }
+    store.freeBytes = { 100 << 30 }
     store.refreshFreeSpace()
     try store.admit(bucket: "session:s")
 }
