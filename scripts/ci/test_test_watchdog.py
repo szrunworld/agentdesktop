@@ -318,6 +318,32 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(command, "/usr/bin/python3 -c print('a  b') --flag x")
         self.assertIsNone(wd.parse_ps_row(" 812 1 812 501 S+ not a date at all here x"))
 
+    def test_a_reaped_commands_pid_is_never_signalled(self):
+        # Codex and b9 on #196: once stop() has reaped the command, its pid
+        # may be reused at once; the process that now has it must survive.
+        wd = self.load()
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+
+        class Reaped:
+            # The command, reaped by stop(); its pid now is the bystander's.
+            def wait(self, timeout=None):
+                return 0
+        try:
+            run = wd.Run(bystander.pid, None, uuid.uuid4().hex, time.time(), Reaped())
+            self.assertIn(bystander.pid, run.members())  # found while the command "ran"
+            real = wd.os.killpg
+            wd.os.killpg = lambda *a: None  # the group signal is not what is tested here
+            try:
+                run.stop()
+            finally:
+                wd.os.killpg = real
+            time.sleep(0.3)
+            self.assertIsNone(bystander.poll(), "the process that reused the reaped pid was killed")
+            self.assertFalse(run.root_alive)
+        finally:
+            bystander.kill()
+            bystander.wait()
+
 
 if __name__ == "__main__":
     unittest.main()

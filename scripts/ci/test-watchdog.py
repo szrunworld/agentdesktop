@@ -317,6 +317,10 @@ class Run:
                 try:
                     self.child.wait(timeout=2)
                     self.root_alive = False
+                    # Look again: the list above still holds the reaped
+                    # root, whose pid may already be someone else's, and
+                    # whatever else exited meanwhile (Codex on #196).
+                    targets = self.members()
                 except subprocess.TimeoutExpired:
                     pass
         # Up to five rounds of kill, wait, look again: a leftover may start a
