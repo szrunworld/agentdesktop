@@ -229,7 +229,13 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             guard appendMigrationLog([entry]) else { failed = true; continue }
             do {
                 try writeAtomically(out, to: url)
+                entry.status = "done"
+                entry.at = Self.now()
+                // The file is already format 2; a missing `done` only leaves
+                // the record incomplete (read as "not completed"), never wrong.
+                if !appendMigrationLog([entry]) { failed = true }
             } catch {
+                entry.status = "failed"
                 entry.error = Self.errorCode(error)
                 _ = appendMigrationLog([entry])
                 failed = true
@@ -238,8 +244,13 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         migrated = !failed
     }
 
-    /// One migrated file: counts and an error code, never any text.
+    /// One migrated file: counts and an error code, never any text. Each
+    /// rewrite is logged twice: `intent` before (with the counts), then
+    /// `done` or `failed` after. An `intent` with no later `done` for the
+    /// same file means the rewrite did not complete (Codex on #141: a lone
+    /// pre-write entry must never read as success).
     struct MigrationLogEntry: Codable, Equatable {
+        var status = "intent"
         var at: String
         var file: String
         var sessionId: String

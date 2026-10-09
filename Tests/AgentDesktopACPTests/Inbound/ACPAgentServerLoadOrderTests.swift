@@ -272,6 +272,9 @@ import Testing
         }
         let log = try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
             .split(separator: "\n").map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
+        // Each file: an `intent` before the rewrite, a `done` after it.
+        #expect(log.map { "\($0.file):\($0.status)" } == ["history:intent", "history:done", "binding:intent", "binding:done"]
+                || log.map { "\($0.file):\($0.status)" } == ["binding:intent", "binding:done", "history:intent", "history:done"])
         let hist = try #require(log.first { $0.file == "history" })
         #expect(hist.entries == 7 && hist.userScrubbed == 1 && hist.agentChanged == 4 && hist.agentKept == 2 && hist.error == nil)
         #expect(log.contains { $0.file == "binding" && $0.titleReset && $0.error == nil })
@@ -332,6 +335,26 @@ import Testing
         _ = try fresh.history(sessionId: "s1")
         #expect(!raw(dir, "s1.history.json").contains("hunter2") && !raw(dir, "s1.json").contains("hunter2"))
         #expect(raw(dir, ACPFileSessionStore.migrationLogName).contains("\"file\":\"history\""))
+    }
+
+    /// Codex on #141 (355036e): when the rewrite fails, the log says so;
+    /// a pre-write entry alone never reads as a completed migration.
+    @Test func aFailedRewriteIsLoggedAsFailedNotDone() throws {
+        let (s, dir) = store()
+        defer { chmod(dir.path, 0o700); try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        let log = dir.appendingPathComponent(ACPFileSessionStore.migrationLogName)
+        FileManager.default.createFile(atPath: log.path, contents: Data(), attributes: [.posixPermissions: 0o600])
+        chmod(dir.path, 0o500)  // existing files stay writable; no new temp file can be made
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try? fresh.history(sessionId: "s1")
+        chmod(dir.path, 0o700)
+        let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
+            .map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
+        #expect(!lines.isEmpty)
+        #expect(!lines.contains { $0.status == "done" })
+        #expect(lines.contains { $0.status == "failed" && $0.error != nil })
+        #expect(raw(dir, "s1.history.json").contains("\"format\":1"))
     }
 
     /// Codex on #141 (1a6d9c2): a log that ends in half a line (a crash
