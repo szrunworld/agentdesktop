@@ -31,7 +31,7 @@ struct CurPinnedTransportTests {
         private let state = State()
 
         convenience init() throws {
-            let dir = "/tmp/adt-ptest-\(UUID().uuidString.prefix(8))"
+            let dir = ACPTestScratch.tmp("ptest")
             try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             try self.init(path: dir + "/side.runtime.sock", ownDir: dir)
         }
@@ -284,6 +284,33 @@ struct CurPinnedTransportTests {
     func namesAreNormalised() {
         #expect(ACPTestPinnedTransport.normalised("/tmp/x-does-not-matter/../") != "")
         #expect(ACPTestPinnedTransport.normalised("/tmp/s.sock") == "/private/tmp/s.sock")
+    }
+
+    @Test("[Mock] the product is recognised by its bundle id, not by living under /Applications")
+    func productIsRecognisedByBundleId() throws {
+        let root = ACPTestScratch.dir("bundle")
+        defer { try? FileManager.default.removeItem(at: root) }
+        func app(_ name: String, _ id: String) throws -> String {
+            let contents = root.appendingPathComponent("\(name).app/Contents")
+            try FileManager.default.createDirectory(at: contents.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
+            try (["CFBundleIdentifier": id] as NSDictionary).write(to: contents.appendingPathComponent("Info.plist"))
+            return contents.appendingPathComponent("MacOS/\(name)").path
+        }
+        #expect(ACPTestPinnedTransport.isProductExecutable(try app("Agent Desktop", "com.agentdesktop.app")))
+        // CI's python lives in an Xcode bundle under /Applications: not the product.
+        #expect(!ACPTestPinnedTransport.isProductExecutable(try app("Xcode_16.4", "com.apple.dt.Xcode")))
+        #expect(!ACPTestPinnedTransport.isProductExecutable("/usr/bin/python3"))
+    }
+
+    @Test("[Mock] only this scheme's /tmp names are recognised for the stale sweep")
+    func staleSweepNamesAreStrict() {
+        #expect(ACPTestScratch.schemePid("adt-acp-123-AbC123") == 123)
+        #expect(ACPTestScratch.schemePid("adt-ptest-9-1A2B3C4D") == 9)
+        #expect(ACPTestScratch.schemePid("adt-curtest-vc-77-0F0F0F0F") == 77)
+        for other in ["adt-acp", "adt-acp-AbC123", "adt-pwd", "adt-g2-last", "adt-acp-12-short", "adt-acc",
+                      "adt-curtest-VC-1-abcdef", "ads-A92A25A7", "adt-acp-1-abc/def", "adt-x-1-abcdef"] {
+            #expect(ACPTestScratch.schemePid(other) == nil, "\(other)")
+        }
     }
 
     @Test("[Mock] Listeners nobody connects to leave no directory behind")

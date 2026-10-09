@@ -16,8 +16,8 @@ import Foundation
 ///    held by that child alone; no child → refuse.
 ///    There is no pid-only mode (Kevin: never fall back to matching a pid);
 /// 2. it runs as this user;
-/// 3. its executable is readable and not the installed product under
-///    /Applications;
+/// 3. its executable is readable and not inside the AgentDesktop product's
+///    app bundle (bundle id com.agentdesktop.app), wherever installed;
 /// 4. it has no socket bound in the product data directory (read from the
 ///    kernel, never by connecting); an unreadable process list → refuse.
 /// Any failure closes the descriptor unused. Because the check is on the
@@ -82,8 +82,8 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         guard let exe = Self.executablePath(pid) else {
             throw Refused(reason: "the peer's executable cannot be read")
         }
-        if exe.hasPrefix("/Applications/") {
-            throw Refused(reason: "peer \(pid) runs the installed product \(exe)")
+        if Self.isProductExecutable(exe) {
+            throw Refused(reason: "peer \(pid) runs the AgentDesktop product \(exe)")
         }
         guard let table = socketTable() else {
             throw Refused(reason: "the kernel's process list cannot be read")
@@ -136,6 +136,25 @@ final class ACPTestPinnedTransport: RuntimeTransport {
         let n = proc_pidpath(pid, &buf, UInt32(buf.count))
         return n > 0 ? String(cString: buf) : nil
     }
+
+    /// Whether `exe` lives inside an app bundle of the AgentDesktop product
+    /// (bundle id com.agentdesktop.app), wherever it is installed. Not
+    /// "anything under /Applications": CI's python lives in an Xcode bundle
+    /// there and was wrongly refused.
+    static func isProductExecutable(_ exe: String) -> Bool {
+        var url = URL(fileURLWithPath: exe)
+        while url.path != "/" {
+            if url.pathExtension == "app",
+               let info = NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
+               (info["CFBundleIdentifier"] as? String) == productBundleId {
+                return true
+            }
+            url.deleteLastPathComponent()
+        }
+        return false
+    }
+
+    static let productBundleId = "com.agentdesktop.app"
 
     /// Every Unix socket with a bound name in every process this user can
     /// inspect, read from the kernel (proc_listallpids, PROC_PIDLISTFDS,

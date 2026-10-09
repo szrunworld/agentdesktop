@@ -40,7 +40,8 @@ final class ACPTestRuntimeChild: @unchecked Sendable {
     /// a socket exists there; the child dying first is a launch failure.
     static func launch(executable: String, arguments: [String] = [], extraEnvironment: [String: String] = [:],
                        waitForEndpoint: Bool = true, timeout: Double = 30) throws -> ACPTestRuntimeChild {
-        var template = Array("/tmp/adt-acp-XXXXXX".utf8CString)
+        ACPTestScratch.sweepStaleTmp()
+        var template = Array("/tmp/adt-acp-\(getpid())-XXXXXX".utf8CString)
         guard let made = mkdtemp(&template) else { throw LaunchFailed(reason: "mkdtemp errno \(errno)") }
         guard let real = realpath(made, nil) else { throw LaunchFailed(reason: "realpath errno \(errno)") }
         let dir = String(cString: real)
@@ -203,7 +204,9 @@ final class ACPTestRuntimeChild: @unchecked Sendable {
     /// Launch the Real-test Runtime (fresh directory, owned by the caller).
     static func launchRuntime() throws -> ACPTestRuntimeChild {
         guard let binary else { throw LaunchFailed(reason: "set ACP_TEST_RUNTIME_BINARY to a built AgentDesktopApp") }
-        guard !binary.hasPrefix("/Applications/") else { throw LaunchFailed(reason: "refusing the installed product \(binary)") }
+        guard !ACPTestPinnedTransport.isProductExecutable(binary) else {
+            throw LaunchFailed(reason: "refusing the AgentDesktop product \(binary)")
+        }
         return try launch(executable: binary)
     }
 

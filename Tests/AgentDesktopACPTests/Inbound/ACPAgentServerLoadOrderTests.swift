@@ -319,6 +319,14 @@ import Testing
         #expect(!h.contains { $0.text.contains("hunter2") })            // served scrubbed
         #expect(try fresh.load(sessionId: "s1")?.title == "对话")
         #expect(raw(dir, "s1.history.json").contains("\"format\":1"))   // not rewritten without a log line
+        // Normal writes do not slip past the missing log line either.
+        #expect(throws: ACPFileSessionStoreError.self) {
+            try fresh.appendHistory(sessionId: "s1", [ACPSessionManagerHistoryEntry(kind: .agent, text: "x", at: "t")])
+        }
+        var b1 = try #require(try fresh.load(sessionId: "s1"))
+        b1.revision += 1
+        #expect(throws: ACPFileSessionStoreError.self) { try fresh.save(b1) }
+        #expect(raw(dir, "s1.history.json").contains("\"format\":1") && raw(dir, "s1.json").contains("\"format\" : 1"))
         // Once the log can be written, the same store finishes the job.
         try FileManager.default.removeItem(at: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
         _ = try fresh.history(sessionId: "s1")

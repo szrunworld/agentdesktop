@@ -91,6 +91,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         defer { flock(lockFd, LOCK_UN) }
 
         let target = fileURL(binding.acpSessionId)
+        try refuseOverwritingLegacy(target)
         let stored = try read(target)?.revision ?? 0
         guard binding.revision == stored + 1 else {
             throw ACPFileSessionStoreError.conflict(sessionId: binding.acpSessionId, stored: stored,
@@ -137,6 +138,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         guard try read(fileURL(sessionId))?.acpSessionId == sessionId else {
             throw ACPFileSessionStoreError.io("no binding for history")
         }
+        try refuseOverwritingLegacy(historyURL(sessionId))
         var record = try readHistory(sessionId) ?? HistoryRecord(acpSessionId: sessionId, revision: 0, entries: [])
         record.entries += entries.map {
             HistoryRecord.Entry(kind: $0.kind.rawValue,
@@ -309,6 +311,18 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         let fd = open(url.path, O_RDONLY | O_NOFOLLOW)
         guard fd >= 0 else { return .failure(errno == ENOENT ? .gone : .failed) }
         return .success(FileHandle(fileDescriptor: fd, closeOnDealloc: true).readDataToEndOfFile())
+    }
+
+    /// While the migration is pending, a format-1 file is only ever changed
+    /// by the migration itself, which logs first; a normal write would
+    /// replace it without its audit entry (Codex on #141). Called with the
+    /// directory lock held.
+    private func refuseOverwritingLegacy(_ url: URL) throws {
+        guard !migrated, case let .success(data) = Self.readNoFollow(url) else { return }
+        struct Format: Decodable { var format: Int? }
+        if let f = try? JSONDecoder().decode(Format.self, from: data), (f.format ?? 1) < 2 {
+            throw ACPFileSessionStoreError.io("legacy file awaiting migration")
+        }
     }
 
     private func historyURL(_ id: String) -> URL { directory.appendingPathComponent("\(id).history.json") }

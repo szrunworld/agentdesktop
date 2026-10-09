@@ -26,6 +26,55 @@ enum ACPTestScratch {
         root.appendingPathComponent("\(name)-\(UUID().uuidString)", isDirectory: true)
     }
 
+    /// A fresh, not yet created, test directory directly under /tmp, where
+    /// Real-test sockets must live (`/tmp/adt-<kind>-<pid>-<id>`). Removed
+    /// by the test itself; if the process was killed first, a later run's
+    /// `sweepStaleTmp` removes it (Codex on #141).
+    static func tmp(_ kind: String) -> String {
+        sweepStaleTmp()
+        return "/tmp/adt-\(kind)-\(getpid())-\(UUID().uuidString.prefix(8))"
+    }
+
+    private static let sweptTmp: Void = {
+        let tmp = "/private/tmp"
+        let me = getpid()
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: tmp)) ?? [] {
+            guard let pid = schemePid(name), pid > 0, pid != me else { continue }
+            if kill(pid, 0) != 0 && errno == ESRCH { removeIfOwned(tmp + "/" + name) }
+        }
+    }()
+
+    /// The pid in `adt-<kind>-<pid>-<id>`, where kind is acp, ptest or
+    /// curtest-<letters> and id is 6–8 letters or digits; nil otherwise.
+    static func schemePid(_ name: String) -> pid_t? {
+        let parts = name.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+        let kindLength: Int
+        switch true {
+        case parts.count == 4 && (parts[1] == "acp" || parts[1] == "ptest"): kindLength = 1
+        case parts.count == 5 && parts[1] == "curtest" && !parts[2].isEmpty
+            && parts[2].unicodeScalars.allSatisfy({ ("a"..."z").contains($0) }): kindLength = 2
+        default: return nil
+        }
+        guard parts[0] == "adt" else { return nil }
+        let pidPart = parts[1 + kindLength], id = parts[2 + kindLength]
+        guard !pidPart.isEmpty, pidPart.unicodeScalars.allSatisfy({ ("0"..."9").contains($0) }),
+              (6...8).contains(id.count),
+              id.unicodeScalars.allSatisfy({ ("a"..."z").contains($0) || ("A"..."Z").contains($0) || ("0"..."9").contains($0) })
+        else { return nil }
+        return pid_t(pidPart)
+    }
+
+    /// Once per process: test directories under /tmp left by runs whose
+    /// process is gone. Only this scheme's names, only plain directories of
+    /// this user; never follows symlinks.
+    static func sweepStaleTmp() { _ = sweptTmp }
+
+    private static func removeIfOwned(_ path: String) {
+        var st = stat()
+        guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR, st.st_uid == getuid() else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
     private static func removeRoot() {
         try? FileManager.default.removeItem(at: root)
     }

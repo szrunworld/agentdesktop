@@ -10,7 +10,7 @@ import Testing
 struct CurEndpointGuardTests {
     @Test("[Mock] a /tmp/adt-* symlink that points outside is refused")
     func symlinkOutsideIsRefused() throws {
-        let link = "/tmp/adt-curtest-link-\(UUID().uuidString)"
+        let link = ACPTestScratch.tmp("curtest-link")
         try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: NSHomeDirectory())
         defer { try? FileManager.default.removeItem(atPath: link) }
         #expect(throws: CurTestReal.NotATestCopy.self) { _ = try CurTestReal.checkedEndpoint(link + "/runtime.sock") }
@@ -28,7 +28,7 @@ struct CurEndpointGuardTests {
 
     @Test("[Mock] a real test copy directory is accepted, with or without /private")
     func testCopyIsAccepted() throws {
-        let dir = "/tmp/adt-curtest-ok-\(UUID().uuidString)"
+        let dir = ACPTestScratch.tmp("curtest-ok")
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         #expect(try CurTestReal.checkedEndpoint(dir + "/side.runtime.sock") == dir + "/side.runtime.sock")
@@ -37,7 +37,7 @@ struct CurEndpointGuardTests {
 
     @Test("[Mock] a hard link inside /tmp/adt-* is refused")
     func hardLinkIsRefused() throws {
-        let dir = "/tmp/adt-curtest-hl-\(UUID().uuidString)"
+        let dir = ACPTestScratch.tmp("curtest-hl")
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let original = dir + "/original.sock"
@@ -50,7 +50,7 @@ struct CurEndpointGuardTests {
 
     @Test("[Mock] a regular file in place of the socket is refused")
     func nonSocketIsRefused() throws {
-        let dir = "/tmp/adt-curtest-rf-\(UUID().uuidString)"
+        let dir = ACPTestScratch.tmp("curtest-rf")
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         FileManager.default.createFile(atPath: dir + "/side.runtime.sock", contents: Data())
@@ -59,7 +59,7 @@ struct CurEndpointGuardTests {
 
     @Test("[Mock] a bound socket of this user is accepted")
     func ownSocketIsAccepted() throws {
-        let dir = "/tmp/adt-curtest-so-\(UUID().uuidString)"
+        let dir = ACPTestScratch.tmp("curtest-so")
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let fd = try Self.bindSocket(dir + "/side.runtime.sock")
@@ -79,7 +79,7 @@ struct CurEndpointGuardTests {
 
     @Test("[Mock] a symlinked socket inside /tmp/adt-* is refused")
     func symlinkedSocketIsRefused() throws {
-        let dir = "/tmp/adt-curtest-sl-\(UUID().uuidString)"
+        let dir = ACPTestScratch.tmp("curtest-sl")
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let link = dir + "/side.runtime.sock"

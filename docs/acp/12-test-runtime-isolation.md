@@ -43,7 +43,7 @@
 
 `ACPTestRuntimeChild` 负责启动和回收子进程，`ACPTestPinnedTransport` 负责在每条连接上核对对端身份。
 
-1. **独立目录：** 每次启动都用 `mkdtemp` 新建 `/tmp/adt-acp-XXXXXX`，权限 0700。子进程只拿到 `AGENTDESKTOP_SOCKET=<目录>/side.sock`，其余 `AGENTDESKTOP_*` 环境变量全部清掉。
+1. **独立目录：** 每次启动都用 `mkdtemp` 新建 `/tmp/adt-acp-<pid>-XXXXXX`，权限 0700。子进程只拿到 `AGENTDESKTOP_SOCKET=<目录>/side.sock`，其余 `AGENTDESKTOP_*` 环境变量全部清掉。
 2. **进程由测试掌握：** 用 `posix_spawn` 启动，清空继承来的信号屏蔽；`POSIX_SPAWN_CLOEXEC_DEFAULT` 让子进程不继承任何描述符，stdin 指向 /dev/null，只保留 stdout/stderr。测试持有 pid，只有测试自己调用 `waitpid` 回收；子进程被回收之前，它的 pid 不可能被别的进程占用。
 3. **启动即确认可识别：** 启动后立刻通过 `task_name_for_pid` + `TASK_AUDIT_TOKEN` 确认内核能识别这个子进程。识别不了就终止子进程、启动失败（fail closed）。
 4. **连接后、发出任何字节前，按顺序检查：**
@@ -52,13 +52,14 @@
    - `getpeereid` 必须是当前用户；
    - `child.owns(pid)`：pid 相同，且子进程尚未被回收；
    - 在内核给出的 Unix socket 表里（`proc_listallpids` + `PROC_PIDFDSOCKETINFO`，路径先按目录 realpath 规范化），绑定在该 endpoint 上的进程只有这个子进程；
-   - 对端程序路径必须读得到，且不在 `/Applications`；
+   - 对端程序路径必须读得到，且不在 AgentDesktop 产品的 app 包内（按 bundle id `com.agentdesktop.app` 判断，不论安装位置；不再按"是否在 /Applications 下"判断，因为 CI 的 Python 就装在 /Applications 下的 Xcode 包里）；
    - 能读到内核的进程列表，且对端没有在产品目录下绑定 socket。不再使用 lsof：它在不同 macOS 版本上 NAME 列的格式不一样，CI 上曾因此把合法子进程误拒。
 
    任何一项不满足就关闭连接并拒绝。
 5. **没有 PID 回退：** 没有子进程就拒绝（fail closed）。外部传入的 endpoint 或 PID 都不再被接受。
 6. **握手后再核对一层：** 握手之后再检查 Runtime 自报的 endpoint（`ACPTestVerifiedClient`）。这只是第二层，不作为身份依据。
-7. **清理范围：** `stop()` 回收子进程，并删除它自己的目录，前提是 realpath 以 `/private/tmp/adt-acp-` 开头。不碰其他任何路径。
+7. **中断后的清理：** /tmp 下的测试目录都带进程号（`adt-acp-<pid>-…`、`adt-ptest-<pid>-…`、`adt-curtest-*-<pid>-…`）。之后某次运行时，会清掉进程已不存在的同名规则目录；只删当前用户的普通目录，不跟随符号链接。
+8. **清理范围：** `stop()` 回收子进程，并删除它自己的目录，前提是 realpath 以 `/private/tmp/adt-acp-` 开头。不碰其他任何路径。
 
 起保护作用的是"pid 相同 + 尚未回收 + endpoint 只由子进程持有"这三条，**不依赖 pidversion**。内核给出的对端审计令牌，是按查询时持有该 pid 的进程现场生成的（b9 实测：exec 之后上报的是新版本号），所以拿 pidversion 做比较没有意义，代码里已删除。
 

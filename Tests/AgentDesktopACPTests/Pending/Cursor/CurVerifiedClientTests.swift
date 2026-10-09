@@ -46,7 +46,7 @@ struct CurVerifiedClientTests {
 
     @Test("[Mock] a Runtime stating a test-copy endpoint is served")
     func testCopyRuntimeIsServed() throws {
-        let dir = "/tmp/adt-curtest-vc-\(UUID().uuidString)"
+        let dir = ACPTestScratch.tmp("curtest-vc")
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let fake = FakeClient(stated: dir + "/side.runtime.sock")
@@ -57,7 +57,7 @@ struct CurVerifiedClientTests {
 
     @Test("[Mock] after a lost connection the new connection is checked again before any request")
     func reconnectIsVerifiedAgain() throws {
-        let dir = "/tmp/adt-curtest-rc-\(UUID().uuidString)"
+        let dir = ACPTestScratch.tmp("curtest-rc")
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let fake = FakeClient(stated: dir + "/side.runtime.sock")
