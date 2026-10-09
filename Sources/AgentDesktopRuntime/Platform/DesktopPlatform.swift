@@ -157,7 +157,11 @@ public protocol DesktopPlatform: Sendable {
     /// physical Desktop. Nothing is created: the handle only names the
     /// display, and destroyScreen must never be called with it.
     func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle
-    /// Launch an app onto the screen; its process and windows there.
+    /// Launch an app onto the screen; its process and windows there. The
+    /// process is one this launch provably started (the engine's one-time
+    /// launch token, LaunchOwnership); a launch that cannot prove it throws
+    /// instead of returning a pid. The Runtime relies on this to quit what
+    /// it launched (#139).
     func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws
         -> (pid: Int32, windows: [PlatformWindow])
     /// Move a process's window (or all of them) onto the screen.

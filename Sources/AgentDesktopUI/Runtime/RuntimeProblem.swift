@@ -54,6 +54,8 @@ public struct RuntimeProblem: Equatable, Sendable {
             return "系统的启动调用失败了，无法确定应用是否已经启动。AgentDesktop 不会自动重试，也没有移动或绑定任何窗口；请查看屏幕后再决定是否重新启动。"
         case "launch_refused_after_open":
             return "应用已被打开，但无法证明新进程属于这次启动，所以没有移动或绑定它的窗口。它可能留在你的屏幕上，可以手动关闭。"
+        case "iphone_mirroring_blocked":
+            return "iPhone 镜像不能通过通用桌面控制操作：输入会直接到达手机，绕开 iPhone 专用的保护。iPhone 设备会话验收之前，它一律被拒绝。"
         case "physical_desktop_requires_grant":
             return "在逐窗口授权上线前，不能把你的显示器作为 Desktop。请使用虚拟 Desktop。"
         default:

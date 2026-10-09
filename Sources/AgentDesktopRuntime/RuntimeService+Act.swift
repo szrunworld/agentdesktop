@@ -68,6 +68,17 @@ extension RuntimeService {
             probe.key = action["key"]?.stringValue
             probe.modifiers = action["modifiers"]?.arrayValue?.compactMap(\.stringValue) ?? []
             if ClipboardPolicy.needsMenu(probe), let pid = desktops.find(desk.desktopId)?.boundPID {
+                // #139: iPhone Mirroring's menu bar is not read either; the
+                // check is made again under the lock before anything is sent.
+                do {
+                    try refuseMirroring(pid)
+                } catch let e as RuntimeError {
+                    runs.appendEvent(runId, "action.refused", .obj([("requestId", .string(request.requestId)),
+                                                                   ("reason", .obj([("code", .string(e.code)), ("message", .string(e.message))]))]))
+                    return .failure(e)
+                } catch {
+                    return .failure(RuntimeError("internal_error", "\(error)", phase: .handler))
+                }
                 menu = (pid, platform.menuItems(pid: pid))
             }
         }
@@ -383,6 +394,7 @@ extension RuntimeService {
                 guard backend.processIdentity(b.process.pid) == b.process else {
                     throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler)
                 }
+                try refuseMirroring(b.process.pid)
                 bound = b
                 observations.invalidateElementRefs(desktopId: d.desktopId)
                 return .null

@@ -171,13 +171,39 @@ extension RuntimeService {
                                    "desktop \(d.desktopId) is physical: it binds windows the user's apps already show; app.launch is for virtual Desktops",
                                    phase: .handler, notSent: true)
             }
+            // #139: refused by name or by path, for every caller. A path
+            // inside an app whose bundle id cannot be read is refused too.
+            if Self.isBlocked(bundleId: p["bundleId"]?.stringValue) { throw Self.blockedAppError() }
+            if let path = p["path"]?.stringValue {
+                switch Self.bundle(atPath: path) {
+                case let .bundle(id) where Self.isBlocked(bundleId: id): throw Self.blockedAppError()
+                case .unreadable: throw Self.blockedAppError(unverified: true)
+                default: break
+                }
+            }
             let (pid, windows) = try platform.launch(on: d.screen, bundleId: p["bundleId"]?.stringValue,
                                                      path: p["path"]?.stringValue,
                                                      newInstance: p["newInstance"]?.boolValue ?? false)
-            d.launched.append(backend.processIdentity(pid))
+            let process = backend.processIdentity(pid)
+            // Checked again on the process itself: iPhone Mirroring, or an
+            // app that cannot be identified, is never kept as this Desktop's
+            // app. The platform returns only a process this launch provably
+            // started (its launch token, not a time or a list), so it is
+            // asked to quit, as long as the pid is still that process. A
+            // launch that could not prove its process throws above and
+            // nothing is quit. Known residue: quit finds the process by pid
+            // again (no launch handle reaches the Runtime), and a quit
+            // request is not proof that it exited.
+            let check = mirroringCheck(pid)
+            if check != .other {
+                let requested = process.startedAt != nil && backend.processIdentity(pid) == process && platform.quit(pid: pid)
+                throw Self.blockedAppError(notSent: false, unverified: check == .unverified, launched: process,
+                                           quitRequested: requested)
+            }
+            d.launched.append(process)
             return .obj([
                 ("desktopId", .string(d.desktopId)),
-                ("process", backend.processIdentity(pid).json),
+                ("process", process.json),
                 ("windows", .array(windows.map(Self.placedJSON))),
             ])
         }
@@ -200,6 +226,9 @@ extension RuntimeService {
                 throw RuntimeError("grant_missing", "binding this window needs a grant for its app, which this client does not have",
                                    phase: .request, notSent: true, details: .obj([("reason", .string("bind_requires_grant"))]))
             }
+            // #139, after the grant check so a refusal names no app the
+            // caller may not see.
+            try refuseMirroring(pid)
             let process = backend.processIdentity(pid)
             // The grant check comes first: a refusal says nothing about
             // whether a process with that pid exists.

@@ -28,6 +28,7 @@ private final class CountingBackend: RuntimeBackend, @unchecked Sendable {
         lock.withLock { reads += 1 }; return inner.windows(pid: pid, bundleId: bundleId, includeOffscreen: includeOffscreen)
     }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { inner.processIdentity(pid) }
+    func executablePath(_ pid: Int32) -> String? { inner.executablePath(pid) }
 }
 
 private final class Stage {
