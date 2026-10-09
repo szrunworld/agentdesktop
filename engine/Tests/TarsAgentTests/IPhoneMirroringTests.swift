@@ -35,9 +35,6 @@ class FakeMirroring: IPhoneMirroringSystem {
     var reconnectGate = HostFlag(url: FileManager.default.temporaryDirectory
         .appendingPathComponent("agentdesktop-gate-\(UUID().uuidString)/iphone-reconnect-unconfirmed"))
 
-    /// The app's name in the Mac's language; nil, unknown.
-    var localizedAppName: String?
-    func appName(pid: pid_t) -> String? { localizedAppName }
     func mirroringPIDs() -> [pid_t] { pids }
     func screenFrame(named name: String) throws -> CGRect? { screen }
     /// Windows without a title are the phone's window.
@@ -1497,37 +1494,23 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
     }
 }
 
-/// Codex review of 1c2c76b.
+/// Codex reviews of 1c2c76b and 550593c.
 @Suite struct IPhoneLocaleAndBlankTests {
-    static let french = "Recopie de l\u{2019}iPhone"
-
-    /// The phone window is titled with the app's name in the Mac's
-    /// language, beyond English and Chinese.
-    @Test func thePhoneWindowIsFoundByTheAppsLocalizedName() throws {
+    /// A Mac in a language whose status pages are not recognised: its
+    /// phone window is not bound, so a French "Connexion interrompue" page
+    /// is never read as ready nor tapped. Fails closed.
+    @Test func aPhoneWindowInAnUnrecognisedLanguageIsNotBound() throws {
         let fake = FakeMirroring()
-        fake.localizedAppName = Self.french
         fake.windowsByPID[42] = [IPhoneWindow(pid: 42, windowID: 7, frame: CGRect(x: 3010, y: 40, width: 330, height: 720),
-                                              title: Self.french)]
+                                              title: "Recopie de l\u{2019}iPhone")]
+        fake.ax = ["Connexion interrompue", "R\u{00E9}essayer"]
+        fake.buttons = ["R\u{00E9}essayer"]
         let phone = IPhoneAgentScreen(screen: "phone", system: fake)
-        _ = try phone.frame()
-        #expect(phone.binding?.windowID == 7)
-    }
-
-    /// Its other windows still are not the phone's.
-    @Test func anotherWindowOfTheLocalizedAppIsNotThePhones() throws {
-        let fake = FakeMirroring()
-        fake.localizedAppName = Self.french
-        fake.windowsByPID[42] = [IPhoneWindow(pid: 42, windowID: 8, frame: CGRect(x: 3010, y: 40, width: 330, height: 720),
-                                              title: "R\u{00E9}glages de " + Self.french)]
-        #expect(throws: IPhoneError.self) { try IPhoneAgentScreen(screen: "phone", system: fake).frame() }
-    }
-
-    /// Without the app's name, an unknown title is not taken for the phone.
-    @Test func anUnknownTitleWithoutTheAppsNameIsNotThePhones() throws {
-        let fake = FakeMirroring()
-        fake.windowsByPID[42] = [IPhoneWindow(pid: 42, windowID: 7, frame: CGRect(x: 3010, y: 40, width: 330, height: 720),
-                                              title: Self.french)]
-        #expect(throws: IPhoneError.self) { try IPhoneAgentScreen(screen: "phone", system: fake).frame() }
+        #expect(throws: IPhoneError.self) { try phone.frame() }
+        #expect(throws: IPhoneError.self) { try phone.screenshot(size: CGSize(width: 330, height: 720)) }
+        #expect(throws: IPhoneError.self) { try phone.reconnect(timeout: 5) }
+        #expect(try phone.perform(tap(3100, 300)).ok == false)
+        #expect(fake.inputs.isEmpty && fake.pressed.isEmpty)
     }
 
     /// A flat, undrawn capture before input says nothing: refused, as a
