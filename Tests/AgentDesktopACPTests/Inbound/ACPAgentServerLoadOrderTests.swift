@@ -431,6 +431,13 @@ import Testing
         _ = try fresh.history(sessionId: "s1")
         #expect(fresh.migrationLogAttempts == 1)
         for name in ["s1.history.json", "s1.json", "s2.history.json", "s2.json"] { #expect(isLegacy(dir, name), "\(name)") }
+        // The log file now exists, but its directory entry was never synced:
+        // a later store must sync it again rather than trust it (b9).
+        let again = ACPFileSessionStore(directory: dir)
+        again.logDirFsyncFaultForTesting = true
+        _ = try again.history(sessionId: "s1")
+        #expect(again.migrationLogAttempts == 1)
+        #expect(isLegacy(dir, "s1.history.json"))
         // Once the directory sync works, the next store carries on.
         let next = ACPFileSessionStore(directory: dir)
         _ = try next.history(sessionId: "s1")

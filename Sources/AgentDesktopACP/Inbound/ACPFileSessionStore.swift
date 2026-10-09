@@ -46,6 +46,8 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     /// Set once a failed append could not be rolled back for certain; no
     /// further log lines are written by this store (fail closed).
     private var migrationLogUnusable = false
+    /// Whether this store has seen the log's directory entry synced.
+    private var logDirDurable = false
 
     /// `~/Library/Application Support/AgentDesktop/acp/sessions`. Not
     /// created until the first save. Tests pass a temporary directory.
@@ -338,8 +340,6 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             lines += d + Data("\n".utf8)
         }
         let logPath = directory.appendingPathComponent(Self.migrationLogName).path
-        var existing = stat()
-        let created = lstat(logPath, &existing) != 0 && errno == ENOENT
         let fd = open(logPath, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { return false }
         defer { close(fd) }
@@ -372,14 +372,19 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             if ftruncate(fd, start) != 0 || fsync(fd) != 0 { migrationLogUnusable = true }
             return false
         }
-        // A log file this call created is only durable once its directory
-        // entry is (Codex on #141): otherwise a rewrite could survive a power
-        // loss while its log vanished. Not durable means the append failed.
-        if created {
+        // The log's directory entry must be durable before any line counts
+        // as written (Codex on #141): otherwise a rewrite could survive a
+        // power loss while its log vanished. Whether this store or an
+        // earlier one created the file is not known for sure (an earlier
+        // sync may have failed after creating it), so every store syncs the
+        // directory after its first successful append, retrying until it
+        // succeeds (b9). Not durable means the append failed.
+        if !logDirDurable {
             let dfd = open(directory.path, O_RDONLY | O_DIRECTORY)
             guard dfd >= 0 else { return false }
             defer { close(dfd) }
             guard !logDirFsyncFaultForTesting, fsync(dfd) == 0 else { return false }
+            logDirDurable = true
         }
         return true
     }

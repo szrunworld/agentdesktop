@@ -118,6 +118,10 @@ public final class ACPSubmissionLog: @unchecked Sendable {
         e.updatedAt = Self.stamp(now())
         let previous = entries[e.submissionKey]
         entries[e.submissionKey] = e
+        // If only the directory fsync failed, the file may already hold the
+        // new entry while memory rolls back; the caller sees an error and the
+        // next successful persist rewrites the file from memory. No sensitive
+        // text is involved: refusal messages are never stored (b9, #141).
         do { try persist() } catch {
             entries[e.submissionKey] = previous
             throw error
@@ -128,6 +132,8 @@ public final class ACPSubmissionLog: @unchecked Sendable {
     public func remove(_ submissionKey: String) throws {
         lock.lock(); defer { lock.unlock() }
         let previous = entries.removeValue(forKey: submissionKey)
+        // Same as `record`: a failed directory fsync may leave the file
+        // without the entry while memory keeps it; the next persist rewrites it.
         do { try persist() } catch {
             entries[submissionKey] = previous
             throw error
