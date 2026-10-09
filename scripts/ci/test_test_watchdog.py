@@ -215,5 +215,33 @@ class WatchdogTests(unittest.TestCase):
         self.assertLess(took, 15)
 
 
+    def test_after_the_command_exits_its_group_id_is_never_signalled(self):
+        # Codex on #188: once the command has exited, its pid and group id
+        # may belong to unrelated processes; stop() must not killpg it, and
+        # members() must not trust the tree under that id.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("watchdog", WATCHDOG)
+        wd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wd)
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        try:
+            # A run whose root id is now the bystander's (a reused pid/group).
+            run = wd.Run(bystander.pid, None, uuid.uuid4().hex, time.time())
+            run.root_alive = False
+            calls = []
+            real = wd.os.killpg
+            wd.os.killpg = lambda *a: calls.append(a)
+            try:
+                self.assertNotIn(bystander.pid, run.members())
+                run.stop()
+            finally:
+                wd.os.killpg = real
+            self.assertEqual(calls, [])
+            self.assertIsNone(bystander.poll(), "a process under the old group id was stopped")
+        finally:
+            bystander.kill()
+            bystander.wait()
+
+
 if __name__ == "__main__":
     unittest.main()

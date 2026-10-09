@@ -187,6 +187,10 @@ class Run:
         self.seen = {}  # pid -> (start, command)
         self.unverifiable = {}  # pid -> command: started since the run, environment unreadable
         self.last_snapshot = 0.0
+        # Once the command has exited its pid and group id may be given to
+        # unrelated processes: from then on neither is used to find or stop
+        # anything (Codex on #188).
+        self.root_alive = True
 
     def snapshot(self, force=False):
         now = time.monotonic()
@@ -213,7 +217,9 @@ class Run:
         """pid -> command of every live process of the run. With a deadline,
         every step is limited to the time left (Codex on #188)."""
         procs = processes(deadline)
-        live = self._tree(procs)
+        # The live tree only while the command runs; afterwards only what is
+        # confirmed: seen with the same start time, the marker, the terminal.
+        live = self._tree(procs) if self.root_alive else {}
         for pid, (start, cmd) in self.seen.items():
             if pid in procs and procs[pid][2] == start:
                 live[pid] = procs[pid][3]
@@ -280,12 +286,15 @@ class Run:
         return found
 
     def stop(self):
-        """Take the whole set first, then kill: the group, then each one."""
+        """Take the whole set first, then kill: the group (only while the
+        command still runs, so the group id is surely its own), then each
+        confirmed process."""
         targets = self.members()
-        try:
-            os.killpg(self.root, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        if self.root_alive:
+            try:
+                os.killpg(self.root, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
         for _ in range(2):
             for pid in targets:
                 try:
@@ -477,6 +486,7 @@ def main():
         if child.poll() is None:
             run.snapshot()
         else:
+            run.root_alive = False
             # Drain what is left, never blocking: a process the run left
             # behind can hold the terminal open forever (b9 on #188).
             deadline = time.monotonic() + 5
