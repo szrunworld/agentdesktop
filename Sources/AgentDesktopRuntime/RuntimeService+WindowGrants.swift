@@ -18,8 +18,10 @@ extension RuntimeService {
 
     /// Whether `c` launched that process on this Desktop: its own instance,
     /// reached through the app-level grant (A4), not one of the user's windows.
+    /// Only a launch known by its start time counts (Codex on 5f040d4: a pid
+    /// alone may be another process by now).
     func launchedHere(_ c: ConnectionState, _ d: DesktopRecord, _ process: ProcessIdentity) -> Bool {
-        d.launchedBy[process] == c.clientId
+        process.startedAt != nil && d.launchedBy[process] == c.clientId
     }
 
     // MARK: Checking

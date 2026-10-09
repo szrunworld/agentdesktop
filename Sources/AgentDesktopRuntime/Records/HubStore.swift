@@ -263,7 +263,7 @@ public final class HubStore: @unchecked Sendable {
         var ended: [(id: String, reason: String)] = []
         try db.transaction {
             try putGrant(g)
-            for w in windowGrants(clientId: g.clientId) {
+            for w in try loadWindowGrants(where: "client_id = ? AND state = 'active'", [.text(g.clientId)]) {
                 let why = g.state != "active" ? "grant_revoked" : endingWindowGrants?(w)
                 guard let why else { continue }
                 try endWindowGrantRow(w.windowGrantId, state: g.state != "active" ? "revoked" : "ended", reason: why)
@@ -291,7 +291,9 @@ public final class HubStore: @unchecked Sendable {
         try db.transaction {
             try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
             try db.execute("UPDATE grants SET state = 'revoked', revision = revision + 1 WHERE client_id = ?", [.text(clientId)])
-            for w in windowGrants(clientId: clientId) { try endWindowGrantRow(w.windowGrantId, state: "revoked", reason: "client_revoked") }
+            for w in try loadWindowGrants(where: "client_id = ? AND state = 'active'", [.text(clientId)]) {
+                try endWindowGrantRow(w.windowGrantId, state: "revoked", reason: "client_revoked")
+            }
             try bumpEpoch()
         }
         return client(clientId)
@@ -334,10 +336,16 @@ public final class HubStore: @unchecked Sendable {
     }
 
     private func windowGrants(where clause: String, _ args: [SQLiteDatabase.Value]) -> [WindowGrant] {
-        ((try? db.query("""
+        (try? loadWindowGrants(where: clause, args)) ?? []
+    }
+
+    /// The throwing read, for sweeps inside a transaction: a failed read
+    /// fails the transaction instead of looking like no grants (Codex on 5f040d4).
+    private func loadWindowGrants(where clause: String, _ args: [SQLiteDatabase.Value]) throws -> [WindowGrant] {
+        (try db.query("""
             SELECT window_grant_id, client_id, desktop_id, window_id, pid, process_started_at, bundle_id, app_name, permissions, state,
               ended_reason, created_at, expires_at, confirmation_id FROM window_grants WHERE \(clause) ORDER BY rowid DESC
-            """, args)) ?? []).map { r in
+            """, args)).map { r in
             WindowGrant(windowGrantId: r[0] as! String, clientId: r[1] as! String, desktopId: r[2] as! String,
                         windowId: UInt32(truncatingIfNeeded: r[3] as! Int64),
                         process: ProcessIdentity(pid: Int32(truncatingIfNeeded: r[4] as! Int64), startedAt: r[5] as? String),

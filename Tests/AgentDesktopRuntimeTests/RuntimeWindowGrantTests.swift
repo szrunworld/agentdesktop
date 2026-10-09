@@ -634,3 +634,19 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     #expect(code(r) == "conflict" || code(r) == "not_found", "\(r.json.encoded())")
     #expect(st.s.hub.windowGrants(clientId: st.appId).isEmpty)
 }
+
+@Test func aLaunchWithoutAStartTimeIsNotTheClientsOwn() throws {
+    let platform = FakePlatform()
+    var backend = FixedBackend()
+    backend.apps.append(AppSummary(process: ProcessIdentity(pid: 303, startedAt: nil), bundleId: "com.apple.Notes",
+                                   name: "Notes", active: false, hidden: false))
+    backend.opened.startUnknown = [303]
+    let s = platformService(platform, backend: backend)
+    let (c, _, _) = try pairedClient(s, capabilities: ["observe", "desktop.manage"], desktops: ["created"],
+                                     apps: ["com.apple.Notes"], name: "notes-agent")
+    let d = try created(s, c)
+    #expect(data(call(s, c, "app.launch", params: #"{"desktopId":"\#(d)","bundleId":"com.apple.Notes"}"#)) != nil)
+    // The pid alone proves nothing: no exemption from window grants.
+    let r = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":303,"windowId":31}"#)
+    #expect(errorDetails(r)?["reason"]?.stringValue == "bind_requires_grant")
+}
