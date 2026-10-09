@@ -337,20 +337,108 @@ import Testing
         #expect(raw(dir, ACPFileSessionStore.migrationLogName).contains("\"file\":\"history\""))
     }
 
+    /// Two legacy sessions s1 and s2 (four format-1 files).
+    private func twoLegacySessions(_ s: ACPFileSessionStore, _ dir: URL) throws {
+        try legacySession(s, dir)
+        for (from, to) in [("s1.json", "s2.json"), ("s1.history.json", "s2.history.json")] {
+            let text = raw(dir, from).replacingOccurrences(of: "\"s1\"", with: "\"s2\"")
+            try text.write(to: dir.appendingPathComponent(to), atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func isLegacy(_ dir: URL, _ name: String) -> Bool {
+        raw(dir, name).contains("\"format\":1") || raw(dir, name).contains("\"format\" : 1")
+    }
+
+    /// Kevin 2026-10-09: a failure to log `completed` makes the log
+    /// untrustworthy: the whole migration stops (no later file is touched).
+    @Test func aFailedCompletedRecordStopsTheWholeMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let fresh = ACPFileSessionStore(directory: dir)
+        fresh.logAppendFaultForTesting = { $0 == 2 }   // 1 = intent ok, 2 = completed fails
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 2)
+        #expect(!isLegacy(dir, "s1.history.json"))   // the first file was rewritten
+        for name in ["s1.json", "s2.history.json", "s2.json"] { #expect(isLegacy(dir, name), "\(name)") }
+    }
+
+    /// Kevin 2026-10-09: a failure to log `failed` stops the whole migration too.
+    @Test func aFailedFailureRecordStopsTheWholeMigration() throws {
+        let (s, dir) = store()
+        defer { chmod(dir.path, 0o700); try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let log = dir.appendingPathComponent(ACPFileSessionStore.migrationLogName)
+        FileManager.default.createFile(atPath: log.path, contents: Data(), attributes: [.posixPermissions: 0o600])
+        chmod(dir.path, 0o500)                        // every rewrite fails cleanly (outcome 1)
+        let fresh = ACPFileSessionStore(directory: dir)
+        fresh.logAppendFaultForTesting = { $0 == 2 }   // the `failed` record of the first file
+        _ = try? fresh.history(sessionId: "s1")
+        chmod(dir.path, 0o700)
+        #expect(fresh.migrationLogAttempts == 2)       // no third append: stopped
+        for name in ["s1.history.json", "s1.json", "s2.history.json", "s2.json"] { #expect(isLegacy(dir, name), "\(name)") }
+    }
+
+    /// Kevin 2026-10-09: a file whose rewrite result is uncertain (renamed,
+    /// directory fsync failed) is logged `uncertain` and never processed
+    /// automatically again, even if it is back to format 1 (e.g. the rename
+    /// was lost); other files still migrate, and the whole is never done.
+    @Test func anUncertainRewriteIsNeverRetriedAutomatically() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let legacyHistory = raw(dir, "s1.history.json")
+        let first = ACPFileSessionStore(directory: dir)
+        first.dirFsyncFaultForTesting = { $0 == "s1.history.json" }
+        _ = try first.history(sessionId: "s2")
+        let lines = try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
+            .split(separator: "\n").map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
+        #expect(lines.contains { $0.file == "history" && $0.sessionId == "s1" && $0.status == "uncertain" })
+        #expect(lines.filter { $0.status == "completed" }.count == 3)   // the other three files went on
+        // A power loss rolled the rename back: the file is format 1 again.
+        try legacyHistory.write(to: dir.appendingPathComponent("s1.history.json"), atomically: true, encoding: .utf8)
+        let second = ACPFileSessionStore(directory: dir)
+        let h = try second.history(sessionId: "s1")
+        #expect(second.migrationLogAttempts == 0)                       // nothing retried
+        #expect(isLegacy(dir, "s1.history.json"))                       // left for a person
+        #expect(!h.contains { $0.text.contains("hunter2") })            // still served scrubbed
+    }
+
+    /// A log path that is not a regular file is unreadable: no crash, the
+    /// migration does not start.
+    @Test func aLogPathThatIsADirectoryStopsTheMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName),
+                                                withIntermediateDirectories: false)
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 0)
+        #expect(isLegacy(dir, "s1.history.json"))
+    }
+
+    /// Kevin 2026-10-09: a log that cannot be understood stops the migration.
+    @Test func anUnreadableLogStopsTheMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        try Data("not json\n".utf8).write(to: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 0)
+        #expect(isLegacy(dir, "s1.history.json") && isLegacy(dir, "s1.json"))
+    }
+
     /// Kevin 2026-10-09: if an intent cannot be written, the migration stops
     /// at once; no file (this one or any later one) is rewritten.
     @Test func aFailedIntentStopsTheWholeMigration() throws {
         let (s, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try legacySession(s, dir)
-        // A second legacy session: the first one's files under another id.
-        for (from, to) in [("s1.json", "s2.json"), ("s1.history.json", "s2.history.json")] {
-            let text = raw(dir, from).replacingOccurrences(of: "\"s1\"", with: "\"s2\"")
-            try text.write(to: dir.appendingPathComponent(to), atomically: true, encoding: .utf8)
-        }
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName),
-                                                withIntermediateDirectories: false) // the log cannot be opened
+        try twoLegacySessions(s, dir)
         let fresh = ACPFileSessionStore(directory: dir)
+        fresh.logAppendFaultForTesting = { _ in true }   // the very first intent cannot be written
         _ = try fresh.history(sessionId: "s1")
         #expect(fresh.migrationLogAttempts == 1)   // stopped at the first intent
         // No later write of any kind: no temp file was ever created.

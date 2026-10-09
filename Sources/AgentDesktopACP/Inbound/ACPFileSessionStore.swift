@@ -107,7 +107,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         // An error here may be outcome 2 (written, not known durable): the
         // stored revision may already be the new one, so a blind retry with
         // the old revision would conflict rather than write twice.
-        try writeAtomically(data, to: target)
+        do { try writeAtomically(data, to: target) } catch is WriteUncertain {
+            throw ACPFileSessionStoreError.io("write uncertain: not known durable")
+        }
     }
 
     /// Forget a closed session. Missing is not an error.
@@ -160,7 +162,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         do { data = try encoder.encode(record) } catch { throw ACPFileSessionStoreError.io("encode") }
         // An error may be outcome 2 (appended, not known durable); callers
         // treat history as best effort and do not retry.
-        try writeAtomically(data, to: historyURL(sessionId))
+        do { try writeAtomically(data, to: historyURL(sessionId)) } catch is WriteUncertain {
+            throw ACPFileSessionStoreError.io("write uncertain: not known durable")
+        }
     }
 
     public func history(sessionId: String) throws -> [ACPSessionManagerHistoryEntry] {
@@ -197,6 +201,10 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         // Any doubt leaves the migration pending, so a later call retries;
         // meanwhile reads scrub format-1 files in memory (Codex on #141).
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
+        // Kevin 2026-10-09: if the log cannot tell us whether it is safe to
+        // go on, stop and wait for a person; files whose last record is
+        // `uncertain` are never processed automatically.
+        guard let uncertain = uncertainFilesInLog() else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var failed = false
@@ -229,33 +237,38 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
                 guard let encoded = try? encoder.encode(r) else { failed = true; continue }
                 out = encoded
             }
+            if uncertain.contains(entry.file + "/" + entry.sessionId) { failed = true; continue }
             // The log line is written (and synced) before the file changes:
             // no log, no rewrite, so the audit trail is never missing a file.
             // Kevin 2026-10-09: if the intent cannot be written, the whole
             // migration stops at once; no rewrite of this or any later file.
             guard appendMigrationLog([entry]) else { failed = true; break }
+            // Kevin 2026-10-09: an ordinary file failure is isolated (later
+            // files go on, the whole is never marked done); a failure that
+            // makes the log untrustworthy stops the whole migration.
             do {
-                // An error may be outcome 2: logged as failed (never completed),
-                // the migration stays pending; the file may already be format 2.
                 try writeAtomically(out, to: url)
                 entry.status = "completed"
-                entry.at = Self.now()
-                // The file is already format 2; a missing `completed` only leaves
-                // the record incomplete (read as "not completed"), never wrong.
-                if !appendMigrationLog([entry]) { failed = true }
+            } catch is WriteUncertain {
+                // Outcome 2: renamed, durability unknown. Never retried
+                // automatically; left for a person.
+                entry.status = "uncertain"
+                entry.error = "dir_fsync"
+                failed = true
             } catch {
                 entry.status = "failed"
                 entry.error = Self.errorCode(error)
-                _ = appendMigrationLog([entry])
                 failed = true
             }
+            entry.at = Self.now()
+            guard appendMigrationLog([entry]) else { failed = true; break }
         }
         migrated = !failed
     }
 
     /// One migrated file: counts and an error code, never any text. Each
     /// rewrite is logged twice: `intent` before (with the counts), then
-    /// `completed` or `failed` after. An `intent` with no later `completed`
+    /// `completed`, `failed` or `uncertain` after. An `intent` with no later `completed`
     /// for the same file means the rewrite did not complete (Codex on #141:
     /// a lone pre-write entry must never read as success). Only tests read
     /// this log; no product, cleanup, recovery or audit code does.
@@ -281,10 +294,38 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     /// How many log appends were attempted (tests check that a failed intent
     /// stops the migration).
     private(set) var migrationLogAttempts = 0
+    /// Fault injection for tests only: return true to make append number n
+    /// (1-based) fail, or to make the directory fsync after a rename fail.
+    var logAppendFaultForTesting: ((Int) -> Bool)?
+    var dirFsyncFaultForTesting: ((String) -> Bool)?
+
+    /// Files ("history/<id>" or "binding/<id>") whose latest log record is
+    /// `uncertain`. nil when the log exists but cannot be read or a line
+    /// cannot be understood: then the migration must not run. A trailing
+    /// half line is the append guard's business (no further appends).
+    private func uncertainFilesInLog() -> Set<String>? {
+        let url = directory.appendingPathComponent(Self.migrationLogName)
+        let data: Data
+        switch Self.readNoFollow(url) {
+        case let .success(d): data = d
+        case .failure(.gone): return []
+        case .failure: return nil
+        }
+        struct Line: Decodable { var status: String?; var file: String; var sessionId: String }
+        var latest: [String: String] = [:]
+        var lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
+        if data.last != UInt8(ascii: "\n"), !lines.isEmpty { lines.removeLast() }
+        for raw in lines {
+            guard let l = try? JSONDecoder().decode(Line.self, from: Data(raw)) else { return nil }
+            latest[l.file + "/" + l.sessionId] = l.status ?? "intent"
+        }
+        return Set(latest.filter { $0.value == "uncertain" }.keys)
+    }
 
     private func appendMigrationLog(_ entries: [MigrationLogEntry]) -> Bool {
         guard !entries.isEmpty else { return true }
         migrationLogAttempts += 1
+        if logAppendFaultForTesting?(migrationLogAttempts) == true { return false }
         guard !migrationLogUnusable else { return false }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -360,6 +401,10 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     private static func readNoFollow(_ url: URL) -> Result<Data, ReadFailure> {
         let fd = open(url.path, O_RDONLY | O_NOFOLLOW)
         guard fd >= 0 else { return .failure(errno == ENOENT ? .gone : .failed) }
+        // Only a regular file: reading a directory through FileHandle raises
+        // an Objective-C exception instead of returning an error.
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { close(fd); return .failure(.failed) }
         return .success(FileHandle(fileDescriptor: fd, closeOnDealloc: true).readDataToEndOfFile())
     }
 
@@ -382,6 +427,11 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         if fd < 0 {
             if errno == ENOENT { return nil }
             throw ACPFileSessionStoreError.io("open errno \(errno)")
+        }
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else {
+            close(fd)
+            throw ACPFileSessionStoreError.io("not a regular file")
         }
         let data = FileHandle(fileDescriptor: fd, closeOnDealloc: true).readDataToEndOfFile()
         guard let r = try? JSONDecoder().decode(HistoryRecord.self, from: data), r.acpSessionId == id else {
@@ -433,6 +483,11 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             if errno == ENOENT { return nil }
             throw ACPFileSessionStoreError.io("open errno \(errno)")
         }
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else {
+            close(fd)
+            throw ACPFileSessionStoreError.io("not a regular file")
+        }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         let data = handle.readDataToEndOfFile()
         do {
@@ -451,6 +506,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     ///    is in place but not known to be durable; the result is uncertain:
     ///    callers must not retry automatically against the old revision.
     /// 3. Returns — written and durable.
+    /// Outcome 2 below: written (renamed) but not known to be durable.
+    struct WriteUncertain: Error {}
+
     private func writeAtomically(_ data: Data, to target: URL) throws {
         let tmp = directory.appendingPathComponent(".\(UUID().uuidString).tmp")
         let fd = open(tmp.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
@@ -480,7 +538,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         let dfd = open(directory.path, O_RDONLY | O_DIRECTORY)
         guard dfd >= 0 else { throw ACPFileSessionStoreError.io("dir open errno \(errno)") }
         defer { close(dfd) }
-        guard fsync(dfd) == 0 else { throw ACPFileSessionStoreError.io("dir fsync errno \(errno)") }
+        guard dirFsyncFaultForTesting?(target.lastPathComponent) != true, fsync(dfd) == 0 else { throw WriteUncertain() }
     }
 
     // MARK: Format
