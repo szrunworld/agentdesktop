@@ -6,6 +6,12 @@ import AgentDesktopProtocol
 // The Python and TypeScript SDKs against a real RuntimeServer: the same
 // Runtime, the same ledger and snapshot rules as the CLI and MCP.
 
+func onPlainThread(_ body: @escaping @Sendable () throws -> Void) async throws {
+    try await withCheckedThrowingContinuation { (k: CheckedContinuation<Void, Error>) in
+        Thread { do { try body(); k.resume() } catch { k.resume(throwing: error) } }.start()
+    }
+}
+
 let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
 func which(_ tool: String) -> String? {
@@ -70,26 +76,32 @@ final class AutoApprover: @unchecked Sendable {
     func stop() { stopped.withLock { done = true } }
 }
 
-@Test(.enabled(if: which("python3") != nil)) func pythonSDKLive() throws {
-    let h = try MCPHarness()
-    let approver = AutoApprover(h.service)
-    defer { approver.stop() }
-    let (code, out) = try runLive(which("python3")!, ["-m", "unittest", "tests.test_client.LiveTests", "-v"],
-                                  in: "sdks/python", endpoint: h.dir + "/runtime.sock")
-    #expect(code == 0, "\(out)")
-    #expect(out.contains("LIVE-OK"), "\(out)")
-    #expect(h.platform.performed.count == 1, "the retried click with the same requestId was not sent again")
+@Test(.enabled(if: which("python3") != nil)) func pythonSDKLive() async throws {
+    // Waits on a subprocess for seconds: off the cooperative pool.
+    try await onPlainThread {
+        let h = try MCPHarness()
+        let approver = AutoApprover(h.service)
+        defer { approver.stop() }
+        let (code, out) = try runLive(which("python3")!, ["-m", "unittest", "tests.test_client.LiveTests", "-v"],
+                                      in: "sdks/python", endpoint: h.dir + "/runtime.sock")
+        #expect(code == 0, "\(out)")
+        #expect(out.contains("LIVE-OK"), "\(out)")
+        #expect(h.platform.performed.count == 1, "the retried click with the same requestId was not sent again")
+    }
 }
 
-@Test(.enabled(if: which("node") != nil)) func typescriptSDKLive() throws {
-    let h = try MCPHarness()
-    let approver = AutoApprover(h.service)
-    defer { approver.stop() }
-    let (code, out) = try runLive(which("node")!, ["--test", "test/client.test.ts"],
-                                  in: "sdks/typescript", endpoint: h.dir + "/runtime.sock")
-    #expect(code == 0, "\(out)")
-    #expect(out.contains("LIVE-OK"), "\(out)")
-    #expect(h.platform.performed.count == 1)
+@Test(.enabled(if: which("node") != nil)) func typescriptSDKLive() async throws {
+    // Waits on a subprocess for seconds: off the cooperative pool.
+    try await onPlainThread {
+        let h = try MCPHarness()
+        let approver = AutoApprover(h.service)
+        defer { approver.stop() }
+        let (code, out) = try runLive(which("node")!, ["--test", "test/client.test.ts"],
+                                      in: "sdks/typescript", endpoint: h.dir + "/runtime.sock")
+        #expect(code == 0, "\(out)")
+        #expect(out.contains("LIVE-OK"), "\(out)")
+        #expect(h.platform.performed.count == 1)
+    }
 }
 
 /// Approves every pairing: the user's window, scripted (A4-SEC-03 tests).
@@ -123,44 +135,47 @@ let signedNode: String? = {
 /// its publisher, hardened runtime) pairs; the very same credential, shown by
 /// a Python process, is refused; Node can still use it.
 @Test(.enabled(if: signedNode != nil && which("python3") != nil))
-func aCredentialPairedFromNodeIsRefusedFromPython() throws {
-    let h = try MCPHarness()
-    h.service.confirmer = ApproveAll()
-    let endpoint = h.dir + "/runtime.sock"
-    let pair = """
-    import { RuntimeClient } from "./src/index.ts";
-    const c = await new RuntimeClient(process.env.EP, 10000, {}).pair("node-agent", ["observe"], { timeoutMs: 20000, pollMs: 100 });
-    console.log(JSON.stringify(c));
-    """
-    let (pc, pout) = try runLive(signedNode!, ["--input-type=module", "-e", pair], in: "sdks/typescript", endpoint: endpoint,
-                                 extra: ["EP": endpoint])
-    #expect(pc == 0, "\(pout)")
-    let line = try #require(pout.split(separator: "\n").last.map(String.init))
-    let cred = try StrictJSON.parse(Data(line.utf8))
-    let clientId = try #require(cred["clientId"]?.stringValue)
-    let level = h.service.hub.client(clientId)?.codeIdentity["level"]?.stringValue
-    try #require(level == "shared_interpreter" || level == "verified",
-                 "this node is not team-signed with hardened runtime: \(h.service.hub.client(clientId)?.codeIdentity.encoded() ?? "?") \(pout)")
-    let py = """
-    import json, os, sys
-    sys.path.insert(0, ".")
-    from agentdesktop_client import RuntimeClient, RuntimeError_
-    try:
-        with RuntimeClient(os.environ["EP"], env={}, credential=json.loads(os.environ["CRED"])) as c:
-            print("ACCEPTED", c.identity["principal"]["clientId"])
-    except RuntimeError_ as e:
-        print("REFUSED", e.code, e.details.get("reason"))
-    """
-    let (_, out) = try runLive(which("python3")!, ["-c", py], in: "sdks/python", endpoint: endpoint,
-                               extra: ["EP": endpoint, "CRED": line])
-    #expect(out.contains("REFUSED permission_denied code_identity_mismatch"), "\(out)")
-    let again = """
-    import { RuntimeClient } from "./src/index.ts";
-    const c = new RuntimeClient(process.env.EP, 10000, {}, JSON.parse(process.env.CRED));
-    console.log("ACCEPTED", (await c.handshake()).principal.codeIdentityLevel);
-    c.close();
-    """
-    let (_, nout) = try runLive(signedNode!, ["--input-type=module", "-e", again], in: "sdks/typescript", endpoint: endpoint,
-                                extra: ["EP": endpoint, "CRED": line])
-    #expect(nout.contains("ACCEPTED shared_interpreter") || nout.contains("ACCEPTED verified"), "\(nout)")
+func aCredentialPairedFromNodeIsRefusedFromPython() async throws {
+    // Waits on a subprocess for seconds: off the cooperative pool.
+    try await onPlainThread {
+        let h = try MCPHarness()
+        h.service.confirmer = ApproveAll()
+        let endpoint = h.dir + "/runtime.sock"
+        let pair = """
+        import { RuntimeClient } from "./src/index.ts";
+        const c = await new RuntimeClient(process.env.EP, 10000, {}).pair("node-agent", ["observe"], { timeoutMs: 20000, pollMs: 100 });
+        console.log(JSON.stringify(c));
+        """
+        let (pc, pout) = try runLive(signedNode!, ["--input-type=module", "-e", pair], in: "sdks/typescript", endpoint: endpoint,
+                                     extra: ["EP": endpoint])
+        #expect(pc == 0, "\(pout)")
+        let line = try #require(pout.split(separator: "\n").last.map(String.init))
+        let cred = try StrictJSON.parse(Data(line.utf8))
+        let clientId = try #require(cred["clientId"]?.stringValue)
+        let level = h.service.hub.client(clientId)?.codeIdentity["level"]?.stringValue
+        try #require(level == "shared_interpreter" || level == "verified",
+                     "this node is not team-signed with hardened runtime: \(h.service.hub.client(clientId)?.codeIdentity.encoded() ?? "?") \(pout)")
+        let py = """
+        import json, os, sys
+        sys.path.insert(0, ".")
+        from agentdesktop_client import RuntimeClient, RuntimeError_
+        try:
+            with RuntimeClient(os.environ["EP"], env={}, credential=json.loads(os.environ["CRED"])) as c:
+                print("ACCEPTED", c.identity["principal"]["clientId"])
+        except RuntimeError_ as e:
+            print("REFUSED", e.code, e.details.get("reason"))
+        """
+        let (_, out) = try runLive(which("python3")!, ["-c", py], in: "sdks/python", endpoint: endpoint,
+                                   extra: ["EP": endpoint, "CRED": line])
+        #expect(out.contains("REFUSED permission_denied code_identity_mismatch"), "\(out)")
+        let again = """
+        import { RuntimeClient } from "./src/index.ts";
+        const c = new RuntimeClient(process.env.EP, 10000, {}, JSON.parse(process.env.CRED));
+        console.log("ACCEPTED", (await c.handshake()).principal.codeIdentityLevel);
+        c.close();
+        """
+        let (_, nout) = try runLive(signedNode!, ["--input-type=module", "-e", again], in: "sdks/typescript", endpoint: endpoint,
+                                    extra: ["EP": endpoint, "CRED": line])
+        #expect(nout.contains("ACCEPTED shared_interpreter") || nout.contains("ACCEPTED verified"), "\(nout)")
+    }
 }
