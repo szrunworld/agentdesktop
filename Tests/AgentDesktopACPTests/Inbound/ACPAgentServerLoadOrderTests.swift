@@ -419,6 +419,24 @@ import Testing
         #expect(isLegacy(dir, "s1.history.json"))
     }
 
+    /// Codex on #141 (853e867): a newly created log is not durable until its
+    /// directory entry is; if that sync fails, the intent counts as not
+    /// written and the migration stops before any rewrite.
+    @Test func aNewLogWhoseDirectoryEntryIsNotDurableStopsTheMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let fresh = ACPFileSessionStore(directory: dir)
+        fresh.logDirFsyncFaultForTesting = true
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 1)
+        for name in ["s1.history.json", "s1.json", "s2.history.json", "s2.json"] { #expect(isLegacy(dir, name), "\(name)") }
+        // Once the directory sync works, the next store carries on.
+        let next = ACPFileSessionStore(directory: dir)
+        _ = try next.history(sessionId: "s1")
+        #expect(!isLegacy(dir, "s1.history.json"))
+    }
+
     /// Kevin 2026-10-09: a log that cannot be understood stops the migration.
     @Test func anUnreadableLogStopsTheMigration() throws {
         let (s, dir) = store()

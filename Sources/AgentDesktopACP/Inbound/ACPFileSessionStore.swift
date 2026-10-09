@@ -298,6 +298,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     /// (1-based) fail, or to make the directory fsync after a rename fail.
     var logAppendFaultForTesting: ((Int) -> Bool)?
     var dirFsyncFaultForTesting: ((String) -> Bool)?
+    /// Fault injection for tests only: the directory fsync after creating
+    /// the migration log fails.
+    var logDirFsyncFaultForTesting = false
 
     /// Files ("history/<id>" or "binding/<id>") whose latest log record is
     /// `uncertain`. nil when the log exists but cannot be read or a line
@@ -334,8 +337,10 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             guard let d = try? encoder.encode(e) else { return false }
             lines += d + Data("\n".utf8)
         }
-        let fd = open(directory.appendingPathComponent(Self.migrationLogName).path,
-                      O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0o600)
+        let logPath = directory.appendingPathComponent(Self.migrationLogName).path
+        var existing = stat()
+        let created = lstat(logPath, &existing) != 0 && errno == ENOENT
+        let fd = open(logPath, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { return false }
         defer { close(fd) }
         // All lines or none (Codex on #141). Called with the directory lock
@@ -366,6 +371,15 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             // fails, this store writes no more log lines.
             if ftruncate(fd, start) != 0 || fsync(fd) != 0 { migrationLogUnusable = true }
             return false
+        }
+        // A log file this call created is only durable once its directory
+        // entry is (Codex on #141): otherwise a rewrite could survive a power
+        // loss while its log vanished. Not durable means the append failed.
+        if created {
+            let dfd = open(directory.path, O_RDONLY | O_DIRECTORY)
+            guard dfd >= 0 else { return false }
+            defer { close(dfd) }
+            guard !logDirFsyncFaultForTesting, fsync(dfd) == 0 else { return false }
         }
         return true
     }

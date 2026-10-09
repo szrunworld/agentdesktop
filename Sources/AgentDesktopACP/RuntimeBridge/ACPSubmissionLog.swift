@@ -47,6 +47,8 @@ public final class ACPSubmissionLog: @unchecked Sendable {
     private let now: @Sendable () -> Date
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
+    /// Fault injection for tests only: the directory fsync after a rename fails.
+    private let dirFsyncFault: Bool
 
     /// The default location beside the Runtime's own data.
     public static func defaultPath(home: String = NSHomeDirectory()) -> String {
@@ -55,9 +57,15 @@ public final class ACPSubmissionLog: @unchecked Sendable {
 
     /// Loads `path`. An unreadable or corrupt file is an error, never an
     /// empty log: forgetting a record could make a retry send twice.
-    public init(path: String, now: @escaping @Sendable () -> Date = { Date() }) throws {
+    public convenience init(path: String, now: @escaping @Sendable () -> Date = { Date() }) throws {
+        try self.init(path: path, now: now, dirFsyncFault: false)
+    }
+
+    /// Internal: tests inject a failing directory fsync.
+    init(path: String, now: @escaping @Sendable () -> Date = { Date() }, dirFsyncFault: Bool) throws {
         self.path = path
         self.now = now
+        self.dirFsyncFault = dirFsyncFault
         let dir = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
@@ -166,6 +174,14 @@ public final class ACPSubmissionLog: @unchecked Sendable {
             unlink(tmp)
             throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
         }
+        // The rename is only durable once the directory is (Codex on #141):
+        // after a scrub, a power loss must not bring back the old file with
+        // its sensitive text. Not durable is an error.
+        let dir = (path as NSString).deletingLastPathComponent
+        let dfd = open(dir.isEmpty ? "." : dir, O_RDONLY | O_DIRECTORY)
+        guard dfd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(dfd) }
+        guard !dirFsyncFault, fsync(dfd) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 
     private static func stamp(_ d: Date) -> String {
