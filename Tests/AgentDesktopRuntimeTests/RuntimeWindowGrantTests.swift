@@ -650,3 +650,16 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     let r = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":303,"windowId":31}"#)
     #expect(errorDetails(r)?["reason"]?.stringValue == "bind_requires_grant")
 }
+
+@Test func aGrantThatAllowsNothingAnyMoreShowsNoBinding() throws {
+    let st = try Stage()
+    _ = try #require(data(st.request(["act"])))
+    #expect(data(st.bind(12)) != nil)
+    #expect(data(call(st.s, st.app, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"]?["windowId"]?.intValue == 12)
+    // The owner takes act away and leaves observe: the act-only grant allows nothing.
+    let p = #"{"clientId":"\#(st.appId)","capabilities":["observe","desktop.manage","run"],"desktops":["\#(st.desk)"],"apps":["\#(wechat)"]}"#
+    #expect(data(call(st.s, st.owner, "hub.grants.set", params: p)) != nil)
+    let back = st.reconnect()
+    #expect(data(call(st.s, back, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"] == .null)
+    #expect(!(data(call(st.s, back, "desktop.list"))?.encoded() ?? "").contains("\"windowId\":12"))
+}

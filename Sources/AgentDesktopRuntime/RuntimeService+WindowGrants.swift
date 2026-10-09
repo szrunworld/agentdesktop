@@ -142,7 +142,9 @@ extension RuntimeService {
     func mayKnowBinding(_ c: ConnectionState, _ d: DesktopRecord, _ b: TargetBinding) -> Bool {
         guard c.role == .paired else { return true }
         if launchedHere(c, d, b.process) { return true }
-        return !liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process).isEmpty
+        // A grant that no longer allows anything shows nothing (Codex on 141a875).
+        return liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
+            .contains { !effectivePermissions($0).isEmpty }
     }
 
     /// window.list for a paired app: only windows it holds a live grant with
@@ -172,7 +174,7 @@ extension RuntimeService {
             var binding = b
             if let id = b.windowGrantId, hub.windowGrant(id)?.clientId != c.clientId {
                 binding.windowGrantId = liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
-                    .first?.windowGrantId
+                    .first { !effectivePermissions($0).isEmpty }?.windowGrantId
             }
             return json.setting("binding", binding.json)
         }
