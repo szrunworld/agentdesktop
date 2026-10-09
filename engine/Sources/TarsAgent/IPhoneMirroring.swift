@@ -273,7 +273,9 @@ public enum IPhoneConnectionState: String, CaseIterable {
     public var hint: String {
         switch self {
         case .ready: return "the phone's screen is showing"
-        case .phoneInUse: return "the phone is in use; lock it and leave it near the Mac"
+        case .phoneInUse:
+            return "the phone is in use; lock it and leave it near the Mac, then click Connect in the iPhone Mirroring "
+                + "window or run `agentdesktop iphone reconnect --phone-locked`"
         case .disconnected: return "iPhone Mirroring is disconnected; run `agentdesktop iphone reconnect`"
         case .authRequired: return "unlock the iPhone or authenticate on the Mac (Touch ID or password)"
         case .reconnecting: return "iPhone Mirroring is connecting; wait and look again"
@@ -287,6 +289,17 @@ public enum IPhoneConnectionState: String, CaseIterable {
 }
 
 public enum IPhoneConnection {
+    /// The "iPhone in Use" page that locking the phone ends (once Connect is
+    /// pressed), as against a camera or microphone in use, which a lock does
+    /// not end.
+    static let endsOnLockLabels: Set<String> = ["iPhone in Use", "iPhone使用中", "has ended due to iPhone use",
+                                                "因iPhone被使用"]
+
+    static func endsOnLock(_ label: String?) -> Bool {
+        guard let label else { return false }
+        return endsOnLockLabels.contains(label)
+    }
+
     /// Status pages of iPhone Mirroring, English and Simplified Chinese, as
     /// its ScreenContinuityUI strings give them. The first rule a text
     /// contains wins, so the specific ones come first ("正在解锁iPhone"

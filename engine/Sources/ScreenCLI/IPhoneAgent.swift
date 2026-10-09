@@ -16,7 +16,7 @@ enum IPhoneCommands {
           agentdesktop iphone show [--screen NAME]
           agentdesktop iphone hide [--timeout SECONDS] [--no-wait]
           agentdesktop iphone status [--screen NAME]
-          agentdesktop iphone reconnect [--screen NAME] [--timeout SECONDS]
+          agentdesktop iphone reconnect [--screen NAME] [--timeout SECONDS] [--phone-locked]
           agentdesktop iphone screenshot [--screen NAME] --output FILE.png
           agentdesktop iphone tap  [--screen NAME] --x X --y Y [--geometry VERSION]
           agentdesktop iphone type [--screen NAME] --text TEXT [--geometry VERSION]
@@ -27,7 +27,10 @@ enum IPhoneCommands {
         --geometry and the input is refused (stale_observation, nothing sent)
         if the window has since moved, resized or been replaced.
         status and screenshot only read; reconnect presses Connect / Try Again
-        / Resume on a disconnected window and waits for it to settle.
+        / Resume on a disconnected window and waits for it to settle. On
+        "iPhone in Use" it presses nothing: that page stays after the phone
+        is locked, until Connect is pressed. Lock the phone, then give
+        --phone-locked to have reconnect press it.
         """
 
     static func run(_ args: Arguments) -> Never {
@@ -94,7 +97,7 @@ enum IPhoneCommands {
     private static func reconnect(screen name: String, _ args: Arguments) -> Never {
         do {
             let phone = IPhoneAgentScreen(screen: name)
-            let report = try phone.reconnect(timeout: seconds(args, default: 20))
+            let report = try phone.reconnect(timeout: seconds(args, default: 20), phoneLocked: args.has("--phone-locked"))
             // ok only when the phone was confirmed ready, never because the
             // last look happened to show it (F8).
             var output: [String: Any] = ["ok": report.isReady, "outcome": report.outcome.rawValue,

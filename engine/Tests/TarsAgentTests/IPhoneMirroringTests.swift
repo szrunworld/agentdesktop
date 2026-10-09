@@ -508,6 +508,48 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(fake.pressed.isEmpty)
     }
 
+    /// #182 (device): "iPhone in Use" stays after the phone is locked until
+    /// Connect is pressed. Without the user's word nothing is pressed (above);
+    /// with it, Connect is pressed and ready still needs steady looks.
+    @Test func aLockedPhonesInUsePageIsConnectedOnTheUsersWord() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["iPhone in Use", "Connect"]
+        fake.buttons = ["Connect"]
+        // The page stays one look after the press, then the phone shows.
+        fake.onSleep = { if fake.sleeps == 2 { fake.ax = [] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .ready && report.isReady)
+        #expect(report.readyReadings == IPhoneConnectionTracker.defaultStableReadings)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
+    }
+
+    /// The user was wrong: the phone was not locked and the page stays.
+    /// Not ready; the press stays unconfirmed and input refused.
+    @Test func anInUsePageThatStaysAfterConnectIsUnconfirmed() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["iPhone in Use", "Connect"]
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .pressedUnconfirmed && !report.isReady && report.timedOut)
+        #expect(fake.reconnectGate.reason(now: fake.clock) != nil)
+    }
+
+    /// A camera or microphone in use is not ended by a lock: nothing is
+    /// pressed even on the user's word.
+    @Test(arguments: ["iPhone Camera in Use", "iPhone Microphone in Use"])
+    func aCameraOrMicrophoneInUseIsNotPressed(page: String) throws {
+        let fake = FakeMirroring()
+        fake.ax = [page, "Connect"]
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(fake.pressed.isEmpty)
+        #expect(report.outcome == .needsUser)
+    }
+
     @Test func reconnectGivesUpAtItsTimeout() throws {
         let fake = FakeMirroring()
         fake.ax = ["Connection Interrupted"]
