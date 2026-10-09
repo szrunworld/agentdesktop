@@ -57,11 +57,16 @@ public final class DesktopRecord: @unchecked Sendable {
     /// launch it made here without a window grant (window-grants.md).
     /// Readable without the Desktop's lock (window.list must not wait for
     /// an action holding it).
-    public internal(set) var launchedBy: [ProcessIdentity: String] {
+    public internal(set) var launchedBy: [ProcessIdentity: Launch] {
         get { pidLock.withLock { _launchedBy } }
         set { pidLock.withLock { _launchedBy = newValue } }
     }
-    private var _launchedBy: [ProcessIdentity: String] = [:]
+    private var _launchedBy: [ProcessIdentity: Launch] = [:]
+    /// Who started a process here, and which app it asked for.
+    public struct Launch: Equatable, Sendable {
+        public var clientId: String
+        public var bundleId: String?
+    }
     /// The principal that created it; a paired app's grant can cover
     /// "the Desktops I created".
     public internal(set) var createdBy: String?

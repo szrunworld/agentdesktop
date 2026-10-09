@@ -212,7 +212,7 @@ extension RuntimeService {
         }
 
         // 3. Under the lock again: still the same exposed window; store.
-        return withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
+        let stored3 = withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
             var targetJSON: JSONValue = .null
             var elementsJSON: [JSONValue] = []
             if let b = stored.binding, let before = exposed {
@@ -278,6 +278,11 @@ extension RuntimeService {
                   ("coverage", .obj(coverage))]
             return .obj(m)
         }
+        // Taken under a window grant and not answered (revoked meanwhile, the
+        // window changed, …): the image goes now, not at its expiry (Codex on
+        // 0232db6).
+        if case .failure = stored3, windowGrant != nil, let id = image["artifactId"]?.stringValue { artifacts.remove(id) }
+        return stored3
     }
 }
 

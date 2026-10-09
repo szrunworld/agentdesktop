@@ -263,7 +263,10 @@ public final class HubStore: @unchecked Sendable {
         var ended: [(id: String, reason: String)] = []
         try db.transaction {
             try putGrant(g)
-            for w in try loadWindowGrants(where: "client_id = ? AND state = 'active'", [.text(g.clientId)]) {
+            // A revoked grant revokes its ended window grants too: what was kept
+            // under them goes out of reach for good (Codex on 0232db6).
+            let states = g.state != "active" ? "('active', 'ended')" : "('active')"
+            for w in try loadWindowGrants(where: "client_id = ? AND state IN \(states)", [.text(g.clientId)]) {
                 let why = g.state != "active" ? "grant_revoked" : endingWindowGrants?(w)
                 guard let why else { continue }
                 try endWindowGrantRow(w.windowGrantId, state: g.state != "active" ? "revoked" : "ended", reason: why)
@@ -298,7 +301,7 @@ public final class HubStore: @unchecked Sendable {
             try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
             try db.execute("UPDATE grants SET state = 'revoked', revision = revision + 1 WHERE client_id = ?", [.text(clientId)])
             var ids: [String] = []
-            for w in try loadWindowGrants(where: "client_id = ? AND state = 'active'", [.text(clientId)]) {
+            for w in try loadWindowGrants(where: "client_id = ? AND state IN ('active', 'ended')", [.text(clientId)]) {
                 try endWindowGrantRow(w.windowGrantId, state: "revoked", reason: "client_revoked")
                 ids.append(w.windowGrantId)
             }
@@ -410,8 +413,11 @@ public final class HubStore: @unchecked Sendable {
     @discardableResult
     private func endWindowGrantRow(_ id: String, state: String, reason: String) throws -> Bool {
         if failsWindowGrantWrites { throw RuntimeStoreError("window grant store unavailable (test)") }
-        try db.execute("UPDATE window_grants SET state = ?, ended_reason = ? WHERE window_grant_id = ? AND state = 'active'",
-                       [.text(state), .text(reason), .text(id)])
+        // Active ones end; an ended one can only become revoked.
+        try db.execute("""
+            UPDATE window_grants SET state = ?, ended_reason = CASE WHEN state = 'active' THEN ? ELSE ended_reason END
+            WHERE window_grant_id = ? AND (state = 'active' OR (state = 'ended' AND ? = 'revoked'))
+            """, [.text(state), .text(reason), .text(id), .text(state)])
         return db.changes == 1
     }
 

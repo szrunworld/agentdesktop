@@ -203,7 +203,7 @@ extension RuntimeService {
                                            quitRequested: requested)
             }
             d.launched.append(process)
-            d.launchedBy[process] = c.clientId
+            d.launchedBy[process] = .init(clientId: c.clientId, bundleId: p["bundleId"]?.stringValue)
             return .obj([
                 ("desktopId", .string(d.desktopId)),
                 ("process", process.json),

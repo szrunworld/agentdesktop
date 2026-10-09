@@ -783,3 +783,74 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     #expect(data(call(st.s, st.owner, "desktop.destroy", params: #"{"desktopId":"\#(st.desk)"}"#)) != nil)
     #expect(st.s.hub.windowGrant(id)?.state == "ended")
 }
+
+/// A paired app that launched Notes (pid 303, window 31) on a Desktop the
+/// owner made and named in its grant.
+private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionState, c: ConnectionState, id: String, token: String, desk: String) {
+    let platform = FakePlatform()
+    var backend = FixedBackend()
+    backend.apps.append(AppSummary(process: ProcessIdentity(pid: 303, startedAt: "2026-10-08T01:00:00.000Z"), bundleId: "com.apple.Notes",
+                                   name: "Notes", active: false, hidden: false))
+    backend.opened.windows = [WindowSummary(windowId: 31, process: ProcessIdentity(pid: 303, startedAt: "2026-10-08T01:00:00.000Z"),
+                                            appName: "Notes", bundleId: "com.apple.Notes", title: "备忘录",
+                                            frame: Rect(x: 2010, y: 10, width: 500, height: 400), onScreen: true)]
+    let s = platformService(platform, backend: backend)
+    let owner = handshaken(s)
+    let desk = try created(s, owner)
+    let (c, id, token) = try pairedClient(s, capabilities: ["observe", "act", "desktop.manage"], desktops: [desk],
+                                          apps: ["com.apple.Notes"], name: "notes-agent")
+    #expect(data(call(s, c, "app.launch", params: #"{"desktopId":"\#(desk)","bundleId":"com.apple.Notes"}"#)) != nil)
+    #expect(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(desk)","pid":303,"windowId":31}"#)) != nil)
+    return (s, owner, c, id, token, desk)
+}
+
+@Test func anOwnLaunchIsReachableOnlyWhileTheGrantCoversItsAppAndDesktop() throws {
+    for (apps, desktops) in [([String](), true), (["com.apple.Notes"], false)] {
+        let sc = try launchedScene()
+        #expect(data(call(sc.s, sc.c, "window.list"))?["windows"]?.arrayValue?.count == 1)
+        let p = #"{"clientId":"\#(sc.id)","capabilities":["observe","act","desktop.manage"],"desktops":\#(desktops ? "[\"\(sc.desk)\"]" : "[]"),"apps":\#(apps.isEmpty ? "[]" : "[\"com.apple.Notes\"]")}"#
+        #expect(data(call(sc.s, sc.owner, "hub.grants.set", params: p)) != nil)
+        let (back, _) = socketConnection(sc.s, clientId: sc.id, token: sc.token)
+        #expect(data(call(sc.s, back, "window.list"))?["windows"]?.arrayValue?.isEmpty == true, "\(p)")
+        if desktops {
+            // The app left the grant: the Desktop is still the client's, its launch no longer.
+            let sid = try #require(data(call(sc.s, back, "session.open", params: #"{"desktopId":"\#(sc.desk)"}"#))?["sessionId"]?.stringValue)
+            #expect(code(call(sc.s, back, "observe", context: #"{"sessionId":"\#(sid)"}"#)) == "grant_missing")
+            #expect(data(call(sc.s, back, "desktop.show", params: #"{"desktopId":"\#(sc.desk)"}"#))?["binding"] == .null)
+        }
+    }
+}
+
+@Test func revokingTheParentGrantRevokesEndedWindowGrantsToo() throws {
+    for method in ["hub.grants.revoke", "hub.clients.revoke"] {
+        let (sc, owner, g, _) = try calculatorScene(["observe", "persist"])
+        sc.s.endWindowGrant(g, reason: "window_closed")
+        #expect(data(call(sc.s, owner, method, params: #"{"clientId":"\#(sc.c.clientId)"}"#)) != nil)
+        #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "revoked", "\(method)")
+    }
+}
+
+@Test func aCaptureRevokedBeforeItIsAnsweredIsDeletedAtOnce() async throws {
+    try await offPoolConfirm {
+        let (sc, owner, g, _) = try calculatorScene(["observe"])
+        // The user revokes right after the capture, before the answer.
+        let revoked = DispatchSemaphore(value: 0)
+        final class Once: @unchecked Sendable { var done = false }
+        let once = Once()
+        sc.platform.lock.withLock {
+            sc.platform.onCapture = {
+                guard !once.done else { return }
+                once.done = true
+                Thread {
+                    _ = call(sc.s, owner, "hub.windows.revoke", params: #"{"windowGrantId":"\#(g.windowGrantId)"}"#)
+                    revoked.signal()
+                }.start()
+                _ = revoked.wait(timeout: .now() + 5)
+            }
+        }
+        let r = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+        #expect(data(r) == nil)
+        let pngs = ((try? FileManager.default.contentsOfDirectory(atPath: sc.s.artifacts.directory)) ?? []).filter { $0.hasSuffix(".png") }
+        #expect(pngs.isEmpty, "\(pngs)")
+    }
+}
