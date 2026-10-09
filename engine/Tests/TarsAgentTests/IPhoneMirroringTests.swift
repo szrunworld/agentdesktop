@@ -1306,6 +1306,91 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         changed.wait()
         #expect(report.outcome == .needsUser && !report.isReady)
         #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
+        // Codex on #142: the report says what the last read saw.
+        #expect(report.state == .authRequired && report.label == "iPhone Mirroring Is Locked")
+    }
+
+    /// Codex on #142: cancelled while the read before the press runs (a
+    /// capture and OCR take time): nothing is pressed and the gate is not
+    /// raised.
+    @Test func aCancelDuringTheReadBeforeThePressPressesNothing() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connection Paused", "Resume"]
+        fake.buttons = ["Resume"]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        var cancelled = false
+        phone.isCancelled = { cancelled }
+        var reads = 0
+        fake.onRecognize = { reads += 1; if reads == 2 { cancelled = true } }
+        #expect(throws: IPhoneError.self) { try phone.reconnect(timeout: 20) }
+        #expect(reads == 2)
+        #expect(fake.pressed.isEmpty)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
+    }
+
+    /// Codex on #142: cancelled while the read before confirming runs: the
+    /// gate stays up and nothing is reported ready.
+    @Test func aCancelDuringTheReadBeforeConfirmingLowersNothing() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        try fake.reconnectGate.raise("an earlier press")
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        var cancelled = false
+        phone.isCancelled = { cancelled }
+        // The steady looks, then the read under the lock.
+        let looks = IPhoneConnectionTracker.defaultStableReadings
+        var reads = 0
+        fake.onRecognize = { reads += 1; if reads == looks + 1 { cancelled = true } }
+        #expect(throws: IPhoneError.self) { try phone.reconnect(timeout: 20) }
+        #expect(reads == looks + 1)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
+    }
+
+    /// Codex on #142: the window is remade while the confirmation waits for
+    /// the lock. One ready look of the new window confirms nothing.
+    @Test func aWindowRemadeDuringTheLockWaitIsNotConfirmed() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        try fake.reconnectGate.raise("an earlier press")
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.gateLockWait = 5
+        let changed = DispatchSemaphore(value: 0)
+        fake.onSleep = {
+            guard fake.sleeps == 1, let fd = try? Self.holdLock(of: fake.reconnectGate) else { return }
+            Thread.detachNewThread {
+                Thread.sleep(forTimeInterval: 0.2)
+                fake.windowsByPID[42] = [IPhoneWindow(pid: 42, windowID: 8, frame: CGRect(x: 3010, y: 40, width: 330, height: 720))]
+                Self.release(fd)
+                changed.signal()
+            }
+        }
+        let report = try phone.reconnect(timeout: 20)
+        changed.wait()
+        #expect(!report.isReady)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
+    }
+
+    /// Codex on #142: a record that cannot be removed is not reported as a
+    /// confirmed phone.
+    @Test func aGateThatCannotBeRemovedIsNotReady() throws {
+        let fake = FakeMirroring()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("gate-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        fake.reconnectGate = HostFlag(url: directory.appendingPathComponent("gate"))
+        try fake.reconnectGate.raise("an earlier press")
+        // The gate lock's file made first, so only removing the record fails.
+        _ = try HostFlagLock(for: fake.reconnectGate, wait: 0).locked { }
+        // Its directory read-only: the record stays.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20)
+        #expect(!report.isReady)
+        #expect(report.blockedBy?.contains("could not be removed") == true)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
     }
 
     /// Finding 1: the gate is compared and lowered as one step; while

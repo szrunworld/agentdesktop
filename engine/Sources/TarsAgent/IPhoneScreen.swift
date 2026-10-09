@@ -304,6 +304,7 @@ public final class IPhoneAgentScreen: AgentScreen {
             // latest press, and no input is sent between raising and pressing.
             enum Press { case pressed(String), noButton, timedOut, changed(IPhoneConnectionState) }
             let press: Press
+            let windowBefore = binding?.windowID
             do {
                 press = try gateLock.locked(giveUp: { stopReason() != nil || system.now >= until }) { () throws -> Press in
                     // The wait for the lock may have outlasted the call:
@@ -314,6 +315,15 @@ public final class IPhoneAgentScreen: AgentScreen {
                     // of #142: a Welcome page's "继续" was pressed after the
                     // wait): only a disconnected phone is reconnected.
                     let (now, nowLabel) = (try? connectionState()) ?? (.uncertain, nil)
+                    record(IPhoneConnectionObservation(generation: connection.generation, state: now, label: nowLabel,
+                                                       windowID: binding?.windowID, at: system.now))
+                    // The read takes time (a capture, OCR): stopped or out of
+                    // time meanwhile, nothing is pressed (Codex on #142).
+                    if let stop = stopReason() { throw stop }
+                    if system.now >= until { return .timedOut }
+                    // Another window since the look that chose to press:
+                    // nothing is known of it yet (Codex on #142).
+                    guard binding?.windowID == windowBefore else { return .changed(.uncertain) }
                     guard now == .disconnected || (fromInUse && lockedInUse(now, nowLabel)) else { return .changed(now) }
                     let before = system.reconnectGate.reason(now: system.now)
                     try system.reconnectGate.raise(gate)
@@ -396,8 +406,12 @@ public final class IPhoneAgentScreen: AgentScreen {
         // Compared and lowered as one step: a press by another process
         // meanwhile is not confirmed by looks begun before it, and is never
         // lowered here.
-        enum Lowering { case lowered, pressedElsewhere(String?), timedOut, barrier(String), changed(IPhoneConnectionState) }
+        enum Lowering {
+            case lowered, pressedElsewhere(String?), timedOut, barrier(String), changed(IPhoneConnectionState), notLowered
+        }
         let lowering: Lowering
+        // The window the steady looks were of.
+        let windowBefore = binding?.windowID
         do {
             lowering = try gateLock.locked(giveUp: { stopReason() != nil || system.now >= until }) { () throws -> Lowering in
                 // The wait for the lock may have outlasted the call: stopped
@@ -409,11 +423,25 @@ public final class IPhoneAgentScreen: AgentScreen {
                 // The looks that made it ready came before the wait: the
                 // phone may have locked meanwhile (independent review of
                 // #142). Read once more before confirming.
-                let now = (try? connectionState())?.0 ?? .uncertain
+                let (now, nowLabel) = (try? connectionState()) ?? (.uncertain, nil)
+                // What the report says is what this last read saw (Codex on
+                // #142: needs_user beside a ready state).
+                record(IPhoneConnectionObservation(generation: connection.generation, state: now, label: nowLabel,
+                                                   windowID: binding?.windowID, at: system.now))
+                // The read takes time: stopped or out of time meanwhile, the
+                // phone is not confirmed (Codex on #142).
+                if let stop = stopReason() { throw stop }
+                if system.now >= until { return .timedOut }
+                // The steady looks were of another window: one ready look of
+                // this one confirms nothing (Codex on #142).
+                guard binding?.windowID == windowBefore else { return .changed(.uncertain) }
                 guard now == .ready else { return .changed(now) }
                 let gate = system.reconnectGate.reason(now: system.now)
                 guard gate == gateKnown else { return .pressedElsewhere(gate) }
                 system.reconnectGate.lower()
+                // Lowering swallows a failure to remove the record: ready only
+                // once it is seen gone (Codex on #142).
+                guard system.reconnectGate.reason(now: system.now) == nil else { return .notLowered }
                 return .lowered
             }
         } catch let stop as IPhoneError {
@@ -442,6 +470,11 @@ public final class IPhoneAgentScreen: AgentScreen {
         case .barrier(let reason):
             var blocked = report(.notReady, pressed: pressed, timedOut: false)
             blocked.blockedBy = "input barrier: \(reason); take a screenshot first"
+            return blocked
+        case .notLowered:
+            var blocked = report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: false)
+            blocked.blockedBy = "the reconnect record for other processes could not be removed; "
+                + "run `agentdesktop iphone reconnect` again"
             return blocked
         case .pressedElsewhere(let gate):
             var blocked = report(.notReady, pressed: pressed, timedOut: false)
