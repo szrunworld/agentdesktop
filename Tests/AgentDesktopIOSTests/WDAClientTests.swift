@@ -236,13 +236,16 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         fake.override("GET", "/screenshot", .hang)
         let client = fake.client(timeout: .seconds(30))
         try await client.ensureSession()
-        let started = ContinuousClock.now
         let error = await expectWDAError {
             try await client.screenshot(deadline: .now + .milliseconds(200))
         }
         #expect(error?.kind == .timeout)
         #expect(error?.delivery == .rejected)  // a read has no effect to be unsure about
-        #expect(ContinuousClock.now - started < .seconds(3))
+        // What is left of the 200 ms deadline applied, not the 30 s default;
+        // read off the request, not the wall clock (see above).
+        let sent = fake.requests("GET", suffix: "/screenshot")
+        #expect(sent.count == 1)
+        #expect(sent.allSatisfy { $0.timeout > 0 && $0.timeout <= 0.201 })
     }
 
     @Test func passedDeadlineSendsNothing() async throws {
@@ -596,18 +599,54 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         #expect(fake.requests("POST", suffix: "/session").count == 1)
     }
 
+    @Test func starterDeadlineDoesNotBoundTheSharedCreation() async throws {
+        let fake = FakeWDA()
+        let gate = WDAReplyGate()
+        defer { gate.release() }
+        fake.override("POST", "/session", .held(gate, .json(200, ["value": ["sessionId": "S1"], "sessionId": "S1"])))
+        fake.addSession("S1")
+        let client = fake.client(timeout: .seconds(30))
+        // The short caller starts the creation; a caller with no deadline joins it.
+        let short = Task { try await client.screenshot(deadline: .now + .milliseconds(100)) }
+        for _ in 0..<200 where fake.requests("POST", suffix: "/session").isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+        let patient = Task { try await client.screenshot() }
+        defer { patient.cancel() }
+        let shortError = await expectWDAError { _ = try await short.value }
+        #expect(shortError?.kind == .timeout)
+        // The creation must outlive its starter's deadline and serve the patient caller.
+        gate.release()
+        let shot = try await patient.value
+        #expect(shot.sessionId == "S1")
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+    }
+
     @Test func waiterIsBoundedByItsOwnDeadline() async throws {
         let fake = FakeWDA()
-        fake.override("POST", "/session", .hang)
-        let client = fake.client(timeout: .seconds(2))
-        let first = Task { try await client.ensureSession() }  // no deadline; bounded by the config
-        try await Task.sleep(for: .milliseconds(50))
-        let started = ContinuousClock.now
+        let gate = WDAReplyGate()
+        defer { gate.release() }
+        fake.override("POST", "/session", .held(gate, .json(200, ["value": ["sessionId": "S1"], "sessionId": "S1"])))
+        fake.addSession("S1")
+        let client = fake.client(timeout: .seconds(30))
+        let first = Task { try await client.ensureSession() }  // no deadline
+        defer { first.cancel() }
+        for _ in 0..<200 where fake.requests("POST", suffix: "/session").isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+        // A waiter that ignored its deadline would sit on the held creation;
+        // open the gate eventually so that shows up as a session, not a hang.
+        let watchdog = Task {
+            try? await Task.sleep(for: .seconds(10))
+            gate.release()
+        }
+        defer { watchdog.cancel() }
         let error = await expectWDAError { try await client.ensureSession(deadline: .now + .milliseconds(150)) }
         #expect(error?.kind == .timeout)
-        #expect(ContinuousClock.now - started < .seconds(1))
+        #expect(await client.currentSessionId == nil, "the waiter gave up while the creation was still held")
         #expect(fake.requests("POST", suffix: "/session").count == 1)
-        first.cancel()
     }
 
     // 4. An observation never mixes two sessions.
