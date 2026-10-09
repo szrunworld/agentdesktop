@@ -288,6 +288,13 @@ extension RuntimeService {
             windowGrantId: DesktopRegistry.newId(prefix: "wg"), clientId: c.clientId, desktopId: d.desktopId, windowId: w.windowId,
             process: w.process, bundleId: bundleId, appName: w.appName, permissions: permissions, state: "active", endedReason: nil,
             createdAt: nowString, expiresAt: min(afterApproval, clientExpiry), confirmationId: confirmation)
+        // Checked and recorded under the Desktop's lock (Codex on 48c46a8):
+        // a destroy waits, then ends this grant with the rest.
+        guard d.lock.lock(before: now().addingTimeInterval(Self.desktopLockWait)) else {
+            return .failure(RuntimeError("deadline_exceeded", "desktop \(d.desktopId) stayed busy; nothing was granted",
+                                         phase: .handler, notSent: true))
+        }
+        defer { d.lock.unlock() }
         if d.state == "destroyed" || desktops.find(d.desktopId) == nil || !desktopAllowed(c, d.desktopId) || !appAllowed(c, bundleId: bundleId)
             || permissions.contains(where: { !(parent?.capabilities.contains(Self.capability(forWindowPermission: $0)) ?? false) })
             || windowGrantFailure(grant) != nil

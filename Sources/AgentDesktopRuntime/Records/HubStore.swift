@@ -238,6 +238,16 @@ public final class HubStore: @unchecked Sendable {
     /// Replace a client's grant. Anything narrower than before bumps the
     /// policy epoch, so in-flight checks see it at once.
     public func setGrant(_ g: Grant, expectedRevision: Int? = nil) throws -> Grant {
+        try setGrant(g, expectedRevision: expectedRevision, endingWindowGrants: nil).grant
+    }
+
+    /// Replace a client's grant and, in the same transaction, end the window
+    /// grants it no longer backs (window-grants.md; Codex on 48c46a8: a
+    /// narrowing is never saved without them). `endingWindowGrants` says why
+    /// a window grant ends under the new grant, or nil to keep it; a grant
+    /// that is not active ends every one. The ended ones are returned.
+    public func setGrant(_ g: Grant, expectedRevision: Int? = nil, endingWindowGrants: ((WindowGrant) -> String?)?) throws
+        -> (grant: Grant, ended: [(id: String, reason: String)]) {
         // Read, compare and write as one: a change the user confirmed against
         // revision N is not applied over revision N+1 (round-four review H1).
         writeLock.lock()
@@ -250,12 +260,21 @@ public final class HubStore: @unchecked Sendable {
             }
         }
         g.revision = (old?.revision ?? 0) + 1
-        try putGrant(g)
-        if let old, !Set(g.capabilities).isSuperset(of: old.capabilities) || !Set(g.desktops).isSuperset(of: old.desktops)
-            || !Set(g.apps).isSuperset(of: old.apps) || g.expiresAt < old.expiresAt || g.state != "active" {
-            try bumpEpoch()
+        var ended: [(id: String, reason: String)] = []
+        try db.transaction {
+            try putGrant(g)
+            for w in windowGrants(clientId: g.clientId) {
+                let why = g.state != "active" ? "grant_revoked" : endingWindowGrants?(w)
+                guard let why else { continue }
+                try endWindowGrantRow(w.windowGrantId, state: g.state != "active" ? "revoked" : "ended", reason: why)
+                ended.append((w.windowGrantId, why))
+            }
+            if let old, !Set(g.capabilities).isSuperset(of: old.capabilities) || !Set(g.desktops).isSuperset(of: old.desktops)
+                || !Set(g.apps).isSuperset(of: old.apps) || g.expiresAt < old.expiresAt || g.state != "active" {
+                try bumpEpoch()
+            }
         }
-        return g
+        return (g, ended)
     }
 
     /// The client keeps its record (soft delete) but nothing of it works.
@@ -267,10 +286,14 @@ public final class HubStore: @unchecked Sendable {
         writeLock.lock()
         defer { writeLock.unlock() }
         guard client(clientId) != nil else { return nil }
-        try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
-        try db.execute("UPDATE grants SET state = 'revoked', revision = revision + 1 WHERE client_id = ?", [.text(clientId)])
-        try endWindowGrants(clientId: clientId, state: "revoked", reason: "client_revoked")
-        try bumpEpoch()
+        // One transaction: the client, its grant and its window grants go
+        // together or not at all.
+        try db.transaction {
+            try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
+            try db.execute("UPDATE grants SET state = 'revoked', revision = revision + 1 WHERE client_id = ?", [.text(clientId)])
+            for w in windowGrants(clientId: clientId) { try endWindowGrantRow(w.windowGrantId, state: "revoked", reason: "client_revoked") }
+            try bumpEpoch()
+        }
         return client(clientId)
     }
 
@@ -329,11 +352,15 @@ public final class HubStore: @unchecked Sendable {
     /// True when this call ended it (it was active).
     @discardableResult
     public func endWindowGrant(_ id: String, state: String, reason: String) throws -> Bool {
-        try db.transaction {
-            try db.execute("UPDATE window_grants SET state = ?, ended_reason = ? WHERE window_grant_id = ? AND state = 'active'",
-                           [.text(state), .text(reason), .text(id)])
-            return db.changes == 1
-        }
+        try db.transaction { try endWindowGrantRow(id, state: state, reason: reason) }
+    }
+
+    /// Inside a transaction the caller holds.
+    @discardableResult
+    private func endWindowGrantRow(_ id: String, state: String, reason: String) throws -> Bool {
+        try db.execute("UPDATE window_grants SET state = ?, ended_reason = ? WHERE window_grant_id = ? AND state = 'active'",
+                       [.text(state), .text(reason), .text(id)])
+        return db.changes == 1
     }
 
     /// End every active window grant of a client (or of one Desktop); the
@@ -343,10 +370,12 @@ public final class HubStore: @unchecked Sendable {
         var clauses = ["state = 'active'"], args: [SQLiteDatabase.Value] = []
         if let clientId { clauses.append("client_id = ?"); args.append(.text(clientId)) }
         if let desktopId { clauses.append("desktop_id = ?"); args.append(.text(desktopId)) }
-        let ids = ((try? db.query("SELECT window_grant_id FROM window_grants WHERE " + clauses.joined(separator: " AND "), args)) ?? [])
-            .compactMap { $0[0] as? String }
-        for id in ids { try endWindowGrant(id, state: state, reason: reason) }
-        return ids
+        return try db.transaction {
+            let ids = try db.query("SELECT window_grant_id FROM window_grants WHERE " + clauses.joined(separator: " AND "), args)
+                .compactMap { $0[0] as? String }
+            for id in ids { try endWindowGrantRow(id, state: state, reason: reason) }
+            return ids
+        }
     }
 
     private func bumpEpoch() throws {

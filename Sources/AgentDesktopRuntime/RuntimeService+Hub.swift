@@ -255,24 +255,28 @@ extension RuntimeService {
             }
             let epoch = hub.policyEpoch
             let saved: HubStore.Grant
+            var endedWindows: [(id: String, reason: String)] = []
             do {
                 if viaConfirmation, c.approvedTargetRevision == nil {
                     return .failure(RuntimeError("conflict", "no grant revision was confirmed; ask again", phase: .handler, notSent: true,
                                                  details: .obj([("reason", .string("target_changed"))])))
                 }
-                saved = try hub.setGrant(g, expectedRevision: viaConfirmation ? c.approvedTargetRevision : nil)
+                // Window grants for an app or Desktop the new grant no longer
+                // covers end with it, in the same transaction (window-grants.md).
+                let next = g
+                (saved, endedWindows) = try hub.setGrant(g, expectedRevision: viaConfirmation ? c.approvedTargetRevision : nil,
+                                                         endingWindowGrants: { [self] w in
+                    if !next.apps.contains(w.bundleId) { return "app_removed" }
+                    let created = next.desktops.contains("created") && desktops.find(w.desktopId)?.createdBy == id
+                    return next.desktops.contains(w.desktopId) || created ? nil : "desktop_removed"
+                })
             } catch let e as RuntimeStoreError where viaConfirmation {
                 return .failure(RuntimeError("conflict", e.description, phase: .handler, notSent: true,
                                              details: .obj([("reason", .string("target_changed"))])))
             } catch {
                 return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable", phase: .handler, notSent: true))
             }
-            // Window grants for an app or Desktop the grant no longer covers
-            // end for good (window-grants.md).
-            for g in hub.windowGrants(clientId: id) {
-                if !saved.apps.contains(g.bundleId) { endWindowGrant(g, reason: "app_removed", by: c) }
-                else if !desktopAllowed(ConnectionState.paired(id), g.desktopId) { endWindowGrant(g, reason: "desktop_removed", by: c) }
-            }
+            for e in endedWindows { endedWindowGrants([e.id], state: "ended", reason: e.reason) }
             // Narrowed: its connections are cut, it reconnects under the new grant.
             if hub.policyEpoch != epoch { cutConnections(of: id, reason: "grant_narrowed") }
             for r in activeRuns(of: id)
@@ -289,11 +293,11 @@ extension RuntimeService {
         let id = p["clientId"]?.stringValue ?? ""
         guard var g = hub.grant(id) else { return .failure(.notFound("no grant for \(id)")) }
         g.state = "revoked"
-        guard let saved = try? hub.setGrant(g) else {
+        // Its window grants end with it, in the same transaction.
+        guard let (saved, ended) = try? hub.setGrant(g, endingWindowGrants: nil) else {
             return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable", phase: .handler, notSent: true))
         }
-        let windowGrants = (try? hub.endWindowGrants(clientId: id, state: "revoked", reason: "grant_revoked")) ?? []
-        endedWindowGrants(windowGrants, state: "revoked", reason: "grant_revoked")
+        endedWindowGrants(ended.map(\.id), state: "revoked", reason: "grant_revoked")
         cutConnections(of: id, reason: "grant_revoked")
         accessWithdrawn(id)
         execution.stopRuns(ofClient: id, reason: "grant_revoked")

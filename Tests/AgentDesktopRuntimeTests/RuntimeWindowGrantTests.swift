@@ -609,3 +609,28 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     #expect(throws: (any Error).self) { try st.s.hub.addWindowGrant(other) }
     #expect(st.s.hub.windowGrant("wg_race") == nil && st.s.hub.windowGrant("wg_other") == nil)
 }
+
+@Test func narrowingAndItsWindowGrantEndingsAreOneTransaction() throws {
+    let st = try Stage()
+    let id = try #require(data(st.request(["observe"]))?["windowGrantId"]?.stringValue)
+    var g = try #require(st.s.hub.grant(st.appId))
+    g.apps = []
+    let (saved, ended) = try st.s.hub.setGrant(g, endingWindowGrants: { $0.bundleId == wechat ? "app_removed" : nil })
+    #expect(saved.apps.isEmpty && ended.map(\.id) == [id])
+    #expect(st.s.hub.windowGrant(id)?.state == "ended")
+    // Putting the app back brings nothing back.
+    g.apps = [wechat]
+    _ = try st.s.hub.setGrant(g)
+    #expect(st.s.hub.windowGrant(id)?.state == "ended")
+}
+
+@Test func aDesktopDestroyedWhileTheUserDecidesLeavesNoGrant() throws {
+    let st = try Stage()
+    st.confirmer.decide = { [s = st.s, owner = st.owner, desk = st.desk] r in
+        _ = call(s, owner, "desktop.destroy", params: #"{"desktopId":"\#(desk)"}"#)
+        return .approved(digest: r.digest)
+    }
+    let r = st.request(["observe"])
+    #expect(code(r) == "conflict" || code(r) == "not_found", "\(r.json.encoded())")
+    #expect(st.s.hub.windowGrants(clientId: st.appId).isEmpty)
+}
