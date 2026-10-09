@@ -727,6 +727,11 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     let id2 = try #require(data(st2.request(["observe"]))?["windowGrantId"]?.stringValue)
     st2.s.hub.failsWindowGrantWrites = true
     #expect(code(call(st2.s, st2.owner, "hub.windows.revoke", params: #"{"windowGrantId":"\#(id2)"}"#)) == "audit_unavailable")
+    // … and changes nothing: still active, not cut, nothing pending to save later (Codex on 17bb318).
+    #expect(st2.s.hub.windowGrant(id2)?.state == "active")
+    st2.s.hub.failsWindowGrantWrites = false
+    #expect(st2.s.hub.windowGrant(id2)?.state == "active")
+    #expect(data(call(st2.s, st2.app, "hub.windows.list")) != nil, "its connection was not cut")
 }
 
 @Test func aScreenshotTakenAlreadyExpiredIsStillDeleted() async throws {

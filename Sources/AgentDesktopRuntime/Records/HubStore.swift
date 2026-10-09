@@ -387,7 +387,10 @@ public final class HubStore: @unchecked Sendable {
     /// End one window grant for good (sticky): nothing brings it back.
     /// True when this call ended it (it was active).
     @discardableResult
-    public func endWindowGrant(_ id: String, state: String, reason: String) throws -> Bool {
+    /// `tombstone` false (an explicit revocation): nothing changes unless it
+    /// is saved, so the caller can report the failure as such (Codex on 17bb318).
+    public func endWindowGrant(_ id: String, state: String, reason: String, tombstone: Bool = true) throws -> Bool {
+        guard tombstone else { return try db.transaction { try endWindowGrantRow(id, state: state, reason: reason) } }
         // Ended in memory first (Codex on 8e9eb9d): a store that cannot save
         // it does not let the grant come back while this process runs; the
         // write is tried again whenever it is read.

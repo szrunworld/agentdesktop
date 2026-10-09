@@ -66,12 +66,13 @@ extension RuntimeService {
         try? endWindowGrantSaved(g, state: state, reason: reason, by: c)
     }
 
-    func endWindowGrantSaved(_ g: HubStore.WindowGrant, state: String = "ended", reason: String, by c: ConnectionState? = nil) throws {
+    func endWindowGrantSaved(_ g: HubStore.WindowGrant, state: String = "ended", reason: String, by c: ConnectionState? = nil,
+                             tombstone: Bool = true) throws {
         let ended: Bool
-        do { ended = try hub.endWindowGrant(g.windowGrantId, state: state, reason: reason) } catch {
+        do { ended = try hub.endWindowGrant(g.windowGrantId, state: state, reason: reason, tombstone: tombstone) } catch {
             // Ended in memory all the same (the store's tombstone): what was
             // kept only under it goes now (Codex on 1481ed3).
-            artifacts.removeTransients(windowGrantId: g.windowGrantId)
+            if tombstone { artifacts.removeTransients(windowGrantId: g.windowGrantId) }
             throw error
         }
         guard ended else { return }
@@ -360,7 +361,9 @@ extension RuntimeService {
                 hub.audit(connectionId: c.connectionId, clientId: g.clientId, method: "hub.windows", decision: "revoked",
                           reason: "\(id) window_grant_revoked")
             } else {
-                try endWindowGrantSaved(g, state: "revoked", reason: "window_grant_revoked", by: c)
+                // All or nothing: a revocation the store did not save changes
+                // nothing and is reported as not done.
+                try endWindowGrantSaved(g, state: "revoked", reason: "window_grant_revoked", by: c, tombstone: false)
             }
         } catch {
             return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable; window grant \(id) is not revoked",
