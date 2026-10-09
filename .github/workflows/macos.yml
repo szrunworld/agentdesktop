@@ -35,7 +35,11 @@ jobs:
         timeout-minutes: 8
         run: swift test
       - name: Test watchdog self-tests
-        timeout-minutes: 3
+        # Each case runs the real watchdog against real processes (stalls of
+        # 3 s, sampling, stops): 21 cases took 2 min 52 s on CI (#196), so 3
+        # minutes left no margin. Room for the cases #193 adds; a hang still
+        # ends the step.
+        timeout-minutes: 6
         run: python3 -m unittest scripts/ci/test_test_watchdog.py -v
       - name: Native core unit tests
         timeout-minutes: 8
