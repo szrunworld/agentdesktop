@@ -27,6 +27,39 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 - `runtime.handshake` 的结果增加 `principal: {clientId, role, connectionId}`。客户端**不能**在参数里声明自己的 clientId、ownership、lifetime 或 origin（ADR-05，已由 PR1 实现）。
 - 请求账本、Run、产物、事件的可见性一律按主体过滤；`owner` 看全部。
 
+### 2.1 PR3 之前的临时封堵（#153，Kevin 2026-10-09 裁决）
+
+在 #137（A4 身份与授权）落地之前，Runtime 按连接来源区分两类主体。来源由 Runtime 在建立连接时标记，客户端改不了：
+
+| 来源 | 怎样产生 | `clientId` | 角色 |
+| --- | --- | --- | --- |
+| `host` | 本进程内的主窗口与 GUI 端口 | `local:<uid>` | owner |
+| `socket` | `RuntimeServer` 接受的任何本机客户端（CLI、MCP、ACP、SDK、各 Agent） | `socket:<uid>` | 非 owner |
+
+socket 客户端：
+- 不能启动应用，不能枚举应用和窗口，不能调用任何 `gui.runs.*`；服务方法只能调用白名单里的读取方法。拒绝都是 `permission_denied`、`notSent`，发生在请求账本和平台之前。
+- 看不到也用不了主窗口创建的 Desktop、会话、请求结果、Run、事件和产物。
+
+#### 剩余风险：反复 Stop 的可用性风险
+
+`runtime.stopAll` 对 socket 客户端开放，因为停止是安全方向；`runtime.enableInput` 只有 owner（主窗口）能调用。因此：
+
+- **任何本机 socket 客户端都可以循环调用 `runtime.stopAll`，让输入一直处于停止状态，并停掉包括主窗口 Durable Run 在内的所有 Run。只有主窗口能恢复输入。**
+- 这是可用性风险，不是机密性或完整性风险：Stop 不会读取或泄露任何内容，也不会发出任何输入。每次 Stop 都写入持久的请求账本，被停的每个 Run 都在历史里记录 `global_stop`。同一 requestId 重复调用得到原结果；重复 Stop 不报错。
+- 这一风险只来自已在本机、以同一用户身份运行的进程。这类进程本来就能终止 AgentDesktop 本身。
+
+**#137（A4）配对后的收紧计划：**
+1. `runtime.stopAll` 按主体限定范围：配对应用只能停止自己的 Run；只有 owner 能执行全局停止并关闭输入准入。
+2. 未配对的连接（`unpaired`）不能调用 `runtime.stopAll`。
+3. 全局停止成为单独的授权项：用户可以授予某个配对应用“紧急停止”的能力，并能随时撤销；授权、撤销与每次调用都写入审计。
+4. 主窗口显示最近一次全局停止由哪个主体发起，便于用户发现被滥用的情况。
+
+#### 其他剩余风险（交给 #137）
+
+- socket 客户端之间暂时共用一个主体，能互相看到并使用对方的 Desktop、会话、请求账本、Run 和产物。
+- AI 配置只读开放：socket 客户端能读到全局 AI 连接的 `baseUrl` 和 `credentialRef`（钥匙串条目 ID，不是密钥本身）。
+- `runtime.status` 向 socket 客户端返回全局计数（Desktop、会话、活动 Run），其中包括主窗口的。只泄露数量，不泄露内容。
+
 ## 3. Run：一个 RunStore，两类生命周期
 
 已在 PR1 实现的模型不变：`kind`（act / exec / unit）、`ownership`、`origin`、`lifetime`、`phase`/`outcome`/`quiescence`、`revision`。
