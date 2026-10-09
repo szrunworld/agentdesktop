@@ -495,6 +495,6 @@ Kevin 原话：
 
 - Kevin 在 b9 会话中授权合并 #188（b9 的申请写的是 3fbd3ae），执行人是 b9。
 - b9 执行前最后一次核对时发现：PR 转为 Ready 之后，Codex 在 13:03:47Z 对 3fbd3ae 又提了两条 P2，有 2 条讨论未解决。**b9 没有合并**，申请作废。
-  - 「Verify the original process group before killing it」：命令退出后，它的 PGID 可能被回收、重新分配，\`killpg\` 可能误杀 runner 上无关的进程。按"P2 按后果判断"，这属于未经授权的操作，**阻断**，由 69 修。
+  - 「Verify the original process group before killing it」：命令退出后，它的 PGID 可能被回收、重新分配，`killpg` 可能误杀 runner 上无关的进程。按"P2 按后果判断"，这属于未经授权的操作，**阻断**，由 69 修。
   - 「Report process-discovery failures instead of success」：只影响诊断报告的准确性，按规则登记 issue，不阻断。
 - 修完后，b9 对新 SHA 复审，再重新提交申请。原授权限定在 3fbd3ae，SHA 改变后失效。
