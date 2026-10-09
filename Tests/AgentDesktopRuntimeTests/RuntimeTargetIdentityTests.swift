@@ -288,5 +288,8 @@ func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuC
     // performed", whatever phrase follows; nor any other failure after it.
     #expect(!EnginePlatform.failedBeforeDispatch("input was already sent (a click into the field); then: keyboard focus is not in window 11; no character was submitted"))
     #expect(!EnginePlatform.failedBeforeDispatch("input was already sent (a click into the field); then: Agent Desktop needs the Accessibility permission"))
+    // Codex on 755f2e6 (P2): the marker counts only at the start; quoted
+    // inside another message (a key name) it does not make it performed.
+    #expect(EnginePlatform.failedBeforeDispatch(#"unknown key "input was already sent""#))
     #expect(!EnginePlatform.failedBeforeDispatch("keyboard focus left window 11 after 2 of 6 characters were submitted to the input interface (whether the app received them is not known); the rest was not submitted"))
 }

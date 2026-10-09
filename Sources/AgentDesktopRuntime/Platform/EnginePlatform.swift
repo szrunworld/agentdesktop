@@ -260,8 +260,11 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     /// counts them and is not (Kevin 2026-10-09: partial is never zero).
     static func failedBeforeDispatch(_ message: String) -> Bool {
         // Input that already went out (a click into a web field before
-        // typing) is never undone by what failed after it.
-        if message.lowercased().contains("input was already sent") { return false }
+        // typing) is never undone by what failed after it. Only as the
+        // message's start, which is where InputEngine.afterInputWasSent puts
+        // it and the engine passes it through unchanged (localizedDescription):
+        // a key name quoted later in a message must not count (Codex on 755f2e6).
+        if message.lowercased().hasPrefix("input was already sent") { return false }
         return preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
     }
 
