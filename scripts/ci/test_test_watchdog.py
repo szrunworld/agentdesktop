@@ -184,6 +184,7 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(code, 0, log)
         self.assertNotIn("ps -axo", log)
         self.assertNotIn("lsof -t", log)
+        self.assertNotIn("::warning", log)  # #193: lsof finding nothing is not a failure
 
     def test_output_read_while_draining_is_parsed_like_the_rest(self):
         import importlib.util
@@ -343,6 +344,82 @@ class WatchdogTests(unittest.TestCase):
         finally:
             bystander.kill()
             bystander.wait()
+
+    def failing_tool(self, name, script="#!/bin/sh\nexit 2\n"):
+        path = os.path.join(tempfile.mkdtemp(prefix="watchdog-tool-"), name)
+        with open(path, "w") as f:
+            f.write(script)
+        os.chmod(path, 0o755)
+        return path
+
+    def test_a_failing_lsof_makes_the_process_list_partial(self):
+        # #193: a list found without the terminal holders is not reported as
+        # complete.
+        code, log, _, out = self.run_watchdog(
+            [sys.executable, "-c",
+             'import threading; print("◇ Test stuck() started."); l=threading.Lock(); l.acquire(); l.acquire()'],
+            stall=3, env={"WATCHDOG_LSOF": self.failing_tool("lsof")})
+        self.assertEqual(code, 124, log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        step = [s for s in report["steps"] if s["step"] == "processes of the run"][0]
+        self.assertEqual(step["status"], "partial", step)
+        self.assertIn("lsof: exit 2", step["detail"])
+        self.assertIn("processes of the run", log.split("incomplete steps:")[-1])
+
+    def test_a_failing_ps_at_exit_keeps_the_status_and_warns(self):
+        # #193, b9: the leftover check could not be done; the command's own
+        # status is kept, and the failure is visible (log, diagnosis.json,
+        # a warning annotation on the CI run).
+        code, log, _, out = self.run_watchdog(
+            ["sh", "-c", "echo hi; exit 3"],
+            env={"WATCHDOG_PS": self.failing_tool("ps"), "WATCHDOG_NO_SUDO": "1"})
+        self.assertEqual(code, 3, log)
+        self.assertIn("::warning title=test-watchdog::", log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        self.assertEqual(report["trigger"], "leftover check failed")
+        self.assertEqual(report["steps"][0]["status"], "failed")
+        self.assertIn("ps: exit 2", report["steps"][0]["detail"])
+
+    def test_a_failing_ps_never_reports_the_stop_as_clean(self):
+        # #193: after a stall with ps failing, nothing is known to be left,
+        # which is not "nothing left".
+        code, log, _, out = self.run_watchdog(
+            [sys.executable, "-c",
+             'import threading; print("◇ Test stuck() started."); l=threading.Lock(); l.acquire(); l.acquire()'],
+            stall=3, env={"WATCHDOG_PS": self.failing_tool("ps"), "WATCHDOG_NO_SUDO": "1"})
+        self.assertEqual(code, 124, log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        statuses = {s["step"]: s["status"] for s in report["steps"]}
+        self.assertEqual(statuses["processes of the run"], "failed")
+        self.assertEqual(statuses["stop"], "failed")
+
+    def test_unverifiable_processes_are_kept_when_the_recheck_fails(self):
+        # #193: if ps fails while rechecking, the processes nobody could
+        # check stay in the report instead of vanishing from it.
+        os.environ["WATCHDOG_FAKE_UNREADABLE"] = "all"
+        os.environ["WATCHDOG_NO_SUDO"] = "1"
+        try:
+            wd = self.load()
+        finally:
+            del os.environ["WATCHDOG_FAKE_UNREADABLE"], os.environ["WATCHDOG_NO_SUDO"]
+        run = wd.Run(999999, None, uuid.uuid4().hex, time.time() - 5)
+        procs = {424242: (1, 424242, time.time(), "/bin/sleep 100")}
+
+        def failing(deadline=None, problems=None):
+            problems.append("ps: exit 2")
+            return {}
+        real = wd.processes
+        wd.processes = failing
+        try:
+            run.discovery_problems = []
+            run._marked(procs, set())
+        finally:
+            wd.processes = real
+        self.assertEqual(run.unverifiable, {424242: "/bin/sleep 100"})
+        self.assertEqual(run.discovery_problems, ["ps: exit 2"])
 
 
 if __name__ == "__main__":
