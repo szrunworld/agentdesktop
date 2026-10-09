@@ -139,7 +139,7 @@ public final class IPhoneAgentScreen: AgentScreen {
         let status = state(of: capture)
         guard status.state == .ready else {
             throw IPhoneError("not_connected", reason: status.state.rawValue,
-                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint)")
+                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint(shown: status.label))")
         }
         guard !IPhoneFrames.isBlank(capture.image) else {
             throw IPhoneError("capture_failed", reason: "blank_frame",
@@ -256,6 +256,12 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// when the phone is in use, locked or needs the user: those are for
     /// the user.
     ///
+    /// `phoneLocked`: the user says they have locked the phone. Mirroring's
+    /// "iPhone in Use" page stays up after the phone is locked until its
+    /// Connect is pressed (#182, seen on a device); nothing on the Mac shows
+    /// whether the phone is locked, so it is pressed only on the user's word,
+    /// and what follows is checked as after any press.
+    ///
     /// Each call, and each press, starts a new connection generation (see
     /// `IPhoneConnectionTracker`): only looks taken after it count. Ready is
     /// reported only when the phone was seen ready
@@ -264,7 +270,7 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// ready and no input barrier up. A status page needing the user at any
     /// look ends it as `needsUser` (2026-10-09 F8: "ready" right after Resume,
     /// "iPhone Mirroring Is Locked" seconds later).
-    public func reconnect(timeout: TimeInterval = 20) throws -> ReconnectReport {
+    public func reconnect(timeout: TimeInterval = 20, phoneLocked: Bool = false) throws -> ReconnectReport {
         let until = min(deadline ?? .distantFuture, system.now.addingTimeInterval(timeout))
         connection.begin(at: system.now, pressed: false)
         gateKnown = system.reconnectGate.reason(now: system.now)
@@ -274,12 +280,17 @@ public final class IPhoneAgentScreen: AgentScreen {
         connection.record(IPhoneConnectionObservation(generation: generation, state: state, label: label,
                                                       windowID: binding?.windowID, at: at))
         var pressed: String?
+        // The page that the user's lock ends, on the user's word only.
+        func lockedInUse(_ state: IPhoneConnectionState, _ label: String?) -> Bool {
+            phoneLocked && state == .phoneInUse && IPhoneConnection.endsOnLock(label)
+        }
+        let fromInUse = lockedInUse(state, label)
         switch state {
-        case .phoneInUse, .authRequired, .needsUser:
+        case .phoneInUse where !fromInUse, .authRequired, .needsUser:
             return report(.needsUser, pressed: nil, timedOut: false)
         case .uncertain:
             return report(.notReady, pressed: nil, timedOut: false)
-        case .disconnected:
+        case .disconnected, .phoneInUse:
             // Stopped already: press nothing, not even Connect or Resume.
             if let stop = stopReason() { throw stop }
             guard let pid = binding?.pid else { return report(.notReady, pressed: nil, timedOut: false) }
@@ -302,8 +313,8 @@ public final class IPhoneAgentScreen: AgentScreen {
                     // Nor if the page changed meanwhile (independent review
                     // of #142: a Welcome page's "继续" was pressed after the
                     // wait): only a disconnected phone is reconnected.
-                    let now = (try? connectionState())?.0 ?? .uncertain
-                    guard now == .disconnected else { return .changed(now) }
+                    let (now, nowLabel) = (try? connectionState()) ?? (.uncertain, nil)
+                    guard now == .disconnected || (fromInUse && lockedInUse(now, nowLabel)) else { return .changed(now) }
                     let before = system.reconnectGate.reason(now: system.now)
                     try system.reconnectGate.raise(gate)
                     guard let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid,
@@ -355,6 +366,10 @@ public final class IPhoneAgentScreen: AgentScreen {
             let seen = look()
             connection.record(seen)
             switch seen.state {
+            case .phoneInUse where fromInUse && pressed != nil && IPhoneConnection.endsOnLock(seen.label):
+                // The page may stay a moment after Connect; if the phone was
+                // not locked after all it stays, and the wait ends unconfirmed.
+                break
             case .phoneInUse, .authRequired, .needsUser:
                 return report(.needsUser, pressed: pressed, timedOut: false)
             case .ready, .reconnecting, .disconnected, .uncertain:
@@ -678,7 +693,7 @@ public final class IPhoneAgentScreen: AgentScreen {
                                                ocr: system.recognizedText(in: capture.image))
         guard status.state == .ready else {
             throw IPhoneError("not_connected", reason: status.state.rawValue,
-                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint)")
+                              "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint(shown: status.label))")
         }
         // A reconnect pressed a button and the phone was not seen ready for
         // long enough since: a moment of "ready" may still turn into a lock

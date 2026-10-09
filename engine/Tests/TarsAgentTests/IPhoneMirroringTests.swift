@@ -508,6 +508,116 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(fake.pressed.isEmpty)
     }
 
+    /// #182 (device): "iPhone in Use" stays after the phone is locked until
+    /// Connect is pressed. Without the user's word nothing is pressed (above);
+    /// with it, Connect is pressed and ready still needs steady looks.
+    @Test func aLockedPhonesInUsePageIsConnectedOnTheUsersWord() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["iPhone in Use", "Connect"]
+        fake.buttons = ["Connect"]
+        // The page stays one look after the press, then the phone shows.
+        fake.onSleep = { if fake.sleeps == 2 { fake.ax = [] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .ready && report.isReady)
+        #expect(report.readyReadings == IPhoneConnectionTracker.defaultStableReadings)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
+    }
+
+    /// The user was wrong: the phone was not locked and the page stays.
+    /// Not ready; the press stays unconfirmed and input refused.
+    @Test func anInUsePageThatStaysAfterConnectIsUnconfirmed() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["iPhone in Use", "Connect"]
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .pressedUnconfirmed && !report.isReady && report.timedOut)
+        #expect(fake.reconnectGate.reason(now: fake.clock) != nil)
+    }
+
+    /// A camera or microphone in use is not ended by a lock: nothing is
+    /// pressed even on the user's word.
+    @Test(arguments: ["iPhone Camera in Use", "iPhone Microphone in Use"])
+    func aCameraOrMicrophoneInUseIsNotPressed(page: String) throws {
+        let fake = FakeMirroring()
+        fake.ax = [page, "Connect"]
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(fake.pressed.isEmpty)
+        #expect(report.outcome == .needsUser)
+    }
+
+    /// Codex on #189: the same page read only through OCR's message ("…is
+    /// no longer in use"), with Connect the one control, is pressed too.
+    @Test func theInUseMessageReadByOCRIsConnectedOnTheUsersWord() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connect"]
+        fake.ocr = ["Connect when your iPhone is no longer in use."]
+        fake.buttons = ["Connect"]
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = []; fake.ocr = [] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .ready)
+    }
+
+    /// #189 review: a camera page that also says "iPhone in Use" is the
+    /// camera page, and not pressed.
+    @Test func aCameraPageThatAlsoSaysInUseIsNotPressed() throws {
+        let fake = FakeMirroring()
+        fake.ax = ["iPhone Camera in Use", "Your iPhone in Use by the camera", "Connect"]
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(report.label == "iPhone Camera in Use")
+        #expect(fake.pressed.isEmpty && report.outcome == .needsUser)
+    }
+
+    /// Codex on #189 (3c53e7f): a camera page whose generic sentence ("…is
+    /// no longer in use") is all that matched, or whose camera title only
+    /// OCR read, is the camera page, and not pressed.
+    @Test(arguments: [
+        (["Connect"], ["Connect when your iPhone camera is no longer in use."]),
+        (["Connect when your iPhone is no longer in use.", "Connect"], ["iPhone Camera in Use"]),
+        (["Connect"], ["当iPhone麦克风不再处于使用状态时连接"]),
+    ])
+    func aCameraOrMicrophonePageIsKnownByEitherSource(ax: [String], ocr: [String]) throws {
+        let fake = FakeMirroring()
+        fake.ax = ax
+        fake.ocr = ocr
+        fake.buttons = ["Connect"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5, phoneLocked: true)
+        #expect(fake.pressed.isEmpty)
+        #expect(report.outcome == .needsUser)
+        #expect(!IPhoneConnection.endsOnLock(report.label))
+    }
+
+    /// Codex on #189: after Connect, a page a lock does not end (the camera
+    /// in use) ends the wait at once as needing the user.
+    @Test func aCameraPageAfterConnectNeedsTheUser() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["iPhone in Use", "Connect"]
+        fake.buttons = ["Connect"]
+        fake.onSleep = { if fake.sleeps == 1 { fake.ax = ["iPhone Camera in Use", "Connect"] } }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20, phoneLocked: true)
+        #expect(fake.pressed == ["Connect"])
+        #expect(report.outcome == .needsUser && !report.timedOut)
+        #expect(fake.sleeps == 1)
+    }
+
+    /// Codex on #189: the lock flow is offered only where a lock ends it.
+    @Test func theHintOffersTheLockFlowOnlyWhereALockEndsIt() {
+        #expect(IPhoneConnectionState.phoneInUse.hint(shown: "iPhone in Use").contains("--phone-locked"))
+        #expect(IPhoneConnectionState.phoneInUse.hint(shown: "is no longer in use").contains("--phone-locked"))
+        for page in ["iPhone Camera in Use", "iPhone相机使用中", "iPhone Microphone in Use", "iPhone麦克风使用中"] {
+            let hint = IPhoneConnectionState.phoneInUse.hint(shown: page)
+            #expect(!hint.contains("--phone-locked") && !hint.contains("lock it"), "\(page): \(hint)")
+        }
+    }
+
     @Test func reconnectGivesUpAtItsTimeout() throws {
         let fake = FakeMirroring()
         fake.ax = ["Connection Interrupted"]
