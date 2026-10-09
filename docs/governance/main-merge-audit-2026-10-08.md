@@ -707,3 +707,11 @@ Kevin 原话：
 - **#197 9a1fcf2**：在 8a9d96f 之上追加提交，未强推。修复 Codex 的两条 P2：lsof 区分"没有占用者"和"出错"；停止过程中各次扫描的失败一直保留到最后。b9 复审通过，两条讨论已 resolve。等 Codex、CI，未授权。
 - **#207 e7dbe6f**：三处依赖调度的测试已改为信号或确定性驱动；Codex 的 4 条讨论已由 b9 逐条核实并 resolve；b9 复审通过。等 Codex、CI，未授权；#184 仍然冻结。
 - **#183**：69 修正了此前"一个测试都没结束"的判断（Swift Testing 输出按约 16 KB 一块刷新）。69 提议给测试代码中所有无上限的等待加上上限，作为定位手段，不算根因修复。b9 附了 4 个条件，等 Kevin 确认。
+- **#207 合并申请（b9 提交给 Kevin，执行人 42）**：
+  - SHA：`bc8b5f8ff199c92286651fcccd14dc7b6e79092b`
+  - Codex："Didn't find any major issues"（Reviewed commit bc8b5f8ff1，19:49:59Z），👍 19:50:05Z
+  - b9 复审：评论 6088110409，此前各轮复审见 PR
+  - CI：build 通过
+  - 讨论共 11 条，全部已解决；状态 CLEAN / MERGEABLE；与 main ccfe82e 做 merge-tree 无冲突
+  - 范围：只包含测试诊断代码；#184 仍然冻结
+  - 未授权
