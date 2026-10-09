@@ -68,6 +68,9 @@ extension RuntimeService {
                                        imageSize: nil, elements: [:], readElements: false)
         var image: JSONValue = .null
         var exposed: (window: PlatformWindow, stack: [StackEntry])?
+        // The window grant this observation is made under (a paired app's
+        // window it did not launch here), and whether it may keep the image.
+        var windowGrant: HubStore.WindowGrant?
 
         // 1. Under the lock: checks and screenshot.
         let first = withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
@@ -96,11 +99,23 @@ extension RuntimeService {
                 }
                 let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
                 let scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
+                // Kept as usual only with persist; else for a short while,
+                // gone with the grant (window-grants.md).
+                var transientUntil: Date?
+                if let g = windowGrant {
+                    if effectivePermissions(g).contains("persist") {
+                        hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.persist", decision: "used",
+                                  reason: "\(g.windowGrantId) observe")
+                    } else {
+                        transientUntil = now().addingTimeInterval(Self.transientArtifactSeconds)
+                    }
+                }
                 let info: ArtifactStore.Info
                 do {
                     info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
                                                   runId: reserved.map { String($0.dropFirst("gui:".count)) } ?? request.context.runId,
-                                                  createdAt: nowString, bucket: bucket)
+                                                  createdAt: nowString, bucket: bucket, transientUntil: transientUntil,
+                                                  windowGrantId: windowGrant?.windowGrantId)
                 } catch {
                     unlink(path)
                     // A place the ports reserved is theirs to give back.
@@ -112,13 +127,15 @@ extension RuntimeService {
                 if reserved != nil { markQuotaUsed(requestId: request.requestId, connection: c) }
                 stored.transform = (origin.0, origin.1, scale)
                 stored.imageSize = size
-                image = .obj([
+                var fields: [(String, JSONValue)] = [
                     ("artifactId", .string(artifactId)), ("mediaType", .string("image/png")),
                     ("width", .int(size.width)), ("height", .int(size.height)),
                     ("byteSize", .int(info.byteSize)), ("sha256", .string(info.sha256)),
                     ("transform", .obj([("originX", .double(origin.0)), ("originY", .double(origin.1)),
                                         ("scale", .double(scale))])),
-                ])
+                ]
+                if let expiresAt = info.expiresAt { fields += [("transient", .bool(true)), ("expiresAt", .string(expiresAt))] }
+                image = .obj(fields)
             }
             guard let b = d.binding else {
                 if wantsImage && refusesScreenCaptureWithoutBinding {
@@ -134,9 +151,14 @@ extension RuntimeService {
                                        "desktop \(d.desktopId) is physical and has no bound window; bind the window to observe it",
                                        phase: .handler, notSent: true)
                 }
+                // A paired app sees a whole screen only of its own launches.
+                if wantsImage, let e = wholeScreenRefusal(c, d) { throw e }
                 if wantsImage { try capture(nil) }
                 return .null
             }
+            // Observe on this window, for this caller, as the grant is now
+            // (before anything of the window is read).
+            windowGrant = try windowUse(c, d, b, "observe", method: "observe")
             // The same launch of the same process, or the binding is stale.
             guard backend.processIdentity(b.process.pid) == b.process else {
                 throw RuntimeError("stale_observation",
@@ -190,6 +212,12 @@ extension RuntimeService {
             var targetJSON: JSONValue = .null
             var elementsJSON: [JSONValue] = []
             if let b = stored.binding, let before = exposed {
+                // Still allowed to see it, right before it is stored and
+                // answered; else the image taken goes too.
+                do { _ = try windowUse(c, d, b, "observe", method: "observe", audit: false) } catch {
+                    if let id = image["artifactId"]?.stringValue { artifacts.remove(id) }
+                    throw error
+                }
                 guard d.binding?.generation == b.generation else {
                     throw RuntimeError("stale_observation", "the binding changed while desktop \(d.desktopId) was observed; observe again",
                                        phase: .handler, details: .obj([("reason", .string("changed_during_capture"))]))

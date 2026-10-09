@@ -444,12 +444,13 @@ public final class RuntimeService: @unchecked Sendable {
             ] + extensions.capabilitySections()))
 
         case .desktopList:
-            // A paired app sees only the Desktops its grant covers.
+            // A paired app sees only the Desktops its grant covers, and of a
+            // bound window only one it may reach (window-grants.md).
             let visible = desktops.list().filter { desktopAllowed(connection, $0.desktopId) }
-            return .success(.obj([("desktops", .array(visible.map(desktopJSON)))]))
+            return .success(.obj([("desktops", .array(visible.map { desktopJSON($0, for: connection) }))]))
 
         case .desktopShow:
-            return desktop(p["desktopId"]).map(desktopJSON)
+            return desktop(p["desktopId"]).map { desktopJSON($0, for: connection) }
 
         case .appList:
             // A paired app sees only the apps its grant names, not the user's others.
@@ -459,9 +460,11 @@ public final class RuntimeService: @unchecked Sendable {
 
         case .windowList:
             let pid = p["pid"]?.intValue.map(Int32.init)
+            // A paired app sees only windows it holds a window grant for and
+            // windows of launches it made: never every window of a granted app.
             let windows = backend.windows(pid: pid, bundleId: p["bundleId"]?.stringValue,
                                           includeOffscreen: p["includeOffscreen"]?.boolValue ?? false)
-                .filter { appAllowed(connection, bundleId: $0.bundleId) }
+                .filter { connection.role != .paired || visibleToPaired(connection, $0) }
             return .success(.obj([("windows", .array(windows.map(\.json)))]))
 
         case .desktopCreate: return createDesktop(p, connection)
@@ -501,6 +504,9 @@ public final class RuntimeService: @unchecked Sendable {
         case .grantsSet: return setGrant(p, connection)
         case .grantsRevoke: return revokeGrant(p, connection)
         case .connectionsList: return listConnections()
+        case .windowsRequest: return requestWindowGrant(p, connection)
+        case .windowsList: return listWindowGrants(p, connection)
+        case .windowsRevoke: return revokeWindowGrant(p, connection)
         }
     }
 }

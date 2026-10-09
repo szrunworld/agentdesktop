@@ -57,6 +57,39 @@ public final class HubStore: @unchecked Sendable {
         }
     }
 
+    /// One window a client may reach (docs/security/window-grants.md): the
+    /// window ID together with the launch of its process and its app, on one
+    /// Desktop, for one client. Never a window ID alone.
+    public struct WindowGrant: Equatable, Sendable {
+        public static let permissions = ["observe", "act", "persist"]
+        public var windowGrantId: String
+        public var clientId: String
+        public var desktopId: String
+        public var windowId: UInt32
+        public var process: ProcessIdentity
+        public var bundleId: String
+        public var appName: String
+        public var permissions: [String]
+        public var state: String          // active | revoked | ended
+        public var endedReason: String?
+        public var createdAt: String
+        public var expiresAt: String
+        public var confirmationId: String?
+
+        public var json: JSONValue {
+            var m: [(String, JSONValue)] = [
+                ("windowGrantId", .string(windowGrantId)), ("clientId", .string(clientId)), ("desktopId", .string(desktopId)),
+                ("window", .obj([("windowId", .int(Int(windowId))), ("process", process.json), ("bundleId", .string(bundleId)),
+                                 ("appName", .string(appName))])),
+                ("permissions", .array(permissions.map(JSONValue.string))), ("state", .string(state)),
+            ]
+            if let endedReason { m.append(("endedReason", .string(endedReason))) }
+            m += [("createdAt", .string(createdAt)), ("expiresAt", .string(expiresAt))]
+            if let confirmationId { m.append(("confirmationId", .string(confirmationId))) }
+            return .obj(m)
+        }
+    }
+
     public struct Pairing: Equatable, Sendable {
         public var pairingId: String
         public var shortCode: String
@@ -109,6 +142,12 @@ public final class HubStore: @unchecked Sendable {
               method TEXT NOT NULL, decision TEXT NOT NULL, reason TEXT NOT NULL, run_id TEXT)
             """)
         try db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
+        try db.execute("""
+            CREATE TABLE IF NOT EXISTS window_grants (window_grant_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, desktop_id TEXT NOT NULL,
+              window_id INTEGER NOT NULL, pid INTEGER NOT NULL, process_started_at TEXT, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL,
+              permissions TEXT NOT NULL, state TEXT NOT NULL, ended_reason TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+              confirmation_id TEXT)
+            """)
         // S2: the code identity a client paired with (added after the first A4 builds).
         for table in ["clients", "pairings"] {
             let cols = (try db.query("PRAGMA table_info(\(table))")).compactMap { $0[1] as? String }
@@ -230,8 +269,79 @@ public final class HubStore: @unchecked Sendable {
         guard client(clientId) != nil else { return nil }
         try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
         try db.execute("UPDATE grants SET state = 'revoked', revision = revision + 1 WHERE client_id = ?", [.text(clientId)])
+        try endWindowGrants(clientId: clientId, state: "revoked", reason: "client_revoked")
         try bumpEpoch()
         return client(clientId)
+    }
+
+    // MARK: Window grants
+
+    public func addWindowGrant(_ g: WindowGrant) throws {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        // A client removed while the user was asked gets nothing.
+        guard client(g.clientId)?.state == "active", grant(g.clientId)?.state == "active" else {
+            throw RuntimeStoreError("\(g.clientId) lost its access while the user was asked")
+        }
+        try db.execute("""
+            INSERT INTO window_grants (window_grant_id, client_id, desktop_id, window_id, pid, process_started_at, bundle_id, app_name,
+              permissions, state, ended_reason, created_at, expires_at, confirmation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [.text(g.windowGrantId), .text(g.clientId), .text(g.desktopId), .int(Int64(g.windowId)), .int(Int64(g.process.pid)),
+                  g.process.startedAt.map { .text($0) } ?? .null, .text(g.bundleId), .text(g.appName),
+                  .text(JSONValue.array(g.permissions.map(JSONValue.string)).encoded()), .text(g.state),
+                  g.endedReason.map { .text($0) } ?? .null, .text(g.createdAt), .text(g.expiresAt),
+                  g.confirmationId.map { .text($0) } ?? .null])
+    }
+
+    public func windowGrant(_ id: String) -> WindowGrant? {
+        windowGrants(where: "window_grant_id = ?", [.text(id)]).first
+    }
+
+    /// A client's window grants (all clients' with nil), newest first.
+    public func windowGrants(clientId: String? = nil, includeEnded: Bool = false) -> [WindowGrant] {
+        var clauses: [String] = [], args: [SQLiteDatabase.Value] = []
+        if let clientId { clauses.append("client_id = ?"); args.append(.text(clientId)) }
+        if !includeEnded { clauses.append("state = 'active'") }
+        return windowGrants(where: clauses.isEmpty ? "1 = 1" : clauses.joined(separator: " AND "), args)
+    }
+
+    private func windowGrants(where clause: String, _ args: [SQLiteDatabase.Value]) -> [WindowGrant] {
+        ((try? db.query("""
+            SELECT window_grant_id, client_id, desktop_id, window_id, pid, process_started_at, bundle_id, app_name, permissions, state,
+              ended_reason, created_at, expires_at, confirmation_id FROM window_grants WHERE \(clause) ORDER BY rowid DESC
+            """, args)) ?? []).map { r in
+            WindowGrant(windowGrantId: r[0] as! String, clientId: r[1] as! String, desktopId: r[2] as! String,
+                        windowId: UInt32(truncatingIfNeeded: r[3] as! Int64),
+                        process: ProcessIdentity(pid: Int32(truncatingIfNeeded: r[4] as! Int64), startedAt: r[5] as? String),
+                        bundleId: r[6] as! String, appName: r[7] as! String,
+                        permissions: ((try? StrictJSON.parse(r[8] as! String))?.arrayValue ?? []).compactMap(\.stringValue),
+                        state: r[9] as! String, endedReason: r[10] as? String, createdAt: r[11] as! String,
+                        expiresAt: r[12] as! String, confirmationId: r[13] as? String)
+        }
+    }
+
+    /// End one window grant for good (sticky): nothing brings it back.
+    /// True when this call ended it (it was active).
+    @discardableResult
+    public func endWindowGrant(_ id: String, state: String, reason: String) throws -> Bool {
+        try db.transaction {
+            try db.execute("UPDATE window_grants SET state = ?, ended_reason = ? WHERE window_grant_id = ? AND state = 'active'",
+                           [.text(state), .text(reason), .text(id)])
+            return db.changes == 1
+        }
+    }
+
+    /// End every active window grant of a client (or of one Desktop); the
+    /// ids that ended.
+    @discardableResult
+    public func endWindowGrants(clientId: String? = nil, desktopId: String? = nil, state: String = "ended", reason: String) throws -> [String] {
+        var clauses = ["state = 'active'"], args: [SQLiteDatabase.Value] = []
+        if let clientId { clauses.append("client_id = ?"); args.append(.text(clientId)) }
+        if let desktopId { clauses.append("desktop_id = ?"); args.append(.text(desktopId)) }
+        let ids = ((try? db.query("SELECT window_grant_id FROM window_grants WHERE " + clauses.joined(separator: " AND "), args)) ?? [])
+            .compactMap { $0[0] as? String }
+        for id in ids { try endWindowGrant(id, state: state, reason: reason) }
+        return ids
     }
 
     private func bumpEpoch() throws {
@@ -341,15 +451,16 @@ public final class HubStore: @unchecked Sendable {
                   ORDER BY rowid DESC LIMIT -1 OFFSET ?)
                 """, [.int(Int64(auditKeptUnpaired))])
             // Paired clients' refusals too have their own cap (round-four
-            // review L4); the overall cap removes only refusals, never a
-            // decision about access.
+            // review L4); the overall cap removes only refusals and the
+            // record of each use of a window grant, never a decision about
+            // access.
             try? db.execute("""
                 DELETE FROM auth_events WHERE rowid IN (SELECT rowid FROM auth_events
                   WHERE decision IN ('denied', 'withheld') ORDER BY rowid DESC LIMIT -1 OFFSET ?)
                 """, [.int(Int64(auditKeptRefusals))])
             try? db.execute("""
                 DELETE FROM auth_events WHERE rowid IN (SELECT rowid FROM auth_events
-                  ORDER BY rowid DESC LIMIT -1 OFFSET ?) AND decision IN ('denied', 'withheld', 'requested')
+                  ORDER BY rowid DESC LIMIT -1 OFFSET ?) AND decision IN ('denied', 'withheld', 'requested', 'used')
                 """, [.int(Int64(auditKept))])
             try? db.execute("DELETE FROM pairings WHERE state != 'requested' AND client_id IS NULL AND expires_at < ?",
                             [.text(Timestamp.string(now().addingTimeInterval(-86_400)))])

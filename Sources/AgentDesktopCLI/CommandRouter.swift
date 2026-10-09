@@ -128,6 +128,27 @@ enum CommandRouter {
             return .agentsPair(name: name, publisher: o["--publisher"], grant: try grant(o), profile: o["--profile"],
                                timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 600)
         },
+        Spec(words: ["windows", "request"],
+             summary: "ask the user for one window (observe, act, persist); confirmed in the Agent Desktop window with Touch ID",
+             options: ["--desktop": true, "--app": true, "--window": true, "--allow": true, "--duration": true, "--request-id": true],
+             positionals: []) { o, _ in
+            let allow = (o["--allow"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard !allow.isEmpty else { throw RuntimeError.invalidArgument("--allow is required (observe, act, persist)") }
+            var p: [(String, JSONValue)] = [("desktopId", .string(try required(o, "--desktop"))),
+                                            ("bundleId", .string(try required(o, "--app")))]
+            if let w = try positive(o, "--window", required: false) { p.append(("windowId", .int(w))) }
+            p.append(("permissions", .array(allow.map(JSONValue.string))))
+            if let seconds = try grantSeconds(o) { p.append(("durationSeconds", .int(seconds))) }
+            return try write(.windowsRequest, .obj(p), o)
+        },
+        Spec(words: ["windows", "list"], summary: "this client's window grants (--all: also revoked and ended ones)",
+             options: ["--all": false], positionals: []) { o, _ in
+            .call(RuntimeCall(method: .windowsList, params: o["--all"] != nil ? .obj([("includeEnded", .bool(true))]) : .obj([])))
+        },
+        Spec(words: ["windows", "revoke"], summary: "give up one window grant (confirmed in the Agent Desktop window)",
+             options: ["--request-id": true], positionals: ["windowGrantId"]) { o, p in
+            try write(.windowsRevoke, .obj([("windowGrantId", .string(p[0]))]), o)
+        },
         Spec(words: ["mcp"], summary: "serve the Runtime as MCP tools on stdio, as the paired app of --profile (default mcp)",
              options: ["--profile": true], positionals: []) { o, _ in .mcp(profile: o["--profile"]) },
         Spec(words: ["version"], summary: "CLI version, API version and build; no connection",
@@ -513,14 +534,18 @@ enum CommandRouter {
         guard o["--capabilities"] != nil else { throw RuntimeError.invalidArgument("--capabilities is required (observe, act, desktop.manage, run, unit.run)") }
         var m: [(String, JSONValue)] = [("capabilities", .array(list("--capabilities"))), ("desktops", .array(list("--desktops"))),
                                         ("apps", .array(list("--apps")))]
-        if let d = o["--duration"] {
-            let units: [(String, Double)] = [("d", 86400), ("h", 3600), ("m", 60), ("s", 1)]
-            guard let (suffix, scale) = units.first(where: { d.hasSuffix($0.0) }), let v = Double(d.dropLast(suffix.count)), v > 0 else {
-                throw RuntimeError.invalidArgument("--duration needs 1h, 8h, 7d or the like, got \(d)")
-            }
-            m.append(("durationSeconds", .int(Int(v * scale))))
-        }
+        if let seconds = try grantSeconds(o) { m.append(("durationSeconds", .int(seconds))) }
         return .obj(m)
+    }
+
+    /// --duration 1h|8h|7d|30m as seconds, if given.
+    static func grantSeconds(_ o: [String: String]) throws -> Int? {
+        guard let d = o["--duration"] else { return nil }
+        let units: [(String, Double)] = [("d", 86400), ("h", 3600), ("m", 60), ("s", 1)]
+        guard let (suffix, scale) = units.first(where: { d.hasSuffix($0.0) }), let v = Double(d.dropLast(suffix.count)), v > 0 else {
+            throw RuntimeError.invalidArgument("--duration needs 1h, 8h, 7d or the like, got \(d)")
+        }
+        return Int(v * scale)
     }
 
     static func positive(_ o: [String: String], _ name: String, required: Bool) throws -> Int? {

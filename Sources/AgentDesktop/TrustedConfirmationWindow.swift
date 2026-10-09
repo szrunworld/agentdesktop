@@ -66,7 +66,11 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
 
     static func reason(_ r: ConfirmationRequest) -> String {
         let who = inert(r.requester["agentName"]?.stringValue ?? r.requester["clientId"]?.stringValue ?? "?", max: 64)
-        return r.kind == .pairing ? "允许「\(who)」使用 Agent Desktop" : "允许「\(who)」执行 \(r.action)"
+        switch r.kind {
+        case .pairing: return "允许「\(who)」使用 Agent Desktop"
+        case .windowGrant: return "允许「\(who)」访问一个窗口"
+        case .adminCall: return "允许「\(who)」执行 \(r.action)"
+        }
     }
 
     @MainActor
@@ -75,8 +79,11 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         let alert = NSAlert()
         alert.alertStyle = .warning
         let who = inert(r.requester["agentName"]?.stringValue ?? r.requester["clientId"]?.stringValue ?? "?", max: 64)
-        alert.messageText = r.kind == .pairing ? "一个程序请求使用 Agent Desktop（自报名称「\(who)」）"
-            : "一个已配对的程序请求执行管理操作（自报名称「\(who)」）"
+        switch r.kind {
+        case .pairing: alert.messageText = "一个程序请求使用 Agent Desktop（自报名称「\(who)」）"
+        case .windowGrant: alert.messageText = "一个已配对的程序请求访问一个窗口（自报名称「\(who)」）"
+        case .adminCall: alert.messageText = "一个已配对的程序请求执行管理操作（自报名称「\(who)」）"
+        }
         alert.informativeText = describe(r)
         // Return and Escape deny; approving is a deliberate second button
         // and then the system's authentication.
@@ -137,6 +144,7 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         switch action {
         case "hub.clients.revoke": return ["变化：移除这个客户端，它的凭据永久失效，Run 全部停止"]
         case "hub.grants.revoke": return ["变化：收回它的全部授权，Run 全部停止"]
+        case "hub.windows.revoke": return ["变化：收回它对这个窗口的授权，它的连接会被断开，只在授权下临时保留的截图会删除"]
         case "hub.grants.set":
             guard let old, old != .null else { return ["⚠️ 变化：设定新授权（当前没有有效授权）"] }
             var out: [String] = []
@@ -168,6 +176,25 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
                                   "desktop.manage": "管理 Desktop（创建、启动 App、绑定窗口）", "run": "运行与事件",
                                   "unit.run": "运行任务单元"]
 
+    static let windowPermissionNames = ["observe": "查看（窗口截图、界面元素）", "act": "操作（点击、输入）",
+                                        "persist": "保存（截图按正常期限保留，之后可读取）"]
+
+    /// The window a grant would cover, as the Runtime read it.
+    static func windowLines(_ d: JSONValue) -> [String] {
+        var lines: [String] = []
+        let w = d["window"] ?? .null, desk = d["desktop"] ?? .null
+        lines.append("App：\(inert(w["appName"]?.stringValue, max: 80))（\(inert(w["bundleId"]?.stringValue, max: 200))，pid \(w["process"]?["pid"]?.intValue ?? 0)）")
+        lines.append("窗口标题：\(inert(w["title"]?.stringValue ?? "（系统未提供）", max: 200))")
+        let f = w["frame"]
+        lines.append("窗口：编号 \(w["windowId"]?.intValue ?? 0)，位置 (\(Int(f?["x"]?.doubleValue ?? 0)), \(Int(f?["y"]?.doubleValue ?? 0)))，大小 \(Int(f?["width"]?.doubleValue ?? 0))×\(Int(f?["height"]?.doubleValue ?? 0))")
+        if desk["kind"]?.stringValue == "physical" {
+            lines.append("⚠️ 这是你自己屏幕上的真实窗口（显示器 \(desk["displayId"]?.intValue ?? 0)，Desktop \(inert(desk["desktopId"]?.stringValue, max: 128))）")
+        } else {
+            lines.append("Desktop：\(inert(desk["desktopId"]?.stringValue, max: 128))（Agent 的虚拟屏幕；绑定时这个窗口会被移过去）")
+        }
+        return lines
+    }
+
     static func describe(_ r: ConfirmationRequest) -> String {
         var lines: [String] = []
         let q = r.requester
@@ -190,8 +217,18 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
             lines.append("App：" + (apps.isEmpty ? "无" : apps.map { inert($0, max: 200) }.joined(separator: "、")))
             let seconds = r.details["durationSeconds"]?.intValue ?? 0
             lines.append("期限：批准后 " + (seconds >= 3600 ? "\(seconds / 3600) 小时\(seconds % 3600 / 60 > 0 ? " \(seconds % 3600 / 60) 分钟" : "")" : "\(max(1, seconds / 60)) 分钟"))
+        case .windowGrant:
+            lines += windowLines(r.details)
+            let perms = (r.details["permissions"]?.arrayValue ?? []).compactMap(\.stringValue)
+            lines.append("权限：" + (perms.isEmpty ? "无" : perms.map { windowPermissionNames[$0] ?? inert($0, max: 40) }.joined(separator: "、")))
+            if !perms.contains("persist") { lines.append("不含保存：截图只临时保留 2 分钟，授权结束即删除") }
+            lines.append("期限：批准后 " + durationText(r.details["durationSeconds"]?.intValue ?? 0) + "；窗口关闭、程序退出或你撤销后立即失效")
+            lines.append("只授权这一个窗口，不包括这个 App 的其他窗口。")
         case .adminCall:
             lines.append("操作：\(inert(r.action, max: 80))")
+            if let g = r.details["windowGrant"] {
+                lines.append("窗口授权：\(inert(g["windowGrantId"]?.stringValue, max: 80))，\(inert(g["window"]?["appName"]?.stringValue, max: 80)) 的窗口 \(g["window"]?["windowId"]?.intValue ?? 0)")
+            }
             if r.action.hasPrefix("ai.connections.") || r.action.hasPrefix("ai.credentials.") {
                 lines.append("⚠️ 这会改变全局的 AI 连接：之后主窗口的截图和文字会发往这里配置的服务")
             }

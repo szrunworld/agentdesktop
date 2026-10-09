@@ -161,7 +161,7 @@ public final class ArtifactStore: @unchecked Sendable {
             let values = try? URL(fileURLWithPath: dir).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             return values?.volumeAvailableCapacityForImportantUsage
         }
-        sweep(at: lastSweep)
+        sweep(at: lastSweep, startup: true)
         recount()
         refreshFreeSpace()
     }
@@ -292,7 +292,7 @@ public final class ArtifactStore: @unchecked Sendable {
     /// touched: names this store gives ("<id>.<ext>", "<id>.meta.json"),
     /// as regular files directly in its directory; anything else there,
     /// a directory, or a link is left alone.
-    func sweep(at now: Date) {
+    func sweep(at now: Date, startup: Bool = false) {
         let cutoff = now.addingTimeInterval(-Double(Self.retentionHours) * 3600)
         var files: [String: [String]] = [:]
         for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [] {
@@ -300,6 +300,14 @@ public final class ArtifactStore: @unchecked Sendable {
         }
         let keep = retained
         for (id, names) in files {
+            // A transient screenshot (no persist permission) goes at its
+            // expiry whatever keeps it, and every one left by an earlier
+            // process goes at start.
+            if let meta = FileManager.default.contents(atPath: metaPath(id)).flatMap({ try? StrictJSON.parse($0) }),
+               meta["transient"]?.boolValue == true {
+                if startup || (meta["expiresAt"]?.stringValue).flatMap(Timestamp.date).map({ $0 <= now }) ?? true { remove(id) }
+                continue
+            }
             var newest: Date?
             var regular = true
             for name in names {
@@ -379,14 +387,50 @@ public final class ArtifactStore: @unchecked Sendable {
         /// may read it.
         public let clientId: String
         public let runId: String?
+        /// Set for a transient screenshot (window-grants.md): when it goes.
+        public var expiresAt: String? = nil
+        /// The window grant it was taken under, if any.
+        public var windowGrantId: String? = nil
 
         public var json: JSONValue {
             var m: [(String, JSONValue)] = [("artifactId", .string(artifactId)), ("mediaType", .string(mediaType)),
                                             ("byteSize", .int(byteSize)), ("sha256", .string(sha256)),
                                             ("createdAt", .string(createdAt))]
             if let runId { m.append(("runId", .string(runId))) }
+            if let expiresAt { m += [("transient", .bool(true)), ("expiresAt", .string(expiresAt))] }
             return .obj(m)
         }
+    }
+
+    /// Transient artifacts registered by this process: id → (expiry, window grant).
+    private var transients: [String: (until: Date, windowGrantId: String?)] = [:]
+
+    /// Remove one artifact and its record now, and take it off the usage.
+    func remove(_ artifactId: String) {
+        guard Self.validId(artifactId) else { return }
+        let meta = FileManager.default.contents(atPath: metaPath(artifactId)).flatMap { try? StrictJSON.parse($0) }
+        var removed = false
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+        where Self.artifactId(ofFile: name) == artifactId {
+            if unlink(directory + "/" + name) == 0 { removed = true }
+        }
+        _ = lock.withLock { transients.removeValue(forKey: artifactId) }
+        if removed, let size = meta?["byteSize"]?.intValue {
+            forget(bucket: meta?["bucket"]?.stringValue ?? meta?["runId"]?.stringValue.map { "run:" + $0 }, bytes: Int64(size))
+        }
+    }
+
+    /// Transient artifacts past their expiry go now.
+    func purgeTransients(now: Date) {
+        let due = lock.withLock { transients.filter { $0.value.until <= now }.map(\.key) }
+        for id in due { remove(id) }
+    }
+
+    /// Every transient artifact taken under a window grant goes now (the
+    /// grant ended or was revoked).
+    func removeTransients(windowGrantId: String) {
+        let ids = lock.withLock { transients.filter { $0.value.windowGrantId == windowGrantId }.map(\.key) }
+        for id in ids { remove(id) }
     }
 
     static let extensions = ["image/png": "png"]
@@ -396,18 +440,23 @@ public final class ArtifactStore: @unchecked Sendable {
     /// the file does.
     @discardableResult
     public func register(_ artifactId: String, mediaType: String, clientId: String, runId: String?,
-                         createdAt: String, bucket: String? = nil) throws -> Info {
+                         createdAt: String, bucket: String? = nil, transientUntil: Date? = nil,
+                         windowGrantId: String? = nil) throws -> Info {
         sweepIfDue()
+        purgeTransients(now: clock())
         guard Self.validId(artifactId), let ext = Self.extensions[mediaType] else {
             throw RuntimeError("internal_error", "artifact \(artifactId) of \(mediaType) cannot be stored", phase: .handler)
         }
         let file = path(for: artifactId, ext: ext)
         let data = try Data(contentsOf: URL(fileURLWithPath: file))
         _ = chmod(file, 0o600)
-        let info = Info(artifactId: artifactId, mediaType: mediaType, byteSize: data.count,
+        var info = Info(artifactId: artifactId, mediaType: mediaType, byteSize: data.count,
                         sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
                         createdAt: createdAt, clientId: clientId, runId: runId)
+        info.expiresAt = transientUntil.map(Timestamp.string)
+        info.windowGrantId = windowGrantId
         var meta = info.json.setting("clientId", .string(clientId))
+        if let windowGrantId { meta = meta.setting("windowGrantId", .string(windowGrantId)) }
         meta = meta.setting("ext", .string(ext))
         if let bucket { meta = meta.setting("bucket", .string(bucket)) }
         let sidecar = metaPath(artifactId)
@@ -415,6 +464,7 @@ public final class ArtifactStore: @unchecked Sendable {
                                              attributes: [.posixPermissions: 0o600])
         else { throw RuntimeError("internal_error", "cannot record artifact \(artifactId)", phase: .handler) }
         lock.withLock {
+            if let transientUntil { transients[artifactId] = (transientUntil, windowGrantId) }
             usageTotal += Int64(data.count)
             // Its count was reserved by admit(bucket:); its bytes count now.
             if let bucket {
@@ -435,8 +485,14 @@ public final class ArtifactStore: @unchecked Sendable {
               let ext = m["ext"]?.stringValue,
               FileManager.default.fileExists(atPath: path(for: artifactId, ext: ext))
         else { return nil }
-        return Info(artifactId: artifactId, mediaType: mediaType, byteSize: size, sha256: sha, createdAt: at,
-                    clientId: clientId, runId: m["runId"]?.stringValue)
+        var info = Info(artifactId: artifactId, mediaType: mediaType, byteSize: size, sha256: sha, createdAt: at,
+                        clientId: clientId, runId: m["runId"]?.stringValue)
+        if m["transient"]?.boolValue == true {
+            // A transient record without its expiry is treated as expired.
+            info.expiresAt = m["expiresAt"]?.stringValue ?? Timestamp.string(.distantPast)
+        }
+        info.windowGrantId = m["windowGrantId"]?.stringValue
+        return info
     }
 
     /// The file behind an artifact, for in-process consumers only.

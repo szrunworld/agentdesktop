@@ -14,10 +14,10 @@ struct FixedBackend: RuntimeBackend {
         WindowSummary(windowId: 11, process: ProcessIdentity(pid: 101, startedAt: "2026-10-08T01:00:00.000Z"),
                       appName: "Calculator", bundleId: "com.apple.calculator", title: "Calculator",
                       frame: Rect(x: 10, y: 20, width: 230, height: 400), onScreen: true),
-        WindowSummary(windowId: 12, process: ProcessIdentity(pid: 202, startedAt: nil), appName: "微信",
+        WindowSummary(windowId: 12, process: ProcessIdentity(pid: 202, startedAt: "2026-10-08T01:00:00.000Z"), appName: "微信",
                       bundleId: "com.tencent.xinWeChat", title: "文件传输助手 \"草稿\"\n第二行",
                       frame: Rect(x: -1440, y: 0, width: 800, height: 600), onScreen: true),
-        WindowSummary(windowId: 13, process: ProcessIdentity(pid: 202, startedAt: nil), appName: "微信",
+        WindowSummary(windowId: 13, process: ProcessIdentity(pid: 202, startedAt: "2026-10-08T01:00:00.000Z"), appName: "微信",
                       bundleId: "com.tencent.xinWeChat", title: "最小化的窗口",
                       frame: Rect(x: 0, y: 0, width: 400, height: 300), onScreen: false),
     ]
@@ -29,17 +29,32 @@ struct FixedBackend: RuntimeBackend {
     /// Processes the test has "restarted": same pid, other start time.
     var restarted: Set<Int32> = []
     func processIdentity(_ pid: Int32) -> ProcessIdentity {
-        ProcessIdentity(pid: pid, startedAt: restarted.contains(pid) ? "2026-10-08T09:00:00.000Z" : "2026-10-08T01:00:00.000Z")
+        let again = restarted.contains(pid) || opened.lock.withLock { opened.restarted.contains(pid) }
+        return ProcessIdentity(pid: pid, startedAt: again ? "2026-10-08T09:00:00.000Z" : "2026-10-08T01:00:00.000Z")
     }
     /// Windows a test opens later, in front of every other (a reference, so
-    /// a test can change it after the Runtime took its copy of the backend).
-    final class Opened: @unchecked Sendable { var windows: [WindowSummary] = []; var listUnreadable = false }
+    /// a test can change it after the Runtime took its copy of the backend);
+    /// windows it closes and processes it restarts meanwhile.
+    final class Opened: @unchecked Sendable {
+        var windows: [WindowSummary] = []; var listUnreadable = false
+        let lock = NSLock()
+        var closed: Set<UInt32> = []
+        var restarted: Set<Int32> = []
+    }
     var opened = Opened()
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
         // The window server's list could not be read: the backend gets none.
         if opened.listUnreadable { return [] }
+        let closed = opened.lock.withLock { opened.closed }
+        let restarted = opened.lock.withLock { opened.restarted }
         return (opened.windows + wins).filter { (pid == nil || $0.process.pid == pid) && (bundleId == nil || $0.bundleId == bundleId)
-            && (includeOffscreen || $0.onScreen) }
+            && (includeOffscreen || $0.onScreen) && !closed.contains($0.windowId) }
+            .map { w in
+                guard restarted.contains(w.process.pid) else { return w }
+                var w = w
+                w.process = processIdentity(w.process.pid)
+                return w
+            }
     }
 }
 
@@ -401,4 +416,19 @@ func pairedClient(_ s: RuntimeService, capabilities: [String], desktops: [String
 /// The owner's credential for a socket client of this Runtime (A4).
 func ownerCredential(_ s: RuntimeService) -> ClientCredential {
     ClientCredential(clientId: "local:\(getuid())", token: s.testSocketOwnerToken ?? "")
+}
+
+/// A window grant the user confirmed (window-grants.md), registered the way
+/// the trusted window's approval would: by default for Calculator's window
+/// 11 of FixedBackend, every permission.
+@discardableResult
+func grantWindow(_ s: RuntimeService, clientId: String, desktopId: String, windowId: UInt32 = 11, pid: Int32 = 101,
+                 bundleId: String = "com.apple.calculator", permissions: [String] = ["observe", "act", "persist"],
+                 seconds: TimeInterval = 3600) throws -> HubStore.WindowGrant {
+    let g = HubStore.WindowGrant(windowGrantId: DesktopRegistry.newId(prefix: "wg"), clientId: clientId, desktopId: desktopId,
+                                 windowId: windowId, process: s.backend.processIdentity(pid), bundleId: bundleId, appName: "App",
+                                 permissions: permissions, state: "active", endedReason: nil, createdAt: Timestamp.string(Date()),
+                                 expiresAt: Timestamp.string(Date().addingTimeInterval(seconds)), confirmationId: "conf_test")
+    try s.hub.addWindowGrant(g)
+    return g
 }
