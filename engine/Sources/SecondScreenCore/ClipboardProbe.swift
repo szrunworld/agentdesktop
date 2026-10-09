@@ -278,6 +278,24 @@ public enum ClipboardProbe {
         return out
     }
 
+    /// The window holding the app's keyboard focus, read now: the focused
+    /// element's window, or the app's focused window when no element has
+    /// focus. Nil when it cannot be read. Light enough to ask before each
+    /// typed character.
+    public static func focusedWindowID(pid: pid_t) -> CGWindowID? {
+        let r = Reader()
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, messagingTimeout)
+        var window: AXUIElement?
+        if let element: AXUIElement = r.read(app, kAXFocusedUIElementAttribute) {
+            window = r.read(element, kAXWindowAttribute) ?? r.read(element, kAXTopLevelUIElementAttribute)
+        } else {
+            window = r.read(app, kAXFocusedWindowAttribute)
+        }
+        guard !r.expired else { return nil }
+        return window.flatMap(WindowMover.windowID(of:))
+    }
+
     /// Whether the app shows a menu now (a menu bar menu or a context menu
     /// is a window of its own at the pop-up menu level); nil when the window
     /// list cannot be read. Return or Space there activates the item the

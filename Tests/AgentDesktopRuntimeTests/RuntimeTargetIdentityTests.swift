@@ -277,3 +277,11 @@ func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuC
     }
     #expect(sc.platform.performed.count == 4)
 }
+
+// Kevin 2026-10-09 (#163, #169): "not sent" only when nothing went out. The
+// engine's typing that stopped before its first character is notSent; one
+// that stopped after some characters is a delivery that went partly out.
+@Test func onlyATypingStoppedBeforeItsFirstCharacterIsNotSent() {
+    #expect(EnginePlatform.failedBeforeDispatch("keyboard focus is not in window 11; nothing was typed"))
+    #expect(!EnginePlatform.failedBeforeDispatch("keyboard focus left window 11 after 2 of 6 characters were typed; the rest was not sent"))
+}

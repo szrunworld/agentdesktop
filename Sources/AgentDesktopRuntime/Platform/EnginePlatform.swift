@@ -250,7 +250,17 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         "has no window", "has no on-screen window", "is not on screen", "is outside the window",
         "no element", "give --index", "needs --value", "needs the field named", "permission",
         "has no frame to click", "does not take its text", "unknown key", "no screen named",
+        // Typing stopped before its first character (#163); after it, the
+        // message counts what went out and the delivery is unknown.
+        "nothing was typed",
     ]
+
+    /// Whether the engine's failure message says nothing was sent. Only
+    /// then is a failure notSent; a typing stopped after some characters
+    /// counts them and is not (Kevin 2026-10-09: partial is never zero).
+    static func failedBeforeDispatch(_ message: String) -> Bool {
+        preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
+    }
 
     public func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
         var input = InputAction(InputAction.Kind(rawValue: action.kind.rawValue)!)
@@ -272,7 +282,7 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         let response = handle(r)
         guard response.ok else {
             let message = response.error ?? "the engine refused the action"
-            let before = Self.preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
+            let before = Self.failedBeforeDispatch(message)
             var e = Self.classify(message)
             e.beforeDispatch = before
             throw e
