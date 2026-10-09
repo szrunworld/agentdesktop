@@ -43,13 +43,23 @@ extension RuntimeService {
             return ("grant_revoked", true)
         }
         guard cg.apps.contains(g.bundleId) else { return ("app_removed", true) }
+        // Desktops live as long as the Runtime process; the grant does not
+        // outlive its Desktop (Codex on 09b8f7d).
+        guard desktops.find(g.desktopId) != nil else { return ("desktop_destroyed", true) }
         guard desktopAllowed(ConnectionState.paired(g.clientId), g.desktopId) else { return ("desktop_removed", true) }
         return nil
     }
 
     /// End a grant for good, delete what was kept only under it, and audit.
+    /// A store that cannot record it throws (Codex on 09b8f7d): a revocation
+    /// is never reported done unless it was saved. Checks that find a grant
+    /// no longer holding refuse access whether or not the end was saved.
     func endWindowGrant(_ g: HubStore.WindowGrant, state: String = "ended", reason: String, by c: ConnectionState? = nil) {
-        guard (try? hub.endWindowGrant(g.windowGrantId, state: state, reason: reason)) == true else { return }
+        try? endWindowGrantSaved(g, state: state, reason: reason, by: c)
+    }
+
+    func endWindowGrantSaved(_ g: HubStore.WindowGrant, state: String = "ended", reason: String, by c: ConnectionState? = nil) throws {
+        guard try hub.endWindowGrant(g.windowGrantId, state: state, reason: reason) else { return }
         artifacts.removeTransients(windowGrantId: g.windowGrantId)
         hub.audit(connectionId: c?.connectionId ?? "runtime", clientId: g.clientId, method: "hub.windows", decision: state == "revoked" ? "revoked" : "ended",
                   reason: "\(g.windowGrantId) \(reason)")
@@ -98,6 +108,9 @@ extension RuntimeService {
                    audit: Bool = true) throws -> HubStore.WindowGrant? {
         guard c.role == .paired, !launchedHere(c, d, b.process) else { return nil }
         func refuse(_ reason: String, _ message: String) -> RuntimeError {
+            // The client itself lost access meanwhile (its grants end with
+            // it): say that, as A4 does, not the window's part of it.
+            if let e = c.cutReason.map({ Self.cutError(c, $0) }) ?? accessError(c, method: "runtime.status") { return e }
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.\(permission)", decision: "denied", reason: reason)
             return RuntimeError("grant_missing", message, phase: .handler, notSent: true, details: .obj([("reason", .string(reason))]))
         }
@@ -296,7 +309,13 @@ extension RuntimeService {
             return .failure(RuntimeError("conflict", "window grant \(id) is \(g.state)", phase: .handler, notSent: true,
                                          details: .obj([("state", .string(g.state))])))
         }
-        endWindowGrant(g, state: "revoked", reason: "window_grant_revoked", by: c)
+        do { try endWindowGrantSaved(g, state: "revoked", reason: "window_grant_revoked", by: c) } catch {
+            return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable; window grant \(id) is not revoked",
+                                         phase: .handler, notSent: true))
+        }
+        guard hub.windowGrant(id)?.state == "revoked" else {
+            return .failure(RuntimeError("conflict", "window grant \(id) ended meanwhile", phase: .handler, notSent: true))
+        }
         cutConnections(of: g.clientId, reason: "window_grant_revoked")
         return .success((hub.windowGrant(id) ?? g).json)
     }

@@ -236,6 +236,13 @@ extension RuntimeService {
         if method == "hub.windows.revoke", windowGrant == nil {
             return .notFound("no window grant \(request.params["windowGrantId"]?.stringValue ?? "")")
         }
+        // An app gives up only its own window grants, verified or not (Codex
+        // on 09b8f7d); another app's is the user's to take back, in the window.
+        if let windowGrant, windowGrant.clientId != c.clientId {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "not_own_window_grant")
+            return RuntimeError("permission_denied", "an app can only give up its own window grants",
+                                phase: .request, notSent: true, details: .obj([("reason", .string("not_own_window_grant"))]))
+        }
         let target = request.params["clientId"]?.stringValue ?? windowGrant?.clientId
         let isSelf = target == c.clientId
         let changesAccess = ["hub.grants.set", "hub.grants.revoke", "hub.clients.revoke", "hub.windows.revoke"].contains(method)

@@ -408,14 +408,17 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     #expect(st.confirmer.requests.count == before + 1)
     #expect(st.confirmer.requests.last?.kind == .adminCall && st.confirmer.requests.last?.details["windowGrant"] != nil)
     #expect(st.s.hub.windowGrant(mine)?.state == "revoked")
-    // Another app's: an unverified client may not, and the user is not asked.
+    // Another app's: not even a verified client may (Codex on 09b8f7d), and
+    // the user is not asked.
     let (other, otherId, _) = try pairedClient(st.s, capabilities: ["observe"], desktops: [st.desk], apps: [wechat], name: "other")
     let theirs = try grantWindow(st.s, clientId: otherId, desktopId: st.desk, windowId: 12, pid: 202, bundleId: wechat, permissions: ["observe"])
     _ = other
     let back = st.reconnect()
     let asked = st.confirmer.requests.count
     let r = call(st.s, back, "hub.windows.revoke", params: #"{"windowGrantId":"\#(theirs.windowGrantId)"}"#)
-    #expect(st.reason(r) == "unverified_identity")
+    #expect(st.reason(r) == "not_own_window_grant")
+    let verified = asVerified(st.reconnect())
+    #expect(st.reason(call(st.s, verified, "hub.windows.revoke", params: #"{"windowGrantId":"\#(theirs.windowGrantId)"}"#)) == "not_own_window_grant")
     #expect(st.confirmer.requests.count == asked)
     #expect(st.s.hub.windowGrant(theirs.windowGrantId)?.state == "active")
     // An id that does not exist asks nobody.
@@ -536,4 +539,20 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     }
     let g = try #require(data(st.request(["observe"])))
     #expect((g["expiresAt"]?.stringValue ?? "~") <= soon, "\(g.encoded())")
+}
+
+@Test func aWindowGrantDoesNotOutliveItsDesktopOrTheRuntime() throws {
+    // The Desktop is gone from the Runtime (as after a restart): the grant ends.
+    let st = try Stage()
+    let id = try #require(data(st.request(["observe"]))?["windowGrantId"]?.stringValue)
+    st.s.desktops.remove(st.desk)
+    #expect(data(call(st.s, st.app, "window.list"))?["windows"]?.arrayValue?.isEmpty == true)
+    #expect(st.s.hub.windowGrant(id)?.endedReason == "desktop_destroyed")
+    // A new Runtime over the same records ends every window grant at start.
+    let again = try Stage()
+    let id2 = try #require(data(again.request(["observe"]))?["windowGrantId"]?.stringValue)
+    _ = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_next", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                 endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                       backend: again.backend, platform: again.platform, hub: again.s.hub)
+    #expect(again.s.hub.windowGrant(id2)?.endedReason == "runtime_restarted")
 }

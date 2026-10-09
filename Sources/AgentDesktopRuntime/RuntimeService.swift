@@ -216,6 +216,9 @@ public final class RuntimeService: @unchecked Sendable {
             return scratch
         }()
         self.contract = contract
+        // Desktops do not outlive the process that made them, so no window
+        // grant on one does either (window-grants.md).
+        _ = try? self.hub.endWindowGrants(reason: "runtime_restarted")
         self.startedAt = Timestamp.date(identity.startedAt) ?? now()
         self.now = now
         // The sweep never removes what the Runtime still uses: the

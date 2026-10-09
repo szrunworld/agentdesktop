@@ -9231,7 +9231,7 @@ enum RuntimeContractData {
       "params": "window_grant_ref_params",
       "result": "HubWindowGrant",
       "status": "implemented",
-      "note": "owner; a paired client only its own, confirmed in the trusted window (A4 R1); the client's connections are cut"
+      "note": "owner; a paired client only its own (another client's: permission_denied, reason not_own_window_grant), confirmed in the trusted window (A4 R1); the client's connections are cut"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -9516,7 +9516,7 @@ enum RuntimeContractData {
     "confirmation": "a confirmation is bound to a digest of exactly what will be applied, recomputed by the window from what it displayed; params are shown in full and a call too large to show is refused unseen; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch, confirmation_too_large, pairing_busy or no_trusted_ui",
     "targets": "every Desktop, session and Run a paired client's request names, in its context or params, is authorized; naming two different Desktops is invalid_argument (reason target_mismatch)",
     "handshake": "a socket connection completes runtime.handshake once (conflict, reason already_handshaken)",
-    "windowGrants": "docs/security/window-grants.md: a paired client reaches a window it did not launch itself on that Desktop only through a window grant (window ID + process launch + app + Desktop + client), each one confirmed by the user; observe, act and persist are separate; every use is checked against the grant as it is now (bind, both observe steps, each wait poll, act right before dispatch, artifact reads); a grant ends for good when the window closes, its process or app changes, its Desktop goes, or the app or Desktop leaves the client's grant; window.list shows a paired client only windows it holds a grant for and windows of processes it launched; without persist an observation's screenshot is transient (120 s, deleted when the grant ends)"
+    "windowGrants": "docs/security/window-grants.md: a paired client reaches a window it did not launch itself on that Desktop only through a window grant (window ID + process launch + app + Desktop + client), each one confirmed by the user; observe, act and persist are separate; every use is checked against the grant as it is now (bind, both observe steps, each wait poll, act right before dispatch, artifact reads); a grant ends for good when the window closes, its process or app changes, its Desktop goes or the Runtime restarts, or the app or Desktop leaves the client's grant; window.list shows a paired client only windows it holds a grant for and windows of processes it launched; without persist an observation's screenshot is transient (120 s, deleted when the grant ends)"
   }
 }
 """##

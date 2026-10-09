@@ -90,7 +90,8 @@ owner（宿主进程内的主窗口、GUI 端口、AI 服务）就是用户本�
 - 用户确认期间窗口关闭或进程变化：确认后再核对一次，不一致则拒绝（`target_changed`），不记录授权。
 - 代码身份未验证（`same_user`、`shared_interpreter`）的客户端也可以申请（与配对一致），确认窗口如实标出其身份级别。
 - `hub.windows.list`：已配对客户端只看到自己的窗口授权；owner 看到全部。
-- `hub.windows.revoke`：owner 直接撤销；已配对客户端按 A4 R1 规则，只能放弃**自己的**窗口授权，并且须经可信窗口确认。
+- `hub.windows.revoke`：owner 直接撤销；已配对客户端（无论代码身份是否已验证）只能放弃**自己的**窗口授权，并按 A4 R1 须经可信窗口确认；指向别的客户端的授权直接拒绝（`not_own_window_grant`），不弹窗。
+- 撤销必须写入成功才算完成：存储写入失败时返回 `audit_unavailable`，不切断连接，也不报告成功。
 
 CLI：`agentdesktop windows request|list|revoke`。
 
@@ -108,7 +109,8 @@ CLI：`agentdesktop windows request|list|revoke`。
 | 客户端授权收窄，去掉了该 App 或该 Desktop | 相应窗口授权 `ended`，粘滞 | `app_removed` / `desktop_removed` |
 | 客户端授权去掉了 `observe` / `act` 能力 | 对应权限立即不可用（按能力实时计算） | `window_*_not_granted` |
 | 到期（窗口授权或客户端授权） | 拒绝 | `window_grant_expired` / `grant_expired` |
-| Desktop 被销毁 | 该 Desktop 上的窗口授权 `ended` | `desktop_destroyed` |
+| Desktop 被销毁或已不存在 | 该 Desktop 上的窗口授权 `ended` | `desktop_destroyed` |
+| Runtime 重启（Desktop 不会跨进程保留） | 全部窗口授权 `ended` | `runtime_restarted` |
 | 客户端身份失效（代码身份不符、凭据无效） | 握手被拒，任何请求都无法到达 | A4 |
 
 失效时，这条授权的临时截图立即删除。
