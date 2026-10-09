@@ -255,7 +255,8 @@ extension RuntimeService {
             createdAt: nowString, expiresAt: Timestamp.string(now().addingTimeInterval(Double(seconds))), confirmationId: confirmation)
         if d.state == "destroyed" || desktops.find(d.desktopId) == nil || !desktopAllowed(c, d.desktopId) || !appAllowed(c, bundleId: bundleId)
             || permissions.contains(where: { !(hub.grant(c.clientId)?.capabilities.contains(Self.capability(forWindowPermission: $0)) ?? false) })
-            || windowGrantFailure(grant) != nil {
+            || windowGrantFailure(grant) != nil
+            || (d.kind == .physical && platform?.window(on: d.screen, pid: w.process.pid, windowId: w.windowId) == nil) {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.windows.request", decision: "denied", reason: "target_changed")
             return .failure(RuntimeError("conflict", "the window or this client's access changed while the user was asked; ask again",
                                          phase: .handler, notSent: true, details: .obj([("reason", .string("target_changed"))])))

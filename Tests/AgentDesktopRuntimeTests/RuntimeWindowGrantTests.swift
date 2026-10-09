@@ -159,6 +159,13 @@ private final class Stage {
     let r = st.request(["observe"])
     #expect(code(r) == "conflict" && st.reason(r) == "target_changed")
     #expect(st.s.hub.windowGrants(clientId: st.appId, includeEnded: true).isEmpty)
+    // Moved off the physical Desktop's display while the user decided: not granted either.
+    let moved = try Stage()
+    moved.confirmer.decide = { [platform = moved.platform] r in
+        platform.lock.withLock { platform.onScreen[12] = nil }
+        return .approved(digest: r.digest)
+    }
+    #expect(moved.reason(moved.request(["observe"], windowId: 12)) == "target_changed")
 }
 
 // MARK: One window, not the app
