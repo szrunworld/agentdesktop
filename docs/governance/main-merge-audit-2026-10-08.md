@@ -195,6 +195,7 @@ Kevin 裁决：两者都登记为"未经明确授权的合并事件"，不回滚
 | #175 | 10-09 08:50:13 | 6feb4f1 → 99a93ae | ✅ 同上 | b9 复核 d0131b4 → 6feb4f1；Codex 👍，没有意见 | build 通过 | 会话自述：b9（`--match-head-commit`），42 书面确认未操作 | — | 不需要 | 待 Kevin 验收；真机 Not Verified |
 | #163 | 10-09 10:25:37 | bd68b6f → 0672b0a | ✅ Kevin 在 b9 会话中看完合并申请（SHA bd68b6f）后回复"合并" | b9 完整复审（代码与 bd3d830+main 逐字相同，Kevin 的 6 条约束成立）；Codex 对 bd68b6f 👍，11 条线程全部解决 | build 通过 | 会话自述：b9（`--match-head-commit bd68b6f`），42 书面确认未操作 | — | 不需要 | 待 Kevin 验收；真机 Not Verified；方案 A，接受补全列表残余 |
 | #189 | 10-09 12:33:17 | fbd8253 → c943682 | ✅ Kevin 在 iPhone 线会话中回复"可以，继续"（b2 自述） | b9 非作者审核 47fa7a2、3c53e7f、7f38855；fbd8253 只是合入 main（b9 核对：#189 改过的文件在 7f38855 和 fbd8253 之间没有差异）；Codex 对 7f38855 已完成，没有新意见 | build 通过（b2 自述，本地 10 步 CI 和 strict 352 个也通过） | 会话自述：iPhone 线（2ndscreen-b2），锁定 fbd8253 | — | 不需要 | 待 Kevin 验收；真机 Not Verified |
+| #191 | 10-09 13:05:54 | 706d45e → 14fbccb | ✅ Kevin 在 iPhone 线会话中授权（原话"合并"，b2 自述） | b9 非作者审核 706d45e 通过（补修 #142 漏掉的 5 条 Codex 意见） | build 通过 | 会话自述：iPhone 线（2ndscreen-b2），锁定 706d45e | — | 是 #142 的补救 | 待 Kevin 验收；真机 Not Verified |
 | #127 | 10-09 07:27:54 | bea1a26 → 1a3fa22 | ✅ Kevin 在会话 97500e22 中 06:56:43Z 下达"PR #127 最终裁决：允许合并"（第 5 项："允许合并 #127。不再把彻底解决共享剪贴板竞争问题作为合并阻断条件。"） | 独立审核；Codex 对 bea1a26 "Didn't find any major issues" 👍，15 条行内意见都已回复 | build 通过 | 会话自述：iPhone 线（2ndscreen-b2 / 97500e22），`--match-head-commit bea1a26` | — | 不需要 | 待 Kevin 验收 |
 | #142 | 10-09 09:08:53 | cea2610 → 5dbe2e8 | ✅ Kevin 在会话 97500e22 中 09:02:28Z 说"合并 #142"；事后在 b9 会话中确认"授权了" | 独立审核没有阻断（F1/F3/F5 已修，其余转 #179/#180）；**Codex 在 cea2610 上有 3 条 P1、2 条 P2 合并时未处理**（更正：此前报告的"没有意见"是错的，见下） | build 通过（GitHub CI 和本地 10 步 CI 都通过，engine strict 334 个） | **Kevin 本人在 GitHub 网页上手动合并**（他在 97500e22 中说"#142 我手动merge了"） | — | **#191 补修** | **验收依据有误**（Kevin 08:52 的验收依赖了错误的"Codex 无意见"说法）；真机 A2、A5、A6、S3 记为"未验证（Kevin 豁免）" |
 | #186 | 10-09 09:25:51 | c785b9c → 9d9f7ec | ✅ Kevin 在会话 97500e22 中回答"可以合并 #186 吗？"时说"可以合并" | **合并前没有独立会话审核**，只有 Codex（Didn't find any major issues，👍）；b9 事后补审通过 | build 通过；合并后 main CI 通过 | 会话自述：iPhone 线（2ndscreen-b2），`--match-head-commit c785b9c` | b9 事后补审：只改测试，没有问题 | 不需要 | 已合并；#156、#161 自动关闭 |
@@ -489,3 +490,11 @@ Kevin 原话：
 - **原因**：查询评论时没有加 `--paginate`，只看到前 30 条，这几条在第二页。**Kevin 08:52 的验收依赖了这个错误的说法。**
 - **补救**：iPhone 线已在 #142 上发更正，回复了全部 7 条线程，并开 **#191（706d45e）** 修复这 5 条；用 `--paginate` 重新核查了 #127、#186、#189，每条 Codex 评论都有回复。
 - **b9 自查**：b9 用 REST 查 Codex 评论时同样没有分页。但 b9 执行的合并（#158、#160、#178、#175、#163）在合并前判断"未解决的讨论"时用的是 GraphQL 的 `reviewThreads`（first:50 或 100），讨论数都在上限以内，所以那一项结论不受影响。今后两种查询都改用完整分页。
+
+### #188 暂停合并（2026-10-09 13:0x，b9）
+
+- Kevin 在 b9 会话中授权合并 #188（b9 的申请写的是 3fbd3ae），执行人是 b9。
+- b9 执行前最后一次核对时发现：PR 转为 Ready 之后，Codex 在 13:03:47Z 对 3fbd3ae 又提了两条 P2，有 2 条讨论未解决。**b9 没有合并**，申请作废。
+  - 「Verify the original process group before killing it」：命令退出后，它的 PGID 可能被回收、重新分配，\`killpg\` 可能误杀 runner 上无关的进程。按"P2 按后果判断"，这属于未经授权的操作，**阻断**，由 69 修。
+  - 「Report process-discovery failures instead of success」：只影响诊断报告的准确性，按规则登记 issue，不阻断。
+- 修完后，b9 对新 SHA 复审，再重新提交申请。原授权限定在 3fbd3ae，SHA 改变后失效。
