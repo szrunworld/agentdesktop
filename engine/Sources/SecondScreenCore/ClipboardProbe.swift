@@ -282,6 +282,22 @@ public enum ClipboardProbe {
     /// is a window of its own at the pop-up menu level); nil when the window
     /// list cannot be read. Return or Space there activates the item the
     /// arrows selected, which accessibility focus does not always show.
+    /// Where the app's open menus are (global points, top-left origin), one
+    /// frame per menu window; empty when none is open, nil when the window
+    /// list cannot be read.
+    public static func menuFrames(pid: pid_t) -> [CGRect]? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        let menuLevel = Int(CGWindowLevelForKey(.popUpMenuWindow))
+        var frames: [CGRect] = []
+        for entry in list where (entry[kCGWindowOwnerPID as String] as? Int).map(pid_t.init) == pid
+            && (entry[kCGWindowLayer as String] as? Int) == menuLevel {
+            // A menu whose place cannot be read cannot be shown to be ours.
+            guard let b = entry[kCGWindowBounds as String] as? NSDictionary, let f = CGRect(dictionaryRepresentation: b) else { return nil }
+            frames.append(f)
+        }
+        return frames
+    }
+
     public static func menuOpen(pid: pid_t) -> Bool? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return nil }
         let menuLevel = Int(CGWindowLevelForKey(.popUpMenuWindow))

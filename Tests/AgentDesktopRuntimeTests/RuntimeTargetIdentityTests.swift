@@ -231,3 +231,25 @@ func openSibling(_ backend: FixedBackend) {
     #expect(failure(r)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
     #expect(sc.platform.performed.count == 1)
 }
+
+// Codex on 518b651 (P1): the arrows and Escape go to the app's open menu. A
+// menu the app shows outside the bound window's screen (from a window that
+// is not bound, on the user's display) is not the bound window's: refused.
+@Test func menuNavigationIsSentOnlyToAMenuOnTheBoundWindowsScreen() throws {
+    let sc = try scene()
+    func reason(_ a: String) -> String? { failure(act(sc, a))?.details?["reason"]?.stringValue }
+    let screen = try #require(sc.s.desktops.find(sc.desktop)?.screen.frame)
+    sc.platform.focusedHit = PlatformHit(role: "AXMenuItem", texts: ["Open"], windowId: 4242, focused: true)
+    sc.platform.menuShown = true
+    // On the bound window's screen: sent.
+    #expect(code(act(sc, #"{"kind":"key","key":"down"}"#)) == nil)
+    // On another display (the user's): refused, nothing sent.
+    let before = sc.platform.performed.count
+    sc.platform.menuFrame = AgentDesktopProtocol.Rect(x: screen.x - 400, y: 100, width: 120, height: 80)
+    #expect(reason(#"{"kind":"key","key":"down"}"#) == "menu_open")
+    #expect(reason(#"{"kind":"key","key":"escape"}"#) == "menu_open")
+    // Straddling the screen's edge: not shown to be ours, refused.
+    sc.platform.menuFrame = AgentDesktopProtocol.Rect(x: screen.x + screen.width - 50, y: 100, width: 120, height: 80)
+    #expect(reason(#"{"kind":"key","key":"escape"}"#) == "menu_open")
+    #expect(sc.platform.performed.count == before)
+}

@@ -104,6 +104,7 @@ extension DesktopPlatform {
     public func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { .unknown }
     public func focusedControl(pid: Int32) -> PlatformHit? { nil }
     public func menuOpen(pid: Int32) -> Bool? { nil }
+    public func menuFrames(pid: Int32) -> [Rect]? { nil }
 
     /// Platforms without the user's displays (test doubles, other backends)
     /// refuse physical Desktops.
@@ -206,6 +207,9 @@ public protocol DesktopPlatform: Sendable {
     func focusedControl(pid: Int32) -> PlatformHit?
     /// Whether the app shows a menu now; nil when that cannot be told.
     func menuOpen(pid: Int32) -> Bool?
+    /// Where the app's open menus are, one frame per menu; empty when none
+    /// is open, nil when that cannot be read.
+    func menuFrames(pid: Int32) -> [Rect]?
 }
 
 /// The element at a point, as G2 judges it.

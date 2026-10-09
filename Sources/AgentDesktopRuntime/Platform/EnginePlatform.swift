@@ -43,6 +43,9 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     }
 
     public func menuOpen(pid: Int32) -> Bool? { ClipboardProbe.menuOpen(pid: pid) }
+    public func menuFrames(pid: Int32) -> [Rect]? {
+        ClipboardProbe.menuFrames(pid: pid)?.map { Rect(x: $0.minX, y: $0.minY, width: $0.width, height: $0.height) }
+    }
 
     public func focusedControl(pid: Int32) -> PlatformHit? {
         ClipboardProbe.focused(pid: pid).map {

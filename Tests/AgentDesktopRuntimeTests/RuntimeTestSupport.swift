@@ -111,6 +111,18 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     /// Whether the app shows a menu; nil when that cannot be told.
     var menuShown: Bool? = false
     func menuOpen(pid: Int32) -> Bool? { menuShown }
+    /// Where the open menu is; by default inside the app's first window.
+    var menuFrame: AgentDesktopProtocol.Rect?
+    func menuFrames(pid: Int32) -> [AgentDesktopProtocol.Rect]? {
+        switch menuShown {
+        case nil: return nil
+        case false?: return []
+        case true?:
+            if let menuFrame { return [menuFrame] }
+            guard let w = lock.withLock({ windows[pid]?.first?.frame }) else { return [] }
+            return [AgentDesktopProtocol.Rect(x: w.x + 10, y: w.y + 30, width: 120, height: 80)]
+        }
+    }
     /// Reads of the focus that fail before `focusedHit` is answered.
     var focusFailures = 0
     var focusReads = 0
