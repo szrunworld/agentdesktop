@@ -8,14 +8,14 @@ import Foundation
 ///
 /// It records the method name only: no params, no requestId, no credential.
 ///
-/// Every stage is only appended to memory when it happens. `onEvent` (which
-/// may write to stderr) is called once the connection thread's wait has
-/// ended (`answered` or `timedOut`), with everything not yet passed on, in
-/// order: never on the cooperative thread whose availability the timeline
-/// measures, never before the waiter is signalled, and never inside the
-/// time the request's deadline allows (Codex on 062f5db and 53dc980, b9).
-/// A timed-out call's late stages reach `onEvent` only with the next call
-/// on that bridge (they are in `events` at once).
+/// Every stage is only appended to memory when it happens; the bridge
+/// never calls `onEvent` (which may write to stderr). A call's stages are
+/// handed to `onEvent` on the recorder's own serial queue, asynchronously,
+/// once that call's own wait has ended (`answered` or `timedOut`), and its
+/// later stages as they come. So the hook never runs on the cooperative
+/// thread the timeline measures, never delays the signal, the wait or the
+/// reply, and never shows a call whose wait is still on (Codex on 062f5db,
+/// 53dc980 and 42108c5; b9).
 final class BridgeDiagnostics: @unchecked Sendable {
     enum Stage: String, Sendable {
         /// `answer` was called (on the connection thread).
@@ -64,10 +64,16 @@ final class BridgeDiagnostics: @unchecked Sendable {
     private var nextCall: UInt64 = 0
     private var entered: [UInt64: UInt64] = [:]
     private var recorded: [Event] = []
-    private var reported = 0
+    /// Per call: stages not yet handed to `onEvent`, and whether its wait ended.
+    private var unreported: [UInt64: [Event]] = [:]
+    private var waitEnded: Set<UInt64> = []
     private let onEvent: (@Sendable (Event) -> Void)?
+    private let reports = DispatchQueue(label: "agentdesktop.bridge.diagnostics")
 
     init(onEvent: (@Sendable (Event) -> Void)? = nil) { self.onEvent = onEvent }
+
+    /// Tests: returns once every report queued so far has been handed on.
+    func waitForReports() { reports.sync {} }
 
     var events: [Event] { lock.withLock { recorded } }
 
@@ -77,38 +83,39 @@ final class BridgeDiagnostics: @unchecked Sendable {
         let call: UInt64
         let method: String
 
-        /// On the connection thread. When the wait has ended, everything not
-        /// yet passed to `onEvent` is passed now, in order.
-        func note(_ stage: Stage) {
-            recorder.note(call, stage, method: method, report: stage == .answered || stage == .timedOut)
-        }
+        /// On the connection thread.
+        func note(_ stage: Stage) { recorder.note(call, stage, method: method) }
 
-        /// On the task: noted in memory only.
+        /// On the task.
         func noteInTask(_ stage: Stage, taskPriority: UInt8? = nil) {
-            recorder.note(call, stage, method: method, taskPriority: taskPriority, report: false)
+            recorder.note(call, stage, method: method, taskPriority: taskPriority)
         }
     }
 
     /// A new call, with `entered` noted.
     func begin(method: String) -> Trace {
         let call = lock.withLock { () -> UInt64 in nextCall += 1; return nextCall }
-        note(call, .entered, method: method, report: false)
+        note(call, .entered, method: method)
         return Trace(recorder: self, call: call, method: method)
     }
 
-    private func note(_ call: UInt64, _ stage: Stage, method: String, taskPriority: UInt8? = nil, report: Bool) {
+    private func note(_ call: UInt64, _ stage: Stage, method: String, taskPriority: UInt8? = nil) {
         let now = DispatchTime.now().uptimeNanoseconds
         var tid: UInt64 = 0
         pthread_threadid_np(nil, &tid)
-        let due = lock.withLock { () -> ArraySlice<Event> in
+        let due = lock.withLock { () -> [Event] in
             if stage == .entered { entered[call] = now }
             let start = entered[call] ?? now
-            recorded.append(Event(call: call, stage: stage, method: method, uptimeNanos: now, sinceEnteredNanos: now &- start,
-                                  threadId: tid, mainThread: Thread.isMainThread, taskPriority: taskPriority))
-            guard report, onEvent != nil else { return [] }
-            defer { reported = recorded.count }
-            return recorded[reported...]
+            let e = Event(call: call, stage: stage, method: method, uptimeNanos: now, sinceEnteredNanos: now &- start,
+                          threadId: tid, mainThread: Thread.isMainThread, taskPriority: taskPriority)
+            recorded.append(e)
+            guard onEvent != nil else { return [] }
+            unreported[call, default: []].append(e)
+            if stage == .answered || stage == .timedOut { waitEnded.insert(call) }
+            guard waitEnded.contains(call) else { return [] }
+            return unreported.removeValue(forKey: call) ?? []
         }
-        for e in due { onEvent?(e) }
+        guard let onEvent, !due.isEmpty else { return }
+        reports.async { for e in due { onEvent(e) } }
     }
 }

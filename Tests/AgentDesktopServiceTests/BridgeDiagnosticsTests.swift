@@ -109,35 +109,49 @@ private func answer(_ c: ExtensionCall, _ s: AgentDesktopService, idempotent: Bo
     let printed = Lines()
     let recorder = BridgeDiagnostics(onEvent: { e in printed.lock.withLock { printed.all.append(e.description) } })
     _ = await answer(call("ai.connections.create", createParams, requestId: secretRequestId), s, idempotent: true, recorder)
+    recorder.waitForReports()
     let text = printed.lock.withLock { printed.all }.joined(separator: "\n") + recorder.events.map(\.description).joined()
     #expect(!text.isEmpty)
     for secret in [secretKey, secretRequestId, "example.invalid", "Diag"] { #expect(!text.contains(secret), "\(secret)") }
 }
 
-// b9 and Codex on 062f5db and 53dc980: the hook (here, a slow one) never
-// runs on the task, nor before the wait has ended, so it cannot hold the
-// cooperative thread, delay the signal or use up the deadline.
-@Test func theHookRunsOnlyOnTheConnectionThreadAndAfterTheSignal() async throws {
+// b9 and Codex on 062f5db, 53dc980 and 42108c5: the hook runs on neither
+// the connection thread nor the task, and only for a call whose own wait
+// has ended, even with calls in flight together. Here the hook blocks until
+// every call has answered: were it on the reply path, no call could answer
+// and the hook's wait would run out.
+@Test func theHookRunsOffTheBridgeAndOnlyForCallsWhoseWaitEnded() async throws {
     let (s, dir) = try await service()
     defer { try? FileManager.default.removeItem(atPath: dir) }
     final class Seen: @unchecked Sendable {
-        let lock = NSLock(); var threads: Set<UInt64> = []; var stages: [BridgeDiagnostics.Stage] = []
-        var beforeTheWaitEnded = 0; weak var recorder: BridgeDiagnostics?
+        let lock = NSLock(); var threads: Set<UInt64> = []; var events: [BridgeDiagnostics.Event] = []
+        var beforeTheWaitEnded = 0; var hookWaitRanOut = 0; weak var recorder: BridgeDiagnostics?
     }
     let seen = Seen()
+    let allAnswered = DispatchSemaphore(value: 0)
     let recorder = BridgeDiagnostics(onEvent: { e in
         var tid: UInt64 = 0
         pthread_threadid_np(nil, &tid)
         let ended = seen.recorder?.events.contains { $0.call == e.call && ($0.stage == .answered || $0.stage == .timedOut) } ?? false
-        seen.lock.withLock { seen.threads.insert(tid); seen.stages.append(e.stage); if !ended { seen.beforeTheWaitEnded += 1 } }
-        Thread.sleep(forTimeInterval: 0.05)
+        seen.lock.withLock { seen.threads.insert(tid); seen.events.append(e); if !ended { seen.beforeTheWaitEnded += 1 } }
+        if allAnswered.wait(timeout: .now() + 3) == .timedOut { seen.lock.withLock { seen.hookWaitRanOut += 1 } }
+        allAnswered.signal()
     })
     seen.recorder = recorder
-    for _ in 0..<3 { _ = await answer(call("ai.connections.list", .obj([])), s, idempotent: false, recorder) }
-    let callers = Set(recorder.events.filter { $0.stage == .entered }.map(\.threadId))
-    #expect(seen.lock.withLock { seen.threads }.isSubset(of: callers))
-    #expect(seen.lock.withLock { seen.beforeTheWaitEnded } == 0)
-    // The task's stages reach the hook too, from the connection thread,
-    // the last call's resultReady included (Codex on 42108c5).
-    #expect(seen.lock.withLock { seen.stages.filter { $0 == .taskStarted || $0 == .resultReady }.count } == 6)
+    await withTaskGroup(of: Void.self) { group in
+        for _ in 0..<8 { group.addTask { _ = await answer(call("ai.connections.list", .obj([])), s, idempotent: false, recorder) } }
+    }
+    allAnswered.signal()
+    recorder.waitForReports()
+    let bridgeThreads = Set(recorder.events.map(\.threadId))
+    let got = seen.lock.withLock { (seen.threads, seen.events, seen.beforeTheWaitEnded, seen.hookWaitRanOut) }
+    #expect(got.3 == 0, "the hook held up an answer")
+    #expect(got.0.isDisjoint(with: bridgeThreads))
+    #expect(got.2 == 0)
+    #expect(got.1.count == 8 * 6)
+    // Each call's stages are handed on in the order they were noted.
+    for c in Set(got.1.map(\.call)) {
+        let mine = got.1.filter { $0.call == c }.map(\.stage)
+        #expect(mine == recorder.events.filter { $0.call == c }.map(\.stage))
+    }
 }
