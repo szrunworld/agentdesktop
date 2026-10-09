@@ -502,7 +502,7 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     /// Replace `target` with `data`: temp file (0600, fsync), rename, then
     /// fsync of the directory. Three outcomes (Kevin 2026-10-09):
     /// 1. Throws before the rename — nothing was written; safe to retry.
-    /// 2. Throws after the rename (directory fsync failed) — the new content
+    /// 2. Throws after the rename (directory open or fsync failed) — the new content
     ///    is in place but not known to be durable; the result is uncertain:
     ///    callers must not retry automatically against the old revision.
     /// 3. Returns — written and durable.
@@ -536,7 +536,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         // (Codex on #141: a synced "completed" log line must not outlive an
         // unsynced rename after a power loss).
         let dfd = open(directory.path, O_RDONLY | O_DIRECTORY)
-        guard dfd >= 0 else { throw ACPFileSessionStoreError.io("dir open errno \(errno)") }
+        // Every failure after the rename is outcome 2 (Codex on #141): the
+        // replacement happened but is not known to be durable.
+        guard dfd >= 0 else { throw WriteUncertain() }
         defer { close(dfd) }
         guard dirFsyncFaultForTesting?(target.lastPathComponent) != true, fsync(dfd) == 0 else { throw WriteUncertain() }
     }
