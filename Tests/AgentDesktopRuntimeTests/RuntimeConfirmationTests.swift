@@ -734,3 +734,35 @@ func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerActio
     #expect(events.contains { $0["clientId"]?.stringValue == victim && $0["decision"]?.stringValue == "revoked" })
     #expect(events.filter { $0["decision"]?.stringValue == "denied" }.count <= 70)
 }
+
+// MARK: Round-five review
+
+@Test func aPairedAppCannotLaunchByPathBehindAGrantedBundleId() throws {
+    let platform = FakePlatform()
+    let s = platformService(platform)
+    let (sc, _, _) = try pairedScene(s, platform)   // grant: com.apple.calculator
+    for params in [#"{"desktopId":"\#(sc.desktop)","bundleId":"com.apple.calculator","path":"/System/Applications/Notes.app"}"#,
+                   #"{"desktopId":"\#(sc.desktop)","path":"/System/Applications/Notes.app"}"#] {
+        let r = call(s, sc.c, "app.launch", params: params)
+        #expect(code(r) != nil, "\(params)")
+    }
+    #expect(platform.calls.filter { $0.hasPrefix("launch") }.isEmpty)
+    #expect(data(call(s, sc.c, "app.launch", params: #"{"desktopId":"\#(sc.desktop)","bundleId":"com.apple.calculator"}"#)) != nil)
+}
+
+@Test func aNarrowingDuringAServiceCallDoesNotCancelTheClientsWork() throws {
+    let s = platformService()
+    let owner = handshaken(s)
+    s.confirmer = FakeConfirmer()
+    let (app, id) = try pairedConnection(s, capabilities: ["observe", "act"], name: "verified-app")
+    asVerified(app)
+    final class Log: @unchecked Sendable { let lock = NSLock(); var withdrawn = 0 }
+    let log = Log()
+    s.onAccessWithdrawn { _ in log.lock.withLock { log.withdrawn += 1 } }
+    s.registerExtensions(["ai.models.refresh": { _ in
+        _ = call(s, owner, "hub.grants.set", params: #"{"clientId":"\#(id)","capabilities":["observe"],"desktops":[]}"#)
+        return .success(.obj([("operationId", .string("op_1")), ("state", .string("queued"))]))
+    }])
+    _ = call(s, app, "ai.models.refresh", params: #"{"connectionId":"conn_1","expectedRevision":1}"#)
+    #expect(log.lock.withLock { log.withdrawn } == 0, "a narrower grant keeps the client's approved work")
+}

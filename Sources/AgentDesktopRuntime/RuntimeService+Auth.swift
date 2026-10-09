@@ -151,6 +151,12 @@ extension RuntimeService {
     /// app.launch and window.bind only for the apps the grant names.
     func appError(_ request: RuntimeRequest, _ c: ConnectionState) -> RuntimeError? {
         let p = request.params
+        // A paired app launches by bundle id only: the engine prefers a path,
+        // which the grant does not name (round-five review M1).
+        if request.method == "app.launch", c.role == .paired, p["path"] != nil {
+            return RuntimeError("grant_missing", "starting an app by path needs a grant this client cannot hold; name it by bundle id",
+                                phase: .request, notSent: true, details: .obj([("reason", .string("launch_requires_grant"))]))
+        }
         let bundle: String?
         switch request.method {
         case "app.launch":

@@ -281,11 +281,16 @@ public final class RuntimeService: @unchecked Sendable {
             // Access withdrawn while the service worked (round-four review
             // M2): what it started for this caller after the revocation's
             // sweep is cancelled now, and the answer is not given.
-            if connection.role == .paired, connection.cutReason != nil || accessError(connection, method: "runtime.status") != nil {
-                accessWithdrawn(connection.clientId)
-                if case .success = response.result {
-                    return .failure(request.requestId, connection.cutReason.map { Self.cutError(connection, $0) }
-                                    ?? accessError(connection, method: "runtime.status")!)
+            if connection.role == .paired {
+                let lost = accessError(connection, method: "runtime.status")
+                let cut = connection.cutReason
+                // Only a withdrawal (revoked, expired) cancels the client's work
+                // again; a narrowing only cut this connection (round-five Low-2).
+                if lost != nil || cut == "client_revoked" || cut == "grant_revoked" {
+                    accessWithdrawn(connection.clientId)
+                }
+                if let refusal = lost ?? cut.map({ Self.cutError(connection, $0) }), case .success = response.result {
+                    return .failure(request.requestId, refusal)
                 }
             }
             return response

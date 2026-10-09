@@ -258,14 +258,16 @@ extension RuntimeService {
         }
         // Who the call is aimed at, as the Runtime knows it (review L3).
         var details: [(String, JSONValue)] = [("params", request.params)]
+        // One read of the target's grant: what is shown is the revision used (round-five Low-5).
+        let shownGrant = target.flatMap { hub.grant($0) }
         if let target, let client = hub.client(target) {
             details.append(("target", .obj([("clientId", .string(target)), ("agentName", .string(client.agentName)),
-                                             ("codeIdentity", client.codeIdentity), ("grant", hub.grant(target)?.json ?? .null),
+                                             ("codeIdentity", client.codeIdentity), ("grant", shownGrant?.json ?? .null),
                                              ("sameProgramAsRequester", .bool(Self.sameProgram(client, c)))])))
         }
         // What the user is shown is this revision of the target's grant; the
         // change applies to that revision only (round-four review H1).
-        let seenRevision = target.flatMap { hub.grant($0)?.revision }
+        let seenRevision = shownGrant?.revision
         if case let .failure(e) = confirm(.adminCall, by: c, action: method, details: .obj(details), runId: request.context.runId) {
             if ["user_denied", "user_cancelled", "confirmation_timeout"].contains(e.details?["reason"]?.stringValue ?? "") {
                 confirmationGate.coolDown("admin:" + c.clientId, until: now().addingTimeInterval(ConfirmationGate.cooldown))

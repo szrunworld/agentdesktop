@@ -103,8 +103,7 @@ extension RuntimeService {
                 return .success(desktopJSON(d))
             }
             let screen = try platform.createScreen(name: id, width: p["width"]?.intValue, height: p["height"]?.intValue)
-            let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString)
-            d.createdBy = c.clientId
+            let d = desktops.add(desktopId: id, name: name, screen: screen, createdAt: nowString, createdBy: c.clientId)
             return .success(desktopJSON(d))
         } catch let e as PlatformError {
             return .failure(e.runtimeError)
@@ -163,7 +162,7 @@ extension RuntimeService {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         return withDesktop(p["desktopId"], as: c, method: "app.launch") { d in
             // The app itself is checked again under the lock (round-four review L2).
-            if c.role == .paired, !appAllowed(c, bundleId: p["bundleId"]?.stringValue) {
+            if c.role == .paired, p["path"] != nil || !appAllowed(c, bundleId: p["bundleId"]?.stringValue) {
                 throw RuntimeError("grant_missing", "starting this app needs a launch grant for it, which this client does not have",
                                    phase: .request, notSent: true, details: .obj([("reason", .string("launch_requires_grant"))]))
             }

@@ -205,8 +205,10 @@ public final class HubStore: @unchecked Sendable {
         defer { writeLock.unlock() }
         var g = g
         let old = grant(g.clientId)
-        if let expectedRevision, old?.revision != expectedRevision {
-            throw RuntimeStoreError("the grant of \(g.clientId) changed while the user was asked")
+        if let expectedRevision {
+            guard old?.revision == expectedRevision, old?.state == "active", client(g.clientId)?.state == "active" else {
+                throw RuntimeStoreError("the grant of \(g.clientId) changed while the user was asked")
+            }
         }
         g.revision = (old?.revision ?? 0) + 1
         try putGrant(g)
@@ -221,6 +223,10 @@ public final class HubStore: @unchecked Sendable {
     private let writeLock = NSLock()
 
     public func revoke(_ clientId: String) throws -> Client? {
+        // The same lock as setGrant: a confirmed change cannot write a grant
+        // back over this revocation (round-five review Low-1).
+        writeLock.lock()
+        defer { writeLock.unlock() }
         guard client(clientId) != nil else { return nil }
         try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
         try db.execute("UPDATE grants SET state = 'revoked', revision = revision + 1 WHERE client_id = ?", [.text(clientId)])

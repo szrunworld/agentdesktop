@@ -245,6 +245,10 @@ extension RuntimeService {
             let epoch = hub.policyEpoch
             let saved: HubStore.Grant
             do {
+                if viaConfirmation, c.approvedTargetRevision == nil {
+                    return .failure(RuntimeError("conflict", "no grant revision was confirmed; ask again", phase: .handler, notSent: true,
+                                                 details: .obj([("reason", .string("target_changed"))])))
+                }
                 saved = try hub.setGrant(g, expectedRevision: viaConfirmation ? c.approvedTargetRevision : nil)
             } catch let e as RuntimeStoreError where viaConfirmation {
                 return .failure(RuntimeError("conflict", e.description, phase: .handler, notSent: true,
@@ -254,10 +258,7 @@ extension RuntimeService {
             }
             // Narrowed: its connections are cut, it reconnects under the new grant.
             if hub.policyEpoch != epoch { cutConnections(of: id, reason: "grant_narrowed") }
-            var filter = RunStore.ListFilter()
-            filter.clientId = id
-            filter.activeOnly = true
-            for r in runs.list(filter, after: nil, limit: 500).runs
+            for r in activeRuns(of: id)
             where !desktopAllowed(ConnectionState.paired(id), r.desktopId) || !saved.capabilities.contains("run") {
                 _ = execution.stop(runId: r.runId, reason: "grant_narrowed", endAs: .cancelled)
             }
