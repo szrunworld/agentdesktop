@@ -451,6 +451,13 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             unlink(tmp.path)
             throw ACPFileSessionStoreError.io("write")
         }
+        // Make the rename itself durable before anyone records it as done
+        // (Codex on #141: a synced "done" log line must not outlive an
+        // unsynced rename after a power loss).
+        let dfd = open(directory.path, O_RDONLY | O_DIRECTORY)
+        guard dfd >= 0 else { throw ACPFileSessionStoreError.io("dir open errno \(errno)") }
+        defer { close(dfd) }
+        guard fsync(dfd) == 0 else { throw ACPFileSessionStoreError.io("dir fsync errno \(errno)") }
     }
 
     // MARK: Format
