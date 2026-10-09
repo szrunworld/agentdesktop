@@ -320,6 +320,20 @@ func fast() -> PasteWatcher {
             return
         }
     }
+
+    /// #180: the input barrier refused the ⌘V before sending ("stale_observation
+    /// (delivery_unknown)" names an earlier input's unknown result): nothing
+    /// was sent, so nothing was pasted.
+    @Test func pasteKeyRefusedByTheBarrierIsNotDelivered() {
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard])
+        phone.pasteResponse = .failure("stale_observation (delivery_unknown): the window may hold the result of an "
+            + "input whose delivery failed midway after an earlier input; take a screenshot before any more input")
+        guard case .notDelivered = fast().paste("hello", verify: true, driver: phone) else {
+            Issue.record("a ⌘V refused before sending was not sent")
+            return
+        }
+        #expect(phone.looks == 1)
+    }
 }
 
 @Suite struct PasteResponses {
@@ -397,6 +411,26 @@ func fast() -> PasteWatcher {
         #expect(phone.pasted == ["hello"])
         #expect(pasteboard.data(forType: .png) == Data([1, 2, 3]))
         #expect(pasteboard.string(forType: .string) == nil)
+    }
+
+    /// #180: a ⌘V the barrier refused hands the user's clipboard back at
+    /// once; it raises no barrier of its own and waits for no fetch.
+    @Test func aPasteTheBarrierRefusedRestoresTheClipboardAtOnce() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("USER", forType: .string)
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard])
+        phone.pasteboard = pasteboard
+        phone.pasteResponse = .failure("stale_observation (delivery_unknown): take a screenshot before any more input")
+        let result = transaction(pasteboard, lock).paste("hello", verify: true, driver: phone)
+        guard case .notDelivered = result.outcome else {
+            Issue.record("expected notDelivered, got \(result.outcome)")
+            return
+        }
+        #expect(result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "USER")
+        #expect(phone.blocked.isEmpty)
     }
 
     @Test func refusesAPromiseAndLeavesTheClipboard() {

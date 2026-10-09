@@ -278,10 +278,13 @@ public struct PasteWatcher {
 
     /// Whether a failed ⌘V may still have reached the phone, as the screen
     /// says of input whose delivery failed after it went out.
+    /// Not a refusal before sending: the input barrier's "stale_observation
+    /// (delivery_unknown)" names an earlier input's unknown result, and this
+    /// ⌘V was never sent (#180).
     static func mayHaveReached(_ response: ControlResponse) -> Bool {
         if response.route?.hasSuffix(".unknown") == true { return true }
         guard let error = response.error else { return false }
-        return error.hasPrefix("action_delivery_unknown") || error.contains("(delivery_unknown)")
+        return error.hasPrefix("action_delivery_unknown")
     }
 
     /// `verify`: whether the text may be read back off the screen to
