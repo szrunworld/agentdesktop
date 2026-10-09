@@ -95,3 +95,15 @@ import Testing
     #expect(store.info("art_mid") != nil)
     #expect(store.info("art_new") != nil)
 }
+
+// A Runtime without storage keeps its artifacts in a scratch directory that
+// goes with it: test runs left tens of thousands behind in the temp folder.
+@Test func aScratchArtifactDirectoryGoesWithItsRuntime() throws {
+    var dir = ""
+    do {
+        let s = makeService()
+        dir = s.artifacts.directory
+        #expect(FileManager.default.fileExists(atPath: dir))
+    }
+    #expect(!FileManager.default.fileExists(atPath: dir))
+}

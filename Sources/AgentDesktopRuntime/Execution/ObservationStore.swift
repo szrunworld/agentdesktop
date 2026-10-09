@@ -81,6 +81,13 @@ public final class ArtifactStore: @unchecked Sendable {
     private let clock: () -> Date
     private let lock = NSLock()
     private var lastSweep: Date
+    /// A scratch store (a Runtime without storage, as in tests): its
+    /// directory goes with it, so test runs leave nothing in the temp folder.
+    var removesDirectoryWhenDone = false
+
+    deinit {
+        if removesDirectoryWhenDone { try? FileManager.default.removeItem(atPath: directory) }
+    }
 
     public init(directory: String, now: @escaping () -> Date = Date.init) throws {
         self.directory = directory

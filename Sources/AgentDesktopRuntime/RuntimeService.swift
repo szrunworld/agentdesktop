@@ -97,8 +97,12 @@ public final class RuntimeService: @unchecked Sendable {
         let runStore = runs ?? (try! RunStore(path: nil, now: now))
         self.runs = runStore
         self.execution = ExecutionCoordinator(runs: runStore, now: now)
-        self.artifacts = artifacts ?? (try! ArtifactStore(
-            directory: NSTemporaryDirectory() + "agentdesktop-artifacts-\(getpid())-\(UUID().uuidString.prefix(8))"))
+        self.artifacts = artifacts ?? {
+            let scratch = try! ArtifactStore(
+                directory: NSTemporaryDirectory() + "agentdesktop-artifacts-\(getpid())-\(UUID().uuidString.prefix(8))")
+            scratch.removesDirectoryWhenDone = true
+            return scratch
+        }()
         self.contract = contract
         self.startedAt = Timestamp.date(identity.startedAt) ?? now()
         self.now = now
