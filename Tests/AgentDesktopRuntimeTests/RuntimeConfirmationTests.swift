@@ -741,11 +741,12 @@ func anApprovedChangeDoesNotUndoWhatTheOwnerDidWhileTheUserWasAsked(_ ownerActio
     let platform = FakePlatform()
     let s = platformService(platform)
     let (sc, _, _) = try pairedScene(s, platform)   // grant: com.apple.calculator
-    for params in [#"{"desktopId":"\#(sc.desktop)","bundleId":"com.apple.calculator","path":"/System/Applications/Notes.app"}"#,
-                   #"{"desktopId":"\#(sc.desktop)","path":"/System/Applications/Notes.app"}"#] {
-        let r = call(s, sc.c, "app.launch", params: params)
-        #expect(code(r) != nil, "\(params)")
-    }
+    // Both named: the contract allows one of the two (oneOf).
+    let both = call(s, sc.c, "app.launch", params: #"{"desktopId":"\#(sc.desktop)","bundleId":"com.apple.calculator","path":"/System/Applications/Notes.app"}"#)
+    #expect(code(both) == "schema_invalid")
+    // A path alone: no app identity the grant could name.
+    let path = call(s, sc.c, "app.launch", params: #"{"desktopId":"\#(sc.desktop)","path":"/System/Applications/Notes.app"}"#)
+    #expect(code(path) == "grant_missing" && errorDetails(path)?["reason"]?.stringValue == "launch_requires_grant")
     #expect(platform.calls.filter { $0.hasPrefix("launch") }.isEmpty)
     #expect(data(call(s, sc.c, "app.launch", params: #"{"desktopId":"\#(sc.desktop)","bundleId":"com.apple.calculator"}"#)) != nil)
 }
