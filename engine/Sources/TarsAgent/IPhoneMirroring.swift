@@ -94,8 +94,9 @@ public protocol IPhoneMirroringSystem {
 
 /// Changes to a `HostFlag` made by one process at a time: an exclusive
 /// `flock` on a file beside it, so reading it and changing it is one step
-/// against every process that changes it this way. Readers that only look
-/// need no lock (the flag is renamed in whole).
+/// against every process that changes it this way. A reader that acts on
+/// what it read (input sent only while the flag is down) holds it shared:
+/// readers run side by side, never while a change is being made.
 struct HostFlagLock {
     let url: URL
     let wait: TimeInterval
@@ -110,16 +111,16 @@ struct HostFlagLock {
         var errorDescription: String? { "another process holds \(path)" }
     }
 
-    /// Run `body` holding the lock; throws, without running it, when the
-    /// lock cannot be had within `wait`.
-    func locked<T>(_ body: () throws -> T) throws -> T {
+    /// Run `body` holding the lock, exclusive or `shared`; throws, without
+    /// running it, when the lock cannot be had within `wait`.
+    func locked<T>(shared: Bool = false, _ body: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         let fd = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
         defer { close(fd) }
         let end = Date().addingTimeInterval(wait)
-        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+        while flock(fd, (shared ? LOCK_SH : LOCK_EX) | LOCK_NB) != 0 {
             guard errno == EWOULDBLOCK || errno == EINTR, Date() < end else { throw Busy(path: url.path) }
             Thread.sleep(forTimeInterval: 0.02)
         }

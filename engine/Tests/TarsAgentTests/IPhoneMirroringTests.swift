@@ -1179,3 +1179,89 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
     }
 }
+
+/// Codex review of 98f049d: input checks the gate and is sent under the
+/// gate's lock (shared), so a reconnect cannot raise it and press between
+/// the check and the send; a reconnect that waited for the lock looks
+/// again at whether it should still press.
+@Suite struct IPhoneReconnectGateInputTests {
+    final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        func set() { lock.lock(); value = true; lock.unlock() }
+        var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    }
+
+    @Test func inputWaitsForAReconnectChangingTheGateAndSendsNothingWithout() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.gateLockWait = 0.2
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        let fd = try IPhoneReconnectGateLockTests.holdLock(of: fake.reconnectGate)
+        let refused = try phone.perform(tap(3100, 300))
+        IPhoneReconnectGateLockTests.release(fd)
+        #expect(refused.error?.hasPrefix("not_connected (unconfirmed)") == true)
+        #expect(fake.inputs.isEmpty)
+        #expect(try phone.perform(tap(3100, 300)).ok)
+        #expect(fake.inputs.count == 1)
+    }
+
+    /// Input from other processes runs side by side: the lock is shared.
+    @Test func inputsDoNotStopEachOther() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.gateLockWait = 0.2
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        try FileManager.default.createDirectory(at: fake.reconnectGate.url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        let fd = open(fake.reconnectGate.url.path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        #expect(fd >= 0 && flock(fd, LOCK_SH | LOCK_NB) == 0)
+        defer { flock(fd, LOCK_UN); close(fd) }
+        #expect(try phone.perform(tap(3100, 300)).ok)
+    }
+
+    @Test func aReconnectCancelledWhileItWaitedForTheLockPressesNothing() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connection Paused", "Resume"]
+        fake.buttons = ["Resume"]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        let cancelled = Flag()
+        phone.isCancelled = { cancelled.isSet }
+        let fd = try IPhoneReconnectGateLockTests.holdLock(of: fake.reconnectGate)
+        Thread.detachNewThread {
+            Thread.sleep(forTimeInterval: 0.3)
+            cancelled.set()
+            IPhoneReconnectGateLockTests.release(fd)
+        }
+        #expect(throws: IPhoneError("cancelled", "stopped; nothing more is sent")) { try phone.reconnect(timeout: 20) }
+        #expect(fake.pressed.isEmpty)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
+    }
+
+    /// A Mac whose clock reads past any timeout once `late` is set.
+    final class Clocked: FakeMirroring {
+        let late = Flag()
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        override var now: Date { late.isSet ? start.addingTimeInterval(60) : start }
+    }
+
+    @Test func aReconnectPastItsTimeoutWhenTheLockCamePressesNothing() throws {
+        let fake = Clocked()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connection Paused", "Resume"]
+        fake.buttons = ["Resume"]
+        let fd = try IPhoneReconnectGateLockTests.holdLock(of: fake.reconnectGate)
+        Thread.detachNewThread {
+            Thread.sleep(forTimeInterval: 0.3)
+            fake.late.set()
+            IPhoneReconnectGateLockTests.release(fd)
+        }
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5)
+        #expect(report.pressed == nil && !report.isReady && report.timedOut)
+        #expect(fake.pressed.isEmpty)
+        #expect(fake.reconnectGate.reason(now: fake.start) == nil)
+    }
+}

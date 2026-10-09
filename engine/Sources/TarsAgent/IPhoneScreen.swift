@@ -267,10 +267,16 @@ public final class IPhoneAgentScreen: AgentScreen {
             let gate = "iPhone Mirroring was asked to connect at \(system.now) (process \(getpid()), "
                 + "\(UUID().uuidString)) and has not been confirmed ready"
             // Raising, pressing and putting back are one step against other
-            // reconnects: the gate then always names the latest press.
-            let title: String?
+            // reconnects and against input: the gate then always names the
+            // latest press, and no input is sent between raising and pressing.
+            enum Press { case pressed(String), noButton, timedOut }
+            let press: Press
             do {
-                title = try gateLock.locked { () throws -> String? in
+                press = try gateLock.locked { () throws -> Press in
+                    // The wait for the lock may have outlasted the call:
+                    // stopped or out of time, nothing is changed or pressed.
+                    if let stop = stopReason() { throw stop }
+                    if system.now >= until { return .timedOut }
                     let before = system.reconnectGate.reason(now: system.now)
                     try system.reconnectGate.raise(gate)
                     guard let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid,
@@ -279,16 +285,23 @@ public final class IPhoneAgentScreen: AgentScreen {
                         // Nothing pressed: the gate as it was, which nobody
                         // else could change meanwhile.
                         if let before { try? system.reconnectGate.raise(before) } else { system.reconnectGate.lower() }
-                        return nil
+                        return .noButton
                     }
-                    return title
+                    return .pressed(title)
                 }
+            } catch let stop as IPhoneError {
+                throw stop
             } catch {
                 var refused = report(.notReady, pressed: nil, timedOut: false)
                 refused.blockedBy = "cannot record the reconnect for other processes (\(error.localizedDescription)); nothing pressed"
                 return refused
             }
-            guard let title else { return report(.notReady, pressed: nil, timedOut: false) }
+            let title: String
+            switch press {
+            case .pressed(let pressedTitle): title = pressedTitle
+            case .noButton: return report(.notReady, pressed: nil, timedOut: false)
+            case .timedOut: return report(.notReady, pressed: nil, timedOut: true)
+            }
             gateKnown = gate
             pressed = title
             // What was seen before the press says nothing about after it.
@@ -431,17 +444,27 @@ public final class IPhoneAgentScreen: AgentScreen {
     private func send(_ action: InputAction, pid: pid_t) throws -> ControlResponse {
         if let stop = stopReason() { return .failure(stop.localizedDescription) }
         let window: IPhoneWindow
+        let response: ControlResponse
         do {
-            window = try verifiedTarget(pid: pid)
+            // Checked and sent under the reconnect gate's lock, shared: a
+            // reconnect cannot raise the gate and press between the check
+            // and the send (other input is not held up).
+            (window, response) = try gateLock.locked(shared: true) { () throws -> (IPhoneWindow, ControlResponse) in
+                let window = try verifiedTarget(pid: pid)
+                var request = ControlRequest(command: .input)
+                request.screen = screen
+                request.pid = pid
+                request.windowID = window.windowID
+                request.input = action
+                return (window, try system.deliver(request))
+            }
         } catch let refusal as IPhoneError {
             return .failure(refusal.localizedDescription)
+        } catch let busy as HostFlagLock.Busy {
+            return .failure(IPhoneError("not_connected", reason: "unconfirmed",
+                                        "a reconnect is changing the connection (\(busy.localizedDescription)); "
+                                            + "run `agentdesktop iphone reconnect` until it reports ready").localizedDescription)
         }
-        var request = ControlRequest(command: .input)
-        request.screen = screen
-        request.pid = pid
-        request.windowID = window.windowID
-        request.input = action
-        let response = try system.deliver(request)
         // Checking and sending cannot be one step: if the window changed
         // around the send, the input may have gone elsewhere. Unknown, not
         // success, and nothing more until the window is read again.
