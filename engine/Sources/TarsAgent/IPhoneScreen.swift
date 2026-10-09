@@ -291,7 +291,7 @@ public final class IPhoneAgentScreen: AgentScreen {
                 }
             } catch let stop as IPhoneError {
                 throw stop
-            } catch is HostFlagLock.GaveUp {
+            } catch HostFlagLock.Failure.gaveUp {
                 if let stop = stopReason() { throw stop }
                 return report(.notReady, pressed: nil, timedOut: true)
             } catch {
@@ -348,7 +348,7 @@ public final class IPhoneAgentScreen: AgentScreen {
         // Compared and lowered as one step: a press by another process
         // meanwhile is not confirmed by looks begun before it, and is never
         // lowered here.
-        enum Lowering { case lowered, pressedElsewhere(String?), timedOut }
+        enum Lowering { case lowered, pressedElsewhere(String?), timedOut, barrier(String) }
         let lowering: Lowering
         do {
             lowering = try gateLock.locked(giveUp: { stopReason() != nil || system.now >= until }) { () throws -> Lowering in
@@ -356,6 +356,8 @@ public final class IPhoneAgentScreen: AgentScreen {
                 // or out of time, the looks are stale and nothing is lowered.
                 if let stop = stopReason() { throw stop }
                 if system.now >= until { return .timedOut }
+                // An input that ran while this waited may have raised it.
+                if let reason = invalidated ?? system.inputBarrier.reason(now: system.now) { return .barrier(reason) }
                 let gate = system.reconnectGate.reason(now: system.now)
                 guard gate == gateKnown else { return .pressedElsewhere(gate) }
                 system.reconnectGate.lower()
@@ -363,7 +365,7 @@ public final class IPhoneAgentScreen: AgentScreen {
             }
         } catch let stop as IPhoneError {
             throw stop
-        } catch is HostFlagLock.GaveUp {
+        } catch HostFlagLock.Failure.gaveUp {
             if let stop = stopReason() { throw stop }
             return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true)
         } catch {
@@ -378,6 +380,10 @@ public final class IPhoneAgentScreen: AgentScreen {
             return report(.ready, pressed: pressed, timedOut: false)
         case .timedOut:
             return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true)
+        case .barrier(let reason):
+            var blocked = report(.notReady, pressed: pressed, timedOut: false)
+            blocked.blockedBy = "input barrier: \(reason); take a screenshot first"
+            return blocked
         case .pressedElsewhere(let gate):
             var blocked = report(.notReady, pressed: pressed, timedOut: false)
             blocked.blockedBy = "another reconnect pressed a button meanwhile (\(gate ?? "its record is gone")); "
@@ -429,11 +435,23 @@ public final class IPhoneAgentScreen: AgentScreen {
             let submit = text.hasSuffix("\n")
             if submit { text.removeLast() }
             if text.isEmpty { return try send(key("return", []), pid: pid) }
-            let pasted = try paste(text, pid: pid)
-            if case .unknown = pasted.outcome {
-                // Whatever acts next depends on what the field holds, which
-                // nobody knows: no input until the phone is read again.
-                block("may hold a half-finished paste")
+            // The whole paste, and the barrier an unknown one raises, under
+            // the gate's lock (shared): no reconnect confirms the phone in
+            // between.
+            let pasted: PasteTransaction.Result
+            do {
+                pasted = try gateLock.locked(shared: true, giveUp: { stopReason() != nil }) {
+                    let pasted = try paste(text, pid: pid)
+                    if case .unknown = pasted.outcome {
+                        // Whatever acts next depends on what the field holds,
+                        // which nobody knows: no input until the phone is
+                        // read again.
+                        block("may hold a half-finished paste")
+                    }
+                    return pasted
+                }
+            } catch let gate as HostFlagLock.Failure {
+                return .failure(refusal(gate).localizedDescription)
             }
             return try pasted.outcome.response(submit: submit, clipboardRestored: pasted.clipboardRestored) {
                 try send(key("return", []), pid: pid)
@@ -460,14 +478,15 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// window and geometry last read; a refusal sends nothing.
     private func send(_ action: InputAction, pid: pid_t) throws -> ControlResponse {
         if let stop = stopReason() { return .failure(stop.localizedDescription) }
-        let window: IPhoneWindow
         let response: ControlResponse
+        let unknown: Bool
         do {
-            // Checked and sent under the reconnect gate's lock, shared: a
-            // reconnect cannot raise the gate and press between the check
-            // and the send (other input is not held up).
-            (window, response) = try gateLock.locked(shared: true, giveUp: { stopReason() != nil }) {
-                () throws -> (IPhoneWindow, ControlResponse) in
+            // Checked, sent and checked again under the reconnect gate's
+            // lock, shared: a reconnect cannot raise the gate and press
+            // between the check and the send, nor confirm the phone before a
+            // barrier this input raises is up (other input is not held up).
+            (response, unknown) = try gateLock.locked(shared: true, giveUp: { stopReason() != nil }) {
+                () throws -> (ControlResponse, Bool) in
                 // Stopped while waiting for the lock: nothing is sent.
                 if let stop = stopReason() { throw stop }
                 let window = try verifiedTarget(pid: pid)
@@ -476,33 +495,41 @@ public final class IPhoneAgentScreen: AgentScreen {
                 request.pid = pid
                 request.windowID = window.windowID
                 request.input = action
-                return (window, try system.deliver(request))
+                let response = try system.deliver(request)
+                // Checking and sending cannot be one step: if the window
+                // changed around the send, the input may have gone elsewhere.
+                // Unknown, not success, and nothing more until the window is
+                // read again.
+                guard let changed = changedAfterSend(window, response) else { return (response, false) }
+                block(changed)
+                var unknown = ControlResponse.failure(IPhoneError(
+                    "action_delivery_unknown", reason: "target_changed_during_dispatch",
+                    "window \(window.windowID) \(changed) while input was sent; it may have reached something else. "
+                        + "Take a new screenshot before deciding on another action", notSent: false).localizedDescription)
+                unknown.route = response.route
+                unknown.window = response.window
+                return (unknown, true)
             }
         } catch let refusal as IPhoneError {
             return .failure(refusal.localizedDescription)
-        } catch is HostFlagLock.GaveUp {
-            return .failure((stopReason() ?? IPhoneError("cancelled", "stopped; nothing more is sent")).localizedDescription)
-        } catch let busy as HostFlagLock.Busy {
-            return .failure(IPhoneError("not_connected", reason: "unconfirmed",
-                                        "a reconnect is changing the connection (\(busy.localizedDescription)); "
-                                            + "run `agentdesktop iphone reconnect` until it reports ready").localizedDescription)
-        }
-        // Checking and sending cannot be one step: if the window changed
-        // around the send, the input may have gone elsewhere. Unknown, not
-        // success, and nothing more until the window is read again.
-        if let changed = changedAfterSend(window, response) {
-            block(changed)
-            var unknown = ControlResponse.failure(IPhoneError(
-                "action_delivery_unknown", reason: "target_changed_during_dispatch",
-                "window \(window.windowID) \(changed) while input was sent; it may have reached something else. "
-                    + "Take a new screenshot before deciding on another action", notSent: false).localizedDescription)
-            unknown.route = response.route
-            unknown.window = response.window
-            return unknown
+        } catch let gate as HostFlagLock.Failure {
+            return .failure(refusal(gate).localizedDescription)
         }
         // Let the phone draw the result before the next screenshot.
-        pause(0.6)
+        if !unknown { pause(0.6) }
         return response
+    }
+
+    /// Why input was not sent when the gate's lock was not had.
+    private func refusal(_ failure: HostFlagLock.Failure) -> IPhoneError {
+        switch failure {
+        case .gaveUp:
+            return stopReason() ?? IPhoneError("cancelled", "stopped; nothing more is sent")
+        case .busy(let path):
+            return IPhoneError("not_connected", reason: "unconfirmed",
+                               "a reconnect is changing the connection (another process holds \(path)); "
+                                   + "run `agentdesktop iphone reconnect` until it reports ready")
+        }
     }
 
     /// No more input to this phone, from this or any process, until a
@@ -544,9 +571,23 @@ public final class IPhoneAgentScreen: AgentScreen {
         }
         // The phone may have gone since the screenshot: then the window is a
         // status page, and a tap could press Mirroring's own Try Again or
-        // Resume. Its accessibility texts say so cheaply; unread, they say
-        // nothing, which is not ready either.
-        let status = IPhoneConnection.classify(system.accessibilityLabels(pid: pid, windowID: bound.windowID))
+        // Resume. Read as a screenshot is: its accessibility texts and its
+        // picture, captured again, since a status page may show its message
+        // only in the picture. Unread or not captured, nothing is known,
+        // which is not ready either.
+        let capture: IPhoneWindowCapture
+        do {
+            capture = try system.captureWindow(screen: screen, pid: pid, windowID: bound.windowID)
+        } catch {
+            throw IPhoneError("not_connected", reason: IPhoneConnectionState.uncertain.rawValue,
+                              "window \(bound.windowID) could not be captured to check it before input "
+                                  + "(\(error.localizedDescription))")
+        }
+        guard capture.windowID == bound.windowID, IPhoneObservation.sameFrame(capture.frame, bound.frame) else {
+            throw IPhoneError.stale("moved", "window \(bound.windowID) moved or resized since it was read")
+        }
+        let status = IPhoneConnection.classify(system.accessibilityLabels(pid: pid, windowID: bound.windowID),
+                                               ocr: system.recognizedText(in: capture.image))
         guard status.state == .ready else {
             throw IPhoneError("not_connected", reason: status.state.rawValue,
                               "iPhone Mirroring shows \"\(status.label ?? status.state.rawValue)\": \(status.state.hint)")

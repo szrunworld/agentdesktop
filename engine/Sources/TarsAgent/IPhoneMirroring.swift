@@ -106,18 +106,24 @@ struct HostFlagLock {
         self.wait = wait
     }
 
-    struct Busy: LocalizedError {
-        let path: String
-        var errorDescription: String? { "another process holds \(path)" }
+    /// Why `body` did not run.
+    enum Failure: LocalizedError, Equatable {
+        /// Another process held the lock all of `wait`.
+        case busy(path: String)
+        /// The caller gave up waiting (stopped, out of time) first.
+        case gaveUp
+
+        var errorDescription: String? {
+            switch self {
+            case .busy(let path): return "another process holds \(path)"
+            case .gaveUp: return "gave up waiting for the lock"
+            }
+        }
     }
 
-    /// The caller gave up waiting (stopped, out of time) before the lock
-    /// was had.
-    struct GaveUp: Error {}
-
     /// Run `body` holding the lock, exclusive or `shared`; throws, without
-    /// running it, when the lock cannot be had within `wait` (`Busy`), or
-    /// as soon as `giveUp` says so while waiting (`GaveUp`).
+    /// running it, when the lock cannot be had within `wait` (`.busy`), or
+    /// as soon as `giveUp` says so while waiting (`.gaveUp`).
     func locked<T>(shared: Bool = false, giveUp: () -> Bool = { false }, _ body: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
@@ -126,11 +132,11 @@ struct HostFlagLock {
         defer { close(fd) }
         let end = Date().addingTimeInterval(wait)
         while flock(fd, (shared ? LOCK_SH : LOCK_EX) | LOCK_NB) != 0 {
-            guard errno == EWOULDBLOCK || errno == EINTR else { throw Busy(path: url.path) }
+            guard errno == EWOULDBLOCK || errno == EINTR else { throw Failure.busy(path: url.path) }
             // Before the wait's own end: a caller stopped by then was
             // stopped, the lock was not merely busy.
-            if giveUp() { throw GaveUp() }
-            guard Date() < end else { throw Busy(path: url.path) }
+            if giveUp() { throw Failure.gaveUp }
+            guard Date() < end else { throw Failure.busy(path: url.path) }
             Thread.sleep(forTimeInterval: 0.02)
         }
         defer { flock(fd, LOCK_UN) }

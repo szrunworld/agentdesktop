@@ -28,7 +28,7 @@ class FakeMirroring: IPhoneMirroringSystem {
     var sleeps = 0
     var onSleep: (() -> Void)?
     var createFails = false
-    let inputBarrier = HostFlag(url: FileManager.default.temporaryDirectory
+    var inputBarrier = HostFlag(url: FileManager.default.temporaryDirectory
         .appendingPathComponent("agentdesktop-barrier-\(UUID().uuidString)/iphone-input-barrier"))
     var createdScreens = 0
     /// Shared between fakes to stand for two processes on one Mac.
@@ -1420,7 +1420,7 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let fd = try IPhoneReconnectGateLockTests.holdLock(of: gate)
         defer { IPhoneReconnectGateLockTests.release(fd) }
         var ran = false
-        #expect(throws: HostFlagLock.GaveUp.self) {
+        #expect(throws: HostFlagLock.Failure.gaveUp) {
             try HostFlagLock(for: gate, wait: 0).locked(giveUp: { true }) { ran = true }
         }
         #expect(!ran)
@@ -1440,5 +1440,56 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let response = try phone.perform(tap(3100, 300))
         #expect(response.error?.hasPrefix("cancelled") == true)
         #expect(fake.inputs.isEmpty)
+    }
+}
+
+/// Codex review of c74af97.
+@Suite struct IPhonePreDispatchTests {
+    /// A status page drawn as a picture, with nothing of it in
+    /// accessibility: the check before input reads the picture too.
+    @Test func aStatusPageSeenOnlyInThePictureRefusesInput() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        fake.ocr = ["iPhone in Use"]
+        let response = try phone.perform(tap(3100, 300))
+        #expect(response.error?.hasPrefix("not_connected (uncertain)") == true)
+        #expect(fake.inputs.isEmpty)
+    }
+
+    /// An input whose window moved while it was sent raises the barrier
+    /// before it lets go of the gate's lock; a reconnect waiting for the
+    /// lock sees the barrier once it has it, and does not report ready.
+    @Test func aReconnectWaitingOnAnInputSeesTheBarrierItRaised() throws {
+        let input = FakeMirroring()
+        let other = FakeMirroring()
+        other.reconnectGate = input.reconnectGate
+        other.inputBarrier = input.inputBarrier
+        defer { input.reconnectGate.lower(); input.inputBarrier.lower() }
+        let phone = IPhoneAgentScreen(screen: "phone", system: input)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+
+        let aboutToConfirm = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        other.onSleep = { if other.sleeps == IPhoneConnectionTracker.defaultStableReadings - 1 { aboutToConfirm.signal() } }
+        final class Box: @unchecked Sendable { var report: IPhoneAgentScreen.ReconnectReport? }
+        let box = Box()
+        input.afterDeliver = {
+            Thread.detachNewThread {
+                box.report = try? IPhoneAgentScreen(screen: "phone", system: other).reconnect(timeout: 20)
+                finished.signal()
+            }
+            // The reconnect has seen the phone ready and checked the
+            // barrier (down); it now waits for the lock this input holds.
+            _ = aboutToConfirm.wait(timeout: .now() + 5)
+            Thread.sleep(forTimeInterval: 0.2)
+            input.move(7, to: CGRect(x: 3020, y: 40, width: 330, height: 720))
+        }
+        let response = try phone.perform(tap(3100, 300))
+        #expect(response.error?.hasPrefix("action_delivery_unknown") == true)
+        #expect(finished.wait(timeout: .now() + 15) == .success)
+        #expect(box.report?.isReady == false)
+        #expect(box.report?.blockedBy?.contains("input barrier") == true)
     }
 }
