@@ -41,6 +41,10 @@ public struct RuntimeProblem: Equatable, Sendable {
             return "在逐窗口授权上线前，只能绑定由这个 Desktop 启动的应用。请改用“启动应用”。"
         case "screen_capture_requires_grant":
             return "这个 Desktop 还没有绑定窗口；没有整屏授权时不截整个屏幕。请先绑定窗口。"
+        case "no_launch_apps_configured":
+            return "未配置允许启动的应用。启动前必须能证明新进程确实由这次启动创建；目前没有任何应用通过这项验证，所以 AgentDesktop 不会打开它。"
+        case "launch_not_verified":
+            return "这个应用（或它的当前版本）还没有通过启动归属验证，AgentDesktop 不会打开它。应用更新后需要重新验证。"
         case "physical_desktop_requires_grant":
             return "在逐窗口授权上线前，不能把你的显示器作为 Desktop。请使用虚拟 Desktop。"
         default:

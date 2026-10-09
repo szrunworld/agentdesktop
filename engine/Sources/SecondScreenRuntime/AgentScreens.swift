@@ -252,7 +252,10 @@ public final class AgentScreens {
         let owned: LaunchedProcess
         switch await LaunchOwnership.openOwnedProcess(url, newInstance: newInstance, using: launching) {
         case let .success(o): owned = o
-        case let .failure(refusal): return .failure(refusal.message)
+        case let .failure(refusal):
+            var response = ControlResponse.failure(refusal.message)
+            response.reason = refusal.reason
+            return response
         }
         let pid = owned.pid
 
@@ -264,7 +267,13 @@ public final class AgentScreens {
             // Started for the agent but nothing to place: left running it
             // would stay on the user's display, owned by no Desktop.
             await launching.quit(owned)
-            var response = ControlResponse.failure("the app launched but showed no window within 15 seconds; it was quit")
+            // An app that restarted itself into another process: that one
+            // was not started by this launch and is left alone, so say so.
+            let id = launching.bundleInfo(url).id ?? ""
+            let others = id.isEmpty ? [] : launching.processes(id).subtracting([pid])
+            var response = ControlResponse.failure(others.isEmpty
+                ? "the app launched but showed no window within 15 seconds; it was quit"
+                : "the app launched, showed no window and handed over to another process this launch cannot prove it started; its own process was quit, the other was left alone and may show a window on your screen")
             response.pid = pid
             return response
         }

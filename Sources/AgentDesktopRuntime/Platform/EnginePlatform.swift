@@ -132,7 +132,14 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         r.bundleID = bundleId
         r.path = path
         r.newInstance = newInstance
-        let response = try check(handle(r))
+        let answer = handle(r)
+        // Refused before anything was opened: say so, with the reason, so a
+        // client can tell "not allowed" from a launch that failed.
+        if !answer.ok, let reason = answer.reason, ["no_launch_apps_configured", "launch_not_verified"].contains(reason) {
+            throw RuntimeError("permission_denied", answer.error ?? "the app was not opened", phase: .handler, notSent: true,
+                               details: .obj([("reason", .string(reason))]))
+        }
+        let response = try check(answer)
         guard let pid = response.pid else { throw PlatformError(.refused, "the engine reported no process") }
         // The engine refuses a launch that returns an already-running
         // process before it moves or binds anything (AgentScreens.launch).

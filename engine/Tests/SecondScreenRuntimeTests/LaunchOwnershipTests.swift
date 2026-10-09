@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 @testable import SecondScreenCore
@@ -23,7 +24,9 @@ final class ScriptedSystem: @unchecked Sendable {
     var binds: [pid_t] = []
     var quitPIDs: [pid_t] = []
     var focusReturned: [(pid_t, pid_t)] = []
-    var verified = true
+    /// The signed identity each bundle reports, and the verifications in force.
+    var identities: [String: AppIdentity] = [:]
+    var verifications: [VerifiedApp]? = nil   // nil: every identity on disk is verified
 
     var launching: AppLaunching {
         var l = AppLaunching(
@@ -48,7 +51,24 @@ final class ScriptedSystem: @unchecked Sendable {
             firstWindow: { pid, _ in self.lock.withLock { self.window.map { WindowInfo(pid: pid, windowID: $0.windowID, appName: $0.appName, title: $0.title, frame: $0.frame) } } },
             move: { _, _, _ in self.lock.withLock { self.moves += 1 }; return true })
         l.bound = { pid in self.lock.withLock { self.binds.append(pid) } }
-        l.verifiedProvable = { _ in self.lock.withLock { self.verified } }
+        l.identity = { url in
+            self.lock.withLock {
+                if let i = self.identities[url.path] { return i }
+                guard let id = self.bundles[url.path]?.id ?? nil else { return nil }
+                return AppIdentity(bundleId: id, teamId: "TEAM1", signingIdentifier: id, version: "1.0", build: "100")
+            }
+        }
+        l.verified = {
+            self.lock.withLock {
+                if let v = self.verifications { return v }
+                return self.bundles.compactMap { path, b in
+                    guard let id = b.id else { return nil }
+                    let identity = self.identities[path]
+                        ?? AppIdentity(bundleId: id, teamId: "TEAM1", signingIdentifier: id, version: "1.0", build: "100")
+                    return VerifiedApp(identity: identity, technique: "launch_token_env", verifiedOn: "2026-10-09")
+                }
+            }
+        }
         return l
     }
 
@@ -184,7 +204,7 @@ func touchedNothing(_ sys: ScriptedSystem, _ screens: AgentScreens) -> Bool {
     let sys = ScriptedSystem()
     let (app, cleanup) = try tempApp(sys)
     defer { cleanup() }
-    sys.verified = false
+    sys.verifications = []
     sys.onOpen = { s, env in s.launchStarts(900, env) }
     let (r, screens) = await launch(sys, app)
     #expect(!r.ok)
@@ -193,8 +213,93 @@ func touchedNothing(_ sys: ScriptedSystem, _ screens: AgentScreens) -> Bool {
     #expect(sys.focusReturned.isEmpty)
     // The shipped list is empty until apps are verified one by one.
     #expect(LaunchOwnership.verifiedApps.isEmpty)
-    #expect(!AppLaunching.system.verifiedProvable("com.google.Chrome"))
-    #expect(!AppLaunching.system.verifiedProvable("com.apple.Notes"))
+}
+
+// Kevin's ruling: a verification holds only for the identity it was made
+// on. A new version or build, another team, another signing identifier, or
+// a signature that no longer verifies: refused before opening.
+@MainActor
+@Test func aVerificationHoldsOnlyForTheExactSignedBuild() async throws {
+    let verifiedOn = AppIdentity(bundleId: "com.apple.Notes", teamId: "TEAM1", signingIdentifier: "com.apple.Notes",
+                                 version: "1.0", build: "100")
+    var updated = verifiedOn; updated.build = "101"
+    var newVersion = verifiedOn; newVersion.version = "2.0"
+    var otherTeam = verifiedOn; otherTeam.teamId = "EVIL1"
+    var otherSigner = verifiedOn; otherSigner.signingIdentifier = "com.example.repack"
+    for (onDisk, why) in [(updated, "build"), (newVersion, "version"), (otherTeam, "team"), (otherSigner, "signer")] as [(AppIdentity?, String)] + [(nil, "no valid signature")] {
+        let sys = ScriptedSystem()
+        let (app, cleanup) = try tempApp(sys)
+        defer { cleanup() }
+        sys.verifications = [VerifiedApp(identity: verifiedOn, technique: "launch_token_env", verifiedOn: "2026-10-09")]
+        if let onDisk { sys.identities[app.path] = onDisk } else { sys.identities[app.path] = nil; sys.bundles[app.path] = ("com.apple.Notes", false) }
+        if onDisk == nil {
+            // An unreadable signature: the identity reader returns nil.
+            var l = sys.launching
+            l.identity = { _ in nil }
+            let r = await LaunchOwnership.openOwnedProcess(app, newInstance: true, using: l)
+            #expect(r.isRefused, "\(why)")
+            #expect(sys.opened == 0, "\(why): never opened")
+            continue
+        }
+        sys.onOpen = { s, env in s.launchStarts(900, env) }
+        let (r, screens) = await launch(sys, app)
+        #expect(!r.ok, "\(why)")
+        #expect(sys.opened == 0, "\(why): never opened")
+        #expect(touchedNothing(sys, screens), "\(why)")
+    }
+    // A verification made with another technique does not count either.
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    sys.verifications = [VerifiedApp(identity: verifiedOn, technique: "guess", verifiedOn: "2026-10-09")]
+    sys.identities[app.path] = verifiedOn
+    let (r, _) = await launch(sys, app)
+    #expect(!r.ok)
+    #expect(sys.opened == 0)
+}
+
+// Helper and XPC processes carry their own bundle IDs: they do not make
+// the launch's process ambiguous.
+@MainActor
+@Test func helperProcessesOfTheLaunchedAppDoNotBlockIt() async throws {
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    sys.onOpen = { s, env in
+        _ = s.launchStarts(951, env, "com.apple.Notes.helper")
+        _ = s.launchStarts(952, env, "com.apple.Notes.xpc.render")
+        return s.launchStarts(950, env)
+    }
+    sys.window = WindowInfo(pid: 950, windowID: 5, appName: "Notes", title: "", frame: CGRect(x: 10, y: 10, width: 100, height: 100))
+    _ = await launch(sys, app)
+    #expect(sys.binds == [950])
+}
+
+// An app that restarts itself into another process: the launch's own
+// process is quit, the other (not proved) is left alone, and the error says
+// so instead of reporting a plain timeout.
+@MainActor
+@Test func anAppThatRestartsIntoAnotherProcessIsReportedAndOnlyItsOwnProcessQuit() async throws {
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    sys.onOpen = { s, env in s.launchStarts(960, env) }
+    var l = sys.launching
+    l.firstWindow = { pid, _ in
+        // The launched process hands over to a fresh one and shows nothing.
+        sys.lock.withLock { sys.running[961] = "com.apple.Notes"; sys.environments[961] = ["HOME": "/Users/u"] }
+        return nil
+    }
+    let screens = AgentScreens()
+    screens.launching = l
+    let target = ScreenInfo(name: "agent-1", kind: .agent, displayID: 9, width: 800, height: 600, hiDPI: false,
+                            frame: .init(CGRect(x: 0, y: 0, width: 800, height: 600)))
+    let r = await screens.launch(on: target, bundleID: nil, path: app.path, newInstance: true, fill: false)
+    #expect(!r.ok)
+    #expect(r.error?.contains("another process") == true, "\(r.error ?? "")")
+    #expect(sys.quitPIDs == [960], "only the proved process")
+    #expect(sys.running[961] != nil, "the other is left alone")
+    #expect(sys.moves == 0 && sys.binds.isEmpty)
 }
 
 @Test func theOpenAddsNoRecentItemAndNeverPrompts() {
@@ -260,4 +365,79 @@ func touchedNothing(_ sys: ScriptedSystem, _ screens: AgentScreens) -> Bool {
 
 extension Result where Failure == LaunchRefusal {
     var isRefused: Bool { if case .failure = self { return true } else { return false } }
+}
+
+// The real reader, on this machine: a signed system app has an identity;
+// a bundle without a valid signature has none (and so is never opened).
+@Test func theSignedIdentityIsReadFromTheBundleOnDisk() throws {
+    let textEdit = try #require(AppIdentity.read(URL(fileURLWithPath: "/System/Applications/TextEdit.app")))
+    #expect(textEdit.bundleId == "com.apple.TextEdit")
+    #expect(textEdit.signingIdentifier == "com.apple.TextEdit")
+    #expect(!textEdit.version.isEmpty && !textEdit.build.isEmpty)
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("unsigned-\(UUID().uuidString)")
+    let app = dir.appendingPathComponent("U.app/Contents")
+    try FileManager.default.createDirectory(at: app.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try #"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.u</string></dict></plist>"#
+        .write(to: app.appendingPathComponent("Info.plist"), atomically: true, encoding: .utf8)
+    #expect(AppIdentity.read(dir.appendingPathComponent("U.app")) == nil)
+}
+
+// Kevin: with no app verified, the refusal says "no app configured" and
+// nothing is opened; with a list, an app outside it is "not verified".
+@MainActor
+@Test func theRefusalNamesItsReason() async throws {
+    let none = ScriptedSystem()
+    let (app, cleanup) = try tempApp(none)
+    defer { cleanup() }
+    none.verifications = []
+    let (r1, _) = await launch(none, app)
+    #expect(r1.reason == "no_launch_apps_configured")
+    let other = ScriptedSystem()
+    let (app2, cleanup2) = try tempApp(other)
+    defer { cleanup2() }
+    other.verifications = [VerifiedApp(identity: AppIdentity(bundleId: "com.example.other", teamId: "T", signingIdentifier: "x",
+                                                             version: "1", build: "1"),
+                                       technique: "launch_token_env", verifiedOn: "2026-10-09")]
+    let (r2, _) = await launch(other, app2)
+    #expect(r2.reason == "launch_not_verified")
+    #expect(none.opened == 0 && other.opened == 0)
+}
+
+@Test func anUnreadableEnvironmentIsRefused() async throws {
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    sys.onOpen = { s, env in s.launchStarts(970, env) }
+    var l = sys.launching
+    l.environment = { _ in nil }
+    #expect(await LaunchOwnership.openOwnedProcess(app, newInstance: true, using: l).isRefused)
+}
+
+@Test func aNegativeArgumentCountIsNotParsed() {
+    var argc: Int32 = -3
+    var b: [UInt8] = []
+    withUnsafeBytes(of: &argc) { b += $0 }
+    b += Array("/x".utf8) + [0, 0]
+    #expect(LaunchOwnership.parseProcArgs(b) == nil)
+}
+
+// The real system, on this machine: an unverified app is refused before it
+// is opened; no process of it appears. (Nothing is opened, so this is safe
+// to run anywhere; it is skipped if the app is already running.)
+@MainActor
+@Test func aRealLaunchOfAnUnverifiedAppOpensNothing() async throws {
+    let url = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
+    guard NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.TextEdit").isEmpty else { return }
+    var l = AppLaunching.system
+    l.canPlaceWindows = { true }   // past the Accessibility check, to the launch rules
+    let screens = AgentScreens()
+    screens.launching = l
+    let target = ScreenInfo(name: "agent-x", kind: .agent, displayID: 999_999, width: 800, height: 600, hiDPI: false,
+                            frame: .init(CGRect(x: 0, y: 0, width: 800, height: 600)))
+    let r = await screens.launch(on: target, bundleID: nil, path: url.path, newInstance: true, fill: false)
+    #expect(!r.ok)
+    #expect(r.reason == "no_launch_apps_configured", "\(r.error ?? "")")
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    #expect(NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.TextEdit").isEmpty, "TextEdit was not opened")
 }

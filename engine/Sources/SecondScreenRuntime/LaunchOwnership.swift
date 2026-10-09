@@ -1,7 +1,62 @@
 import AppKit
 import Darwin
 import Foundation
+import Security
 import SecondScreenCore
+
+/// Who an app on disk is: its code signature and version, read before it is
+/// opened. A verification holds only for the exact identity it was made on.
+public struct AppIdentity: Equatable, Sendable {
+    public var bundleId: String
+    /// The signing team (nil for Apple's own apps and unsigned code).
+    public var teamId: String?
+    /// The code signature's identifier.
+    public var signingIdentifier: String
+    /// CFBundleShortVersionString and CFBundleVersion.
+    public var version: String
+    public var build: String
+    public init(bundleId: String, teamId: String?, signingIdentifier: String, version: String, build: String) {
+        self.bundleId = bundleId
+        self.teamId = teamId
+        self.signingIdentifier = signingIdentifier
+        self.version = version
+        self.build = build
+    }
+
+    /// Read from the bundle, with its signature checked. nil: unsigned, the
+    /// signature does not verify, or the bundle cannot be read.
+    public static func read(_ url: URL) -> AppIdentity? {
+        guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier else { return nil }
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code,
+              SecStaticCodeCheckValidity(code, [], nil) == errSecSuccess   // the architecture that will run
+        else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any], let identifier = dict[kSecCodeInfoIdentifier as String] as? String
+        else { return nil }
+        return AppIdentity(bundleId: id, teamId: dict[kSecCodeInfoTeamIdentifier as String] as? String,
+                           signingIdentifier: identifier,
+                           version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+                           build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")
+    }
+}
+
+/// One app verified on a real machine to prove a launch: the identity it
+/// was verified on and how. An update, a new signature or another team
+/// voids it, and the app is refused until it is verified again.
+public struct VerifiedApp: Equatable, Sendable {
+    public var identity: AppIdentity
+    /// The proof the verification established ("launch_token_env": the
+    /// one-time token read back from the environment the kernel recorded).
+    public var technique: String
+    public var verifiedOn: String
+    public init(identity: AppIdentity, technique: String, verifiedOn: String) {
+        self.identity = identity
+        self.technique = technique
+        self.verifiedOn = verifiedOn
+    }
+}
 
 /// A process an open returned: its pid, and the system's handle to it
 /// (nil in tests). Quitting uses the handle, never a pid looked up again.
@@ -40,9 +95,11 @@ public struct AppLaunching: Sendable {
     /// second), through the handle the open returned. Only called once the
     /// launch token proved the process ours.
     public var quit: @Sendable (LaunchedProcess) async -> Void
-    /// Whether the app is on the list of apps verified to carry a launch
-    /// token into the environment the kernel records. Only those are opened.
-    public var verifiedProvable: @Sendable (String) -> Bool = { LaunchOwnership.verifiedApps.contains($0) }
+    /// The app's signed identity on disk, read before it is opened.
+    public var identity: @Sendable (URL) -> AppIdentity? = { AppIdentity.read($0) }
+    /// The verifications in force. Only an app whose identity matches one
+    /// exactly (bundle, team, signing identifier, version, build) is opened.
+    public var verified: @Sendable () -> [VerifiedApp] = { LaunchOwnership.verifiedApps }
     /// Whether windows may be placed (the Accessibility permission).
     public var canPlaceWindows: @Sendable () -> Bool
     /// The process's first window, waiting up to the timeout.
@@ -118,7 +175,12 @@ public enum LaunchOwnership {
     /// hides their environment), and some third-party apps (Google Chrome)
     /// rewrite theirs. An app not on the list is refused before it is
     /// opened, so no unowned window is ever left on the user's screen.
-    public static let verifiedApps: Set<String> = []
+    public static let verifiedApps: [VerifiedApp] = []
+
+    /// The verification that holds for this identity, if any.
+    public static func verification(for identity: AppIdentity, in list: [VerifiedApp]) -> VerifiedApp? {
+        list.first { $0.identity == identity && $0.technique == "launch_token_env" }
+    }
 
     /// Always a new instance, never activated, not added to recent items,
     /// never prompting the user, carrying `environment`.
@@ -144,13 +206,15 @@ public enum LaunchOwnership {
     ///   (`newInstance` is kept for the protocol; no app is on a list of
     ///   apps verified to isolate a second instance yet.)
     ///
-    /// - an app not on the verified list (`verifiedApps`): only those are
-    ///   known to carry the token, so no other app is ever opened.
+    /// - an app whose signed identity (bundle, team, signing identifier,
+    ///   version, build) matches no verification in `verifiedApps`: only
+    ///   those are known to carry the token, so no other app, and no other
+    ///   build of a verified app, is ever opened.
     ///
     /// Refused after opening (foreground handed back, nothing moved, bound
     /// or quit):
     /// - the process does not carry this launch's one-time token in its
-    ///   environment (read from the kernel, not from the app);
+    ///   environment (unreadable counts as not carrying it);
     /// - it ran before the launch, it is not the requested bundle, or another
     ///   instance of the app appeared at the same time.
     public static func openOwnedProcess(_ url: URL, newInstance: Bool, using system: AppLaunching,
@@ -162,8 +226,24 @@ public enum LaunchOwnership {
         guard !info.singleInstance else {
             return .failure(LaunchRefusal("\(id) allows one instance only; its windows are not moved automatically"))
         }
-        guard system.verifiedProvable(id) else {
-            return .failure(LaunchRefusal("\(id) is not on the list of apps verified to prove a launch; it was not opened"))
+        // Checking a signature reads the whole app from disk: off the main
+        // actor, so a large app never holds up the engine's main thread.
+        let readIdentity = system.identity
+        let identity = await Task.detached { readIdentity(url) }.value
+        guard let identity, identity.bundleId == id else {
+            return .failure(LaunchRefusal("\(id) has no valid code signature; it was not opened"))
+        }
+        let verifications = system.verified()
+        guard verification(for: identity, in: verifications) != nil else {
+            if verifications.isEmpty {
+                return .failure(LaunchRefusal("no app is configured to be launched: none has been verified to prove a launch; \(id) was not opened",
+                                              reason: "no_launch_apps_configured"))
+            }
+            let known = verifications.contains { $0.identity.bundleId == id }
+            return .failure(LaunchRefusal(known
+                ? "\(id) \(identity.version) (\(identity.build)) is not the build that was verified to prove a launch; verify it again before it can be opened"
+                : "\(id) is not on the list of apps verified to prove a launch; it was not opened",
+                reason: "launch_not_verified"))
         }
         guard system.processes(id).isEmpty else {
             return .failure(LaunchRefusal("\(id) is already running; an app the user has open is not launched again for an agent"))
@@ -206,8 +286,11 @@ public enum LaunchOwnership {
         a.standardizedFileURL.resolvingSymlinksInPath().path == b.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    /// The environment the kernel recorded when the process started
-    /// (KERN_PROCARGS2), so an app cannot claim a token it was not given.
+    /// The environment of a process as KERN_PROCARGS2 returns it: the kernel
+    /// copies it from the process's own memory, which the process may
+    /// rewrite (Google Chrome shows none). What makes the proof hold is that
+    /// the token is random and new for each launch: a process that ran
+    /// before, or was started by anyone else, cannot know it.
     public static func kernelEnvironment(of pid: pid_t) -> [String: String]? {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
@@ -222,6 +305,7 @@ public enum LaunchOwnership {
     static func parseProcArgs(_ b: [UInt8]) -> [String: String]? {
         guard b.count >= 4 else { return nil }
         let argc = Int(b.withUnsafeBytes { $0.load(as: Int32.self) })
+        guard argc >= 0 else { return nil }
         var i = 4
         func string() -> String? {
             guard i < b.count else { return nil }
@@ -247,8 +331,11 @@ public struct LaunchRefusal: Error, Equatable, Sendable {
     public let message: String
     /// The app was opened before the refusal (the system may have woken it).
     public let opened: Bool
-    public init(_ message: String, opened: Bool = false) {
+    /// Machine-readable reason, for refusals a client should tell apart.
+    public let reason: String?
+    public init(_ message: String, opened: Bool = false, reason: String? = nil) {
         self.message = message
         self.opened = opened
+        self.reason = reason
     }
 }

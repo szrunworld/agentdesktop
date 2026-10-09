@@ -23,3 +23,10 @@ import Testing
                                             details: .obj([("reason", .string("something_else"))])))
     #expect(plain.advice == RuntimeProblem.text("permission_denied").1)
 }
+
+@Test func anEmptyLaunchListSaysNoAppIsConfigured() {
+    let e = RuntimeError("permission_denied", "no app is configured to be launched", phase: .handler, notSent: true,
+                         details: .obj([("reason", .string("no_launch_apps_configured"))]))
+    #expect(RuntimeProblem(e).advice.contains("未配置允许启动的应用"))
+    #expect(RuntimeProblem.reasonAdvice("launch_not_verified") != nil)
+}
