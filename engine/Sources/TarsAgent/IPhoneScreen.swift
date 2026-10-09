@@ -272,7 +272,7 @@ public final class IPhoneAgentScreen: AgentScreen {
             enum Press { case pressed(String), noButton, timedOut }
             let press: Press
             do {
-                press = try gateLock.locked { () throws -> Press in
+                press = try gateLock.locked(giveUp: { stopReason() != nil || system.now >= until }) { () throws -> Press in
                     // The wait for the lock may have outlasted the call:
                     // stopped or out of time, nothing is changed or pressed.
                     if let stop = stopReason() { throw stop }
@@ -291,6 +291,9 @@ public final class IPhoneAgentScreen: AgentScreen {
                 }
             } catch let stop as IPhoneError {
                 throw stop
+            } catch is HostFlagLock.GaveUp {
+                if let stop = stopReason() { throw stop }
+                return report(.notReady, pressed: nil, timedOut: true)
             } catch {
                 var refused = report(.notReady, pressed: nil, timedOut: false)
                 refused.blockedBy = "cannot record the reconnect for other processes (\(error.localizedDescription)); nothing pressed"
@@ -348,7 +351,7 @@ public final class IPhoneAgentScreen: AgentScreen {
         enum Lowering { case lowered, pressedElsewhere(String?), timedOut }
         let lowering: Lowering
         do {
-            lowering = try gateLock.locked { () throws -> Lowering in
+            lowering = try gateLock.locked(giveUp: { stopReason() != nil || system.now >= until }) { () throws -> Lowering in
                 // The wait for the lock may have outlasted the call: stopped
                 // or out of time, the looks are stale and nothing is lowered.
                 if let stop = stopReason() { throw stop }
@@ -360,6 +363,9 @@ public final class IPhoneAgentScreen: AgentScreen {
             }
         } catch let stop as IPhoneError {
             throw stop
+        } catch is HostFlagLock.GaveUp {
+            if let stop = stopReason() { throw stop }
+            return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true)
         } catch {
             var blocked = report(.notReady, pressed: pressed, timedOut: false)
             blocked.blockedBy = "cannot change the reconnect record for other processes (\(error.localizedDescription)); "
@@ -460,7 +466,8 @@ public final class IPhoneAgentScreen: AgentScreen {
             // Checked and sent under the reconnect gate's lock, shared: a
             // reconnect cannot raise the gate and press between the check
             // and the send (other input is not held up).
-            (window, response) = try gateLock.locked(shared: true) { () throws -> (IPhoneWindow, ControlResponse) in
+            (window, response) = try gateLock.locked(shared: true, giveUp: { stopReason() != nil }) {
+                () throws -> (IPhoneWindow, ControlResponse) in
                 // Stopped while waiting for the lock: nothing is sent.
                 if let stop = stopReason() { throw stop }
                 let window = try verifiedTarget(pid: pid)
@@ -473,6 +480,8 @@ public final class IPhoneAgentScreen: AgentScreen {
             }
         } catch let refusal as IPhoneError {
             return .failure(refusal.localizedDescription)
+        } catch is HostFlagLock.GaveUp {
+            return .failure((stopReason() ?? IPhoneError("cancelled", "stopped; nothing more is sent")).localizedDescription)
         } catch let busy as HostFlagLock.Busy {
             return .failure(IPhoneError("not_connected", reason: "unconfirmed",
                                         "a reconnect is changing the connection (\(busy.localizedDescription)); "

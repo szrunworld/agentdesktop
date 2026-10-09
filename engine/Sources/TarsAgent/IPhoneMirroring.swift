@@ -111,9 +111,14 @@ struct HostFlagLock {
         var errorDescription: String? { "another process holds \(path)" }
     }
 
+    /// The caller gave up waiting (stopped, out of time) before the lock
+    /// was had.
+    struct GaveUp: Error {}
+
     /// Run `body` holding the lock, exclusive or `shared`; throws, without
-    /// running it, when the lock cannot be had within `wait`.
-    func locked<T>(shared: Bool = false, _ body: () throws -> T) throws -> T {
+    /// running it, when the lock cannot be had within `wait` (`Busy`), or
+    /// as soon as `giveUp` says so while waiting (`GaveUp`).
+    func locked<T>(shared: Bool = false, giveUp: () -> Bool = { false }, _ body: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         let fd = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
@@ -122,6 +127,7 @@ struct HostFlagLock {
         let end = Date().addingTimeInterval(wait)
         while flock(fd, (shared ? LOCK_SH : LOCK_EX) | LOCK_NB) != 0 {
             guard errno == EWOULDBLOCK || errno == EINTR, Date() < end else { throw Busy(path: url.path) }
+            if giveUp() { throw GaveUp() }
             Thread.sleep(forTimeInterval: 0.02)
         }
         defer { flock(fd, LOCK_UN) }

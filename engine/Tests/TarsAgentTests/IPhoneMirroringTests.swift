@@ -1327,3 +1327,85 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(fake.inputs.isEmpty)
     }
 }
+
+/// Codex review of 1da88ee: a wait for the gate's lock ends as soon as the
+/// caller is stopped or out of time, not after the lock's own 10 s.
+@Suite struct IPhoneGateLockPromptnessTests {
+    typealias Flag = IPhoneReconnectGateInputTests.Flag
+    typealias Clocked = IPhoneReconnectGateInputTests.Clocked
+
+    /// Hold the lock for the whole test; `then` runs 0.2 s in.
+    static func holdAll(_ gate: HostFlag, then: @escaping @Sendable () -> Void) throws -> Int32 {
+        let fd = try IPhoneReconnectGateLockTests.holdLock(of: gate)
+        Thread.detachNewThread {
+            Thread.sleep(forTimeInterval: 0.2)
+            then()
+        }
+        return fd
+    }
+
+    @Test func aPressWaitEndsWhenCancelled() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connection Paused", "Resume"]
+        fake.buttons = ["Resume"]
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        let cancelled = Flag()
+        phone.isCancelled = { cancelled.isSet }
+        let fd = try Self.holdAll(fake.reconnectGate) { cancelled.set() }
+        defer { IPhoneReconnectGateLockTests.release(fd) }
+        let started = Date()
+        #expect(throws: IPhoneError("cancelled", "stopped; nothing more is sent")) { try phone.reconnect(timeout: 20) }
+        #expect(Date().timeIntervalSince(started) < 3)
+        #expect(fake.pressed.isEmpty)
+    }
+
+    @Test func aPressWaitEndsAtTheTimeout() throws {
+        let fake = Clocked()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connection Paused", "Resume"]
+        fake.buttons = ["Resume"]
+        let late = fake.late
+        let fd = try Self.holdAll(fake.reconnectGate) { late.set() }
+        defer { IPhoneReconnectGateLockTests.release(fd) }
+        let started = Date()
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 5)
+        #expect(Date().timeIntervalSince(started) < 3)
+        #expect(report.timedOut && report.pressed == nil && !report.isReady)
+        #expect(fake.pressed.isEmpty)
+    }
+
+    @Test func aLoweringWaitEndsWhenCancelled() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        try fake.reconnectGate.raise("an earlier press")
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        let cancelled = Flag()
+        phone.isCancelled = { cancelled.isSet }
+        var fd: Int32 = -1
+        fake.onSleep = {
+            if fake.sleeps == 1 { fd = (try? Self.holdAll(fake.reconnectGate) { cancelled.set() }) ?? -1 }
+        }
+        let started = Date()
+        #expect(throws: IPhoneError("cancelled", "stopped; nothing more is sent")) { try phone.reconnect(timeout: 20) }
+        if fd >= 0 { IPhoneReconnectGateLockTests.release(fd) }
+        #expect(Date().timeIntervalSince(started) < 3)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
+    }
+
+    @Test func anInputWaitEndsWhenCancelled() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        let cancelled = Flag()
+        phone.isCancelled = { cancelled.isSet }
+        let fd = try Self.holdAll(fake.reconnectGate) { cancelled.set() }
+        defer { IPhoneReconnectGateLockTests.release(fd) }
+        let started = Date()
+        let response = try phone.perform(tap(3100, 300))
+        #expect(Date().timeIntervalSince(started) < 3)
+        #expect(response.error?.hasPrefix("cancelled") == true)
+        #expect(fake.inputs.isEmpty)
+    }
+}
