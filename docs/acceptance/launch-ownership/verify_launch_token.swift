@@ -53,6 +53,12 @@ func identity(_ url: URL) -> [String: Any] {
             out["teamId"] = d[kSecCodeInfoTeamIdentifier as String] ?? NSNull()
             out["signingIdentifier"] = d[kSecCodeInfoIdentifier as String] ?? NSNull()
         }
+        var req: SecRequirement?
+        var text: CFString?
+        if SecCodeCopyDesignatedRequirement(code, [], &req) == errSecSuccess, let req,
+           SecRequirementCopyString(req, [], &text) == errSecSuccess {
+            out["designatedRequirement"] = (text as String?) ?? NSNull()
+        }
     }
     return out
 }

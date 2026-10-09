@@ -15,12 +15,19 @@ public struct AppIdentity: Equatable, Sendable {
     /// CFBundleShortVersionString and CFBundleVersion.
     public var version: String
     public var build: String
-    public init(bundleId: String, teamId: String?, signingIdentifier: String, version: String, build: String) {
+    /// The code's designated requirement, as text: who signed it (for Apple's
+    /// own apps "anchor apple"; for a team, its certificate chain). A copy
+    /// re-signed by anyone else, even with every other field the same, has
+    /// another requirement and does not match.
+    public var designatedRequirement: String
+    public init(bundleId: String, teamId: String?, signingIdentifier: String, version: String, build: String,
+                designatedRequirement: String = "") {
         self.bundleId = bundleId
         self.teamId = teamId
         self.signingIdentifier = signingIdentifier
         self.version = version
         self.build = build
+        self.designatedRequirement = designatedRequirement
     }
 
     /// Read from the bundle, with its signature checked. nil: unsigned, the
@@ -28,8 +35,18 @@ public struct AppIdentity: Equatable, Sendable {
     public static func read(_ url: URL) -> AppIdentity? {
         guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier else { return nil }
         var code: SecStaticCode?
+        // Strict, nested code included, for the architecture that will run.
+        let flags = SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckNestedCode)
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code,
-              SecStaticCodeCheckValidity(code, [], nil) == errSecSuccess   // the architecture that will run
+              SecStaticCodeCheckValidity(code, flags, nil) == errSecSuccess
+        else { return nil }
+        var requirement: SecRequirement?
+        var requirementText: CFString?
+        guard SecCodeCopyDesignatedRequirement(code, [], &requirement) == errSecSuccess, let requirement,
+              SecRequirementCopyString(requirement, [], &requirementText) == errSecSuccess,
+              let designated = requirementText as String?,
+              // Ad-hoc code has no signer to pin: its requirement is only a hash.
+              !designated.hasPrefix("cdhash")
         else { return nil }
         var info: CFDictionary?
         guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
@@ -38,7 +55,8 @@ public struct AppIdentity: Equatable, Sendable {
         return AppIdentity(bundleId: id, teamId: dict[kSecCodeInfoTeamIdentifier as String] as? String,
                            signingIdentifier: identifier,
                            version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
-                           build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")
+                           build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
+                           designatedRequirement: designated)
     }
 }
 

@@ -221,12 +221,15 @@ func touchedNothing(_ sys: ScriptedSystem, _ screens: AgentScreens) -> Bool {
 @MainActor
 @Test func aVerificationHoldsOnlyForTheExactSignedBuild() async throws {
     let verifiedOn = AppIdentity(bundleId: "com.apple.Notes", teamId: "TEAM1", signingIdentifier: "com.apple.Notes",
-                                 version: "1.0", build: "100")
+                                 version: "1.0", build: "100", designatedRequirement: "anchor apple and identifier \"com.apple.Notes\"")
     var updated = verifiedOn; updated.build = "101"
     var newVersion = verifiedOn; newVersion.version = "2.0"
     var otherTeam = verifiedOn; otherTeam.teamId = "EVIL1"
     var otherSigner = verifiedOn; otherSigner.signingIdentifier = "com.example.repack"
-    for (onDisk, why) in [(updated, "build"), (newVersion, "version"), (otherTeam, "team"), (otherSigner, "signer")] as [(AppIdentity?, String)] + [(nil, "no valid signature")] {
+    // Every field copied, re-signed by someone else: another designated requirement.
+    var resigned = verifiedOn; resigned.designatedRequirement = "identifier \"com.apple.Notes\" and certificate leaf = H\"00\""
+    for (onDisk, why) in [(updated, "build"), (newVersion, "version"), (otherTeam, "team"), (otherSigner, "signer"),
+                          (resigned, "issuer")] as [(AppIdentity?, String)] + [(nil, "no valid signature")] {
         let sys = ScriptedSystem()
         let (app, cleanup) = try tempApp(sys)
         defer { cleanup() }
@@ -374,6 +377,7 @@ extension Result where Failure == LaunchRefusal {
     #expect(textEdit.bundleId == "com.apple.TextEdit")
     #expect(textEdit.signingIdentifier == "com.apple.TextEdit")
     #expect(!textEdit.version.isEmpty && !textEdit.build.isEmpty)
+    #expect(textEdit.designatedRequirement.contains("anchor apple"), "\(textEdit.designatedRequirement)")
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("unsigned-\(UUID().uuidString)")
     let app = dir.appendingPathComponent("U.app/Contents")
     try FileManager.default.createDirectory(at: app.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
@@ -440,4 +444,24 @@ extension Result where Failure == LaunchRefusal {
     #expect(r.reason == "no_launch_apps_configured", "\(r.error ?? "")")
     try await Task.sleep(nanoseconds: 1_000_000_000)
     #expect(NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.TextEdit").isEmpty, "TextEdit was not opened")
+}
+
+// Ad-hoc signed code has no signer to pin (its requirement is only a
+// hash): it has no identity, so it can never match a verification.
+@Test func adHocSignedCodeHasNoIdentity() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("adhoc-\(UUID().uuidString)")
+    let app = dir.appendingPathComponent("A.app")
+    try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try #"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.apple.TextEdit</string><key>CFBundleExecutable</key><string>A</string></dict></plist>"#
+        .write(to: app.appendingPathComponent("Contents/Info.plist"), atomically: true, encoding: .utf8)
+    try FileManager.default.copyItem(atPath: "/usr/bin/true", toPath: app.appendingPathComponent("Contents/MacOS/A").path)
+    let sign = Process()
+    sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+    sign.arguments = ["--force", "--sign", "-", app.path]
+    sign.standardError = FileHandle.nullDevice
+    try sign.run()
+    sign.waitUntilExit()
+    #expect(sign.terminationStatus == 0)
+    #expect(AppIdentity.read(app) == nil, "an ad-hoc copy claiming TextEdit's bundle ID has no identity")
 }
