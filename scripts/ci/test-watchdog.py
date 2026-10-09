@@ -61,8 +61,10 @@ import time
 # environment can lower them (the self-tests do).
 STEP_TIMEOUT = float(os.environ.get("WATCHDOG_STEP_TIMEOUT", "30"))
 DIAGNOSIS_BUDGET = float(os.environ.get("WATCHDOG_DIAGNOSIS_BUDGET", "150"))
-# The sampler; the self-tests point it at a tool that fails.
+# The sampler, ps and lsof; the self-tests point them at tools that fail.
 SAMPLE = os.environ.get("WATCHDOG_SAMPLE", "sample")
+PS = os.environ.get("WATCHDOG_PS", "ps")
+LSOF = os.environ.get("WATCHDOG_LSOF", "lsof")
 # The self-tests turn sudo off to act out a machine without passwordless sudo.
 USE_SUDO = os.environ.get("WATCHDOG_NO_SUDO") != "1"
 # Self-test switches, so a case does not depend on one machine's timing or on
@@ -154,13 +156,16 @@ def parse_ps_row(row):
     return int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3]), parts[4], start, parts[10].rstrip()
 
 
-def processes(deadline=None):
+def processes(deadline=None, problems=None):
     """pid -> (ppid, pgid, start, command) for every live process; start is
     the process start time (with the pid it identifies a process; pids are
     reused). Zombies are left out: they have already exited, cannot be
-    killed and run nothing (b9 on #194)."""
-    ok, rows, _ = run_step(["ps", "-axo", "pid=,ppid=,pgid=,uid=,stat=,lstart=,command="],
-                           timeout=within(deadline, 10))
+    killed and run nothing (b9 on #194). When ps fails the list is empty or
+    incomplete, and that is added to problems (#193)."""
+    ok, rows, detail = run_step([PS, "-axo", "pid=,ppid=,pgid=,uid=,stat=,lstart=,command="],
+                                timeout=within(deadline, 10))
+    if not ok and problems is not None:
+        problems.append(f"ps: {detail}")
     procs = {}
     for row in rows.splitlines():
         parsed = parse_ps_row(row)
@@ -206,13 +211,23 @@ class Run:
         # anything (Codex on #188).
         self.root_alive = True
         self.not_stopped = {}  # what stop() could not end
+        # What went wrong in the last members(), so a report never presents
+        # an incomplete list as complete (#193); snapshots that failed.
+        self.discovery_problems = []
+        self.failed_snapshots = 0
+        # Why `sudo ps` could not read environments; its outcome is the
+        # unverifiable list, so it is reported with that, not here.
+        self.sudo_problem = ""
 
     def snapshot(self, force=False):
         now = time.monotonic()
         if not SNAPSHOTS or (not force and now - self.last_snapshot < 1.0):
             return
         self.last_snapshot = now
-        procs = processes()
+        problems = []
+        procs = processes(problems=problems)
+        if problems:
+            self.failed_snapshots += 1
         for pid, cmd in self._tree(procs).items():
             self.seen.setdefault(pid, (procs[pid][2], cmd))
 
@@ -231,7 +246,8 @@ class Run:
     def members(self, deadline=None):
         """pid -> command of every live process of the run. With a deadline,
         every step is limited to the time left (Codex on #188)."""
-        procs = processes(deadline)
+        self.discovery_problems = problems = []
+        procs = processes(deadline, problems)
         # The live tree only while the command runs; afterwards only what is
         # confirmed: seen with the same start time, the marker, the terminal.
         live = self._tree(procs) if self.root_alive else {}
@@ -239,7 +255,12 @@ class Run:
             if pid in procs and procs[pid][2] == start:
                 live[pid] = procs[pid][3]
         if self.tty:
-            _, out, _ = run_step(["lsof", "-t", self.tty], timeout=within(deadline, 10))
+            ok, out, detail = run_step([LSOF, "-t", self.tty], timeout=within(deadline, 10))
+            # lsof exits 1 with no output when nothing has the file open:
+            # that is an answer, not a failure. Its stderr is not kept, so an
+            # error that also exits 1 with no output looks the same.
+            if not ok and not (detail == "exit 1" and not out.strip()):
+                problems.append(f"lsof: {detail}")
             for t in out.split():
                 if t.isdigit() and int(t) in procs and int(t) != os.getpid():
                     live[int(t)] = procs[int(t)][3]
@@ -280,8 +301,9 @@ class Run:
                 found[pid] = cmd
         self.unverifiable = {}
         if unread and USE_SUDO:
-            ok, out, _ = run_step(["sudo", "-n", "ps", "-E", "-ww", "-o", "pid=,command=", "-p",
-                                   ",".join(map(str, unread))], timeout=within(deadline, 10))
+            ok, out, detail = run_step(["sudo", "-n", PS, "-E", "-ww", "-o", "pid=,command=", "-p",
+                                        ",".join(map(str, unread))], timeout=within(deadline, 10))
+            self.sudo_problem = "" if ok else f"sudo ps: {detail}"
             readable = set()
             if ok:
                 for row in out.splitlines():
@@ -292,12 +314,19 @@ class Run:
                             found[int(head[0])] = procs[int(head[0])][3]
             self.unverifiable = {pid: procs[pid][3] for pid in unread if pid not in readable}
         elif unread:
+            self.sudo_problem = "sudo turned off"
             self.unverifiable = {pid: procs[pid][3] for pid in unread}
         if self.unverifiable:
             # Only what is still there, as the same process (same start time).
-            now = processes(deadline)
-            self.unverifiable = {pid: cmd for pid, cmd in self.unverifiable.items()
-                                 if pid in now and now[pid][2] == procs[pid][2]}
+            # If ps fails here the list is kept: dropping it would hide the
+            # very processes nobody could check (#193).
+            failed = []
+            now = processes(deadline, failed)
+            if failed:
+                self.discovery_problems.extend(failed)
+            else:
+                self.unverifiable = {pid: cmd for pid, cmd in self.unverifiable.items()
+                                     if pid in now and now[pid][2] == procs[pid][2]}
         return found
 
     def stop(self):
@@ -389,14 +418,15 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
 
     procs = run.members(deadline=began + DIAGNOSIS_BUDGET)
     report["processes"] = [{"pid": pid, "command": cmd} for pid, cmd in procs.items()]
-    step("processes of the run", "ok", f"{len(procs)} found")
+    step("processes of the run", *discovery_outcome(run, f"{len(procs)} found", snapshots=True))
     print("processes of the run:", flush=True)
     for pid, cmd in procs.items():
         print(f"  {pid} {cmd[:200]}", flush=True)
     if run.unverifiable:
         report["unverifiable"] = [{"pid": pid, "command": cmd} for pid, cmd in run.unverifiable.items()]
         step("environment check", "incomplete",
-             f"{len(run.unverifiable)} process(es) started since the run whose environment could not be read; not killed")
+             f"{len(run.unverifiable)} process(es) started since the run whose environment could not be read "
+             f"({run.sudo_problem or 'sudo ps did not show them'}); not killed")
         for pid, cmd in run.unverifiable.items():
             print(f"  unverifiable (left alone): {pid} {cmd[:160]}", flush=True)
 
@@ -433,6 +463,42 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
     print(f"=== reports in {out_dir}; incomplete steps: {', '.join(missing) or 'none'} ===", flush=True)
 
 
+def discovery_outcome(run, found, snapshots=False):
+    """(status, detail) of a process discovery (#193): ok; partial when a
+    tool failed, so the list may be incomplete; failed when ps itself
+    failed, so there is no list to speak of. With snapshots, failed
+    snapshots taken while the command ran count too."""
+    problems = list(run.discovery_problems)
+    if snapshots and run.failed_snapshots:
+        problems.append(f"{run.failed_snapshots} snapshot(s) while the command ran: ps failed")
+    if not problems:
+        return "ok", found
+    status = "failed" if any(p.startswith("ps:") for p in run.discovery_problems) else "partial"
+    return status, f"{found}; may be incomplete: {'; '.join(problems)}"
+
+
+def report_failed_discovery(run, out_dir, exit_status, last_output):
+    """The command exited and the check for leftovers could not be done in
+    full (ps or lsof failed). The command's own status is kept: this is a diagnostic
+    tool, and a passing run must not turn red because ps failed once (b9
+    on #193). It is made visible instead: the log, diagnosis.json and a
+    warning annotation on the CI run."""
+    status, detail = discovery_outcome(run, "no leftovers found")
+    os.makedirs(out_dir, exist_ok=True)
+    report = {"trigger": "leftover check failed",
+              "why": "the command exited; whether processes of its run remain could not be checked",
+              "seconds_since_last_output": round(time.monotonic() - last_output, 1),
+              "command_exit_status": exit_status, "processes": [],
+              "steps": [{"step": "processes of the run", "status": status, "detail": detail}]}
+    with open(os.path.join(out_dir, "diagnosis.json"), "w") as f:
+        json.dump(report, f, indent=1, ensure_ascii=False)
+    print(f"\n=== test-watchdog: the command exited ({exit_status}); the check for processes left behind "
+          f"is {status}: {detail} ===", flush=True)
+    print(f"::warning title=test-watchdog::could not check for processes left behind by the run ({detail}); "
+          f"the command's exit status ({exit_status}) is kept", flush=True)
+    print(f"=== report in {out_dir} ===", flush=True)
+
+
 def record_stop(run, out_dir):
     """Add the outcome of stop() to the log and to diagnosis.json."""
     path = os.path.join(out_dir, "diagnosis.json")
@@ -449,7 +515,12 @@ def record_stop(run, out_dir):
         for pid, cmd in run.not_stopped.items():
             print(f"  still running (not stopped): {pid} {cmd[:160]}", flush=True)
     else:
-        report.setdefault("steps", []).append({"step": "stop", "status": "ok", "detail": "nothing of the run left"})
+        # The last look may itself have failed: then nothing is known to be
+        # left, which is not the same as nothing left (#193).
+        status, detail = discovery_outcome(run, "nothing of the run left")
+        report.setdefault("steps", []).append({"step": "stop", "status": status, "detail": detail})
+        if status != "ok":
+            print(f"test-watchdog: stop {status}: {detail}", flush=True)
     os.makedirs(out_dir, exist_ok=True)
     with open(path, "w") as f:
         json.dump(report, f, indent=1, ensure_ascii=False)
@@ -463,7 +534,8 @@ def report_unverifiable(run, out_dir, exit_status, last_output):
               "command_exit_status": exit_status, "processes": [],
               "unverifiable": [{"pid": pid, "command": cmd} for pid, cmd in run.unverifiable.items()],
               "steps": [{"step": "environment check", "status": "incomplete",
-                         "detail": f"{len(run.unverifiable)} process(es) could not be checked; not stopped"}]}
+                         "detail": f"{len(run.unverifiable)} process(es) could not be checked "
+                                   f"({run.sudo_problem or 'sudo ps did not show them'}); not stopped"}]}
     with open(os.path.join(out_dir, "diagnosis.json"), "w") as f:
         json.dump(report, f, indent=1, ensure_ascii=False)
     print(f"\n=== test-watchdog: the command exited ({exit_status}); {len(run.unverifiable)} process(es) started "
@@ -560,6 +632,9 @@ def main():
             # leftover (a Runtime, a helper, a background task): evidence,
             # then stop it and fail.
             left = run.members()
+            if not left and run.discovery_problems:
+                report_failed_discovery(run, args.out, child.returncode, output.last)
+                return child.returncode
             if not left and run.unverifiable:
                 # Nothing confirmed as the run's, but processes started since
                 # it began could not be checked: reported, left alone, and the
