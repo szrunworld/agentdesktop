@@ -65,19 +65,22 @@ enum ACPTestScratch {
         return removed
     }
 
-    /// Latest modification time (mtime) of the directory or anything under it, at any
-    /// depth (a child Runtime writes into `side.runtime/` below; b9). Never
-    /// follows symlinks; nil if anything cannot be read (then it is kept).
+    /// Latest modification time (mtime) of the directory itself and of the
+    /// entries directly in it; deeper levels are NOT scanned (Kevin
+    /// 2026-10-09: no recursive scan in this round, to avoid symlink and
+    /// traversal races). Never follows symlinks; nil if anything cannot be
+    /// read (then it is kept). Known limit: a change two or more levels down
+    /// (e.g. a child Runtime writing into `side.runtime/`) is not seen; the
+    /// socket check is what protects a directory a process still serves.
     private static func newestChange(_ path: String) -> Date? {
-        var newest = 0
-        var stack = [path]
-        while let p = stack.popLast() {
-            var st = stat()
-            guard lstat(p, &st) == 0 else { return nil }
-            newest = max(newest, st.st_mtimespec.tv_sec)
-            guard (st.st_mode & S_IFMT) == S_IFDIR else { continue }
-            guard let names = try? FileManager.default.contentsOfDirectory(atPath: p) else { return nil }
-            stack += names.map { p + "/" + $0 }
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return nil }
+        var newest = st.st_mtimespec.tv_sec
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
+        for n in names {
+            var s = stat()
+            guard lstat(path + "/" + n, &s) == 0 else { return nil }
+            newest = max(newest, s.st_mtimespec.tv_sec)
         }
         return Date(timeIntervalSince1970: TimeInterval(newest))
     }

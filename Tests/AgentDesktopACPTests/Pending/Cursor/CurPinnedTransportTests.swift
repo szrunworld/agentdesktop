@@ -302,7 +302,7 @@ struct CurPinnedTransportTests {
         #expect(!ACPTestPinnedTransport.isProductExecutable("/usr/bin/python3"))
     }
 
-    @Test("[Mock] the stale sweep keeps a directory still served, recently changed, or when the socket table is unknown")
+    @Test("[Mock] the stale sweep keeps a directory still served, changed at its first level, or when the socket table is unknown")
     func staleSweepKeepsWhatMayBeInUse() async throws {
         let result = try await offPool { () -> [String: Bool] in
             // A pid that is surely gone: a child that already exited and was reaped.
@@ -321,7 +321,8 @@ struct CurPinnedTransportTests {
                 return name
             }
             let served = try make("served"), idle = try make("idleOK"), fresh = try make("fresh1")
-            // A change two levels down still counts as recent (b9 P3).
+            // Known limit (Kevin 2026-10-09: no recursive scan): a change two
+            // levels down is not seen; only the directory and its first level are.
             let deep = try make("deep01")
             try FileManager.default.createDirectory(atPath: tmp.path + "/" + deep + "/side.runtime/records", withIntermediateDirectories: true)
             let deepFile = tmp.path + "/" + deep + "/side.runtime/records/ledger.json"
@@ -347,15 +348,24 @@ struct CurPinnedTransportTests {
             let exists = { (n: String) in FileManager.default.fileExists(atPath: tmp.path + "/" + n) }
             // 1. Socket table unreadable: nothing goes, even three hours on.
             let unknown = ACPTestScratch.sweep(tmp: tmp.path, table: { nil }, now: later)
-            // 2. Now: the old idle dirs go; `deep` (a file two levels down was
-            //    just written) and `served` (a socket is bound in it) stay.
+            // 2. Now: the old dirs go, including `deep` (its recent file is two
+            //    levels down: the documented limit); `served` (a socket is
+            //    bound in it) stays.
             let now = ACPTestScratch.sweep(tmp: tmp.path, table: table, now: Date())
-            // 3. Three hours on: `deep` is old too and goes; `served` stays.
+            // 3. Three hours on: nothing left to remove; `served` still stays.
             let afterwards = ACPTestScratch.sweep(tmp: tmp.path, table: table, now: later)
+            // 4. A change directly inside a directory is seen.
+            let near = try make("near01")
+            FileManager.default.createFile(atPath: tmp.path + "/" + near + "/ledger.json", contents: Data("{}".utf8))
+            let t = timespec(tv_sec: Int(old), tv_nsec: 0)
+            var times: [timespec] = [t, t]
+            _ = utimensat(AT_FDCWD, tmp.path + "/" + near, &times, AT_SYMLINK_NOFOLLOW)
+            let nearNow = ACPTestScratch.sweep(tmp: tmp.path, table: table, now: Date())
             return ["unknownTableRemovesNothing": unknown.isEmpty,
-                    "oldIdleRemovedNow": Set(now) == [idle, fresh],
-                    "deepRecentKept": !now.contains(deep),
-                    "deepRemovedLater": afterwards == [deep],
+                    "oldRemovedNow": Set(now) == [idle, fresh, deep],
+                    "deepLevelIsNotScanned": now.contains(deep),
+                    "nothingLater": afterwards.isEmpty,
+                    "firstLevelChangeKept": !nearNow.contains(near),
                     "servedKept": exists(served)]
         }
         for (k, v) in result { #expect(v, "\(k)") }

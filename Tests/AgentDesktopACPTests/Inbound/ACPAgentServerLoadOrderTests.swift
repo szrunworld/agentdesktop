@@ -272,9 +272,9 @@ import Testing
         }
         let log = try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
             .split(separator: "\n").map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
-        // Each file: an `intent` before the rewrite, a `done` after it.
-        #expect(log.map { "\($0.file):\($0.status)" } == ["history:intent", "history:done", "binding:intent", "binding:done"]
-                || log.map { "\($0.file):\($0.status)" } == ["binding:intent", "binding:done", "history:intent", "history:done"])
+        // Each file: an `intent` before the rewrite, a `completed` after it.
+        #expect(log.map { "\($0.file):\($0.status)" } == ["history:intent", "history:completed", "binding:intent", "binding:completed"]
+                || log.map { "\($0.file):\($0.status)" } == ["binding:intent", "binding:completed", "history:intent", "history:completed"])
         let hist = try #require(log.first { $0.file == "history" })
         #expect(hist.entries == 7 && hist.userScrubbed == 1 && hist.agentChanged == 4 && hist.agentKept == 2 && hist.error == nil)
         #expect(log.contains { $0.file == "binding" && $0.titleReset && $0.error == nil })
@@ -337,6 +337,29 @@ import Testing
         #expect(raw(dir, ACPFileSessionStore.migrationLogName).contains("\"file\":\"history\""))
     }
 
+    /// Kevin 2026-10-09: if an intent cannot be written, the migration stops
+    /// at once; no file (this one or any later one) is rewritten.
+    @Test func aFailedIntentStopsTheWholeMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        // A second legacy session: the first one's files under another id.
+        for (from, to) in [("s1.json", "s2.json"), ("s1.history.json", "s2.history.json")] {
+            let text = raw(dir, from).replacingOccurrences(of: "\"s1\"", with: "\"s2\"")
+            try text.write(to: dir.appendingPathComponent(to), atomically: true, encoding: .utf8)
+        }
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName),
+                                                withIntermediateDirectories: false) // the log cannot be opened
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 1)   // stopped at the first intent
+        // No later write of any kind: no temp file was ever created.
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(!names.contains { $0.hasSuffix(".tmp") }, "\(names)")
+        for name in ["s1.json", "s2.json"] { #expect(raw(dir, name).contains("\"format\" : 1"), "\(name)") }
+        for name in ["s1.history.json", "s2.history.json"] { #expect(raw(dir, name).contains("\"format\":1"), "\(name)") }
+    }
+
     /// Codex on #141 (355036e): when the rewrite fails, the log says so;
     /// a pre-write entry alone never reads as a completed migration.
     @Test func aFailedRewriteIsLoggedAsFailedNotDone() throws {
@@ -352,7 +375,7 @@ import Testing
         let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
             .map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
         #expect(!lines.isEmpty)
-        #expect(!lines.contains { $0.status == "done" })
+        #expect(!lines.contains { $0.status == "completed" })
         #expect(lines.contains { $0.status == "failed" && $0.error != nil })
         #expect(raw(dir, "s1.history.json").contains("\"format\":1"))
     }

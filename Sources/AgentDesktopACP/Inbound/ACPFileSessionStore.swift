@@ -104,6 +104,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
         let data: Data
         do { data = try encoder.encode(Record(binding)) } catch { throw ACPFileSessionStoreError.io("encode") }
+        // An error here may be outcome 2 (written, not known durable): the
+        // stored revision may already be the new one, so a blind retry with
+        // the old revision would conflict rather than write twice.
         try writeAtomically(data, to: target)
     }
 
@@ -155,6 +158,8 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         encoder.outputFormatting = [.sortedKeys]
         let data: Data
         do { data = try encoder.encode(record) } catch { throw ACPFileSessionStoreError.io("encode") }
+        // An error may be outcome 2 (appended, not known durable); callers
+        // treat history as best effort and do not retry.
         try writeAtomically(data, to: historyURL(sessionId))
     }
 
@@ -226,12 +231,16 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             }
             // The log line is written (and synced) before the file changes:
             // no log, no rewrite, so the audit trail is never missing a file.
-            guard appendMigrationLog([entry]) else { failed = true; continue }
+            // Kevin 2026-10-09: if the intent cannot be written, the whole
+            // migration stops at once; no rewrite of this or any later file.
+            guard appendMigrationLog([entry]) else { failed = true; break }
             do {
+                // An error may be outcome 2: logged as failed (never completed),
+                // the migration stays pending; the file may already be format 2.
                 try writeAtomically(out, to: url)
-                entry.status = "done"
+                entry.status = "completed"
                 entry.at = Self.now()
-                // The file is already format 2; a missing `done` only leaves
+                // The file is already format 2; a missing `completed` only leaves
                 // the record incomplete (read as "not completed"), never wrong.
                 if !appendMigrationLog([entry]) { failed = true }
             } catch {
@@ -246,9 +255,10 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
 
     /// One migrated file: counts and an error code, never any text. Each
     /// rewrite is logged twice: `intent` before (with the counts), then
-    /// `done` or `failed` after. An `intent` with no later `done` for the
-    /// same file means the rewrite did not complete (Codex on #141: a lone
-    /// pre-write entry must never read as success).
+    /// `completed` or `failed` after. An `intent` with no later `completed`
+    /// for the same file means the rewrite did not complete (Codex on #141:
+    /// a lone pre-write entry must never read as success). Only tests read
+    /// this log; no product, cleanup, recovery or audit code does.
     struct MigrationLogEntry: Codable, Equatable {
         var status = "intent"
         var at: String
@@ -268,8 +278,13 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     public static let migrationLogName = "migration-log.jsonl"
 
     /// Append whole lines and fsync; false on any failure or short write.
+    /// How many log appends were attempted (tests check that a failed intent
+    /// stops the migration).
+    private(set) var migrationLogAttempts = 0
+
     private func appendMigrationLog(_ entries: [MigrationLogEntry]) -> Bool {
         guard !entries.isEmpty else { return true }
+        migrationLogAttempts += 1
         guard !migrationLogUnusable else { return false }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -429,6 +444,13 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         }
     }
 
+    /// Replace `target` with `data`: temp file (0600, fsync), rename, then
+    /// fsync of the directory. Three outcomes (Kevin 2026-10-09):
+    /// 1. Throws before the rename — nothing was written; safe to retry.
+    /// 2. Throws after the rename (directory fsync failed) — the new content
+    ///    is in place but not known to be durable; the result is uncertain:
+    ///    callers must not retry automatically against the old revision.
+    /// 3. Returns — written and durable.
     private func writeAtomically(_ data: Data, to target: URL) throws {
         let tmp = directory.appendingPathComponent(".\(UUID().uuidString).tmp")
         let fd = open(tmp.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
@@ -451,8 +473,9 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             unlink(tmp.path)
             throw ACPFileSessionStoreError.io("write")
         }
-        // Make the rename itself durable before anyone records it as done
-        // (Codex on #141: a synced "done" log line must not outlive an
+        // Outcome 2 if this fails: written, durability unknown (see above).
+        // Make the rename itself durable before anyone records it as completed
+        // (Codex on #141: a synced "completed" log line must not outlive an
         // unsynced rename after a power loss).
         let dfd = open(directory.path, O_RDONLY | O_DIRECTORY)
         guard dfd >= 0 else { throw ACPFileSessionStoreError.io("dir open errno \(errno)") }
