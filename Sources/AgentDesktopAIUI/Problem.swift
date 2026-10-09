@@ -52,7 +52,7 @@ public struct UIProblem: Equatable, Sendable {
         case .staleGeneration: return ("运行已进入新的世代", "迟到的结果已作废，不会被执行。")
         case .actionOutcomeUnknown: return ("有一项输入结果尚未确认", "不会自动重发。等待 Runtime 安全复核，冲突域保持隔离。")
         case .auditUnavailable: return ("审计记录不可写", "为保证可追溯，已停止后续模型调用与输入。")
-        case .limitExceeded: return ("超出上限", "请求超过了服务端上限，只能调低，不能调高。")
+        case .limitExceeded: return ("超出上限", "已达到服务端的限制（步数、时间、预算，或截图的数量、存储与磁盘空间）；不带截图的观察仍可继续。")
         case .idempotencyConflict: return ("同一提交键对应了不同内容", "如果要创建一个新的独立操作，请确认后重新提交。")
         case .notFound: return ("找不到这个资源", "它可能已被删除，请返回列表刷新。")
         case .validationError: return ("输入不符合要求", "请修正标出的字段，你的输入已保留。")
