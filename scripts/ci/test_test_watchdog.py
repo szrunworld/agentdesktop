@@ -727,6 +727,47 @@ class WatchdogTests(unittest.TestCase):
         self.assertIn("sudo turned off", report["unverifiable"][0]["why"])
         self.assertEqual([s["step"] for s in report["steps"]], ["processes of the run", "environment check"])
 
+    def test_lsof_exiting_1_is_an_error_only_when_it_says_so(self):
+        # Codex on #197: lsof exits 1 both when nothing holds the terminal
+        # and on an error; only the error writes to stderr (no -Q in 4.91).
+        quiet = self.failing_tool("lsof", "#!/bin/sh\nexit 1\n")
+        loud = self.failing_tool("lsof", "#!/bin/sh\necho 'lsof: status error on /dev/ttys0: Operation not permitted' >&2\n"
+                                         "exit 1\n")
+        for tool, status in ((quiet, "ok"), (loud, "partial")):
+            code, log, _, out = self.run_watchdog(self.STALL, stall=3, env={"WATCHDOG_LSOF": tool})
+            self.assertEqual(code, 124, log)
+            with open(os.path.join(out, "diagnosis.json")) as f:
+                report = json.load(f)
+            step = [s for s in report["steps"] if s["step"] == "processes of the run"][0]
+            self.assertEqual(step["status"], status, step)
+        self.assertIn("lsof: exit 1: lsof: status error", step["detail"])
+
+    def test_a_failed_scan_during_the_stop_is_not_forgotten(self):
+        # Codex on #197: the first scan of a stop fails, a later one works;
+        # what the failed one may have missed cannot be found any more, so
+        # the stop is not reported as clean.
+        wd = self.load()
+        run = wd.Run(999999, None, uuid.uuid4().hex, time.time())
+        run.root_alive = False
+        # The failed scan still finds a target (a pid no process has, so
+        # nothing is signalled); later scans work and find nothing.
+        looks = iter([(["process list: proc_listallpids failed"], {999998: "missed?"}), ([], {}), ([], {})])
+
+        def members(deadline=None):
+            run.discovery_problems, found = next(looks, ([], {}))
+            return found
+        run.members = members
+        run.stop()
+        self.assertEqual(run.discovery_problems, ["process list: proc_listallpids failed"])
+        out = tempfile.mkdtemp(prefix="watchdog-test-")
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            wd.record_stop(run, out)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        self.assertEqual([s["status"] for s in report["steps"] if s["step"] == "stop"], ["failed"])
+
 
 if __name__ == "__main__":
     unittest.main()

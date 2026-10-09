@@ -150,18 +150,23 @@ def within(deadline, limit):
     return max(0.5, min(limit, deadline - time.monotonic()))
 
 
-def run_step(args, timeout=None):
-    """Run an external step with a time limit; (ok, stdout, detail)."""
+def run_step(args, timeout=None, keep_stderr=False):
+    """Run an external step with a time limit; (ok, stdout, detail). With
+    keep_stderr, what the step wrote there is added to detail."""
     limit = timeout or STEP_TIMEOUT
     try:
         # Its own process group, so a timeout stops whatever the step started too.
-        p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                             text=True, start_new_session=True)
+        p = subprocess.Popen(args, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE if keep_stderr else subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL, text=True, start_new_session=True)
     except OSError as e:
         return False, "", f"could not run: {e}"
     try:
-        out, _ = p.communicate(timeout=limit)
-        return p.returncode == 0, out, f"exit {p.returncode}"
+        out, err = p.communicate(timeout=limit)
+        detail = f"exit {p.returncode}"
+        if err and err.strip():
+            detail += ": " + err.strip().splitlines()[0][:200]
+        return p.returncode == 0, out, detail
     except subprocess.TimeoutExpired:
         try:
             os.killpg(p.pid, signal.SIGKILL)
@@ -347,10 +352,11 @@ class Run:
             if ids.get(pid) == ident:
                 live[pid] = procs[pid][3]
         if self.tty:
-            ok, out, detail = run_step([LSOF, "-t", self.tty], timeout=within(deadline, 10))
+            ok, out, detail = run_step([LSOF, "-t", self.tty], timeout=within(deadline, 10), keep_stderr=True)
             # lsof exits 1 with no output when nothing has the file open:
-            # that is an answer, not a failure. Its stderr is not kept, so an
-            # error that also exits 1 with no output looks the same.
+            # that is an answer, not a failure. It also exits 1 on an error,
+            # but then says so on stderr (this lsof, 4.91, has no -Q to tell
+            # them apart; Codex on #197).
             if not ok and not (detail == "exit 1" and not out.strip()):
                 problems.append(f"lsof: {detail}")
             for t in out.split():
@@ -454,7 +460,16 @@ class Run:
         command is unreaped, so the group id is surely its own), then each
         confirmed process. Every per-pid signal follows a fresh look and is
         checked against the kernel right before it is sent (signal())."""
-        targets = self.members()
+        # What went wrong in any scan of the stop is kept to the end: a scan
+        # that failed may have missed a process a later scan can no longer
+        # find (it left the group when the group was killed; Codex on #197).
+        problems = []
+
+        def look():
+            found = self.members()
+            problems.extend(p for p in self.discovery_problems if p not in problems)
+            return found
+        targets = look()
         if self.root_alive:
             try:
                 os.killpg(self.root, signal.SIGKILL)
@@ -472,7 +487,7 @@ class Run:
                 # Look again either way: during the wait the reaped root,
                 # or any other target that exited, may have had its pid
                 # given to an unrelated process (Codex on #196).
-                targets = self.members()
+                targets = look()
         # Up to five rounds of kill, wait, look again: a leftover may start a
         # detached child just before it dies, and the last look must be acted
         # on (Codex on #188). Each round kills only confirmed processes, as
@@ -482,8 +497,9 @@ class Run:
                 break
             self.signal(targets)
             time.sleep(0.2)
-            targets = self.members()
+            targets = look()
         self.not_stopped = targets
+        self.discovery_problems = problems
         return targets
 
 
