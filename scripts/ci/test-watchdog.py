@@ -9,10 +9,29 @@ started and none had finished. Two things hid the cause:
   command runs on a pseudo-terminal, so each line arrives when written and
   the log shows which tests really never finished.
 * Nothing recorded what the process was doing. Here, when no output arrives
-  for --stall seconds, the unfinished tests are listed, every process in
-  the command's tree is sampled (`sample`, and `spindump` when sudo works
-  without a password), a summary goes to the log and the full reports to
-  --out, and the command is stopped with exit status 124.
+  for --stall seconds, the unfinished tests are listed, every process of
+  the run that could be found is sampled (`sample`, and `spindump` when sudo
+  works without a password), a summary goes to the log and the full reports
+  to --out, and the command is stopped with exit status 124.
+
+No output for --stall seconds means only that output stalled: the run may
+be waiting on something slow, not necessarily deadlocked. The evidence is
+there to tell which.
+
+Every external step (ps, lsof, sample, spindump, cleanup) has a time
+limit, and the whole collection has a budget. `diagnosis.json` in --out is
+rewritten after every step with the trigger, the time since the last
+output, the command's exit status, the processes and each step's outcome,
+so a step that fails or times out leaves the rest of the evidence and says
+what is missing.
+
+Limits: not every process can be found. The command's environment carries
+a marker (TEST_WATCHDOG_RUN) that every descendant inherits, so one that
+left the run's terminal, group and session is still found, unless it
+emptied its own environment (env -i). Reading another process's
+environment needs root for platform binaries (/bin/sleep, perl, codesign);
+without passwordless sudo those are reported as unverifiable and never
+killed on a guess.
 
 If the command exits but processes of its run remain (a Runtime, a
 helper, a background task that may still hold the terminal), the same
@@ -24,14 +43,76 @@ Otherwise the command's own exit status is returned. Usage:
     test-watchdog.py --stall 120 --out DIR -- swift test --package-path engine
 """
 import argparse
+import ctypes
+import ctypes.util
 import os
+import struct
+import uuid
 import pty
 import re
 import select
 import signal
 import subprocess
 import sys
+import json
 import time
+
+# Time limits for each external step and for the whole collection; the
+# environment can lower them (the self-tests do).
+STEP_TIMEOUT = float(os.environ.get("WATCHDOG_STEP_TIMEOUT", "30"))
+DIAGNOSIS_BUDGET = float(os.environ.get("WATCHDOG_DIAGNOSIS_BUDGET", "150"))
+# The sampler; the self-tests point it at a tool that fails.
+SAMPLE = os.environ.get("WATCHDOG_SAMPLE", "sample")
+
+
+MARKER = "TEST_WATCHDOG_RUN"
+_libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+
+
+def process_environment(pid):
+    """The environment of a process from KERN_PROCARGS2, or None when the
+    kernel will not show it (platform binaries such as /bin/sleep need
+    root)."""
+    mib = (ctypes.c_int * 2)(1, 8)  # CTL_KERN, KERN_ARGMAX
+    argmax, n = ctypes.c_int(), ctypes.c_size_t(ctypes.sizeof(ctypes.c_int))
+    if _libc.sysctl(mib, 2, ctypes.byref(argmax), ctypes.byref(n), None, 0) != 0:
+        return None
+    mib = (ctypes.c_int * 3)(1, 49, pid)  # CTL_KERN, KERN_PROCARGS2
+    size = ctypes.c_size_t(argmax.value)
+    buf = ctypes.create_string_buffer(size.value)
+    if _libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0 or size.value < 4:
+        return None
+    raw = buf.raw[:size.value]
+    argc = struct.unpack("i", raw[:4])[0]
+    rest = raw[4:]
+    i = rest.find(b"\0")
+    if i < 0:
+        return None
+    while i < len(rest) and rest[i] == 0:
+        i += 1
+    parts = [p for p in rest[i:].split(b"\0")]
+    return [p.decode("utf-8", "replace") for p in parts[argc:] if p]
+
+
+def run_step(args, timeout=None):
+    """Run an external step with a time limit; (ok, stdout, detail)."""
+    limit = timeout or STEP_TIMEOUT
+    try:
+        # Its own process group, so a timeout stops whatever the step started too.
+        p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                             text=True, start_new_session=True)
+    except OSError as e:
+        return False, "", f"could not run: {e}"
+    try:
+        out, _ = p.communicate(timeout=limit)
+        return p.returncode == 0, out, f"exit {p.returncode}"
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        p.communicate()
+        return False, "", f"timed out after {limit:.0f} s"
 
 STARTED = re.compile(r'Test (?:"(.+?)"|(\S+?\(.*?\))) started')
 FINISHED = re.compile(r'Test (?:"(.+?)"|(\S+?\(.*?\))) (?:passed|failed|skipped)')
@@ -45,25 +126,35 @@ def processes():
     """pid -> (ppid, pgid, start, command) for every process; start is the
     process start time (with the pid it identifies a process; pids are
     reused)."""
-    rows = subprocess.run(["ps", "-axo", "pid=,ppid=,pgid=,lstart=,command="],
-                          capture_output=True, text=True).stdout
+    ok, rows, _ = run_step(["ps", "-axo", "pid=,ppid=,pgid=,uid=,lstart=,command="], timeout=10)
     procs = {}
     for row in rows.splitlines():
         parts = row.split()
-        if len(parts) < 9 or not all(p.isdigit() for p in parts[:3]):
+        if len(parts) < 10 or not all(p.isdigit() for p in parts[:4]):
             continue
+        if int(parts[3]) != os.getuid():
+            continue  # only this user's processes can belong to the run
         try:
-            start = time.mktime(time.strptime(" ".join(parts[3:8]), "%a %b %d %H:%M:%S %Y"))
+            start = time.mktime(time.strptime(" ".join(parts[4:9]), "%a %b %d %H:%M:%S %Y"))
         except ValueError:
             continue
-        procs[int(parts[0])] = (int(parts[1]), int(parts[2]), start, " ".join(parts[8:]))
+        procs[int(parts[0])] = (int(parts[1]), int(parts[2]), start, " ".join(parts[9:]))
     return procs
 
 
 class Run:
     """Every process that belongs to one run of the command.
 
-    Three sources, because each misses something (Codex on #188):
+    Four sources, because each misses something (Codex on #188):
+    * the run's marker: the command gets TEST_WATCHDOG_RUN=<uuid> in its
+      environment, which every descendant inherits whatever it does to its
+      session, group or parent; a process of this user started since the
+      run began that carries the marker is part of it. The kernel shows the
+      environment of platform binaries (/bin/sleep, perl, codesign) only to
+      root, so those are read with `sudo -n ps -E` when that works (CI);
+      where it does not, they are reported as unverifiable and left alone,
+      never killed on a guess. A child that empties its own environment
+      (env -i) is not found this way;
     * the live tree: the root, its descendants, its process group;
     * every descendant seen while the command ran, remembered with its
       start time (a background process started with setsid or in a new
@@ -73,14 +164,16 @@ class Run:
     A remembered pid counts only while its start time is unchanged.
     """
 
-    def __init__(self, root, tty):
+    def __init__(self, root, tty, marker, started_at):
         self.root, self.tty = root, tty
+        self.marker, self.started_at = marker, started_at
         self.seen = {}  # pid -> (start, command)
+        self.unverifiable = {}  # pid -> command: started since the run, environment unreadable
         self.last_snapshot = 0.0
 
     def snapshot(self, force=False):
         now = time.monotonic()
-        if not force and now - self.last_snapshot < 0.25:
+        if not force and now - self.last_snapshot < 1.0:
             return
         self.last_snapshot = now
         procs = processes()
@@ -107,11 +200,41 @@ class Run:
             if pid in procs and procs[pid][2] == start:
                 live[pid] = procs[pid][3]
         if self.tty:
-            r = subprocess.run(["lsof", "-t", self.tty], capture_output=True, text=True)
-            for t in r.stdout.split():
+            _, out, _ = run_step(["lsof", "-t", self.tty], timeout=10)
+            for t in out.split():
                 if t.isdigit() and int(t) in procs and int(t) != os.getpid():
                     live[int(t)] = procs[int(t)][3]
+        live.update(self._marked(procs, set(live)))
         return dict(sorted(live.items()))
+
+    def _marked(self, procs, known):
+        """Processes started since the run began that carry its marker."""
+        tag = f"{MARKER}={self.marker}"
+        found, unread = {}, []
+        for pid, (_, _, start, cmd) in procs.items():
+            if pid in known or pid == os.getpid() or start < self.started_at - 1:
+                continue
+            if cmd == "<defunct>" or (cmd.startswith("(") and cmd.endswith(")")):
+                continue  # already exited (a zombie, or gone while ps ran)
+            env = process_environment(pid)
+            if env is None:
+                unread.append(pid)
+            elif tag in env:
+                found[pid] = cmd
+        self.unverifiable = {}
+        if unread:
+            ok, out, _ = run_step(["sudo", "-n", "ps", "-E", "-ww", "-o", "pid=,command=", "-p",
+                                   ",".join(map(str, unread))], timeout=10)
+            readable = set()
+            if ok:
+                for row in out.splitlines():
+                    head = row.strip().split(None, 1)
+                    if head and head[0].isdigit():
+                        readable.add(int(head[0]))
+                        if tag in row:
+                            found[int(head[0])] = procs[int(head[0])][3]
+            self.unverifiable = {pid: procs[pid][3] for pid in unread if pid not in readable}
+        return found
 
     def stop(self):
         """Take the whole set first, then kill: the group, then each one."""
@@ -151,39 +274,72 @@ def summarise(sample_text, limit=400):
     return out[:limit]
 
 
-def diagnose(run, started, finished, out_dir, why):
+def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_status):
+    """Collect evidence within DIAGNOSIS_BUDGET; diagnosis.json is rewritten
+    after every step so a failed or slow step loses nothing collected."""
     os.makedirs(out_dir, exist_ok=True)
+    began = time.monotonic()
+    report = {"trigger": trigger, "why": why,
+              "seconds_since_last_output": round(time.monotonic() - last_output, 1),
+              "command_exit_status": exit_status, "steps": []}
+
+    def save():
+        with open(os.path.join(out_dir, "diagnosis.json"), "w") as f:
+            json.dump(report, f, indent=1, ensure_ascii=False)
+
+    def step(name, status, detail=""):
+        report["steps"].append({"step": name, "status": status, "detail": detail})
+        save()
+        if status != "ok":
+            print(f"  step {name}: {status} {detail}", flush=True)
+
     print(f"\n=== test-watchdog: {why}; collecting evidence (#183) ===", flush=True)
     open_tests = [t for t in started if t not in finished]
+    report.update(tests_started=len(started), tests_finished=len(finished), tests_unfinished=open_tests)
     print(f"tests started: {len(started)}, finished: {len(finished)}, still running: {len(open_tests)}", flush=True)
     for t in open_tests[:50]:
         print(f"  still running: {t}", flush=True)
     with open(os.path.join(out_dir, "unfinished-tests.txt"), "w") as f:
         f.write("\n".join(open_tests) + "\n")
+    step("unfinished tests", "ok")
+
     procs = run.members()
+    report["processes"] = [{"pid": pid, "command": cmd} for pid, cmd in procs.items()]
+    step("processes of the run", "ok", f"{len(procs)} found")
     print("processes of the run:", flush=True)
     for pid, cmd in procs.items():
         print(f"  {pid} {cmd[:200]}", flush=True)
+    if run.unverifiable:
+        report["unverifiable"] = [{"pid": pid, "command": cmd} for pid, cmd in run.unverifiable.items()]
+        step("environment check", "incomplete",
+             f"{len(run.unverifiable)} process(es) started since the run whose environment could not be read; not killed")
+        for pid, cmd in run.unverifiable.items():
+            print(f"  unverifiable (left alone): {pid} {cmd[:160]}", flush=True)
+
     for pid, cmd in procs.items():
-        path = os.path.join(out_dir, f"sample-{pid}.txt")
-        try:
-            subprocess.run(["sample", str(pid), "3", "-file", path], capture_output=True, timeout=30)
-        except Exception as e:  # sampling is evidence, never the reason to fail differently
-            print(f"  sample {pid} failed: {e}", flush=True)
+        name = f"sample {pid}"
+        if time.monotonic() - began > DIAGNOSIS_BUDGET:
+            step(name, "skipped", "diagnosis budget used up")
             continue
-        if os.path.exists(path):
-            print(f"--- sample {pid} ({cmd[:80]}): threads parked in a wait ---", flush=True)
-            for line in summarise(open(path, errors="replace").read()):
-                print(line, flush=True)
-    spin = os.path.join(out_dir, "spindump.txt")
-    try:
+        path = os.path.join(out_dir, f"sample-{pid}.txt")
+        ok, _, detail = run_step([SAMPLE, str(pid), "3", "-file", path])
+        if not ok or not os.path.exists(path):
+            step(name, "failed", detail)
+            continue
+        step(name, "ok", path)
+        print(f"--- sample {pid} ({cmd[:80]}): main thread and threads parked in a wait ---", flush=True)
+        for line in summarise(open(path, errors="replace").read()):
+            print(line, flush=True)
+
+    if time.monotonic() - began > DIAGNOSIS_BUDGET:
+        step("spindump", "skipped", "diagnosis budget used up")
+    else:
         target = next(iter(procs), run.root)
-        r = subprocess.run(["sudo", "-n", "spindump", str(target), "5", "-file", spin],
-                           capture_output=True, timeout=90)
-        print(f"spindump: {'saved' if r.returncode == 0 else 'not available'}", flush=True)
-    except Exception as e:
-        print(f"spindump: not available ({e})", flush=True)
-    print(f"=== full reports in {out_dir} ===", flush=True)
+        ok, _, detail = run_step(["sudo", "-n", "spindump", str(target), "5", "-file",
+                                  os.path.join(out_dir, "spindump.txt")], timeout=90)
+        step("spindump", "ok" if ok else "unavailable", detail)
+    missing = [s["step"] for s in report["steps"] if s["status"] != "ok"]
+    print(f"=== reports in {out_dir}; incomplete steps: {', '.join(missing) or 'none'} ===", flush=True)
 
 
 def main():
@@ -198,9 +354,12 @@ def main():
 
     master, slave = pty.openpty()
     tty = os.ttyname(slave)
-    child = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, start_new_session=True)
+    marker = uuid.uuid4().hex
+    env = dict(os.environ, **{MARKER: marker})
+    started_at = time.time()
+    child = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, start_new_session=True, env=env)
     os.close(slave)
-    run = Run(child.pid, tty)
+    run = Run(child.pid, tty, marker, started_at)
     started, finished = [], set()
     last_output = time.monotonic()
     pending = b""
@@ -249,17 +408,20 @@ def main():
             left = run.members()
             if left:
                 diagnose(run, started, finished, args.out,
-                         f"the command exited ({child.returncode}) but {len(left)} process(es) of its run remain")
+                         f"the command exited ({child.returncode}) but {len(left)} process(es) of its run remain",
+                         "leftover processes", last_output, child.returncode)
                 run.stop()
                 print("test-watchdog: stopped processes left behind by the run (exit 124)", flush=True)
                 return 124
             return child.returncode
         if time.monotonic() - last_output > args.stall:
             run.snapshot(force=True)
-            diagnose(run, started, finished, args.out, f"no output for {args.stall:.0f} s")
+            diagnose(run, started, finished, args.out,
+                     f"output stalled for {args.stall:.0f} s (waiting on something, not necessarily a deadlock)",
+                     "output stalled", last_output, None)
             run.stop()
             child.wait()
-            print(f"test-watchdog: stopped after {args.stall:.0f} s without output (exit 124)", flush=True)
+            print(f"test-watchdog: stopped after output stalled for {args.stall:.0f} s (exit 124)", flush=True)
             return 124
 
 
