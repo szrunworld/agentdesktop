@@ -265,7 +265,7 @@ class WatchdogTests(unittest.TestCase):
             self.assertFalse(alive(tag), "a process of the run survived the stop")
             with open(os.path.join(out, "diagnosis.json")) as f:
                 report = json.load(f)
-            self.assertEqual([s["status"] for s in report["steps"] if s["step"] == "stop"], ["ok"])
+            self.assertStopped(report)
         finally:
             subprocess.run(["pkill", "-f", tag], capture_output=True)
 
@@ -275,6 +275,18 @@ class WatchdogTests(unittest.TestCase):
             f.write(script)
         os.chmod(path, 0o755)
         return path
+
+    def assertStopped(self, report):
+        """Everything confirmed as the run's was stopped. Processes this
+        machine could not verify (no passwordless sudo here, unlike CI) are
+        reported as unverified, which is not the same as stopped (Kevin,
+        2026-10-09)."""
+        status = [s["status"] for s in report["steps"] if s["step"] == "stop"]
+        self.assertNotIn("not_stopped", report)
+        if report.get("unverified_at_stop"):
+            self.assertEqual(status, ["unverified"])
+        else:
+            self.assertEqual(status, ["ok"])
 
     def load(self):
         import importlib.util
@@ -294,7 +306,7 @@ class WatchdogTests(unittest.TestCase):
         self.assertNotIn("could not stop", log)
         with open(os.path.join(out, "diagnosis.json")) as f:
             report = json.load(f)
-        self.assertEqual([s["status"] for s in report["steps"] if s["step"] == "stop"], ["ok"])
+        self.assertStopped(report)
         self.assertNotIn("not_stopped", report)
 
     def test_a_zombie_is_not_a_process_of_the_run(self):
@@ -464,30 +476,87 @@ class WatchdogTests(unittest.TestCase):
             wd.process_environment, wd.start_time = real_env, real_start
         self.assertEqual(found, {424243: "same"})
 
-    def test_a_child_hangs_from_its_parent_only_if_the_parent_is_unchanged(self):
-        # b9 on #196: the listing read parent X, then X exited, its pid went
-        # to X', and X' forked R; R's parent pid still says X. R joins the
-        # tree only if X is still the process listed.
+    def test_a_child_hangs_from_its_parent_only_if_the_link_still_holds(self):
+        # b9 and Kevin on #196: the listing is in no set order. R may be read
+        # while pid p was another process's; p then goes to our X, and X is
+        # read unchanged: R names p as its parent, yet X never was. Each
+        # link is checked with the child read between two reads of the
+        # parent; a parent that changed breaks the link too; a child whose
+        # link fails is reported as unverified, never signalled.
         wd = self.load()
-        procs_ = [subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
-                  for _ in range(3)]
-        root, x, r = (p.pid for p in procs_)
+        root = subprocess.Popen([sys.executable, "-c", "import subprocess, time; "
+                                 "c = subprocess.Popen(['sleep', '60']); print(c.pid, flush=True); time.sleep(60)"],
+                                stdout=subprocess.PIPE, text=True, start_new_session=True)
+        stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        child = 0
         try:
-            listing = {
-                root: (1, root, wd.start_time(root), "root"),
-                x: (root, x, wd.start_time(x), "X"),
-                r: (x, r, wd.start_time(r), "R"),
-            }
-            run = wd.Run(root, None, uuid.uuid4().hex, time.time())
-            self.assertEqual(set(run._tree(listing)), {root, x, r})  # X unchanged: R is in
-            sec, usec = listing[x][2]
-            listing[x] = (root, x, (sec, (usec + 1) % 1000000), "X")  # X listed, X' there now
-            self.assertNotIn(r, run._tree(listing))
+            child = int(root.stdout.readline())
+            ident = wd.start_time
+
+            def listing():
+                return {
+                    root.pid: (1, root.pid, ident(root.pid), "root"),
+                    # Listed in a group of its own, so only the parent link
+                    # can bring it in (the root's group is trusted: unreaped).
+                    child: (root.pid, child, ident(child), "the root's child"),
+                    # Read while its parent pid was another process's: it
+                    # names the root's pid, but the root never was its parent.
+                    stranger.pid: (root.pid, stranger.pid, ident(stranger.pid), "R"),
+                }
+            run = wd.Run(root.pid, None, uuid.uuid4().hex, time.time())
+            tree = run._tree(listing())
+            self.assertIn(child, tree)  # a real link holds
+            self.assertNotIn(stranger.pid, tree)
+            self.assertIn(stranger.pid, run._unlinked)
+            changed = listing()
+            sec, usec = changed[root.pid][2]
+            changed[root.pid] = (1, root.pid, (sec, (usec + 1) % 1000000), "root")  # listed, replaced now
+            self.assertNotIn(child, run._tree(changed))
+            self.assertIn(child, run._unlinked)
         finally:
-            for p in procs_:
+            if child:
+                subprocess.run(["kill", "-9", str(child)], capture_output=True)
+            for p in (root, stranger):
                 p.kill()
                 p.wait()
 
+    def test_an_unconfirmed_link_is_reported_unverified_never_stopped(self):
+        # Kevin, 2026-10-09: a process that cannot be confirmed is not
+        # signalled and is recorded as unverified, not as stopped.
+        wd = self.load()
+        stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        root = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        try:
+            real = wd.processes
+
+            def lying(deadline=None):
+                procs = real(deadline)
+                if stranger.pid in procs:  # its parent pid claims the root
+                    procs[stranger.pid] = (root.pid,) + procs[stranger.pid][1:]
+                return procs
+            wd.processes = lying
+            real_killpg = wd.os.killpg
+            wd.os.killpg = lambda *a: None
+            try:
+                run = wd.Run(root.pid, None, uuid.uuid4().hex, time.time())
+                self.assertNotIn(stranger.pid, run.members())
+                self.assertIn(stranger.pid, run.unverifiable)
+                run.stop()
+            finally:
+                wd.processes, wd.os.killpg = real, real_killpg
+            time.sleep(0.3)
+            self.assertIsNone(stranger.poll(), "an unverified process was signalled")
+            out = tempfile.mkdtemp(prefix="watchdog-test-")
+            wd.record_stop(run, out)
+            with open(os.path.join(out, "diagnosis.json")) as f:
+                report = json.load(f)
+            self.assertEqual([s["status"] for s in report["steps"] if s["step"] == "stop"], ["unverified"])
+            entry = [e for e in report["unverified_at_stop"] if e["pid"] == stranger.pid]
+            self.assertEqual(entry[0]["why"], "its link to a parent in the run could not be confirmed")
+        finally:
+            for p in (stranger, root):
+                p.kill()
+                p.wait()
 
 if __name__ == "__main__":
     unittest.main()

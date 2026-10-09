@@ -229,7 +229,8 @@ class Run:
         self.root, self.tty, self.child = root, tty, child
         self.marker, self.started_at = marker, started_at
         self.seen = {}  # pid -> ((seconds, microseconds) started, command)
-        self.unverifiable = {}  # pid -> command: started since the run, environment unreadable
+        self.unverifiable = {}  # pid -> command: could not be confirmed as the run's, never signalled
+        self.unlinked = {}  # of those, pid -> command: the link to a parent in the run did not hold
         self.last_snapshot = 0.0
         self.idents = {}  # pid -> start_time(), as the last members() found it
         # Once the command has exited its pid and group id may be given to
@@ -259,26 +260,48 @@ class Run:
     def _tree(self, procs):
         """The root, its group (the root is unreaped, so the group id is
         its own) and its descendants. A child is linked by its parent's pid,
-        so the parent is checked once the whole listing has been read: still
-        the process listed, it was that process when the child was read too
-        (its pid cannot have been reused in between); otherwise the child,
-        and what hangs only from it, is left out of this look (b9 on #196:
-        the parent exits, its pid is reused, and the new process forks)."""
+        and the listing is read in no set order: the pid may have belonged
+        to another process when the child was read. So each link is checked
+        after the listing, the child's read between two of the parent's:
+        the parent is the process listed, the child still names that pid as
+        its parent and is the process listed, and the parent is still the
+        process listed. Then, at that moment, the child's parent was ours
+        (b9 on #196). A link that fails leaves the child, and what hangs
+        only from it, out of this look."""
         found = {pid for pid, (_, pgid, _, _) in procs.items() if pgid == self.root}
         found.add(self.root)
-        still = {}
+        checked = {}
+        self._unlinked = {}
 
-        def unchanged(pid):
-            if pid not in still:
-                still[pid] = pid in procs and start_time(pid) == procs[pid][2]
-            return still[pid]
+        def linked(pid, ppid):
+            if pid not in checked:
+                parent = procs.get(ppid, (None, None, None))[2]
+                ok = parent is not None and start_time(ppid) == parent
+                if ok:
+                    now = kernel_info(pid)
+                    ok = now is not None and now[0] == ppid and now[3] == procs[pid][2]
+                ok = ok and start_time(ppid) == parent
+                checked[pid] = ok
+            return checked[pid]
         changed = True
         while changed:
             changed = False
             for pid, (ppid, _, _, _) in procs.items():
-                if ppid in found and pid not in found and unchanged(ppid):
+                if ppid in found and pid not in found and linked(pid, ppid):
                     found.add(pid)
                     changed = True
+        # A child whose link did not hold, and what hangs from it, is not
+        # known to be ours or not: unverified, reported, never signalled
+        # (Kevin, 2026-10-09).
+        unlinked = {pid for pid, ok in checked.items() if not ok and pid not in found}
+        changed = True
+        while changed:
+            changed = False
+            for pid, (ppid, _, _, _) in procs.items():
+                if ppid in unlinked and pid not in unlinked and pid not in found:
+                    unlinked.add(pid)
+                    changed = True
+        self._unlinked = {pid: procs[pid][3] for pid in unlinked}
         return {pid: procs[pid][3] for pid in found if pid in procs}
 
     def members(self, deadline=None):
@@ -288,7 +311,9 @@ class Run:
         ids = {pid: row[2] for pid, row in procs.items()}
         # The live tree only while the command runs; afterwards only what is
         # confirmed: seen as the same process, the marker, the terminal.
+        self._unlinked = {}
         live = self._tree(procs) if self.root_alive else {}
+        unlinked = self._unlinked
         for pid, (ident, cmd) in self.seen.items():
             if ids.get(pid) == ident:
                 live[pid] = procs[pid][3]
@@ -300,6 +325,8 @@ class Run:
         live.update(self._marked(procs, set(live), deadline))
         if not self.root_alive:
             live.pop(self.root, None)
+        self.unlinked = {pid: cmd for pid, cmd in unlinked.items() if pid not in live}
+        self.unverifiable.update(self.unlinked)
         self.idents = {pid: ids[pid] for pid in live}
         return dict(sorted(live.items()))
 
@@ -476,11 +503,11 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
     for pid, cmd in procs.items():
         print(f"  {pid} {cmd[:200]}", flush=True)
     if run.unverifiable:
-        report["unverifiable"] = [{"pid": pid, "command": cmd} for pid, cmd in run.unverifiable.items()]
+        report["unverifiable"] = unverified_entries(run)
         step("environment check", "incomplete",
-             f"{len(run.unverifiable)} process(es) started since the run whose environment could not be read; not killed")
-        for pid, cmd in run.unverifiable.items():
-            print(f"  unverifiable (left alone): {pid} {cmd[:160]}", flush=True)
+             f"{len(run.unverifiable)} process(es) that could not be confirmed as the run's or not; not killed")
+        for e in report["unverifiable"]:
+            print(f"  unverifiable (left alone): {e['pid']} {e['command'][:160]} ({e['why']})", flush=True)
 
     def remaining():
         return DIAGNOSIS_BUDGET - (time.monotonic() - began)
@@ -515,6 +542,13 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
     print(f"=== reports in {out_dir}; incomplete steps: {', '.join(missing) or 'none'} ===", flush=True)
 
 
+def unverified_entries(run):
+    """The unverifiable processes with why each could not be confirmed."""
+    return [{"pid": pid, "command": cmd,
+             "why": "its link to a parent in the run could not be confirmed" if pid in run.unlinked
+             else "its environment could not be read"} for pid, cmd in run.unverifiable.items()]
+
+
 def record_stop(run, out_dir):
     """Add the outcome of stop() to the log and to diagnosis.json."""
     path = os.path.join(out_dir, "diagnosis.json")
@@ -530,6 +564,18 @@ def record_stop(run, out_dir):
         print(f"test-watchdog: could not stop {len(run.not_stopped)} process(es) of the run:", flush=True)
         for pid, cmd in run.not_stopped.items():
             print(f"  still running (not stopped): {pid} {cmd[:160]}", flush=True)
+    elif run.unverifiable:
+        # Unverified is not stopped (Kevin, 2026-10-09): they were left
+        # alone, and whether they belong to the run is not known.
+        report["unverified_at_stop"] = unverified_entries(run)
+        report.setdefault("steps", []).append(
+            {"step": "stop", "status": "unverified",
+             "detail": f"nothing confirmed as the run's is left; {len(run.unverifiable)} process(es) could not be "
+                       "verified and were not signalled"})
+        print(f"test-watchdog: nothing confirmed as the run's is left, but {len(run.unverifiable)} process(es) "
+              "could not be verified (not signalled):", flush=True)
+        for e in report["unverified_at_stop"]:
+            print(f"  unverified: {e['pid']} {e['command'][:160]} ({e['why']})", flush=True)
     else:
         report.setdefault("steps", []).append({"step": "stop", "status": "ok", "detail": "nothing of the run left"})
     os.makedirs(out_dir, exist_ok=True)
@@ -540,18 +586,18 @@ def record_stop(run, out_dir):
 def report_unverifiable(run, out_dir, exit_status, last_output):
     os.makedirs(out_dir, exist_ok=True)
     report = {"trigger": "unverifiable processes at exit",
-              "why": "processes started since the run began whose environment could not be read; not stopped",
+              "why": "processes that could not be confirmed as the run's or not; not stopped",
               "seconds_since_last_output": round(time.monotonic() - last_output, 1),
               "command_exit_status": exit_status, "processes": [],
-              "unverifiable": [{"pid": pid, "command": cmd} for pid, cmd in run.unverifiable.items()],
+              "unverifiable": unverified_entries(run),
               "steps": [{"step": "environment check", "status": "incomplete",
                          "detail": f"{len(run.unverifiable)} process(es) could not be checked; not stopped"}]}
     with open(os.path.join(out_dir, "diagnosis.json"), "w") as f:
         json.dump(report, f, indent=1, ensure_ascii=False)
-    print(f"\n=== test-watchdog: the command exited ({exit_status}); {len(run.unverifiable)} process(es) started "
-          "since the run began could not be checked (unverifiable, not stopped) ===", flush=True)
-    for pid, cmd in run.unverifiable.items():
-        print(f"  unverifiable (left alone): {pid} {cmd[:160]}", flush=True)
+    print(f"\n=== test-watchdog: the command exited ({exit_status}); {len(run.unverifiable)} process(es) "
+          "could not be confirmed as the run's or not (unverifiable, not stopped) ===", flush=True)
+    for e in report["unverifiable"]:
+        print(f"  unverifiable (left alone): {e['pid']} {e['command'][:160]} ({e['why']})", flush=True)
     print(f"=== report in {out_dir}; incomplete steps: environment check ===", flush=True)
 
 
