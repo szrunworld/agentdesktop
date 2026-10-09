@@ -302,6 +302,42 @@ struct CurPinnedTransportTests {
         #expect(!ACPTestPinnedTransport.isProductExecutable("/usr/bin/python3"))
     }
 
+    @Test("[Mock] the stale sweep keeps a directory still served, recently changed, or when the socket table is unknown")
+    func staleSweepKeepsWhatMayBeInUse() async throws {
+        let result = try await offPool { () -> [String: Bool] in
+            // A pid that is surely gone: a child that already exited and was reaped.
+            var dead: pid_t = 0
+            var argv: [UnsafeMutablePointer<CChar>?] = [strdup("/usr/bin/true"), nil]
+            defer { free(argv[0]) }
+            precondition(posix_spawn(&dead, "/usr/bin/true", nil, nil, &argv, environ) == 0)
+            var st: Int32 = 0
+            waitpid(dead, &st, 0)
+            let tmp = ACPTestScratch.dir("sweep")
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            func make(_ id: String) throws -> String {
+                let name = "adt-acp-\(dead)-\(id)"
+                try FileManager.default.createDirectory(atPath: tmp.path + "/" + name, withIntermediateDirectories: true)
+                return name
+            }
+            let served = try make("served"), idle = try make("idleOK"), fresh = try make("fresh1")
+            // An orphaned Runtime would still have its socket bound in `served`.
+            let socketName = ACPTestPinnedTransport.normalised(tmp.path + "/" + served + "/side.runtime.sock")
+            let table: () -> [(pid: pid_t, name: String)]? = { [(pid_t(4242), socketName)] }
+            let later = Date().addingTimeInterval(3 * 3600)
+            let unknown = ACPTestScratch.sweep(tmp: tmp.path, table: { nil }, now: later)
+            let recent = ACPTestScratch.sweep(tmp: tmp.path, table: table, now: Date())
+            let removed = ACPTestScratch.sweep(tmp: tmp.path, table: table, now: later)
+            let exists = { (n: String) in FileManager.default.fileExists(atPath: tmp.path + "/" + n) }
+            return ["unknownTableRemovesNothing": unknown.isEmpty,
+                    "recentRemovesNothing": recent.isEmpty,
+                    "idleRemoved": removed == [idle] || Set(removed) == [idle, fresh],
+                    "servedKept": exists(served),
+                    "idleGone": !exists(idle)]
+        }
+        for (k, v) in result { #expect(v, "\(k)") }
+    }
+
     @Test("[Mock] only this scheme's /tmp names are recognised for the stale sweep")
     func staleSweepNamesAreStrict() {
         #expect(ACPTestScratch.schemePid("adt-acp-123-AbC123") == 123)

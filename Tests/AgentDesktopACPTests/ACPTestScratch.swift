@@ -36,14 +36,49 @@ enum ACPTestScratch {
     }
 
     private static let sweptTmp: Void = {
-        let tmp = "/private/tmp"
-        let me = getpid()
-        for name in (try? FileManager.default.contentsOfDirectory(atPath: tmp)) ?? [] {
-            guard let pid = schemePid(name), pid > 0, pid != me else { continue }
-            if kill(pid, 0) != 0 && errno == ESRCH { removeIfOwned(tmp + "/" + name) }
-        }
+        _ = sweep(tmp: "/private/tmp", table: ACPTestPinnedTransport.unixSocketTable, now: Date())
     }()
 
+    /// Remove this scheme's directories in `tmp` only when all of these hold
+    /// (Kevin's cleanup rules; b9, seventh review): the creating test
+    /// process is gone; no process has a socket bound inside the directory
+    /// (an orphaned child Runtime of a killed test may still serve there),
+    /// with an unreadable socket table meaning "keep everything"; nothing in
+    /// it changed for two hours; it is a plain directory of this user.
+    /// Returns the names removed.
+    @discardableResult
+    static func sweep(tmp: String, table: () -> [(pid: pid_t, name: String)]?, now: Date) -> [String] {
+        let me = getpid()
+        let stale = ((try? FileManager.default.contentsOfDirectory(atPath: tmp)) ?? []).filter { name in
+            guard let pid = schemePid(name), pid > 0, pid != me else { return false }
+            return kill(pid, 0) != 0 && errno == ESRCH
+        }
+        guard !stale.isEmpty, let rows = table() else { return [] }
+        var removed: [String] = []
+        for name in stale {
+            let dir = ACPTestPinnedTransport.normalised(tmp + "/" + name + "/x")
+            let prefix = (dir as NSString).deletingLastPathComponent + "/"
+            guard !rows.contains(where: { $0.name.hasPrefix(prefix) }) else { continue }
+            guard let newest = newestChange(tmp + "/" + name), now.timeIntervalSince(newest) > 2 * 3600 else { continue }
+            if removeIfOwned(tmp + "/" + name) { removed.append(name) }
+        }
+        return removed
+    }
+
+    /// Latest modification of the directory or anything directly in it;
+    /// nil if it cannot be read (then it is kept).
+    private static func newestChange(_ path: String) -> Date? {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return nil }
+        var newest = max(st.st_mtimespec.tv_sec, st.st_ctimespec.tv_sec)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
+        for n in names {
+            var s = stat()
+            guard lstat(path + "/" + n, &s) == 0 else { return nil }
+            newest = max(newest, s.st_mtimespec.tv_sec, s.st_ctimespec.tv_sec)
+        }
+        return Date(timeIntervalSince1970: TimeInterval(newest))
+    }
     /// The pid in `adt-<kind>-<pid>-<id>`, where kind is acp, ptest or
     /// curtest-<letters> and id is 6–8 letters or digits; nil otherwise.
     static func schemePid(_ name: String) -> pid_t? {
@@ -65,14 +100,13 @@ enum ACPTestScratch {
     }
 
     /// Once per process: test directories under /tmp left by runs whose
-    /// process is gone. Only this scheme's names, only plain directories of
-    /// this user; never follows symlinks.
+    /// process is gone (see `sweep` for every condition).
     static func sweepStaleTmp() { _ = sweptTmp }
 
-    private static func removeIfOwned(_ path: String) {
+    private static func removeIfOwned(_ path: String) -> Bool {
         var st = stat()
-        guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR, st.st_uid == getuid() else { return }
-        try? FileManager.default.removeItem(atPath: path)
+        guard lstat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFDIR, st.st_uid == getuid() else { return false }
+        return (try? FileManager.default.removeItem(atPath: path)) != nil
     }
 
     private static func removeRoot() {
