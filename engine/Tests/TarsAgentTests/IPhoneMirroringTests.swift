@@ -66,7 +66,12 @@ class FakeMirroring: IPhoneMirroringSystem {
         return ControlResponse()
     }
 
-    func recognizedText(in image: CGImage) -> [String] { ocr }
+    /// Runs as text is recognised, as a slow read might let time pass.
+    var onRecognize: (() -> Void)?
+    func recognizedText(in image: CGImage) -> [String] {
+        onRecognize?()
+        return ocr
+    }
     /// Texts of other windows of the app, such as its Settings.
     var axOtherWindows: [String] = []
     var buttonsOtherWindows: [String] = []
@@ -1523,6 +1528,35 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         fake.blank = true
         let response = try phone.perform(tap(3100, 300))
         #expect(response.error?.hasPrefix("not_connected (uncertain)") == true)
+        #expect(fake.inputs.isEmpty)
+    }
+}
+
+/// Codex review of 520d6cf: stopped while the window was read before
+/// input, nothing is sent.
+@Suite struct IPhoneStopDuringPreDispatchTests {
+    @Test func cancelledWhileTheWindowIsReadSendsNothing() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        var cancelled = false
+        phone.isCancelled = { cancelled }
+        fake.onRecognize = { cancelled = true }
+        let response = try phone.perform(tap(3100, 300))
+        #expect(response.error?.hasPrefix("cancelled") == true)
+        #expect(fake.inputs.isEmpty)
+    }
+
+    @Test func pastTheDeadlineWhileTheWindowIsReadSendsNothing() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        _ = try phone.screenshot(size: CGSize(width: 330, height: 720))
+        phone.deadline = fake.clock.addingTimeInterval(1)
+        fake.onRecognize = { fake.clock = fake.clock.addingTimeInterval(2) }
+        let response = try phone.perform(tap(3100, 300))
+        #expect(response.error?.hasPrefix("deadline_exceeded") == true)
         #expect(fake.inputs.isEmpty)
     }
 }

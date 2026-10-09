@@ -491,6 +491,9 @@ public final class IPhoneAgentScreen: AgentScreen {
                 // Stopped while waiting for the lock: nothing is sent.
                 if let stop = stopReason() { throw stop }
                 let window = try verifiedTarget(pid: pid)
+                // Reading the window (a capture, OCR) takes time: stopped
+                // meanwhile, nothing is sent.
+                if let stop = stopReason() { throw stop }
                 var request = ControlRequest(command: .input)
                 request.screen = screen
                 request.pid = pid
