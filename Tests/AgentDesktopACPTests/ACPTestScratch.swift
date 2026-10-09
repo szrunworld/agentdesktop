@@ -65,17 +65,19 @@ enum ACPTestScratch {
         return removed
     }
 
-    /// Latest modification of the directory or anything directly in it;
-    /// nil if it cannot be read (then it is kept).
+    /// Latest modification time (mtime) of the directory or anything under it, at any
+    /// depth (a child Runtime writes into `side.runtime/` below; b9). Never
+    /// follows symlinks; nil if anything cannot be read (then it is kept).
     private static func newestChange(_ path: String) -> Date? {
-        var st = stat()
-        guard lstat(path, &st) == 0 else { return nil }
-        var newest = max(st.st_mtimespec.tv_sec, st.st_ctimespec.tv_sec)
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
-        for n in names {
-            var s = stat()
-            guard lstat(path + "/" + n, &s) == 0 else { return nil }
-            newest = max(newest, s.st_mtimespec.tv_sec, s.st_ctimespec.tv_sec)
+        var newest = 0
+        var stack = [path]
+        while let p = stack.popLast() {
+            var st = stat()
+            guard lstat(p, &st) == 0 else { return nil }
+            newest = max(newest, st.st_mtimespec.tv_sec)
+            guard (st.st_mode & S_IFMT) == S_IFDIR else { continue }
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: p) else { return nil }
+            stack += names.map { p + "/" + $0 }
         }
         return Date(timeIntervalSince1970: TimeInterval(newest))
     }

@@ -321,19 +321,42 @@ struct CurPinnedTransportTests {
                 return name
             }
             let served = try make("served"), idle = try make("idleOK"), fresh = try make("fresh1")
+            // A change two levels down still counts as recent (b9 P3).
+            let deep = try make("deep01")
+            try FileManager.default.createDirectory(atPath: tmp.path + "/" + deep + "/side.runtime/records", withIntermediateDirectories: true)
+            let deepFile = tmp.path + "/" + deep + "/side.runtime/records/ledger.json"
+            FileManager.default.createFile(atPath: deepFile, contents: Data("{}".utf8))
+
             // An orphaned Runtime would still have its socket bound in `served`.
             let socketName = ACPTestPinnedTransport.normalised(tmp.path + "/" + served + "/side.runtime.sock")
             let table: () -> [(pid: pid_t, name: String)]? = { [(pid_t(4242), socketName)] }
+            // Everything is three hours old except one file two levels down.
+            let old = Date().addingTimeInterval(-3 * 3600).timeIntervalSince1970
+            for name in [served, idle, fresh, deep] {
+                let top: String = tmp.path + "/" + name
+                let below: [String] = (try? FileManager.default.subpathsOfDirectory(atPath: top)) ?? []
+                var paths: [String] = [top]
+                for sub in below { paths.append(top + "/" + sub) }
+                for p in paths where p != deepFile {
+                    let t = timespec(tv_sec: Int(old), tv_nsec: 0)
+                    var times: [timespec] = [t, t]
+                    _ = utimensat(AT_FDCWD, p, &times, AT_SYMLINK_NOFOLLOW)
+                }
+            }
             let later = Date().addingTimeInterval(3 * 3600)
-            let unknown = ACPTestScratch.sweep(tmp: tmp.path, table: { nil }, now: later)
-            let recent = ACPTestScratch.sweep(tmp: tmp.path, table: table, now: Date())
-            let removed = ACPTestScratch.sweep(tmp: tmp.path, table: table, now: later)
             let exists = { (n: String) in FileManager.default.fileExists(atPath: tmp.path + "/" + n) }
+            // 1. Socket table unreadable: nothing goes, even three hours on.
+            let unknown = ACPTestScratch.sweep(tmp: tmp.path, table: { nil }, now: later)
+            // 2. Now: the old idle dirs go; `deep` (a file two levels down was
+            //    just written) and `served` (a socket is bound in it) stay.
+            let now = ACPTestScratch.sweep(tmp: tmp.path, table: table, now: Date())
+            // 3. Three hours on: `deep` is old too and goes; `served` stays.
+            let afterwards = ACPTestScratch.sweep(tmp: tmp.path, table: table, now: later)
             return ["unknownTableRemovesNothing": unknown.isEmpty,
-                    "recentRemovesNothing": recent.isEmpty,
-                    "idleRemoved": removed == [idle] || Set(removed) == [idle, fresh],
-                    "servedKept": exists(served),
-                    "idleGone": !exists(idle)]
+                    "oldIdleRemovedNow": Set(now) == [idle, fresh],
+                    "deepRecentKept": !now.contains(deep),
+                    "deepRemovedLater": afterwards == [deep],
+                    "servedKept": exists(served)]
         }
         for (k, v) in result { #expect(v, "\(k)") }
     }

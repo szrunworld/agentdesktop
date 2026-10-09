@@ -267,6 +267,11 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
                       O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { return false }
         defer { close(fd) }
+        // All lines or none: on a short or failed write, cut the file back to
+        // where it was, so a retry never appends after a half line (Codex on
+        // #141). Called with the directory lock held, so no other writer.
+        let start = lseek(fd, 0, SEEK_END)
+        guard start >= 0 else { return false }
         let ok = lines.withUnsafeBytes { raw -> Bool in
             var offset = 0
             while offset < raw.count {
@@ -276,7 +281,11 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
             }
             return true
         }
-        return ok && fsync(fd) == 0
+        guard ok, fsync(fd) == 0 else {
+            _ = ftruncate(fd, start)
+            return false
+        }
+        return true
     }
 
     private static func scrubbed(_ r: HistoryRecord, runIds: Set<String>, stats: inout MigrationLogEntry) -> HistoryRecord {
