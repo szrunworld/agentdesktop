@@ -77,7 +77,10 @@ class FakeMirroring: IPhoneMirroringSystem {
         return windowID == nil ? ax + axOtherWindows : ax
     }
 
+    /// Runs as a press begins, before the button is looked for.
+    var onPress: (() -> Void)?
     func pressButton(titled titles: Set<String>, pid: pid_t, windowID: CGWindowID?) -> String? {
+        onPress?()
         if windowID == nil, let title = buttonsOtherWindows.first(where: titles.contains) {
             pressed.append(title)
             return title
@@ -1083,5 +1086,96 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20)
         #expect(report.outcome == .notReady && report.pressed == nil)
         #expect(fake.pressed.isEmpty)
+    }
+}
+
+/// Codex review of 066b83c: changes to the gate by overlapping reconnects
+/// are made one process at a time (a lock beside the gate's file), so a
+/// newer press is never lowered or overwritten by an older reconnect.
+@Suite struct IPhoneReconnectGateLockTests {
+    /// Hold the gate's lock as another process would.
+    static func holdLock(of gate: HostFlag) throws -> Int32 {
+        try FileManager.default.createDirectory(at: gate.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = open(gate.url.path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        guard fd >= 0, flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw IPhoneError("test", "cannot lock") }
+        return fd
+    }
+
+    static func release(_ fd: Int32) {
+        flock(fd, LOCK_UN)
+        close(fd)
+    }
+
+    @Test func aPressWaitsForTheLockAndPressesNothingWithout() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connection Paused", "Resume"]
+        fake.buttons = ["Resume"]
+        let fd = try Self.holdLock(of: fake.reconnectGate)
+        defer { Self.release(fd) }
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.gateLockWait = 0.2
+        let report = try phone.reconnect(timeout: 20)
+        #expect(report.outcome == .notReady && report.pressed == nil)
+        #expect(fake.pressed.isEmpty)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
+    }
+
+    /// Finding 1: the gate is compared and lowered as one step; while
+    /// another process holds it, a confirming reconnect lowers nothing and
+    /// does not report ready.
+    @Test func aConfirmingReconnectLowersNothingWhileAnotherHoldsTheLock() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        try fake.reconnectGate.raise("an earlier press")
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.gateLockWait = 0.2
+        var fd: Int32 = -1
+        fake.onSleep = { if fake.sleeps == 1 { fd = (try? Self.holdLock(of: fake.reconnectGate)) ?? -1 } }
+        let report = try phone.reconnect(timeout: 20)
+        if fd >= 0 { Self.release(fd) }
+        #expect(fd >= 0)
+        #expect(report.outcome == .notReady && !report.isReady)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
+        // Once free, a reconnect confirms and lowers it.
+        fake.onSleep = nil
+        #expect(try phone.reconnect(timeout: 20).outcome == .ready)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
+    }
+
+    /// Finding 2: reconnect B starts while A is between raising the gate
+    /// and pressing. B cannot raise or press until A is done, and A's
+    /// rollback (no button) leaves no press of B's unrecorded.
+    @Test func anOverlappingPressCannotSlipBetweenRaiseAndRollback() throws {
+        let fakeA = FakeMirroring()
+        let fakeB = FakeMirroring()
+        fakeB.reconnectGate = fakeA.reconnectGate
+        defer { fakeA.reconnectGate.lower() }
+        for fake in [fakeA, fakeB] {
+            fake.ax = ["Connection Paused", "Resume"]
+            fake.buttons = ["Resume"]
+        }
+        let phoneB = IPhoneAgentScreen(screen: "phone", system: fakeB)
+        phoneB.gateLockWait = 0.2
+        var reportB: IPhoneAgentScreen.ReconnectReport?
+        fakeA.onPress = {
+            reportB = try? phoneB.reconnect(timeout: 1)
+            // B's press, had it gone through, took the button away.
+            fakeA.buttons = []
+        }
+        let reportA = try IPhoneAgentScreen(screen: "phone", system: fakeA).reconnect(timeout: 20)
+        #expect(reportA.outcome == .notReady && reportA.pressed == nil)
+        #expect(reportB?.outcome == .notReady && reportB?.pressed == nil)
+        #expect(fakeB.pressed.isEmpty)
+    }
+
+    @Test func noButtonPutsBackTheGateItFound() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        try fake.reconnectGate.raise("an earlier press")
+        fake.ax = ["Connection Paused"]
+        let report = try IPhoneAgentScreen(screen: "phone", system: fake).reconnect(timeout: 20)
+        #expect(report.outcome == .notReady && report.pressed == nil)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
     }
 }

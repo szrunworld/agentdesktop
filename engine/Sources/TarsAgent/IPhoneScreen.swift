@@ -205,6 +205,10 @@ public final class IPhoneAgentScreen: AgentScreen {
     /// its start, or what it raised itself. Ready lowers the gate only if
     /// it still reads so, never a press another process made meanwhile.
     private var gateKnown: String?
+    /// How long a reconnect waits for another process's change to the gate
+    /// before it gives up, pressing or lowering nothing.
+    var gateLockWait: TimeInterval = 10
+    private var gateLock: HostFlagLock { HostFlagLock(for: system.reconnectGate, wait: gateLockWait) }
 
     /// Count a look at the window toward the connection; false when it was
     /// of an earlier generation and dropped.
@@ -262,19 +266,29 @@ public final class IPhoneAgentScreen: AgentScreen {
             // process of its own. Not recorded, not pressed.
             let gate = "iPhone Mirroring was asked to connect at \(system.now) (process \(getpid()), "
                 + "\(UUID().uuidString)) and has not been confirmed ready"
+            // Raising, pressing and putting back are one step against other
+            // reconnects: the gate then always names the latest press.
+            let title: String?
             do {
-                try system.reconnectGate.raise(gate)
+                title = try gateLock.locked { () throws -> String? in
+                    let before = system.reconnectGate.reason(now: system.now)
+                    try system.reconnectGate.raise(gate)
+                    guard let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid,
+                                                         windowID: binding?.windowID)
+                    else {
+                        // Nothing pressed: the gate as it was, which nobody
+                        // else could change meanwhile.
+                        if let before { try? system.reconnectGate.raise(before) } else { system.reconnectGate.lower() }
+                        return nil
+                    }
+                    return title
+                }
             } catch {
                 var refused = report(.notReady, pressed: nil, timedOut: false)
                 refused.blockedBy = "cannot record the reconnect for other processes (\(error.localizedDescription)); nothing pressed"
                 return refused
             }
-            guard let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid, windowID: binding?.windowID)
-            else {
-                // Nothing pressed: leave the gate as it was.
-                if let before = gateKnown { try? system.reconnectGate.raise(before) } else { system.reconnectGate.lower() }
-                return report(.notReady, pressed: nil, timedOut: false)
-            }
+            guard let title else { return report(.notReady, pressed: nil, timedOut: false) }
             gateKnown = gate
             pressed = title
             // What was seen before the press says nothing about after it.
@@ -315,16 +329,29 @@ public final class IPhoneAgentScreen: AgentScreen {
             blocked.blockedBy = "input barrier: \(reason); take a screenshot first"
             return blocked
         }
-        let gate = system.reconnectGate.reason(now: system.now)
-        if gate != gateKnown {
-            // Another process pressed while this one looked: its press is
-            // not confirmed by looks begun before it.
+        // Compared and lowered as one step: a press by another process
+        // meanwhile is not confirmed by looks begun before it, and is never
+        // lowered here.
+        let found: String??
+        do {
+            found = try gateLock.locked { () -> String?? in
+                let gate = system.reconnectGate.reason(now: system.now)
+                guard gate == gateKnown else { return .some(gate) }
+                system.reconnectGate.lower()
+                return .none
+            }
+        } catch {
+            var blocked = report(.notReady, pressed: pressed, timedOut: false)
+            blocked.blockedBy = "cannot change the reconnect record for other processes (\(error.localizedDescription)); "
+                + "run `agentdesktop iphone reconnect` again"
+            return blocked
+        }
+        if case .some(let gate) = found {
             var blocked = report(.notReady, pressed: pressed, timedOut: false)
             blocked.blockedBy = "another reconnect pressed a button meanwhile (\(gate ?? "its record is gone")); "
                 + "run `agentdesktop iphone reconnect` again"
             return blocked
         }
-        system.reconnectGate.lower()
         connection.confirm()
         return report(.ready, pressed: pressed, timedOut: false)
     }
