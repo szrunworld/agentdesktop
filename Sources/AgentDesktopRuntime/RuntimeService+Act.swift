@@ -104,20 +104,16 @@ extension RuntimeService {
                                        phase: .handler, notSent: true,
                                        details: .obj([("reason", .string("clipboard_path_refused")), ("path", .string(path))]))
                 }
-                // #120 audit: keys and typing go to the app's focused window,
-                // not to a window id. A floating panel of the same process
-                // (not a normal-level window, so not in the checks above) may
-                // hold focus: the input would reach a window that was neither
-                // bound nor shown. Refused when focus is known to be elsewhere.
-                // With a menu open the arrows and Escape act on the menu (G2
-                // already refuses Return, Space and typing there).
-                if pa.kind == .key || pa.kind == .type, platform.menuOpen(pid: b.process.pid) != true,
-                   let focusWindow = platform.focusedControl(pid: b.process.pid)?.windowId, focusWindow != b.windowId {
-                    throw RuntimeError("stale_observation",
-                                       "keyboard focus is in window \(focusWindow) of the app, not the bound window \(b.windowId); nothing was sent",
-                                       phase: .handler, notSent: true,
-                                       details: .obj([("reason", .string("focus_outside_bound_window")),
-                                                      ("focusWindowId", .int(Int(focusWindow)))]))
+                // #120 audit (Kevin 2026-10-09): keys and typing go to the
+                // app's focused window, not to a window id. A floating panel of
+                // the same process (not a normal-level window, so not in the
+                // checks above) may hold focus, and input would reach a window
+                // that was neither bound nor shown. Sent only when the focused
+                // window is known to be the bound one; refused when it is
+                // elsewhere or cannot be told (fail closed). With a menu open,
+                // only the plain arrows and Escape (menu navigation) are sent.
+                if pa.kind == .key || pa.kind == .type {
+                    try focusRefusal(pa, pid: b.process.pid, windowId: b.windowId, platform: platform)
                 }
                 if let deadline = request.deadline.flatMap(Timestamp.date), now() >= deadline {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
@@ -152,6 +148,16 @@ extension RuntimeService {
                         if !Self.sameFrame(after.window.frame, window.frame) {
                             throw RuntimeError("stale_observation", "window \(b.windowId) moved while input was sent",
                                                phase: .handler, details: .obj([("reason", .string("moved"))]))
+                        }
+                        // The focus check before the send and the send are not
+                        // one step: focus that is known to have left the bound
+                        // window right after makes the delivery unknown (the
+                        // input may have gone with it). Residual: a change and
+                        // a change back between two reads is not seen.
+                        if pa.kind == .key || pa.kind == .type, platform.menuOpen(pid: b.process.pid) != true,
+                           let now = platform.focusedControl(pid: b.process.pid)?.windowId, now != b.windowId {
+                            throw RuntimeError("stale_observation", "keyboard focus moved to window \(now) while input was sent",
+                                               phase: .handler, details: .obj([("reason", .string("focus_moved"))]))
                         }
                     } catch let changed as RuntimeError {
                         delivery = "unknown"; execution = "unknown"
@@ -219,6 +225,40 @@ extension RuntimeService {
             break
         }
         return result
+    }
+
+    /// Keys allowed while a menu is open: they only move through it or close it.
+    static let menuNavigationKeys: Set<String> = ["up", "down", "left", "right", "escape", "esc"]
+
+    /// Why a key or typing must not be sent to the bound window now (#120
+    /// audit), or nothing. Every refusal is notSent and names its reason.
+    func focusRefusal(_ pa: PlatformAction, pid: Int32, windowId: UInt32, platform: DesktopPlatform) throws {
+        func refuse(_ reason: String, _ message: String, _ extra: [(String, JSONValue)] = []) -> RuntimeError {
+            RuntimeError("stale_observation", message + "; nothing was sent", phase: .handler, notSent: true,
+                         details: .obj([("reason", .string(reason))] + extra))
+        }
+        switch platform.menuOpen(pid: pid) {
+        case nil:
+            throw refuse("menu_unverified", "whether the app shows a menu cannot be read")
+        case true?:
+            let key = (pa.key ?? "").lowercased()
+            guard pa.kind == .key, pa.modifiers.isEmpty, Self.menuNavigationKeys.contains(key) else {
+                throw refuse("menu_open", "the app shows a menu: only the arrows and Escape are sent until it closes")
+            }
+            return
+        case false?:
+            break
+        }
+        guard let focus = platform.focusedControl(pid: pid) ?? platform.focusedControl(pid: pid) else {
+            throw refuse("focus_unverified", "the app's keyboard focus cannot be read")
+        }
+        guard let focusWindow = focus.windowId else {
+            throw refuse("focus_unverified", "the window holding the app's keyboard focus cannot be told")
+        }
+        guard focusWindow == windowId else {
+            throw refuse("focus_outside_bound_window", "keyboard focus is in window \(focusWindow) of the app, not the bound window \(windowId)",
+                         [("focusWindowId", .int(Int(focusWindow)))])
+        }
     }
 
     static func sameFrame(_ a: AgentDesktopProtocol.Rect, _ b: AgentDesktopProtocol.Rect) -> Bool {

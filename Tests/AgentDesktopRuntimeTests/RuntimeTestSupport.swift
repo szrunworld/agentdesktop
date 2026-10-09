@@ -114,10 +114,17 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     /// Reads of the focus that fail before `focusedHit` is answered.
     var focusFailures = 0
     var focusReads = 0
+    /// With no focused element, the app's focused window is its first one
+    /// (as for an app showing one window); off to model no focused window.
+    var focusFollowsWindow = true
     func focusedControl(pid: Int32) -> PlatformHit? {
         focusReads += 1
         if focusFailures > 0 { focusFailures -= 1; return nil }
-        return focusedHit
+        guard var hit = focusedHit else { return nil }
+        if focusFollowsWindow, hit.role == "AXNone", hit.windowId == nil {
+            hit.windowId = lock.withLock { windows[pid]?.first?.windowId }
+        }
+        return hit
     }
     func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter {
         guard layoutKnown else { return .unknown }

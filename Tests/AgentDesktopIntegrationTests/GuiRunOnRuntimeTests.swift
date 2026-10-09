@@ -25,7 +25,7 @@ final class FormPlatform: DesktopPlatform, @unchecked Sendable {
         PlatformHit(role: "AXButton", texts: [], windowId: 11)
     }
     func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
-    func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: nil) }
+    func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: 11) }
     func menuOpen(pid: Int32) -> Bool? { false }
     func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
 
