@@ -854,3 +854,15 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
         #expect(pngs.isEmpty, "\(pngs)")
     }
 }
+
+@Test func anOwnLaunchThatBecameAnotherAppIsNotExempt() throws {
+    let sc = try launchedScene()
+    let backend = try #require(sc.s.backend as? FixedBackend)
+    // Same pid and start time, now reported as another app (exec).
+    backend.opened.apps = [AppSummary(process: ProcessIdentity(pid: 303, startedAt: "2026-10-08T01:00:00.000Z"), bundleId: "com.example.other",
+                                      name: "Other", active: false, hidden: false)]
+    // (Listed first, the system's current answer for that process.)
+    let sid = try #require(data(call(sc.s, sc.c, "session.open", params: #"{"desktopId":"\#(sc.desk)"}"#))?["sessionId"]?.stringValue)
+    #expect(sc.s.launchedHere(sc.c, try #require(sc.s.desktops.find(sc.desk)), backend.processIdentity(303)) == false)
+    #expect(code(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sid)"}"#)) == "grant_missing")
+}

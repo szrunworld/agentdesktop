@@ -22,8 +22,12 @@ extension RuntimeService {
     /// alone may be another process by now), and only while the client's
     /// grant still covers that app and this Desktop (Codex on 0232db6).
     func launchedHere(_ c: ConnectionState, _ d: DesktopRecord, _ process: ProcessIdentity) -> Bool {
-        guard process.startedAt != nil, let launch = d.launchedBy[process], launch.clientId == c.clientId else { return false }
-        return appAllowed(c, bundleId: launch.bundleId) && desktopAllowed(c, d.desktopId)
+        guard process.startedAt != nil, let launch = d.launchedBy[process], launch.clientId == c.clientId,
+              let bundle = launch.bundleId else { return false }
+        // Still that app, as the system reports it now (Codex on bea6b8b: a
+        // process may exec another program under the same pid and start time).
+        guard backend.applications(includeBackground: true).first(where: { $0.process == process })?.bundleId == bundle else { return false }
+        return appAllowed(c, bundleId: bundle) && desktopAllowed(c, d.desktopId)
     }
 
     // MARK: Checking
