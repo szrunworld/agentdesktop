@@ -95,12 +95,18 @@ enum IPhoneCommands {
         do {
             let phone = IPhoneAgentScreen(screen: name)
             let report = try phone.reconnect(timeout: seconds(args, default: 20))
-            var output: [String: Any] = ["ok": report.state == .ready, "state": report.state.rawValue,
-                                         "hint": report.state.hint, "timedOut": report.timedOut]
+            // ok only when the phone was confirmed ready, never because the
+            // last look happened to show it (F8).
+            var output: [String: Any] = ["ok": report.isReady, "outcome": report.outcome.rawValue,
+                                         "phase": report.phase.rawValue, "generation": report.generation,
+                                         "readyReadings": report.readyReadings,
+                                         "state": report.state.rawValue, "hint": report.state.hint,
+                                         "timedOut": report.timedOut]
             if let label = report.label { output["shows"] = label }
             if let pressed = report.pressed { output["pressed"] = pressed }
+            if let blocked = report.blockedBy { output["blockedBy"] = blocked }
             DriverCommands.emit(output)
-            exit(report.state == .ready ? 0 : 1)
+            exit(report.isReady ? 0 : 1)
         } catch {
             fail(error.localizedDescription, code: 1)
         }

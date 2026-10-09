@@ -72,17 +72,17 @@ struct AccessibilityPressTests {
     @Test func pressesOnlyAnElementThatAdvertisesAXPressAndNeverFallsBack() throws {
         var calls = 0
         #expect(throws: AccessibilityError.self) {
-            try InputEngine.pressExplicitly(element(["AXShowMenu"])) { calls += 1; return true }
+            try InputEngine.pressExplicitly(element(["AXShowMenu"])) { calls += 1; return .pressed }
         }
         #expect(throws: AccessibilityError.self) {
-            try InputEngine.pressExplicitly(element(nil)) { calls += 1; return true }
+            try InputEngine.pressExplicitly(element(nil)) { calls += 1; return .pressed }
         }
         #expect(calls == 0, "an element without AXPress is never pressed")
         #expect(throws: AccessibilityError.self) {
-            try InputEngine.pressExplicitly(element(["AXPress"])) { calls += 1; return false }
+            try InputEngine.pressExplicitly(element(["AXPress"])) { calls += 1; return .notPerformed }
         }
         #expect(calls == 1, "a failed press is reported once, not retried another way")
-        let route = try InputEngine.pressExplicitly(element(["AXShowMenu", "AXPress"])) { calls += 1; return true }
+        let route = try InputEngine.pressExplicitly(element(["AXShowMenu", "AXPress"])) { calls += 1; return .pressed }
         #expect(route == "ax.press.explicit")
         #expect(route != "ax.press", "distinct from a default click's press")
         #expect(calls == 2)

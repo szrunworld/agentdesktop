@@ -43,10 +43,10 @@
   | 某文件最后一条记录是孤立的 `intent`（结果从未记录下来） | 与 `uncertain` 相同：不自动处理，留给人工；只要还有这样的文件，迁移就不算完成 |
 
   **日志记录的统一校验（Kevin 2026-10-09，替代逐种损坏形式的补丁）**。迁移开始前读整份日志；除最后一个换行之后的空片段和末尾的半行外，每一行都必须满足下面全部规则，否则迁移不开始，等人工核实：
-  1. 是一个 JSON 对象（空行、数组、字符串、数字都不行）；
+  1. 是一个 JSON 对象（空行、数组、字符串、数字都不行），并且每个键只出现一次（按 JSON 解码后比较，`"st\u0061tus"` 也算 `status`；重复时 JSONSerialization 保留哪个值没有保证）；
   2. 有必填字段 `status`、`at`、`file`、`sessionId`、`entries`；
   3. 只出现 `MigrationLogEntry` 定义的字段（必填五项，以及 `userScrubbed`、`agentChanged`、`agentKept`、`titleReset`、`error`），有其他字段就拒绝；
-  4. 类型和取值正确：`status` 为 intent/completed/failed/uncertain 之一；`file` 为 history 或 binding；`sessionId` 通过会话文件名的合法性校验（非空）；`at` 是 ISO 8601 时间；`entries` 和各项计数是 ≥ 0 的整数（布尔值不算）；`titleReset` 是布尔值；`error` 是字符串，并且只能出现在 failed 或 uncertain 记录里。
+  4. 类型和取值正确：`status` 为 intent/completed/failed/uncertain 之一；`file` 为 history 或 binding；`sessionId` 通过会话文件名的合法性校验（非空）；`at` 是严格的 ISO 8601 时间（解析后必须能格式化回完全相同的字符串，因此不接受 2 月 31 日这类日期或多余字符）；`entries` 和各项计数按该行原文判断：值只由数字组成（不允许负号、小数点、指数），并能放进 Int（布尔值不算）；`titleReset` 是布尔值；`error` 是字符串，并且只能出现在 failed 或 uncertain 记录里。
   缺少 `status` 的行同样不合格：产品从未写出过这种行，只有开发机上的早期日志会有。
 
   一次追加如果报告失败（包括新建日志后目录 fsync 失败），刚写入的那一行会被截掉，不会留下孤立的 `intent` 挡住一个没被改动过的文件；截断不成功时，这个 store 不再写日志。
