@@ -1,7 +1,7 @@
 import AgentDesktopAI
 import AgentDesktopClient
 @testable import AgentDesktopProtocol
-import AgentDesktopService
+@testable import AgentDesktopService
 import Foundation
 import Testing
 @testable import AgentDesktopRuntime
@@ -28,7 +28,13 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
     let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
         databasePath: dir + "/ai.sqlite", credentials: InMemoryCredentialStore()))
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
-    runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
+    // #166: AGENTDESKTOP_BRIDGE_DIAG=1 prints each bridge call's timeline
+    // (test-only; the answers are the same with or without it).
+    let diagnostics = ProcessInfo.processInfo.environment["AGENTDESKTOP_BRIDGE_DIAG"] == "1"
+        ? BridgeDiagnostics(onEvent: { [label = (dir as NSString).lastPathComponent] e in
+            FileHandle.standardError.write(Data("\(label) \(e)\n".utf8)) })
+        : nil
+    runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served, diagnostics: diagnostics))
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
     let server = RuntimeServer(path: path, service: runtime)
     try server.start()
