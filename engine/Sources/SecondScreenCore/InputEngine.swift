@@ -89,9 +89,13 @@ public final class InputEngine: @unchecked Sendable {
             // A single left click on a pressable native element needs no event.
             let modifiers = action.modifiers ?? []
             if let element, !right, count == 1, modifiers.isEmpty, AXActions.canPress(element.info),
-               !element.snapshot.isWeb(element.info.index),
-               AXActions.press(element.snapshot, index: element.info.index) {
-                response.route = "ax.press"
+               !element.snapshot.isWeb(element.info.index) {
+                // #172: one press; events only when it certainly did nothing,
+                // and then without a second accessibility attempt.
+                response.route = try Self.pressThenClick(
+                    press: { AXActions.press(element.snapshot, index: element.info.index) },
+                    what: "element \(element.info.index)",
+                    click: { try BackgroundInput.click(at: point, in: window, button: .left, count: 1, allowAX: false) })
             } else {
                 response.route = try BackgroundInput.click(at: point, in: window, button: right ? .right : .left,
                                                            count: count, modifiers: modifiers)
@@ -236,14 +240,27 @@ public final class InputEngine: @unchecked Sendable {
 
     /// Press `element` through accessibility: it must advertise AXPress and
     /// the press must succeed. Nothing else is tried when it does not.
-    public static func pressExplicitly(_ element: AXElementInfo, press: () -> Bool) throws -> String {
+    public static func pressExplicitly(_ element: AXElementInfo, press: () -> AXActions.PressOutcome) throws -> String {
         guard AXActions.canPress(element) else {
             throw AccessibilityError("element \(element.index) does not advertise AXPress; nothing was pressed")
         }
-        guard press() else {
-            throw AccessibilityError("AXPress on element \(element.index) failed; no other input was sent")
+        switch press() {
+        case .pressed: return explicitPressRoute
+        case .notPerformed: throw AccessibilityError("AXPress on element \(element.index) was refused; nothing was pressed and no other input was sent")
+        case .unknown: throw BackgroundInput.pressUnknown("element \(element.index)")
         }
-        return explicitPressRoute
+    }
+
+    /// One accessibility press, then an event click only if the press
+    /// certainly did nothing (#172). A press with no clear answer stops
+    /// here: it may have pressed, and a click after it could press twice.
+    static func pressThenClick(press: () -> AXActions.PressOutcome, what: String,
+                               click: () throws -> String) throws -> String {
+        switch press() {
+        case .pressed: return "ax.press"
+        case .unknown: throw BackgroundInput.pressUnknown(what)
+        case .notPerformed: return try click()
+        }
     }
 
     // MARK: Helpers
