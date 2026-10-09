@@ -704,3 +704,6 @@ Kevin 原话：
   - 本 PR 同时修复了 #196 遗留的一处漏检：ps 失败时，括号判断会让所有进程跳过 marker 检查。
   - **记录**：PR 分支用 `--force-with-lease` 覆盖了旧 head 16ec7b3（本地备份 backup/193-old-16ec7b3，GitHub 上该 commit 仍可访问）。改写的不是 main，但与"不改写 git 历史"的规则有关，待 Kevin 定性。已请 69 把备份 ref 推到远端，今后改为开新分支。
   - **补充（69 主动披露）**：#197 分支共被 force-push 两次，都用了 `--force-with-lease`。第一次在变基到更新后的 #196 时，bcf67d5 被 16ec7b3 覆盖；第二次在 ccfe82e 上重新实现时，16ec7b3 被 8a9d96f 覆盖。两个旧 head 都已推到远端保存：`backup/193-old-bcf67d5`、`backup/193-old-16ec7b3`，b9 已用 ls-remote 核实。待 Kevin 定性。
+- **#197 9a1fcf2**：在 8a9d96f 之上追加提交，未强推。修复 Codex 的两条 P2：lsof 区分"没有占用者"和"出错"；停止过程中各次扫描的失败一直保留到最后。b9 复审通过，两条讨论已 resolve。等 Codex、CI，未授权。
+- **#207 e7dbe6f**：三处依赖调度的测试已改为信号或确定性驱动；Codex 的 4 条讨论已由 b9 逐条核实并 resolve；b9 复审通过。等 Codex、CI，未授权；#184 仍然冻结。
+- **#183**：69 修正了此前"一个测试都没结束"的判断（Swift Testing 输出按约 16 KB 一块刷新）。69 提议给测试代码中所有无上限的等待加上上限，作为定位手段，不算根因修复。b9 附了 4 个条件，等 Kevin 确认。
