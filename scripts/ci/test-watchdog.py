@@ -76,14 +76,29 @@ MARKER = "TEST_WATCHDOG_RUN"
 _libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
 
-def start_seconds(pid):
-    """The process's start time in whole seconds, from the kernel
-    (proc_pidinfo PROC_PIDTBSDINFO), or None when there is no such process.
-    The same clock as ps's lstart, read in microseconds, not a ps run."""
+def start_time(pid):
+    """(seconds, microseconds) when the process with this pid started, from
+    the kernel (proc_pidinfo PROC_PIDTBSDINFO), or None when there is none.
+    With the pid this identifies a process: ps's lstart is only exact to the
+    second, and a pid can be reused within one (Codex and b9 on #196)."""
     buf = ctypes.create_string_buffer(136)  # struct proc_bsdinfo
     if _libc.proc_pidinfo(pid, 3, ctypes.c_uint64(0), buf, 136) != 136:
         return None
-    return struct.unpack_from("<Q", buf, 120)[0]  # pbi_start_tvsec
+    return struct.unpack_from("<QQ", buf, 120)  # pbi_start_tvsec, pbi_start_tvusec
+
+
+def identities(procs):
+    """pid -> start_time() for each process in a ps listing, read right after
+    it, kept only where the second agrees with ps's lstart (otherwise the
+    pid is already another process's). What is left open: a pid reused
+    within the same second between ps's output and this read, a window of
+    milliseconds."""
+    found = {}
+    for pid, (_, _, start, _) in procs.items():
+        ident = start_time(pid)
+        if ident is not None and ident[0] == int(start):
+            found[pid] = ident
+    return found
 
 
 def process_environment(pid):
@@ -208,10 +223,10 @@ class Run:
     def __init__(self, root, tty, marker, started_at, child=None):
         self.root, self.tty, self.child = root, tty, child
         self.marker, self.started_at = marker, started_at
-        self.seen = {}  # pid -> (start, command)
+        self.seen = {}  # pid -> (start_time(), command)
         self.unverifiable = {}  # pid -> command: started since the run, environment unreadable
         self.last_snapshot = 0.0
-        self.starts = {}  # pid -> start, as the last members() found it
+        self.idents = {}  # pid -> start_time(), as the last members() found it
         # Once the command has exited its pid and group id may be given to
         # unrelated processes: from then on neither is used to find or stop
         # anything (Codex on #188).
@@ -233,8 +248,10 @@ class Run:
             return
         self.last_snapshot = now
         procs = processes()
+        ids = identities(procs)
         for pid, cmd in self._tree(procs).items():
-            self.seen.setdefault(pid, (procs[pid][2], cmd))
+            if pid in ids:
+                self.seen.setdefault(pid, (ids[pid], cmd))
 
     def _tree(self, procs):
         found = {pid for pid, (_, pgid, _, _) in procs.items() if pgid == self.root}
@@ -252,33 +269,38 @@ class Run:
         """pid -> command of every live process of the run. With a deadline,
         every step is limited to the time left (Codex on #188)."""
         procs = processes(deadline)
+        # Every process is pinned to its kernel identity at once; one that
+        # cannot be is not part of this look.
+        ids = identities(procs)
+        procs = {pid: row for pid, row in procs.items() if pid in ids}
         # The live tree only while the command runs; afterwards only what is
-        # confirmed: seen with the same start time, the marker, the terminal.
+        # confirmed: seen as the same process, the marker, the terminal.
         live = self._tree(procs) if self.root_alive else {}
-        for pid, (start, cmd) in self.seen.items():
-            if pid in procs and procs[pid][2] == start:
+        for pid, (ident, cmd) in self.seen.items():
+            if ids.get(pid) == ident:
                 live[pid] = procs[pid][3]
         if self.tty:
             _, out, _ = run_step(["lsof", "-t", self.tty], timeout=within(deadline, 10))
             for t in out.split():
                 if t.isdigit() and int(t) in procs and int(t) != os.getpid():
                     live[int(t)] = procs[int(t)][3]
-        live.update(self._marked(procs, set(live), deadline))
+        live.update(self._marked(procs, set(live), deadline, ids))
         if not self.root_alive:
             live.pop(self.root, None)
-        self.starts = {pid: procs[pid][2] for pid in live}
+        self.idents = {pid: ids[pid] for pid in live}
         return dict(sorted(live.items()))
 
     def signal(self, targets):
         """SIGKILL each target that is still the process members() found.
         A scan takes seconds (ps, lsof, sudo); in that time a target can
         exit and its pid go to an unrelated process. So right before each
-        signal the kernel is asked when the process with that pid started:
-        gone, or not the start ps saw, and it is left alone (Codex and b9 on
-        #196). What remains is the microseconds between check and kill."""
+        signal the kernel is asked when the process with that pid started,
+        to the microsecond: gone, or not the identity found, and it is left
+        alone (Codex and b9 on #196). What remains is the microseconds between
+        this check and the kill."""
         for pid in targets:
-            start = self.starts.get(pid)
-            if start is None or start_seconds(pid) != int(start):
+            ident = self.idents.get(pid)
+            if ident is None or start_time(pid) != ident:
                 continue
             try:
                 os.kill(pid, signal.SIGKILL)
@@ -299,8 +321,11 @@ class Run:
                     changed = True
         return mine
 
-    def _marked(self, procs, known, deadline=None):
-        """Processes started since the run began that carry its marker."""
+    def _marked(self, procs, known, deadline=None, ids=None):
+        """Processes started since the run began that carry its marker. The
+        identity is read again after each environment read: the marker is
+        taken as the identified process's only if it did not change."""
+        ids = identities(procs) if ids is None else ids
         tag = f"{MARKER}={self.marker}"
         found, unread = {}, []
         helpers = self._own_helpers(procs)
@@ -310,6 +335,8 @@ class Run:
             if cmd.startswith("(") and cmd.endswith(")"):
                 continue  # gone while ps ran (zombies are already left out)
             env = process_environment(pid)
+            if start_time(pid) != ids.get(pid):
+                continue  # gone or replaced while being read
             # For platform binaries the kernel returns the arguments with the
             # environment stripped, not an error: an empty environment cannot
             # be checked either (nor can one emptied with env -i).
@@ -326,9 +353,11 @@ class Run:
                 for row in out.splitlines():
                     head = row.strip().split(None, 1)
                     if head and head[0].isdigit():
-                        readable.add(int(head[0]))
-                        if tag in row:
-                            found[int(head[0])] = procs[int(head[0])][3]
+                        pid = int(head[0])
+                        readable.add(pid)
+                        # Read by pid; still the identified process?
+                        if tag in row and pid in procs and start_time(pid) == ids.get(pid):
+                            found[pid] = procs[pid][3]
             self.unverifiable = {pid: procs[pid][3] for pid in unread if pid not in readable}
         elif unread:
             self.unverifiable = {pid: procs[pid][3] for pid in unread}

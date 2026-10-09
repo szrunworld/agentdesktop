@@ -365,14 +365,14 @@ class WatchdogTests(unittest.TestCase):
             run = wd.Run(999999, None, uuid.uuid4().hex, time.time(), Unreaped())
             # Before the wait the bystander's pid was a target; after it, it
             # belongs to an unrelated process and is no longer one.
-            # Its recorded start is the bystander's own, the worst case (pid
-            # reused within the same second), so only looking again saves it.
+            # Its recorded identity is the bystander's own, the worst case, so
+            # only looking again saves it.
             looks = iter([{bystander.pid: "old target"}])
-            start = wd.start_seconds(bystander.pid)
+            ident = wd.start_time(bystander.pid)
 
             def members(deadline=None):
                 found = next(looks, {})
-                run.starts = {pid: start for pid in found}
+                run.idents = {pid: ident for pid in found}
                 return found
             run.members = members
             real = wd.os.killpg
@@ -389,28 +389,55 @@ class WatchdogTests(unittest.TestCase):
             bystander.wait()
 
     def test_a_target_is_signalled_only_while_it_is_the_process_found(self):
-        # b9 on #196: a scan takes seconds; a pid found in it may belong to
-        # another process by the time the signal is sent. Signalled only if
-        # the kernel's start time still matches the one ps saw.
+        # Codex and b9 on #196: a pid found in a scan may belong to another
+        # process by the time the signal is sent, even within the same
+        # second. Signalled only if the kernel's start time still matches
+        # the identity found, to the microsecond.
         wd = self.load()
-        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
-        found = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        procs = [subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+                 for _ in range(3)]
+        same_second, older, found = procs
         try:
             run = wd.Run(999999, None, uuid.uuid4().hex, time.time())
             run.root_alive = False
-            start = wd.start_seconds(other.pid)
-            # other: found as a process that started earlier (its pid reused
-            # since); found: still the very process the scan saw.
-            run.starts = {other.pid: start - 5, found.pid: wd.start_seconds(found.pid)}
-            run.signal([other.pid, found.pid, 999998])  # 999998: no such process
+            sec, usec = wd.start_time(same_second.pid)
+            run.idents = {
+                # Found as a process that started in the same second, a
+                # microsecond apart: its pid has since gone to this one.
+                same_second.pid: (sec, (usec + 1) % 1000000),
+                older.pid: (wd.start_time(older.pid)[0] - 5, 0),
+                found.pid: wd.start_time(found.pid),  # still the process found
+            }
+            run.signal([same_second.pid, older.pid, found.pid, 999998])  # 999998: no such process
             time.sleep(0.3)
-            self.assertIsNone(other.poll(), "a process with a reused pid was killed")
+            self.assertIsNone(same_second.poll(), "a same-second replacement was killed")
+            self.assertIsNone(older.poll(), "a process with a reused pid was killed")
             self.assertEqual(found.wait(timeout=5), -9)
         finally:
-            for p in (other, found):
+            for p in procs:
                 if p.poll() is None:
                     p.kill()
                 p.wait()
+
+    def test_the_marker_counts_only_for_the_process_identified(self):
+        # b9 on #196: the identity is read again after the environment; if
+        # the pid changed hands in between, the marker is not taken as the
+        # identified process's.
+        wd = self.load()
+        marker = uuid.uuid4().hex
+        run = wd.Run(999999, None, marker, time.time() - 5)
+        now = time.time()
+        procs = {424242: (1, 424242, now, "replaced"), 424243: (1, 424243, now, "same")}
+        ids = {424242: (int(now), 1), 424243: (int(now), 2)}
+        after = {424242: (int(now), 7), 424243: (int(now), 2)}  # 424242 changed during the read
+        real_env, real_start = wd.process_environment, wd.start_time
+        wd.process_environment = lambda pid: [f"{wd.MARKER}={marker}"]
+        wd.start_time = lambda pid: after.get(pid)
+        try:
+            found = run._marked(procs, set(), None, ids)
+        finally:
+            wd.process_environment, wd.start_time = real_env, real_start
+        self.assertEqual(found, {424243: "same"})
 
 
 if __name__ == "__main__":
