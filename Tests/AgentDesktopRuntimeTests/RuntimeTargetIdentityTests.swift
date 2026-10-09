@@ -187,34 +187,50 @@ func openSibling(_ backend: FixedBackend) {
     #expect(code(act(sc, #"{"kind":"click","target":{"elementRef":"el_0"}}"#)) == nil)
 }
 
-// Kevin 2026-10-09: with a menu open only the plain arrows and Escape are
-// sent; anything else (letters, Delete, Tab, cmd combinations, Return, Space,
-// typing) is refused until it closes, and an unreadable menu state refuses.
-@Test func withAMenuOpenOnlyMenuNavigationIsSent() throws {
+// Kevin 2026-10-09: with a menu open nothing is sent, not even the arrows or
+// Escape; an unreadable menu state refuses; the focus check returns once the
+// menu is closed. Clicks are judged by what is under the point (G2).
+@Test func withAMenuOpenNoKeyAndNoTypingIsSent() throws {
     let sc = try scene()
-    // G2 refuses first for Return, Space and typing, naming the path.
+    // G2 refuses Return, Space and typing first, naming the path.
     func reason(_ a: String) -> String? {
         let d = failure(act(sc, a))?.details
         return d?["reason"]?.stringValue == "clipboard_path_refused" ? d?["path"]?.stringValue : d?["reason"]?.stringValue
     }
     sc.platform.focusedHit = PlatformHit(role: "AXMenuItem", texts: ["Open"], windowId: 4242, focused: true)
     sc.platform.menuShown = true
-    for k in ["up", "down", "left", "right", "escape"] {
-        #expect(code(act(sc, #"{"kind":"key","key":"\#(k)"}"#)) == nil, "\(k)")
-    }
-    for a in [#"{"kind":"key","key":"a"}"#, #"{"kind":"key","key":"delete"}"#, #"{"kind":"key","key":"tab"}"#,
-              #"{"kind":"key","key":"down","modifiers":["shift"]}"#, #"{"kind":"key","key":"o","modifiers":["cmd"]}"#,
-              #"{"kind":"type","text":"x"}"#] {
+    for a in [#"{"kind":"key","key":"down"}"#, #"{"kind":"key","key":"up"}"#, #"{"kind":"key","key":"escape"}"#,
+              #"{"kind":"key","key":"a"}"#, #"{"kind":"key","key":"delete"}"#, #"{"kind":"key","key":"tab"}"#,
+              #"{"kind":"key","key":"o","modifiers":["cmd"]}"#, #"{"kind":"key","key":"return"}"#,
+              #"{"kind":"key","key":"space"}"#, #"{"kind":"type","text":"x"}"#] {
         #expect(reason(a) == "menu_open", "\(a)")
     }
-    // Return and Space: refused by G2 first (menu_open), never treated as navigation.
-    #expect(reason(#"{"kind":"key","key":"return"}"#) == "menu_open")
-    #expect(reason(#"{"kind":"key","key":"space"}"#) == "menu_open")
+    #expect(sc.platform.performed.isEmpty)
     sc.platform.menuShown = nil
-    #expect(reason(#"{"kind":"key","key":"down"}"#) == "menu_unverified")
-    // Closed again: the focus check is back.
+    #expect(reason(#"{"kind":"key","key":"escape"}"#) == "menu_unverified")
+    // Closed again: the focus check is back (focus is not in the bound window here).
     sc.platform.menuShown = false
     #expect(reason(#"{"kind":"key","key":"down"}"#) == "focus_outside_bound_window")
+    // Closing a menu by clicking the bound window is a click, judged by G2.
+    sc.platform.menuShown = true
+    #expect(code(act(sc, #"{"kind":"click","target":{"elementRef":"el_0"}}"#)) == nil)
+}
+
+// Kevin's three regression cases for menus (2026-10-09). Whose a menu is cannot
+// be proved, so all three refuse; where the menu is does not matter.
+@Test(arguments: ["another window's menu, beside the bound window",
+                  "another window's menu, over the bound window",
+                  "a menu whose owner cannot be told"])
+func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuCase: String) throws {
+    let sc = try scene()
+    sc.platform.focusedHit = PlatformHit(role: "AXMenuItem", texts: ["Open"], windowId: 4242, focused: true)
+    sc.platform.menuShown = menuCase.hasPrefix("a menu whose owner") ? nil : true
+    for k in ["down", "escape"] {
+        let r = failure(act(sc, #"{"kind":"key","key":"\#(k)"}"#))
+        #expect(r?.details?["reason"]?.stringValue == (sc.platform.menuShown == nil ? "menu_unverified" : "menu_open"), "\(menuCase) \(k)")
+        #expect(r?.notSent == true)
+    }
+    #expect(sc.platform.performed.isEmpty)
 }
 
 // The check and the send are not one step: focus known to have left the
@@ -230,26 +246,4 @@ func openSibling(_ backend: FixedBackend) {
     #expect(code(r) == "action_delivery_unknown")
     #expect(failure(r)?.details?["receipt"]?["delivery"]?.stringValue == "unknown")
     #expect(sc.platform.performed.count == 1)
-}
-
-// Codex on 518b651 (P1): the arrows and Escape go to the app's open menu. A
-// menu the app shows outside the bound window's screen (from a window that
-// is not bound, on the user's display) is not the bound window's: refused.
-@Test func menuNavigationIsSentOnlyToAMenuOnTheBoundWindowsScreen() throws {
-    let sc = try scene()
-    func reason(_ a: String) -> String? { failure(act(sc, a))?.details?["reason"]?.stringValue }
-    let screen = try #require(sc.s.desktops.find(sc.desktop)?.screen.frame)
-    sc.platform.focusedHit = PlatformHit(role: "AXMenuItem", texts: ["Open"], windowId: 4242, focused: true)
-    sc.platform.menuShown = true
-    // On the bound window's screen: sent.
-    #expect(code(act(sc, #"{"kind":"key","key":"down"}"#)) == nil)
-    // On another display (the user's): refused, nothing sent.
-    let before = sc.platform.performed.count
-    sc.platform.menuFrame = AgentDesktopProtocol.Rect(x: screen.x - 400, y: 100, width: 120, height: 80)
-    #expect(reason(#"{"kind":"key","key":"down"}"#) == "menu_open")
-    #expect(reason(#"{"kind":"key","key":"escape"}"#) == "menu_open")
-    // Straddling the screen's edge: not shown to be ours, refused.
-    sc.platform.menuFrame = AgentDesktopProtocol.Rect(x: screen.x + screen.width - 50, y: 100, width: 120, height: 80)
-    #expect(reason(#"{"kind":"key","key":"escape"}"#) == "menu_open")
-    #expect(sc.platform.performed.count == before)
 }

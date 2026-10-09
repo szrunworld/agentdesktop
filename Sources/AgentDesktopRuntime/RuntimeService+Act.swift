@@ -110,11 +110,11 @@ extension RuntimeService {
                 // checks above) may hold focus, and input would reach a window
                 // that was neither bound nor shown. Sent only when the focused
                 // window is known to be the bound one; refused when it is
-                // elsewhere or cannot be told (fail closed). With a menu open,
-                // only the plain arrows and Escape (menu navigation) are sent.
+                // elsewhere or cannot be told (fail closed). With a menu open
+                // nothing is sent (Kevin 2026-10-09: whose menu it is cannot be
+                // proved); the agent closes it by clicking the bound window.
                 if pa.kind == .key || pa.kind == .type {
-                    try focusRefusal(pa, pid: b.process.pid, windowId: b.windowId, window: window.frame, desktop: d,
-                                     platform: platform)
+                    try focusRefusal(pa, pid: b.process.pid, windowId: b.windowId, platform: platform)
                 }
                 if let deadline = request.deadline.flatMap(Timestamp.date), now() >= deadline {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
@@ -228,43 +228,23 @@ extension RuntimeService {
         return result
     }
 
-    /// Keys allowed while a menu is open: they only move through it or close it.
-    static let menuNavigationKeys: Set<String> = ["up", "down", "left", "right", "escape", "esc"]
-
     /// Why a key or typing must not be sent to the bound window now (#120
     /// audit), or nothing. Every refusal is notSent and names its reason.
-    func focusRefusal(_ pa: PlatformAction, pid: Int32, windowId: UInt32, window: AgentDesktopProtocol.Rect,
-                      desktop d: DesktopRecord, platform: DesktopPlatform) throws {
+    func focusRefusal(_ pa: PlatformAction, pid: Int32, windowId: UInt32, platform: DesktopPlatform) throws {
         func refuse(_ reason: String, _ message: String, _ extra: [(String, JSONValue)] = []) -> RuntimeError {
             RuntimeError("stale_observation", message + "; nothing was sent", phase: .handler, notSent: true,
                          details: .obj([("reason", .string(reason))] + extra))
         }
+        // Kevin 2026-10-09: menu authorization is the bound window's, not the
+        // process's, and being placed over the bound window does not prove a
+        // menu is its. Which window opened a menu cannot be proved, so while
+        // the app shows any menu no key and no typing is sent, not even the
+        // arrows or Escape. Clicks are judged by what is under the point (G2).
         switch platform.menuOpen(pid: pid) {
         case nil:
             throw refuse("menu_unverified", "whether the app shows a menu cannot be read")
         case true?:
-            let key = (pa.key ?? "").lowercased()
-            guard pa.kind == .key, pa.modifiers.isEmpty, Self.menuNavigationKeys.contains(key) else {
-                throw refuse("menu_open", "the app shows a menu: only the arrows and Escape are sent until it closes")
-            }
-            // Codex on 518b651 (P1): the menu must be the bound window's. A
-            // menu the app shows elsewhere (on the user's display, from a
-            // window that is not bound) would get the arrows or Escape. Every
-            // open menu must lie on this Desktop's screen, and on a physical
-            // Desktop (the user's own display) also over the bound window.
-            guard let menus = platform.menuFrames(pid: pid) else {
-                throw refuse("menu_unverified", "where the app's menu is cannot be read")
-            }
-            let screen = d.screen.frame
-            let ours = !menus.isEmpty && menus.allSatisfy { m in
-                m.x >= screen.x && m.y >= screen.y && m.x + m.width <= screen.x + screen.width
-                    && m.y + m.height <= screen.y + screen.height
-                    && (d.kind == .virtual || Self.overlap(m, window))
-            }
-            guard ours else {
-                throw refuse("menu_open", "the app shows a menu outside the bound window's screen; nothing is sent to it")
-            }
-            return
+            throw refuse("menu_open", "the app shows a menu, and whose it is cannot be proved; close it by clicking the bound window")
         case false?:
             break
         }

@@ -480,8 +480,11 @@ func aControlCharacterKeyIsRefused(_ k: String) throws {
     for k in ["return", "space", "enter"] { expectRefusal(act(sc, key(k, [])), path: "menu_open") }
     expectRefusal(act(sc, #"{"kind":"key","key":" "}"#), path: "menu_open")
     expectRefusal(act(sc, #"{"kind":"type","text":"p "}"#), path: "menu_open")
-    // Arrows still move through it; only activation is refused.
-    sent(act(sc, key("down", [])))
+    // Arrows too, since #163 (Kevin 2026-10-09): with a menu open no key is
+    // sent, because whose menu it is cannot be proved.
+    let arrow = act(sc, key("down", []))
+    #expect(failure(arrow)?.details?["reason"]?.stringValue == "menu_open")
+    #expect(platform.performed.isEmpty)
     platform.menuShown = nil
     expectRefusal(act(sc, key("return", [])), path: "menu_unverified")
     platform.menuShown = false
