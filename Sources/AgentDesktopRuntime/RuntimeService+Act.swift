@@ -270,9 +270,13 @@ extension RuntimeService {
             guard focus.editable || ClipboardPolicy.textRoles.contains(role) else {
                 throw refuse("type_focus_not_text", "keyboard focus is not on editable text in the bound window; typing there could press a control")
             }
-            var body = Substring(pa.text ?? "")
-            while let last = body.unicodeScalars.last, last == "\n" || last == "\r" { body = body.dropLast() }
-            guard !body.unicodeScalars.contains(where: { $0 == "\n" || $0 == "\r" }) else {
+            // At most one newline, and only as the last thing sent ("\n",
+            // "\r" or "\r\n"): a second one would go wherever the first sent
+            // focus (b9 on 4ec619b: "abc\n\n").
+            var scalars = Array((pa.text ?? "").unicodeScalars)
+            if scalars.suffix(2) == ["\r", "\n"] { scalars.removeLast(2) }
+            else if let last = scalars.last, last == "\n" || last == "\r" { scalars.removeLast() }
+            guard !scalars.contains(where: { $0 == "\n" || $0 == "\r" }) else {
                 throw refuse("type_newline_not_last", "a newline may only end the text: what it sets off could take the rest elsewhere; send the lines as separate actions")
             }
         }

@@ -265,13 +265,15 @@ func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuC
     #expect(sc.platform.performed.isEmpty)
     // Editable text with focus: a newline in the middle is refused...
     sc.platform.focusedHit = PlatformHit(role: "AXTextArea", texts: [], windowId: bound, focused: true, editable: true)
-    for text in [#"one\ntwo"#, #"one\rtwo"#, #"one\r\ntwo"#, #"\nx"#] {
+    for text in [#"one\ntwo"#, #"one\rtwo"#, #"one\r\ntwo"#, #"\nx"#,
+                 // b9 on 4ec619b: only one newline may end the text.
+                 #"abc\n\n"#, #"abc\r\n\r\n"#, #"abc\r\r"#, #"abc\n\r"#, #"\n\n"#] {
         #expect(reason(#"{"kind":"type","text":"\#(text)"}"#) == "type_newline_not_last", "\(text)")
     }
     #expect(sc.platform.performed.isEmpty)
     // ...and only at the end it goes through, as does plain text.
-    for text in ["hello world", #"one line\n"#, #"one line\r\n"#] {
+    for text in ["hello world", #"one line\n"#, #"one line\r\n"#, #"one line\r"#] {
         #expect(code(act(sc, #"{"kind":"type","text":"\#(text)"}"#)) == nil, "\(text)")
     }
-    #expect(sc.platform.performed.count == 3)
+    #expect(sc.platform.performed.count == 4)
 }
