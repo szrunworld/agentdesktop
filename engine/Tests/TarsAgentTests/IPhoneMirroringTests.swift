@@ -1147,6 +1147,57 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
     }
 
+    /// Independent review of #142 (F1): the page changes while the press
+    /// waits for the lock (a Welcome page, whose "继续" is also a reconnect
+    /// button). Once the lock is had, nothing is pressed and the gate is not
+    /// raised: only a disconnected phone is reconnected.
+    @Test func aPageThatChangedDuringTheLockWaitIsNotPressed() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        fake.ax = ["Connection Paused", "继续"]
+        fake.buttons = ["继续"]
+        let fd = try Self.holdLock(of: fake.reconnectGate)
+        let changed = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            Thread.sleep(forTimeInterval: 0.2)
+            fake.ax = ["Welcome to iPhone Mirroring", "继续"]
+            Self.release(fd)
+            changed.signal()
+        }
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.gateLockWait = 5
+        let report = try phone.reconnect(timeout: 20)
+        changed.wait()
+        #expect(report.outcome == .needsUser)
+        #expect(fake.pressed.isEmpty)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
+    }
+
+    /// Independent review of #142 (F3): the phone locks while a confirming
+    /// reconnect waits for the lock. The looks before the wait are stale:
+    /// it does not report ready, and the gate stays up.
+    @Test func aPhoneThatLockedDuringTheLockWaitIsNotConfirmed() throws {
+        let fake = FakeMirroring()
+        defer { fake.reconnectGate.lower() }
+        try fake.reconnectGate.raise("an earlier press")
+        let phone = IPhoneAgentScreen(screen: "phone", system: fake)
+        phone.gateLockWait = 5
+        let changed = DispatchSemaphore(value: 0)
+        fake.onSleep = {
+            guard fake.sleeps == 1, let fd = try? Self.holdLock(of: fake.reconnectGate) else { return }
+            Thread.detachNewThread {
+                Thread.sleep(forTimeInterval: 0.2)
+                fake.ax = ["iPhone Mirroring Is Locked"]
+                Self.release(fd)
+                changed.signal()
+            }
+        }
+        let report = try phone.reconnect(timeout: 20)
+        changed.wait()
+        #expect(report.outcome == .needsUser && !report.isReady)
+        #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
+    }
+
     /// Finding 1: the gate is compared and lowered as one step; while
     /// another process holds it, a confirming reconnect lowers nothing and
     /// does not report ready.

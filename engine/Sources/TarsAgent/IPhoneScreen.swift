@@ -291,7 +291,7 @@ public final class IPhoneAgentScreen: AgentScreen {
             // Raising, pressing and putting back are one step against other
             // reconnects and against input: the gate then always names the
             // latest press, and no input is sent between raising and pressing.
-            enum Press { case pressed(String), noButton, timedOut }
+            enum Press { case pressed(String), noButton, timedOut, changed(IPhoneConnectionState) }
             let press: Press
             do {
                 press = try gateLock.locked(giveUp: { stopReason() != nil || system.now >= until }) { () throws -> Press in
@@ -299,6 +299,11 @@ public final class IPhoneAgentScreen: AgentScreen {
                     // stopped or out of time, nothing is changed or pressed.
                     if let stop = stopReason() { throw stop }
                     if system.now >= until { return .timedOut }
+                    // Nor if the page changed meanwhile (independent review
+                    // of #142: a Welcome page's "继续" was pressed after the
+                    // wait): only a disconnected phone is reconnected.
+                    let now = (try? connectionState())?.0 ?? .uncertain
+                    guard now == .disconnected else { return .changed(now) }
                     let before = system.reconnectGate.reason(now: system.now)
                     try system.reconnectGate.raise(gate)
                     guard let title = system.pressButton(titled: IPhoneConnection.reconnectButtons, pid: pid,
@@ -316,6 +321,9 @@ public final class IPhoneAgentScreen: AgentScreen {
             } catch HostFlagLock.Failure.gaveUp {
                 if let stop = stopReason() { throw stop }
                 return report(.notReady, pressed: nil, timedOut: true)
+            } catch HostFlagLock.Failure.busy {
+                // Another process held the lock all the wait: out of time.
+                return report(.notReady, pressed: nil, timedOut: true)
             } catch {
                 var refused = report(.notReady, pressed: nil, timedOut: false)
                 refused.blockedBy = "cannot record the reconnect for other processes (\(error.localizedDescription)); nothing pressed"
@@ -326,6 +334,9 @@ public final class IPhoneAgentScreen: AgentScreen {
             case .pressed(let pressedTitle): title = pressedTitle
             case .noButton: return report(.notReady, pressed: nil, timedOut: false)
             case .timedOut: return report(.notReady, pressed: nil, timedOut: true)
+            case .changed(.phoneInUse), .changed(.authRequired), .changed(.needsUser):
+                return report(.needsUser, pressed: nil, timedOut: false)
+            case .changed: return report(.notReady, pressed: nil, timedOut: false)
             }
             gateKnown = gate
             pressed = title
@@ -370,7 +381,7 @@ public final class IPhoneAgentScreen: AgentScreen {
         // Compared and lowered as one step: a press by another process
         // meanwhile is not confirmed by looks begun before it, and is never
         // lowered here.
-        enum Lowering { case lowered, pressedElsewhere(String?), timedOut, barrier(String) }
+        enum Lowering { case lowered, pressedElsewhere(String?), timedOut, barrier(String), changed(IPhoneConnectionState) }
         let lowering: Lowering
         do {
             lowering = try gateLock.locked(giveUp: { stopReason() != nil || system.now >= until }) { () throws -> Lowering in
@@ -380,6 +391,11 @@ public final class IPhoneAgentScreen: AgentScreen {
                 if system.now >= until { return .timedOut }
                 // An input that ran while this waited may have raised it.
                 if let reason = invalidated ?? system.inputBarrier.reason(now: system.now) { return .barrier(reason) }
+                // The looks that made it ready came before the wait: the
+                // phone may have locked meanwhile (independent review of
+                // #142). Read once more before confirming.
+                let now = (try? connectionState())?.0 ?? .uncertain
+                guard now == .ready else { return .changed(now) }
                 let gate = system.reconnectGate.reason(now: system.now)
                 guard gate == gateKnown else { return .pressedElsewhere(gate) }
                 system.reconnectGate.lower()
@@ -389,6 +405,8 @@ public final class IPhoneAgentScreen: AgentScreen {
             throw stop
         } catch HostFlagLock.Failure.gaveUp {
             if let stop = stopReason() { throw stop }
+            return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true)
+        } catch HostFlagLock.Failure.busy {
             return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true)
         } catch {
             var blocked = report(.notReady, pressed: pressed, timedOut: false)
@@ -400,6 +418,10 @@ public final class IPhoneAgentScreen: AgentScreen {
         case .lowered:
             connection.confirm()
             return report(.ready, pressed: pressed, timedOut: false)
+        case .changed(.phoneInUse), .changed(.authRequired), .changed(.needsUser):
+            return report(.needsUser, pressed: pressed, timedOut: false)
+        case .changed:
+            return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: false)
         case .timedOut:
             return report(pressed == nil ? .notReady : .pressedUnconfirmed, pressed: pressed, timedOut: true)
         case .barrier(let reason):
