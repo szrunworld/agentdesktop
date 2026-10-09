@@ -728,3 +728,24 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     st2.s.hub.failsWindowGrantWrites = true
     #expect(code(call(st2.s, st2.owner, "hub.windows.revoke", params: #"{"windowGrantId":"\#(id2)"}"#)) == "audit_unavailable")
 }
+
+@Test func aScreenshotTakenAlreadyExpiredIsStillDeleted() async throws {
+    try await offPoolConfirm {
+        let (sc, _, _, _) = try calculatorScene(["observe"])
+        sc.s.transientArtifactLifetime = -1
+        let image = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"])
+        let id = try #require(image["artifactId"]?.stringValue)
+        let path = sc.s.artifacts.path(for: id, ext: "png")
+        let end = Date().addingTimeInterval(5)
+        while FileManager.default.fileExists(atPath: path) && Date() < end { Thread.sleep(forTimeInterval: 0.05) }
+        #expect(!FileManager.default.fileExists(atPath: path))
+    }
+}
+
+@Test func revokingAClientSaysWhichWindowGrantsItEnded() throws {
+    let st = try Stage()
+    let id = try #require(data(st.request(["observe"]))?["windowGrantId"]?.stringValue)
+    let revoked = try #require(try st.s.hub.revokeEndingWindowGrants(st.appId))
+    #expect(revoked.windowGrants == [id])
+    #expect(st.s.hub.windowGrant(id)?.state == "revoked")
+}

@@ -207,10 +207,12 @@ extension RuntimeService {
     /// its open connections are refused from the next request on.
     func revokeClient(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["clientId"]?.stringValue ?? ""
-        let windowGrants = hub.windowGrants(clientId: id).map(\.windowGrantId)
-        guard (try? hub.revoke(id)) ?? nil != nil, let client = hub.client(id) else { return .failure(.notFound("no client \(id)")) }
-        // Its window grants ended with it (in the store); what was kept only under them goes.
-        endedWindowGrants(windowGrants, state: "revoked", reason: "client_revoked")
+        guard let revoked = try? hub.revokeEndingWindowGrants(id), let client = hub.client(id) else {
+            return .failure(.notFound("no client \(id)"))
+        }
+        // Its window grants ended with it, in the same transaction; what was
+        // kept only under them goes.
+        endedWindowGrants(revoked.windowGrants, state: "revoked", reason: "client_revoked")
         // The linearization point: from here nothing more reaches the app.
         cutConnections(of: id, reason: "client_revoked")
         accessWithdrawn(id)

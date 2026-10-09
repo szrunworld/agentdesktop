@@ -281,6 +281,12 @@ public final class HubStore: @unchecked Sendable {
     private let writeLock = NSLock()
 
     public func revoke(_ clientId: String) throws -> Client? {
+        try revokeEndingWindowGrants(clientId)?.client
+    }
+
+    /// Revoke a client and say which window grants this revoked, read in the
+    /// same transaction (Codex on 72e8b63).
+    public func revokeEndingWindowGrants(_ clientId: String) throws -> (client: Client, windowGrants: [String])? {
         // The same lock as setGrant: a confirmed change cannot write a grant
         // back over this revocation (round-five review Low-1).
         writeLock.lock()
@@ -288,15 +294,18 @@ public final class HubStore: @unchecked Sendable {
         guard client(clientId) != nil else { return nil }
         // One transaction: the client, its grant and its window grants go
         // together or not at all.
-        try db.transaction {
+        let ended: [String] = try db.transaction {
             try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
             try db.execute("UPDATE grants SET state = 'revoked', revision = revision + 1 WHERE client_id = ?", [.text(clientId)])
+            var ids: [String] = []
             for w in try loadWindowGrants(where: "client_id = ? AND state = 'active'", [.text(clientId)]) {
                 try endWindowGrantRow(w.windowGrantId, state: "revoked", reason: "client_revoked")
+                ids.append(w.windowGrantId)
             }
             try bumpEpoch()
+            return ids
         }
-        return client(clientId)
+        return client(clientId).map { ($0, ended) }
     }
 
     // MARK: Window grants
