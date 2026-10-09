@@ -63,7 +63,7 @@ public struct RuntimeProblem: Equatable, Sendable {
         case "model_unavailable": return ("模型服务不可用", "请检查 AI 连接；Runtime 在预算内按策略处理重试，界面不会自行无限重试。")
         case "execution_failed": return ("执行失败", "执行端报告失败，详情见回执。")
         case "internal_error": return ("发生内部错误", "请稍后重试；如果持续出现，请导出诊断。")
-        case "limit_exceeded": return ("超出上限", "请求超过了服务端上限，只能调低，不能调高。")
+        case "limit_exceeded": return ("超出上限", "已达到服务端的限制（步数、时间、预算，或截图的数量、存储与磁盘空间）；不带截图的观察仍可继续。")
         case "events_cursor_expired": return ("事件游标已过期", "已重新读取完整状态。")
         case "wait_timeout": return ("等待超时", "在等待时间内没有到达目标状态；运行本身不受影响。")
         case "deadline_exceeded": return ("已到截止时间", "不会再开始新的模型调用或输入。")

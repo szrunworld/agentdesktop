@@ -240,6 +240,7 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
 
     /// Test double: the window alone, as the window's crop of this double's screen.
     func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        if lock.withLock({ failScreenshot }) { throw PlatformError(.refused, "capture failed") }
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
         return try screenshot(screen, cropTo: w.frame, to: path)
     }
@@ -287,6 +288,8 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     var performed: [PlatformAction] = []
     /// Fail the next action: before or after dispatch.
     var failNext: PlatformError?
+    /// Window captures fail (G2/#144 tests).
+    var failScreenshot = false
     /// Hold actions until signalled (cancel-in-flight tests).
     var gate: DispatchSemaphore?
     var entered = DispatchSemaphore(value: 0)

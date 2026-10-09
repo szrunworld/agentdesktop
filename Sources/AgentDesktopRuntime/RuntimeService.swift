@@ -40,6 +40,10 @@ public final class RuntimeService: @unchecked Sendable {
     public let desktops: DesktopRegistry
     public let sessions = SessionManager()
     public let observations = ObservationStore()
+    let quotaBucketLock = NSLock()
+    var quotaBuckets: [String: String] = [:]
+    /// Requests whose reserved place a registered screenshot now holds.
+    var quotaBucketsUsed: Set<String> = []
     public let ledger: RequestLedger
     public let runs: RunStore
     let execution: ExecutionCoordinator
@@ -106,6 +110,17 @@ public final class RuntimeService: @unchecked Sendable {
         self.contract = contract
         self.startedAt = Timestamp.date(identity.startedAt) ?? now()
         self.now = now
+        // The sweep never removes what the Runtime still uses: the
+        // screenshot of an observation it holds, or anything of a Run that
+        // has not ended. A Runtime already gone keeps everything.
+        self.artifacts.retained = { [weak self] artifactId, runId in
+            guard let self else { return true }
+            if self.observations.find("obs_" + artifactId.dropFirst("art_".count)) != nil { return true }
+            // Only a Run the Runtime knows and that has not ended keeps its
+            // artifacts; an unknown runId keeps nothing.
+            if let runId, let run = self.runs.find(runId), run.phase != .ended { return true }
+            return false
+        }
     }
 
     func implemented(_ m: RuntimeMethod) -> Bool { platform != nil || !Self.platformMethods.contains(m) }

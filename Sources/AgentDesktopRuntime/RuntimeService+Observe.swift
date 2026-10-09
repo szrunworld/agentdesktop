@@ -41,6 +41,24 @@ extension RuntimeService {
         case let .failure(e): return .failure(e)
         case let .success((d, s)): desk = d; session = s
         }
+        // Screenshots count against a quota bucket: the Run named in the
+        // context, which must be one this connection owns or joined (a made-up
+        // or another caller's runId neither gets a fresh quota nor spends
+        // someone else's); otherwise the session, else the Desktop.
+        let bucket: String
+        // The GUI ports' own observation for a GUI Run: its own bucket, its
+        // place already reserved by the ports.
+        let reserved = takeQuotaBucket(requestId: request.requestId, connection: c)
+        if let gui = reserved {
+            bucket = gui
+        } else if let runId = request.context.runId {
+            if case let .failure(e) = execution.authorized(runId: runId, connection: c) { return .failure(e) }
+            bucket = "run:" + runId
+        } else if let session {
+            bucket = "session:" + session.sessionId
+        } else {
+            bucket = "desktop:" + desk.desktopId
+        }
         let requestDeadline = request.deadline.flatMap(Timestamp.date)
         let snapshotId = DesktopRegistry.newId(prefix: "obs")
         let wantsImage = p["screenshot"]?.boolValue ?? true
@@ -56,20 +74,42 @@ extension RuntimeService {
             stored.binding = d.binding
             /// The screen, or with a binding only the bound window's frame.
             func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
+                // Within the store's limits, before anything is captured.
+                if reserved == nil { try artifacts.admit(bucket: bucket) }
                 let artifactId = "art_" + snapshotId.dropFirst(4)
                 let path = artifacts.path(for: artifactId, ext: "png")
                 // The bound window alone, never the screen cut down afterwards:
                 // no whole-screen image is written, even for a moment.
                 let size: (width: Int, height: Int)
-                if let b = d.binding, crop != nil {
-                    size = try platform.windowScreenshot(d.screen, pid: b.process.pid, windowId: b.windowId, to: path)
-                } else {
-                    size = try platform.screenshot(d.screen, to: path)
+                do {
+                    if let b = d.binding, crop != nil {
+                        size = try platform.windowScreenshot(d.screen, pid: b.process.pid, windowId: b.windowId, to: path)
+                    } else {
+                        size = try platform.screenshot(d.screen, to: path)
+                    }
+                } catch {
+                    // No half-written image is left behind, uncounted.
+                    unlink(path)
+                    // A place the ports reserved is theirs to give back.
+                    if reserved == nil { artifacts.release(bucket: bucket) }
+                    throw error
                 }
                 let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
                 let scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
-                let info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
-                                                  runId: request.context.runId, createdAt: nowString)
+                let info: ArtifactStore.Info
+                do {
+                    info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
+                                                  runId: reserved.map { String($0.dropFirst("gui:".count)) } ?? request.context.runId,
+                                                  createdAt: nowString, bucket: bucket)
+                } catch {
+                    unlink(path)
+                    // A place the ports reserved is theirs to give back.
+                    if reserved == nil { artifacts.release(bucket: bucket) }
+                    throw error
+                }
+                // The reserved place is now the stored screenshot's, whatever
+                // happens later in this observe: the ports must not give it back.
+                if reserved != nil { markQuotaUsed(requestId: request.requestId, connection: c) }
                 stored.transform = (origin.0, origin.1, scale)
                 stored.imageSize = size
                 image = .obj([
@@ -206,5 +246,28 @@ extension RuntimeService {
                   ("coverage", .obj(coverage))]
             return .obj(m)
         }
+    }
+}
+
+extension RuntimeService {
+    /// A quota bucket set in process for one request of one connection (the
+    /// GUI ports' observation of a GUI Run). Nothing on the socket can set
+    /// one: only code in this module calls `setQuotaBucket`.
+    func setQuotaBucket(_ bucket: String, requestId: String, connection: ConnectionState) {
+        quotaBucketLock.withLock { quotaBuckets[connection.connectionId + "|" + requestId] = bucket }
+    }
+
+    func takeQuotaBucket(requestId: String, connection: ConnectionState) -> String? {
+        quotaBucketLock.withLock { quotaBuckets.removeValue(forKey: connection.connectionId + "|" + requestId) }
+    }
+
+    func markQuotaUsed(requestId: String, connection: ConnectionState) {
+        _ = quotaBucketLock.withLock { quotaBucketsUsed.insert(connection.connectionId + "|" + requestId) }
+    }
+
+    /// Whether that request's observe registered a screenshot in its reserved
+    /// place; asked once, by the ports, after the observe returns.
+    func takeQuotaUsed(requestId: String, connection: ConnectionState) -> Bool {
+        quotaBucketLock.withLock { quotaBucketsUsed.remove(connection.connectionId + "|" + requestId) != nil }
     }
 }
