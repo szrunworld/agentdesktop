@@ -319,6 +319,52 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
     /// half line is the append guard's business (no further appends).
     static let knownStatuses: Set<String> = ["intent", "completed", "failed", "uncertain"]
 
+    /// The fields a migration-log record may have, exactly those of
+    /// `MigrationLogEntry`; the first five are required.
+    static let requiredLogFields: Set<String> = ["status", "at", "file", "sessionId", "entries"]
+    static let allowedLogFields: Set<String> = requiredLogFields
+        .union(["userScrubbed", "agentChanged", "agentKept", "titleReset", "error"])
+
+    /// One log line checked as a whole (Kevin 2026-10-09, one rule instead
+    /// of a patch per corruption): a JSON object; all required fields; no
+    /// field outside `MigrationLogEntry`; right types; `status` one of four,
+    /// `file` history or binding, `sessionId` a valid session id, `at` a
+    /// timestamp, counts >= 0, `error` only with failed or uncertain. nil
+    /// for anything else (then the migration does not start).
+    static func validLogRecord(_ raw: Data) -> (status: String, file: String, sessionId: String)? {
+        guard !raw.isEmpty,
+              let object = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
+              requiredLogFields.isSubset(of: object.keys), allowedLogFields.isSuperset(of: object.keys),
+              let status = object["status"] as? String, knownStatuses.contains(status),
+              let file = object["file"] as? String, file == "history" || file == "binding",
+              let sessionId = object["sessionId"] as? String, (try? checkId(sessionId)) != nil,
+              let at = object["at"] as? String, timestamp(at) != nil
+        else { return nil }
+        for key in ["entries", "userScrubbed", "agentChanged", "agentKept"] {
+            guard let value = object[key] else {
+                if key == "entries" { return nil }
+                continue
+            }
+            guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
+                  n.doubleValue >= 0, n.doubleValue == n.doubleValue.rounded(.towardZero) else { return nil }
+        }
+        if let t = object["titleReset"] {
+            guard let n = t as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+        }
+        if let e = object["error"] {
+            guard e is String, status == "failed" || status == "uncertain" else { return nil }
+        }
+        return (status, file, sessionId)
+    }
+
+    private static func timestamp(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        if let d = f.date(from: s) { return d }
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.date(from: s)
+    }
+
     private func filesAwaitingAPersonInLog() -> Set<String>? {
         let url = directory.appendingPathComponent(Self.migrationLogName)
         let data: Data
@@ -327,27 +373,16 @@ public final class ACPFileSessionStore: ACPSessionStore, ACPSessionManagerHistor
         case .failure(.gone): return []
         case .failure: return nil
         }
-        struct Line: Decodable { var status: String?; var file: String; var sessionId: String }
         var latest: [String: String] = [:]
-        // Keep empty pieces: a blank line is a record that cannot be
-        // understood, not one to skip (Codex on #141). The piece after the
-        // final newline is always empty; without a final newline the last
-        // piece is a half line, which the append guard handles.
+        // The piece after the final newline is always empty; without a final
+        // newline the last piece is a half line, which the append guard
+        // handles. Every other piece must be a valid record; blank lines
+        // included, anything else stops the migration (Kevin 2026-10-09).
         var lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false)
         if !lines.isEmpty { lines.removeLast() }
         for raw in lines {
-            guard !raw.isEmpty else { return nil }
-            // Only the four known statuses (a missing one counts as intent,
-            // which blocks the file); anything else, such as a typo, means the
-            // log cannot be trusted (Codex on #141).
-            guard let l = try? JSONDecoder().decode(Line.self, from: Data(raw)) else { return nil }
-            let status = l.status ?? "intent"
-            // Every field that decides which file is blocked must be valid
-            // (b9, #141): a known status, a known file kind, and a session id
-            // that passes the same check as session file names.
-            guard Self.knownStatuses.contains(status), l.file == "history" || l.file == "binding",
-                  (try? Self.checkId(l.sessionId)) != nil else { return nil }
-            latest[l.file + "/" + l.sessionId] = status
+            guard let record = Self.validLogRecord(Data(raw)) else { return nil }
+            latest[record.file + "/" + record.sessionId] = record.status
         }
         return Set(latest.filter { $0.value == "uncertain" || $0.value == "intent" }.keys)
     }

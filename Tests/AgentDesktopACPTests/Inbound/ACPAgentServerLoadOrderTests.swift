@@ -480,20 +480,35 @@ import Testing
         #expect(!fresh.migrated)
     }
 
-    /// A line without a status counts as a lone intent: that file waits for a
-    /// person, the others go on, the migration is not complete.
-    @Test func aLineWithoutAStatusBlocksItsFile() throws {
+    /// Kevin 2026-10-09: a line without a status cannot be trusted any more
+    /// (the product never wrote one); the migration does not start.
+    @Test func aLineWithoutAStatusStopsTheMigration() throws {
         let (s, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }
         try legacySession(s, dir)
-        try Data((#"{"file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n").utf8)
+        try Data((#"{"file":"history","sessionId":"s1","at":"2026-10-09T00:00:00Z","entries":0}"# + "\n").utf8)
             .write(to: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 0)
+        #expect(isLegacy(dir, "s1.history.json") && isLegacy(dir, "s1.json"))
+    }
+
+    /// A well-formed record written by hand is trusted: an uncertain
+    /// history blocks only that file; the binding migrates.
+    @Test func aValidHandWrittenUncertainRecordBlocksOnlyItsFile() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        let line = #"{"agentChanged":0,"agentKept":0,"at":"2026-10-09T00:00:00Z","entries":3,"error":"dir_fsync","file":"history","sessionId":"s1","status":"uncertain","titleReset":false,"userScrubbed":1}"#
+        try Data((line + "\n").utf8).write(to: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
         let fresh = ACPFileSessionStore(directory: dir)
         _ = try fresh.history(sessionId: "s1")
         #expect(isLegacy(dir, "s1.history.json"))
         #expect(!isLegacy(dir, "s1.json"))
         #expect(!fresh.migrated)
     }
+
 
     /// Codex on #141: if the uncertain record itself cannot be written and
     /// the rename is later rolled back, the lone intent still keeps the file
