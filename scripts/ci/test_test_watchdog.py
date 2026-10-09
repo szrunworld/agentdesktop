@@ -277,16 +277,21 @@ class WatchdogTests(unittest.TestCase):
         return path
 
     def assertStopped(self, report):
-        """Everything confirmed as the run's was stopped. Processes this
-        machine could not verify (no passwordless sudo here, unlike CI) are
-        reported as unverified, which is not the same as stopped (Kevin,
-        2026-10-09)."""
+        """Everything confirmed as the run's was stopped. Where sudo works
+        without a password (CI) every process can be checked, so the stop
+        must be ok; elsewhere processes that cannot be checked are reported
+        as unverified, which is not the same as stopped (Kevin, 2026-10-09).
+        The outcome goes to stderr, so the CI log shows which it was (b9)."""
         status = [s["status"] for s in report["steps"] if s["step"] == "stop"]
+        sudo = subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0
+        print(f"\n[{self.id().rsplit('.', 1)[-1]}] stop: {status}, passwordless sudo: {sudo}", file=sys.stderr)
+        for e in report.get("unverified_at_stop", []):
+            print(f"  unverified: {e['pid']} {e['command'][:120]} ({e['why']})", file=sys.stderr)
         self.assertNotIn("not_stopped", report)
-        if report.get("unverified_at_stop"):
-            self.assertEqual(status, ["unverified"])
-        else:
+        if sudo or not report.get("unverified_at_stop"):
             self.assertEqual(status, ["ok"])
+        else:
+            self.assertEqual(status, ["unverified"])
 
     def load(self):
         import importlib.util
@@ -557,6 +562,47 @@ class WatchdogTests(unittest.TestCase):
             for p in (stranger, root):
                 p.kill()
                 p.wait()
+    def test_a_candidate_gone_before_its_link_is_checked_is_not_reported(self):
+        # Codex on #196: a child listed, then gone before its link was
+        # checked, is not an uncertain process; the stop is ok.
+        wd = self.load()
+        root = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        gone = subprocess.Popen(["/usr/bin/true"])
+        gone.wait()
+        try:
+            real = wd.processes
+            listed = {}
+
+            def with_the_gone_child(deadline=None):
+                procs = real(deadline)
+                # As listed just before it exited: the root's child.
+                procs[gone.pid] = (root.pid, gone.pid, (int(time.time()), 1), "gone")
+                listed[gone.pid] = True
+                return procs
+            wd.processes = with_the_gone_child
+            real_killpg = wd.os.killpg
+            wd.os.killpg = lambda *a: None
+            try:
+                # Started in the future: nothing is a marker candidate, so
+                # only the link check can make anything unverified here.
+                run = wd.Run(root.pid, None, uuid.uuid4().hex, time.time() + 3600)
+                run.root_alive = True
+                self.assertNotIn(gone.pid, run.members())
+                self.assertTrue(listed)
+                self.assertNotIn(gone.pid, run._unlinked.keys() & run.unverifiable.keys())
+                self.assertEqual(run.unverifiable, {})
+                run.stop()
+            finally:
+                wd.processes, wd.os.killpg = real, real_killpg
+            out = tempfile.mkdtemp(prefix="watchdog-test-")
+            wd.record_stop(run, out)
+            with open(os.path.join(out, "diagnosis.json")) as f:
+                report = json.load(f)
+            self.assertEqual([s["status"] for s in report["steps"] if s["step"] == "stop"], ["ok"])
+        finally:
+            root.kill()
+            root.wait()
+
 
 if __name__ == "__main__":
     unittest.main()

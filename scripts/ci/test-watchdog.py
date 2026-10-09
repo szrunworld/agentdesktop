@@ -325,7 +325,11 @@ class Run:
         live.update(self._marked(procs, set(live), deadline))
         if not self.root_alive:
             live.pop(self.root, None)
-        self.unlinked = {pid: cmd for pid, cmd in unlinked.items() if pid not in live}
+        # Only what is still there as the process listed: a candidate that
+        # exited before its link was checked is gone, not uncertain (Codex
+        # on #196).
+        self.unlinked = {pid: cmd for pid, cmd in unlinked.items()
+                         if pid not in live and start_time(pid) == procs[pid][2]}
         self.unverifiable.update(self.unlinked)
         self.idents = {pid: ids[pid] for pid in live}
         return dict(sorted(live.items()))
