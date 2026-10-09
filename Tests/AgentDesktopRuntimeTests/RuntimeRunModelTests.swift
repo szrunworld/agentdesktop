@@ -186,7 +186,11 @@ func runJSON(_ sc: Scene, _ id: String, on c: ConnectionState? = nil) -> JSONVal
     let (client, _) = try pairedConnection(sc.s, capabilities: ["run"])
     #expect(data(call(sc.s, client, "run.list"))?["runs"]?.arrayValue?.isEmpty == true)
     #expect(code(call(sc.s, client, "run.show", params: #"{"runId":"\#(d.runId)"}"#)) == "not_found")
-    #expect(code(call(sc.s, client, "runtime.stopAll", params: #"{"scope":"all_platform_runs"}"#)) == "permission_denied")
+    // It may stop only its own Runs (it has none here); everyone else's go on.
+    let before = data(call(sc.s, sc.c, "run.show", params: #"{"runId":"\#(d.runId)"}"#))
+    let stop = data(call(sc.s, client, "runtime.stopAll", params: #"{"scope":"all_platform_runs"}"#))
+    #expect(stop?["runs"]?.arrayValue?.isEmpty == true && stop?["admission"]?.stringValue == "enabled")
+    #expect(data(call(sc.s, sc.c, "run.show", params: #"{"runId":"\#(d.runId)"}"#)) == before)
 }
 
 @Test func thePersistentRuntimeKeepsRunsAcrossARestart() throws {

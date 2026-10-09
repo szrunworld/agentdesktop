@@ -117,11 +117,28 @@ extension RuntimeService {
     /// Global stop (owner only): close input admission and stop every Run,
     /// Delegated and Durable, returning each one's stop state.
     func stopAll(_ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
-        guard isOwner(c) else { return .failure(RuntimeError("permission_denied", "only the owner stops all input", phase: .handler)) }
-        let (admission, all) = execution.stopAll()
-        // Every Run stops; a paired client the user let stop everything hears
-        // only about its own (#153 parity).
-        let stopped = c.role == .owner ? all : all.filter { $0.clientId == c.clientId }
+        guard isOwner(c) || c.role == .paired else {
+            return .failure(RuntimeError("permission_denied", "only the owner stops all input", phase: .handler))
+        }
+        let admission: ExecutionCoordinator.Admission
+        let stopped: [RunRecord]
+        if c.role == .paired {
+            // A paired app stops its own Runs; input admission stays as it is
+            // (#153's plan: only the owner stops everything).
+            var f = RunStore.ListFilter()
+            f.clientId = c.clientId
+            f.activeOnly = true
+            stopped = runs.list(f, after: nil, limit: 500).runs.compactMap { r in
+                switch execution.stop(runId: r.runId, reason: "client_stop", endAs: .cancelled) {
+                case let .accepted(x): return runs.find(r.runId) ?? x
+                case let .alreadyTerminal(x): return x
+                case .notFound: return nil
+                }
+            }
+            admission = execution.inputAdmission
+        } else {
+            (admission, stopped) = execution.stopAll()
+        }
         let pending = stopped.filter { !$0.isEnded }.map(\.runId)
         return .success(.obj([
             ("admission", .string(admission.rawValue)),

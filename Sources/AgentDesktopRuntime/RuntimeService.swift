@@ -375,11 +375,20 @@ public final class RuntimeService: @unchecked Sendable {
             return .success(id.json.setting("principal", principalJSON(connection)))
 
         case .status:
+            // A paired app counts what it may see (#153's note: global counts
+            // told it about the host's Desktops, sessions and Runs).
+            let paired = connection.role == .paired
+            var mine = RunStore.ListFilter()
+            mine.clientId = connection.clientId
+            mine.activeOnly = true
             return .success(RuntimeStatus(
                 instanceId: identity.instanceId, state: "running", startedAt: identity.startedAt,
                 uptimeSeconds: max(0, now().timeIntervalSince(startedAt)),
-                connections: connectionCount(), desktops: desktops.count, sessions: sessions.openCount,
-                runs: execution.activeCount).json.setting("inputAdmission", .string(execution.inputAdmission.rawValue)))
+                connections: paired ? openConnections.all.filter { $0.connection.clientId == connection.clientId }.count : connectionCount(),
+                desktops: paired ? desktops.list().filter { desktopAllowed(connection, $0.desktopId) }.count : desktops.count,
+                sessions: paired ? sessions.openCount(caller: connection.clientId) : sessions.openCount,
+                runs: paired ? runs.list(mine, after: nil, limit: 500).runs.count : execution.activeCount)
+                .json.setting("inputAdmission", .string(execution.inputAdmission.rawValue)))
 
         case .capabilities:
             let served = extensions.names

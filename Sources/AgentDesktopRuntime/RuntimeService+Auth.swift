@@ -24,6 +24,9 @@ extension RuntimeService {
         for x in ["run.start", "run.attach", "run.finish", "run.show", "run.events", "run.wait", "run.cancel", "run.list",
                   "events.subscribe", "events.unsubscribe"] { m[x] = "run" }
         m["unit.run"] = "unit.run"
+        // A paired app stops its own Runs (#153's plan); the global stop that
+        // closes input admission is the owner's (the host window).
+        m["runtime.stopAll"] = "run"
         return m
     }()
 

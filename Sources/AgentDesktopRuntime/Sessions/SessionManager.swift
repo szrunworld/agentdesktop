@@ -73,4 +73,5 @@ public final class SessionManager: @unchecked Sendable {
     }
 
     public var openCount: Int { lock.withLock { sessions.values.filter { $0.state == "open" }.count } }
+    func openCount(caller: String) -> Int { lock.withLock { sessions.values.filter { $0.state == "open" && $0.caller == caller }.count } }
 }

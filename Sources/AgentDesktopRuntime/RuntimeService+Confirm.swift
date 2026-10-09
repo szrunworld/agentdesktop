@@ -98,7 +98,7 @@ extension RuntimeService {
     /// Desktop window. Pairing approval is not among them: a pairing asks
     /// the user itself, when it starts. gui.runs.* stays the window's own.
     static let confirmableMethods: Set<String> = {
-        var m: Set<String> = ["runtime.stopAll", "runtime.enableInput",
+        var m: Set<String> = ["runtime.enableInput",
                               "hub.clients.list", "hub.clients.show", "hub.clients.revoke",
                               "hub.grants.list", "hub.grants.set", "hub.grants.revoke", "hub.connections.list"]
         for x in RuntimeContract.shared.methods where x.method.hasPrefix("ai.") { m.insert(x.method) }
@@ -126,7 +126,7 @@ extension RuntimeService {
     /// ask the user for these (to revoke, to narrow, to stop everything).
     func isReductive(_ request: RuntimeRequest) -> Bool {
         switch request.method {
-        case "hub.clients.revoke", "hub.grants.revoke", "runtime.stopAll":
+        case "hub.clients.revoke", "hub.grants.revoke":
             return true
         case "hub.grants.set":
             let p = request.params

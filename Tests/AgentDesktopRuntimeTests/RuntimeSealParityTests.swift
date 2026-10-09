@@ -143,10 +143,9 @@ private func namesNothing(_ e: RuntimeError?) -> Bool {
     }
 }
 
-@Test func parityStopAllByAPairedClientTellsItOnlyOfItsOwnRuns() throws {
+@Test func parityStopAllByAPairedClientStopsOnlyItsOwnRunsAndLeavesInputOn() throws {
     let platform = FakePlatform()
     let s = platformService(platform)
-    s.confirmer = FakeConfirmer()
     let owner = handshaken(s)
     let hostDesk = try created(s, owner)
     _ = call(s, owner, "window.bind", params: #"{"desktopId":"\#(hostDesk)","pid":101}"#)
@@ -154,10 +153,27 @@ private func namesNothing(_ e: RuntimeError?) -> Bool {
     let hostRun = try #require(data(call(s, owner, "run.start", context: #"{"sessionId":"\#(hostSession)"}"#))?["run"]?["runId"]?.stringValue)
     let (sc, _, _) = try pairedScene(s, platform)
     let mine = try #require(data(call(s, sc.c, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
+    // No confirmation needed: it only stops what is its own.
     let r = try #require(data(call(s, sc.c, "runtime.stopAll", params: #"{"scope":"all_platform_runs"}"#)))
-    let ids = (r["runs"]?.arrayValue ?? []).compactMap { $0["runId"]?.stringValue }
-    #expect(ids == [mine], "only its own run is reported")
-    #expect(data(call(s, owner, "run.show", params: #"{"runId":"\#(hostRun)"}"#))?["phase"]?.stringValue != "running", "but every run stopped")
+    #expect((r["runs"]?.arrayValue ?? []).compactMap { $0["runId"]?.stringValue } == [mine])
+    #expect(r["admission"]?.stringValue == "enabled", "input stays on: only the owner stops everything")
+    #expect(data(call(s, owner, "run.show", params: #"{"runId":"\#(hostRun)"}"#))?["phase"]?.stringValue == "running", "the host's Run is untouched")
+    #expect(data(call(s, owner, "run.show", params: #"{"runId":"\#(mine)"}"#))?["closingReason"]?.stringValue == "client_stop")
+    // Unpaired: not even that.
+    let anon = ConnectionState(socketPeer: getuid())
+    _ = answer(s, handshakeLine, anon)
+    #expect(code(call(s, anon, "runtime.stopAll", params: #"{"scope":"all_platform_runs"}"#)) == "pairing_required")
+}
+
+@Test func parityStatusCountsOnlyWhatAPairedClientMaySee() throws {
+    let platform = FakePlatform()
+    let s = platformService(platform)
+    let owner = handshaken(s)
+    for n in 0..<3 { _ = try created(s, owner, name: "host\(n)") }
+    let (sc, _, _) = try pairedScene(s, platform)
+    let st = try #require(data(call(s, sc.c, "runtime.status")))
+    #expect(st["desktops"]?.intValue == 1 && st["sessions"]?.intValue == 1 && st["runs"]?.intValue == 0)
+    #expect(data(call(s, owner, "runtime.status"))?["desktops"]?.intValue == 4)
 }
 
 @Test func theOriginInterfaceAgreedWith153() {
