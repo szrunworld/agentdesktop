@@ -751,6 +751,32 @@ func fast() -> PasteWatcher {
         #expect(pasteboard.string(forType: .string) == "USER")
     }
 
+    /// #204 review, the other way: page text of the same words is passed
+    /// over only where it was. A real alert that comes up elsewhere (the
+    /// middle) after the transfer is still the phone prompting: the wait
+    /// does not end and the clipboard is not handed back.
+    @Test func aRealPromptElsewhereStillHoldsTheSettlingWait() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("USER", forType: .string)
+        let page = [line("Allow Paste", x: 0.05, y: 0.3, width: 0.3), line("Don't Allow Paste", x: 0.05, y: 0.35, width: 0.4)]
+        // The alert's buttons only (its message not read): the same words as
+        // the page's, so only where they are tells them apart.
+        let buttons = [line("Don\u{2019}t Allow Paste", y: 0.50), line("Allow Paste", y: 0.56)]
+        let phone = ScriptedPhone(baseline: page + keyboard,
+                                  [page + keyboard, page + keyboard, page + keyboard, page + keyboard + pasting,
+                                   page + keyboard + buttons])
+        phone.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.watcher.maxLooks = 3
+        paste.settleLooks = 8
+        let result = paste.paste("hello", verify: true, driver: phone)
+        #expect(!result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "hello")
+        #expect(phone.taps.isEmpty)
+    }
+
     /// Codex on #78: input is blocked as soon as the outcome is unknown,
     /// before the wait for the phone to finish.
     @Test func inputIsBlockedBeforeTheSettlingWait() {
