@@ -346,7 +346,7 @@ final class GuiHarness: @unchecked Sendable {
     var profile: JSONValue = .null
     private let lock = NSLock()
     private var sinks: [String: RecordingSink] = [:]
-    private var stops: [String: @Sendable () -> Void] = [:]
+    private var stops: [String: UnitRunStopHandle] = [:]
     private let counter = IdCounter()
 
     init(_ replies: [StubAiService.Reply], backend: Bool = true, limits: [(String, JSONValue)] = [],
@@ -449,15 +449,16 @@ final class GuiHarness: @unchecked Sendable {
         let plan = try await admit(p).get()
         let runId = "run-\(counter.next())"
         let sink = RecordingSink(runId: runId)
-        let stop = units!.start(plan, context: UnitRunContext(runId: runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
-                                                              callerScope: "owner", params: p), sink: sink)
+        let stop = UnitRunStopHandle()
+        units!.start(plan, context: UnitRunContext(runId: runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
+                                                   callerScope: "owner", params: p), sink: sink, stop: stop)
         lock.withLock { sinks[runId] = sink; stops[runId] = stop }
         return runId
     }
 
     func sink(_ runId: String) -> RecordingSink { lock.withLock { sinks[runId]! } }
     /// The Runtime accepted a stop of the Run.
-    func cancel(_ runId: String) { lock.withLock { stops[runId] }?() }
+    func cancel(_ runId: String) { lock.withLock { stops[runId] }?.stop() }
     func finished(_ runId: String) async { await units?.task(for: runId)?.value }
 
     func run(_ runId: String) -> UnitRunView {

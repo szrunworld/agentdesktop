@@ -119,7 +119,7 @@ final class ScriptedRuntime: @unchecked Sendable {
         var unknownActions = 0
         var verification: JSONValue = .obj([("status", .string("not_run"))])
         var events: [JSONValue] = []
-        var stop: (@Sendable () -> Void)?
+        var stop: UnitRunStopHandle?
         var executorDone = false
         let profile: (String?, Int?)
 
@@ -213,9 +213,10 @@ final class ScriptedRuntime: @unchecked Sendable {
         }
         let r = Run(runId: "run_\(UUID().uuidString.prefix(8).lowercased())", profile: (plan.guiProfileId, plan.guiProfileRevision))
         lock.withLock { runs[r.runId] = r }
-        let stop = units.start(plan, context: UnitRunContext(runId: r.runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
-                                                             callerScope: "owner", params: params), sink: r)
+        let stop = UnitRunStopHandle()
         r.lock.withLock { r.stop = stop }
+        units.start(plan, context: UnitRunContext(runId: r.runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
+                                                  callerScope: "owner", params: params), sink: r, stop: stop)
         return .success(r.json)
     }
 
@@ -229,7 +230,7 @@ final class ScriptedRuntime: @unchecked Sendable {
             return .success(.obj([("events", .array(page)), ("next", .int(after + page.count)),
                                   ("ended", .bool(r.lock.withLock { r.phase == "ended" }))]))
         case "run.cancel":
-            let stop: (@Sendable () -> Void)? = r.lock.withLock {
+            let stop: UnitRunStopHandle? = r.lock.withLock {
                 guard r.phase != "ended", r.phase != "stopping" else { return nil }
                 r.closingReason = "stopped"
                 if r.executorDone { r.end(outcome: "cancelled", reason: "stopped"); return nil }
@@ -237,7 +238,7 @@ final class ScriptedRuntime: @unchecked Sendable {
                 r.append("stop.accepted", .obj([("reason", .string("stopped"))]))
                 return r.stop
             }
-            stop?()
+            stop?.stop()
             let j = r.json
             return .success(.obj([("execution", .obj([("phase", j["phase"]!), ("outcome", j["outcome"]!)]))]))
         default: return .failure(.notFound("no method"))

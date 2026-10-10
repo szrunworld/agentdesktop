@@ -138,7 +138,7 @@ iPhone 镜像（`com.apple.ScreenContinuity`）是普通 macOS 应用，但对�
   - `unit.run` 启动一个 GUI 单元运行（kind `unit`）：探索 / 回放 / 自动，参数见 §5。
   - 读取、等待、停止、事件统一走 `run.show` / `run.wait` / `run.cancel` / `run.events` / `run.list`。
 - 从连接（CLI、MCP、SDK、外部 App）发起的 `unit.run` 是 Delegated Run（external_client / connection_scoped，origin agent_hub）。主窗口的 GUI Explorer 在进程内经 Runtime 创建 Durable Run（platform / platform_durable，origin gui_explorer），**不经过线协议**，因此线上没有任何参数能得到 Durable Run。
-- `gui_runs` 表不再作为权威，Explorer 只写 RunStore 事件与 ActionReceipt 的 ID 引用；AiService 只写推理 attempt（集成设计 §4）。A6-2（2026-10-10）删除了 `gui.runs.*`、AI 服务的运行表读写与重启恢复；旧库里的 `gui_runs` 等表保留但不再读写。`ai.usage.summary` 的 confirmedActions / unknownActionOutcomes 由宿主按调用者的 unit Run 从 RunStore 的 `action.completed` / `action.unknown` 统计。
+- `gui_runs` 表不再作为权威，Explorer 只写 RunStore 事件与 ActionReceipt 的 ID 引用；AiService 只写推理 attempt（集成设计 §4）。A6-2（2026-10-10）删除了 `gui.runs.*`、AI 服务的运行表读写与重启恢复；旧库里的 `gui_runs` 等表保留但不再读写。`ai.usage.summary` 的 confirmedActions / unknownActionOutcomes 由宿主按调用者的 unit Run 统计：RunStore 在写 `action.completed` / `action.unknown` 时同一事务记下动作结果（表 `action_outcomes`，不随 Run 的 7 天保留期删除）；重启恢复时，在途的动作以恢复时刻记为 unknown。
 
 ## 4. 事件：单调序号 + 游标 + 修订号
 
@@ -169,7 +169,7 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 
 ### 4.2 GUI 单元事件目录（A6，2026-10-10）
 
-kind 为 `unit` 的 Run 上，Explorer 经 Runtime 追加 `unit.*` 事件（observation、progress、inference.attempt、step.proposed、step.rejected、action、recovery、verification、needs_input）。类型和 data 的必需字段以 [`runtime.schema.json` 的 `$defs/UnitRunEvent`](../../contracts/runtime/v1/runtime.schema.json) 为准，本页不维护手写副本；`RunEvent` 尚未对 `unit.` 前缀引用它（ACP 的 A6 夹具仍按草案写，对齐后再接上）。`data` 只放 ID、枚举、错误码和数字：不放截图、键入内容、窗口标题、目标描述或参数值、模型回复、密钥。生命周期（phase / outcome）仍只看 `run.*` 事件。`unit.inference.attempt` 的 `attempts` 是这次推理实际发出的模型调用次数（含回退），`inferenceAttemptId` 指最后一次。`unit.action` 的 `requestId` 是该动作 `act` 的 requestId，回执在同一 Run 的 `action.*` 事件里；`unit.needs_input` 表示 Run 进入 waiting_input，不再接受输入，只能由停止结束。
+kind 为 `unit` 的 Run 上，Explorer 经 Runtime 追加 `unit.*` 事件（observation、progress、inference.attempt、step.proposed、step.rejected、action、recovery、verification、needs_input）。类型和 data 的必需字段以 [`runtime.schema.json` 的 `$defs/UnitRunEvent`](../../contracts/runtime/v1/runtime.schema.json) 为准，本页不维护手写副本；`RunEvent` 尚未对 `unit.` 前缀引用它（ACP 的 A6 夹具仍按草案写，对齐后再接上）。`data` 只放 ID、枚举、错误码和数字：不放截图、键入内容、窗口标题、目标描述或参数值、模型回复、密钥。生命周期（phase / outcome）仍只看 `run.*` 事件。`unit.inference.attempt` 的 `attempts` 是这次推理实际发出的模型调用次数（含回退），`inferenceAttemptId` 指最后一次；调用全部失败、没有回执时不带 `inferenceAttemptId`。`unit.action` 的 `requestId` 是该动作 `act` 的 requestId，回执在同一 Run 的 `action.*` 事件里；`unit.needs_input` 表示 Run 进入 waiting_input，不再接受输入，只能由停止结束。
 
 unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时为服务错误码的小写（如 `limit_exceeded`、`deadline_exceeded`、`stale_observation`、`audit_unavailable`、`action_outcome_unknown`），空回复为 `model_empty_response`；停止类沿用 `stopped`、`owner_lost`、`global_stop`、`client_stop`、`runtime_restarted`。有 unknown 动作时 outcome 恒为 `unknown`。
 

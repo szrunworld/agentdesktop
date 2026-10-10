@@ -70,10 +70,44 @@ public protocol UnitRunExecutor: Sendable {
     /// profile, its model and credential, the backend's actions and
     /// predicates, and the mode. A refusal is in runtime/1 terms.
     func admit(params: JSONValue, callerScope: String) async -> Result<any UnitRunPlan, RuntimeError>
-    /// Start driving the admitted Run; returns at once. The returned stop is
-    /// called when the Runtime accepts a stop of the Run: no model call or
-    /// input may start after it; the executor still reports `finished`.
-    func start(_ plan: any UnitRunPlan, context: UnitRunContext, sink: UnitRunSink) -> @Sendable () -> Void
+    /// Start driving the admitted Run; returns at once. Before anything of
+    /// the Run can run, the executor arms `stop` with what stops it: the
+    /// Runtime fires it when it accepts a stop of the Run (possibly already
+    /// before start). No model call or input may start after it; the
+    /// executor still reports `finished`.
+    func start(_ plan: any UnitRunPlan, context: UnitRunContext, sink: UnitRunSink, stop: UnitRunStopHandle)
+}
+
+/// A unit Run's stop, created by the Runtime before its executor starts
+/// (codex on 25f29ff): a stop accepted at any moment, even before the
+/// executor armed it, reaches the executor exactly once.
+public final class UnitRunStopHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+    private var action: (@Sendable () -> Void)?
+
+    public init() {}
+
+    public var isStopped: Bool { lock.withLock { stopped } }
+
+    /// The executor's stop. Runs at once when the Run was already stopped.
+    public func arm(_ body: @escaping @Sendable () -> Void) {
+        let now: Bool = lock.withLock {
+            action = body
+            return stopped
+        }
+        if now { body() }
+    }
+
+    /// The Runtime accepted a stop. Repeats do nothing.
+    public func stop() {
+        let body: (@Sendable () -> Void)? = lock.withLock {
+            guard !stopped else { return nil }
+            stopped = true
+            return action
+        }
+        body?()
+    }
 }
 
 public enum UnitRun {

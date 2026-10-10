@@ -12,9 +12,15 @@ import Testing
 final class StopTestSink: UnitRunSink, @unchecked Sendable {
     private let lock = NSLock()
     private var ended: UnitRunEnding?
+    private var recorded: [JSONValue] = []
     let refuse: String?
     init(refuse: String? = nil) { self.refuse = refuse }
-    func record(_ type: String, _ data: JSONValue) -> Bool { type != refuse }
+    func record(_ type: String, _ data: JSONValue) -> Bool {
+        guard type != refuse else { return false }
+        lock.withLock { recorded.append(.obj([("type", .string(type)), ("data", data)])) }
+        return true
+    }
+    var events: [JSONValue] { lock.withLock { recorded } }
     func verified(status: String, observationId: String?, checkedAt: Date) {}
     func finished(_ ending: UnitRunEnding) { lock.withLock { ended = ending } }
     var ending: UnitRunEnding? { lock.withLock { ended } }
@@ -32,13 +38,8 @@ struct HookedObservation: GuiObservationPort {
 }
 
 final class StopBox: @unchecked Sendable {
-    let lock = NSLock()
-    var stop: (@Sendable () -> Void)?
-    var fired = false
-    func fire() {
-        let s: (@Sendable () -> Void)? = lock.withLock { guard !fired else { return nil }; fired = true; return stop }
-        s?()
-    }
+    let handle = UnitRunStopHandle()
+    func fire() { handle.stop() }
 }
 
 func unitParams() -> JSONValue {
@@ -58,14 +59,64 @@ func stopTestService(_ h: GuiHarness, observation: GuiObservationPort) -> UnitRu
                           aiService: h.ai, codecs: codecs, clock: h.clock)
 }
 
-func startUnit(_ units: UnitRunService, _ sink: StopTestSink, runId: String) async throws -> @Sendable () -> Void {
+@discardableResult
+func startUnit(_ units: UnitRunService, _ sink: StopTestSink, runId: String,
+               stop: UnitRunStopHandle = UnitRunStopHandle()) async throws -> UnitRunStopHandle {
     let plan = try await units.admit(params: unitParams(), callerScope: "owner").get()
-    return units.start(plan, context: UnitRunContext(runId: runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
-                                                     callerScope: "owner", params: unitParams()), sink: sink)
+    units.start(plan, context: UnitRunContext(runId: runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
+                                              callerScope: "owner", params: unitParams()), sink: sink, stop: stop)
+    return stop
 }
 
 @Suite("unit Run stops and record failures")
 struct UnitStopTests {
+    // Codex on 25f29ff: a stop the Runtime accepted before the executor
+    // started reaches it as it arms: nothing of the Run runs.
+    @Test func aStopAcceptedBeforeStartRunsNothing() async throws {
+        let h = try GuiHarness([click(200, 100)])
+        try await h.setUpProfile()
+        let units = stopTestService(h, observation: h.observation)
+        let handle = UnitRunStopHandle()
+        handle.stop()
+        let sink = StopTestSink()
+        try await startUnit(units, sink, runId: "run-early-1", stop: handle)
+        await units.task(for: "run-early-1")?.value
+        #expect(h.ai.callCount == 0)
+        #expect(await h.observation.count == 0)
+        #expect(sink.ending == .cancelled)
+    }
+
+    // Codex on 70f4a4e: model calls that failed with no receipt still show
+    // on the Run, with how many went out.
+    @Test func failedModelCallsAreCountedOnTheRun() async throws {
+        let transient = StubAiService.Reply.error(ContractError(.upstreamUnavailable, "503"))
+        let h = try GuiHarness([transient, transient])
+        try await h.setUpProfile()
+        let units = stopTestService(h, observation: h.observation)
+        let sink = StopTestSink()
+        try await startUnit(units, sink, runId: "run-503-1")
+        await units.task(for: "run-503-1")?.value
+        #expect(h.ai.callCount == 2)
+        let attempts = sink.events.filter { $0["type"]?.stringValue == "unit.inference.attempt" }
+        #expect(attempts.compactMap { $0["data"]?["attempts"]?.intValue }.reduce(0, +) == 2)
+        #expect(attempts.last?["data"]?["state"]?.stringValue == "failed")
+        #expect(sink.ending == .failed(reason: "upstream_unavailable"))
+        for e in attempts {
+            let full = e.setting("runId", .string("run-503-1")).setting("sequence", .int(1)).setting("at", .string("2026-10-10T00:00:00Z"))
+            #expect(RuntimeContract.shared.validate(full, "UnitRunEvent").isEmpty, "\(e.encoded())")
+        }
+    }
+
+    // Codex on 25f29ff: the profile is resolved before the action,
+    // predicate and mode checks (F40-06 order).
+    @Test func theProfileIsCheckedFirst() async throws {
+        let h = try GuiHarness([])
+        let units = stopTestService(h, observation: h.observation)
+        let both = unitParams().setting("allowedActions", .array([.string("click")])).setting("mode", .string("replay_only"))
+        guard case let .failure(e) = await units.admit(params: both, callerScope: "owner") else { Issue.record("must refuse"); return }
+        #expect(e.code == "not_found" && e.details?["reason"]?.stringValue == "no_default_gui_profile")
+    }
+
     // A stop accepted while the explorer observes: no model call follows,
     // and the Run reports cancelled.
     @Test func aStopAcceptedDuringObservationStartsNoModelCall() async throws {
@@ -74,8 +125,7 @@ struct UnitStopTests {
         let box = StopBox()
         let units = stopTestService(h, observation: HookedObservation(inner: h.observation, hook: { box.fire() }))
         let sink = StopTestSink()
-        let stop = try await startUnit(units, sink, runId: "run-stop-1")
-        box.lock.withLock { box.stop = stop }
+        try await startUnit(units, sink, runId: "run-stop-1", stop: box.handle)
         await units.task(for: "run-stop-1")?.value
         #expect(h.ai.callCount == 0, "the stop was accepted before the first model call")
         #expect(await h.executor.executed.isEmpty)
@@ -105,7 +155,7 @@ struct UnitStopTests {
         let sink = StopTestSink()
         let stop = try await startUnit(units, sink, runId: "run-input-1")
         await eventually("the input") { await h.executor.isHanging }
-        stop()
+        stop.stop()
         await h.executor.release()
         await units.task(for: "run-input-1")?.value
         #expect(await h.executor.executed.count == 1)

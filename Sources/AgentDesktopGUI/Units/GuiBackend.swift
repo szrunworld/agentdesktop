@@ -49,6 +49,8 @@ public protocol GuiRunRecording: Actor {
     func observation(_ o: Observation) async
     func inferenceStarted(stepIndex: Int) async
     func inference(_ r: GuiInferenceReceipt, discarded: Bool) async
+    /// A step's model calls failed with no receipt (they still happened).
+    func inferenceFailed(stepIndex: Int, error: Error) async
     func proposed(_ p: GuiProposal) async
     func rejected(stepIndex: Int, reason: String) async
     func recovered(stepIndex: Int) async

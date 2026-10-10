@@ -32,11 +32,12 @@ final class FakeUnitExecutor: UnitRunExecutor, @unchecked Sendable {
         return .success(Plan())
     }
 
-    func start(_ plan: any UnitRunPlan, context: UnitRunContext, sink: UnitRunSink) -> @Sendable () -> Void {
-        lock.withLock { contexts.append(context); sinks.append(sink) }
+    func start(_ plan: any UnitRunPlan, context: UnitRunContext, sink: UnitRunSink, stop: UnitRunStopHandle) {
+        lock.withLock { contexts.append(context); sinks.append(sink); handles.append(stop) }
+        stop.arm { [weak self] in self?.lock.withLock { self?.stops += 1 } }
         onStart?(context, sink)
-        return { [weak self] in self?.lock.withLock { self?.stops += 1 } }
     }
+    private(set) var handles: [UnitRunStopHandle] = []
 
     var lastSink: UnitRunSink? { lock.withLock { sinks.last } }
     var lastContext: UnitRunContext? { lock.withLock { contexts.last } }
@@ -320,4 +321,49 @@ func eventTypes(_ s: RuntimeService, _ runId: String) -> [String] {
     let esc = try StrictJSON.parse(unitParams(d, extra: #","origin":"gui_explorer""#))
     if case let .failure(e) = s.startDurableUnitRun(params: esc) { #expect(e.code == "ownership_escalation_denied") }
     else { Issue.record("escalation fields must be refused") }
+}
+
+// Codex on 70f4a4e: usage counts a unit Run's inputs from outcomes the
+// RunStore keeps past its Runs' retention, and counts an input a restart
+// lost as unknown (no action.unknown event is made up for it).
+@Test func actionOutcomesOutliveRetentionAndCountRestartLosses() throws {
+    final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_791_000_000) }
+    let clock = Clock()
+    let dir = NSTemporaryDirectory() + "adt-outcomes-\(UUID().uuidString.prefix(8))"
+    try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runs.sqlite"
+    func record(_ id: String) -> RunRecord {
+        RunRecord(runId: id, kind: "unit", origin: .agentHub, ownership: .externalClient, lifetime: .connectionScoped,
+                  clientId: "local:1", connectionId: "conn_1", sessionId: "s_1", desktopId: "d_1", phase: .running, outcome: nil,
+                  quiescence: .notConfirmed, closingReason: nil, revision: 1, createdAt: Timestamp.string(clock.now), endedAt: nil,
+                  receipts: [], unknownActions: 0)
+    }
+    func receipt(_ requestId: String) -> JSONValue { .obj([("receipt", .obj([("requestId", .string(requestId))]))]) }
+    do {
+        let store = try RunStore(path: path, now: { clock.now })
+        store.create(record("run_a"))
+        store.appendEvent("run_a", "action.dispatched", .obj([("requestId", .string("r1"))]))
+        store.appendEvent("run_a", "action.completed", receipt("r1"))
+        store.appendEvent("run_a", "action.dispatched", .obj([("requestId", .string("r2"))]))
+        store.appendEvent("run_a", "action.unknown", receipt("r2"))
+        store.appendEvent("run_a", "action.dispatched", .obj([("requestId", .string("r3"))]))
+        store.appendEvent("run_a", "action.failed", receipt("r3"))
+        var ended = record("run_a")
+        ended.phase = .ended; ended.quiescence = .confirmed; ended.outcome = .unknown; ended.endedAt = Timestamp.string(clock.now)
+        store.update(ended)
+        // A second Run whose input was out when the host went away.
+        store.create(record("run_b"))
+        store.appendEvent("run_b", "action.dispatched", .obj([("requestId", .string("r4"))]))
+        let all = store.actionOutcomes(runIds: ["run_a", "run_b"], from: .distantPast, to: .distantFuture)
+        #expect(all.confirmed == 1 && all.unknown == 1, "a failed input is neither")
+        #expect(store.actionOutcomes(runIds: ["run_a"], from: clock.now.addingTimeInterval(1), to: .distantFuture) == (0, 0))
+    }
+    // Eight days later, after a restart: the Runs are gone, their outcomes
+    // stay, and run_b's lost input counts as unknown.
+    clock.now = clock.now.addingTimeInterval(8 * 86400)
+    let reopened = try RunStore(path: path, now: { clock.now })
+    #expect(reopened.find("run_a") == nil, "retention removed the ended Run")
+    let after = reopened.actionOutcomes(runIds: ["run_a", "run_b"], from: .distantPast, to: .distantFuture)
+    #expect(after.confirmed == 1 && after.unknown == 2, "run_b's lost input counts, as of the restart")
 }

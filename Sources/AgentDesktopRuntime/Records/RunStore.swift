@@ -161,6 +161,13 @@ public final class RunStore: @unchecked Sendable {
             CREATE TABLE IF NOT EXISTS events (run_id TEXT NOT NULL, seq INTEGER NOT NULL, at TEXT NOT NULL,
               type TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (run_id, seq))
             """)
+        // A6-2: each action's outcome, for usage (ai.usage.summary). Written
+        // with its event; kept past the Runs' retention, as the AI service's
+        // own call ledger is, so an old summary range still counts inputs.
+        try db.execute("""
+            CREATE TABLE IF NOT EXISTS action_outcomes (run_id TEXT NOT NULL, request_id TEXT NOT NULL, at TEXT NOT NULL,
+              outcome TEXT NOT NULL CHECK (outcome IN ('completed', 'unknown')), PRIMARY KEY (run_id, request_id))
+            """)
         try recoverAfterRestart()
         let cutoff = Timestamp.string(now().addingTimeInterval(-Double(Self.retentionDays) * 86400))
         try db.execute("DELETE FROM events WHERE run_id IN (SELECT run_id FROM runs WHERE created_at < ? AND ended_at IS NOT NULL)", [.text(cutoff)])
@@ -176,7 +183,14 @@ public final class RunStore: @unchecked Sendable {
         for row in try db.query("SELECT run_id, unknown_actions, revision FROM runs WHERE phase != 'ended'") {
             let id = row[0] as! String
             var unknown = Int(row[1] as! Int64)
-            unknown += inFlightActions(id)
+            let open = inFlightActions(id)
+            unknown += open.count
+            // Each lost input is an unknown outcome as of now (codex on
+            // 70f4a4e): no action.unknown event is made up for it.
+            for requestId in open {
+                try db.execute("INSERT OR REPLACE INTO action_outcomes (run_id, request_id, at, outcome) VALUES (?, ?, ?, 'unknown')",
+                               [.text(id), .text(requestId), .text(at)])
+            }
             let outcome: RunRecord.Outcome = unknown > 0 ? .unknown : .cancelled
             try db.execute("""
                 UPDATE runs SET phase = 'ended', outcome = ?, quiescence = 'confirmed', closing_reason = 'runtime_restarted',
@@ -188,7 +202,7 @@ public final class RunStore: @unchecked Sendable {
     }
 
     /// Actions dispatched with no result event after them.
-    private func inFlightActions(_ runId: String) -> Int {
+    private func inFlightActions(_ runId: String) -> Set<String> {
         var open = Set<String>()
         for e in events(runId, after: 0, limit: 100_000) {
             let rid = e["data"]?["requestId"]?.stringValue ?? e["data"]?["receipt"]?["requestId"]?.stringValue
@@ -199,7 +213,7 @@ public final class RunStore: @unchecked Sendable {
             default: break
             }
         }
-        return open.count
+        return open
     }
 
     private func values(_ r: RunRecord) -> [SQLiteDatabase.Value] {
@@ -286,13 +300,37 @@ public final class RunStore: @unchecked Sendable {
         let seq = write {
             try db.transaction {
                 let seq = ((try db.query("SELECT COALESCE(MAX(seq), 0) FROM events WHERE run_id = ?", [.text(runId)]).first?[0]) as? Int64 ?? 0) + 1
+                let at = Timestamp.string(now())
                 try db.execute("INSERT INTO events (run_id, seq, at, type, data) VALUES (?, ?, ?, ?, ?)",
-                               [.text(runId), .int(seq), .text(Timestamp.string(now())), .text(type), .text(data.encoded())])
+                               [.text(runId), .int(seq), .text(at), .text(type), .text(data.encoded())])
+                if type == "action.completed" || type == "action.unknown",
+                   let requestId = data["receipt"]?["requestId"]?.stringValue {
+                    try db.execute("INSERT OR REPLACE INTO action_outcomes (run_id, request_id, at, outcome) VALUES (?, ?, ?, ?)",
+                                   [.text(runId), .text(requestId), .text(at), .text(type == "action.completed" ? "completed" : "unknown")])
+                }
                 return Int(seq)
             }
         }
         changed.lock(); changed.broadcast(); changed.unlock()
         return seq ?? 0
+    }
+
+    /// Inputs of these Runs in [from, to): executed (action.completed) and
+    /// with an unknown outcome (action.unknown, or lost in a restart).
+    public func actionOutcomes(runIds: [String], from: Date, to: Date) -> (confirmed: Int, unknown: Int) {
+        var confirmed = 0, unknown = 0
+        let ids = Array(Set(runIds))
+        for chunk in stride(from: 0, to: ids.count, by: 400).map({ Array(ids[$0..<min($0 + 400, ids.count)]) }) {
+            let marks = chunk.map { _ in "?" }.joined(separator: ", ")
+            let rows = (try? db.query("""
+                SELECT outcome, COUNT(*) FROM action_outcomes WHERE run_id IN (\(marks)) AND at >= ? AND at < ? GROUP BY outcome
+                """, chunk.map { .text($0) } + [.text(Timestamp.string(from)), .text(Timestamp.string(to))])) ?? []
+            for r in rows {
+                let n = Int(r[1] as! Int64)
+                if (r[0] as? String) == "completed" { confirmed += n } else { unknown += n }
+            }
+        }
+        return (confirmed, unknown)
     }
 
     public func events(_ runId: String, after: Int, limit: Int) -> [JSONValue] {

@@ -2,6 +2,24 @@ import AgentDesktopAI
 import AgentDesktopProtocol
 import Foundation
 
+/// Cancels a task that may not exist yet: a cancel before `set` cancels it
+/// as soon as it is set.
+final class TaskGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+    private var cancelled = false
+
+    func set(_ t: Task<Void, Never>) {
+        let now: Bool = lock.withLock { task = t; return cancelled }
+        if now { t.cancel() }
+    }
+
+    func cancel() {
+        let t: Task<Void, Never>? = lock.withLock { cancelled = true; return task }
+        t?.cancel()
+    }
+}
+
 /// The GUI executor of `unit.run` (A6, PR2d). The Runtime admits the Run
 /// and owns it; this resolves the GUI profile at admission (F40-06 rows
 /// 7–15) and then drives the bounded explorer loop through the Runtime's
@@ -49,6 +67,17 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     }
 
     public func admit(params p: JSONValue, callerScope: String) async -> Result<any UnitRunPlan, RuntimeError> {
+        // 7–12 first (F40-06 order): the GUI profile, its model and credential.
+        let profileId = p["guiProfileId"]?.stringValue
+        let resolved: (primary: GuiCandidate, fallback: [GuiCandidate], policyRevision: Int)
+        do {
+            resolved = try await resolver.resolve(guiProfileId: profileId, expectedProfileRevision: p["expectedProfileRevision"]?.intValue,
+                                                  callerScope: callerScope)
+        } catch let e as ContractError {
+            return .failure(Self.admissionError(e, explicitProfile: profileId != nil))
+        } catch {
+            return .failure(RuntimeError("internal_error", "the GUI profile could not be read", phase: .handler, notSent: true))
+        }
         // 13. Every allowed action is one the backend executes ("wait" is
         // the explorer's own and always available).
         var allowed: [GuiActionKind] = []
@@ -75,17 +104,6 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         // 15. Replay needs a learned flow; there is none before L3.
         if p["mode"]?.stringValue == "replay_only" {
             return .failure(Self.refusal("capability_missing", "no replayable flow exists for this goal", "replay_not_available"))
-        }
-        // 7–12. The GUI profile, its model and credential.
-        let profileId = p["guiProfileId"]?.stringValue
-        let resolved: (primary: GuiCandidate, fallback: [GuiCandidate], policyRevision: Int)
-        do {
-            resolved = try await resolver.resolve(guiProfileId: profileId, expectedProfileRevision: p["expectedProfileRevision"]?.intValue,
-                                                  callerScope: callerScope)
-        } catch let e as ContractError {
-            return .failure(Self.admissionError(e, explicitProfile: profileId != nil))
-        } catch {
-            return .failure(RuntimeError("internal_error", "the GUI profile could not be read", phase: .handler, notSent: true))
         }
         // The Run's limits: the profile's, narrowed by the caller's.
         var limits = resolved.primary.limits
@@ -128,10 +146,10 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         }
     }
 
-    public func start(_ plan: any UnitRunPlan, context c: UnitRunContext, sink: UnitRunSink) -> @Sendable () -> Void {
+    public func start(_ plan: any UnitRunPlan, context c: UnitRunContext, sink: UnitRunSink, stop: UnitRunStopHandle) {
         guard let plan = plan as? Plan else {
             sink.finished(.failed(reason: "internal_error"))
-            return {}
+            return
         }
         let binding = GuiRunBinding(runId: c.runId, sessionId: c.sessionId, desktopId: c.desktopId, goal: plan.goal,
                                     bindingEpoch: c.bindingEpoch, runGeneration: 1, policyRevision: plan.policyRevision,
@@ -155,6 +173,20 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
              (.connection, c.resolvedModel.connection.connectionId)]
         }
         lock.withLock { pinned[runId] = pins }
+        // Armed before the driver can run: a stop accepted at any moment,
+        // even before this, keeps the next model call and input from starting.
+        let gate = TaskGate()
+        stop.arm { [weak self] in
+            // A Run waiting for a person ends with this stop.
+            self?.lock.withLock { if self?.tasks[runId] == nil { _ = self?.pinned.removeValue(forKey: runId) } }
+            // Visible before this returns: no model call or input starts
+            // after the Runtime accepted the stop. A model call already out
+            // is cancelled with the task; an input already handed to the
+            // Runtime finishes and reports.
+            let inputOut = signal.stop()
+            if !inputOut { gate.cancel() }
+            Task { _ = await lifecycle.requestCancel() }
+        }
         let task = Task.detached { [weak self] in
             await driver.run()
             let ending = await Self.ending(of: lifecycle, stopped: signal.isStopped)
@@ -164,18 +196,8 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
                 if case .needsInput = ending {} else { _ = self?.pinned.removeValue(forKey: runId) }
             }
         }
+        gate.set(task)
         lock.withLock { tasks[runId] = task }
-        return { [weak self] in
-            // A Run waiting for a person ends with this stop.
-            self?.lock.withLock { if self?.tasks[runId] == nil { _ = self?.pinned.removeValue(forKey: runId) } }
-            // Visible before this returns: no model call or input starts
-            // after the Runtime accepted the stop. A model call already out
-            // is cancelled with the task; an input already handed to the
-            // Runtime finishes and reports.
-            let inputOut = signal.stop()
-            if !inputOut { task.cancel() }
-            Task { _ = await lifecycle.requestCancel() }
-        }
     }
 
     /// Whether a live unit Run pinned this resource (ConfigStore's

@@ -336,8 +336,8 @@ final class Slice: @unchecked Sendable {
         let plan = try await units.admit(params: params, callerScope: scope).get()
         let run = SliceRuns(runId: "run-\(UUID().uuidString.prefix(8).lowercased())")
         ledger.add(run)
-        _ = units.start(plan, context: UnitRunContext(runId: run.runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
-                                                      callerScope: scope, params: params), sink: run)
+        units.start(plan, context: UnitRunContext(runId: run.runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
+                                                  callerScope: scope, params: params), sink: run, stop: UnitRunStopHandle())
         await units.task(for: run.runId)?.value
         return (run, plan)
     }

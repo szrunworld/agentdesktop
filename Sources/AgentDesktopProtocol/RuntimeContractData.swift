@@ -4618,7 +4618,6 @@ enum RuntimeContractData {
               "additionalProperties": false,
               "required": [
                 "stepIndex",
-                "inferenceAttemptId",
                 "attempts",
                 "state",
                 "discarded",
@@ -4655,7 +4654,7 @@ enum RuntimeContractData {
                 "attempts": {
                   "type": "integer",
                   "minimum": 1,
-                  "description": "model calls this inference made (a transient failure moved to the next candidate counts each); inferenceAttemptId names the last"
+                  "description": "model calls this inference made (a transient failure moved to the next candidate counts each); inferenceAttemptId names the last, and is absent when the calls failed with no receipt"
                 }
               }
             }
