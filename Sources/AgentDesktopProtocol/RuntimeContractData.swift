@@ -1791,7 +1791,7 @@ enum RuntimeContractData {
           }
         }
       ],
-      "description": "hover moves the pointer over the target without pressing; press is an accessibility press of one element (elementRef only), never an event click; drag (target to `to`) is refused with unsupported_backend where the backend cannot drag in the background (macOS today), never done in the foreground instead"
+      "description": "hover rests the pointer on the target; press is an accessibility press of one element (elementRef only), never an event click; drag goes from target to `to`. hover and drag are refused with unsupported_backend where the backend cannot do them in the background without side effects (macOS today: hover would be a middle click, drag would take the real pointer and the foreground), never done otherwise instead"
     },
     "act_params": {
       "type": "object",
@@ -11153,7 +11153,7 @@ enum RuntimeContractData {
       "code": "unsupported_backend",
       "exitCode": 6,
       "phase": "handler",
-      "description": "The backend cannot do this action in the background (act kind drag on macOS); it is not done in the foreground instead. notSent: true, details.reason background_drag_unsupported."
+      "description": "The backend cannot do this action in the background without side effects (act kind drag on macOS: background_drag_unsupported; act kind hover on macOS, which would be a middle click: background_hover_activates); it is not done another way instead. notSent: true, details.reason says which."
     },
     {
       "code": "capability_mismatch",

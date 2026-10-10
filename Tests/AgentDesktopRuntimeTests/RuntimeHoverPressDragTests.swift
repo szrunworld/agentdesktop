@@ -3,21 +3,26 @@ import Foundation
 import Testing
 @testable import AgentDesktopRuntime
 
-// A5: act kinds hover, press and drag. RT-21 (each has its receipt), RT-11
-// (no background drag: unsupported_backend, never the foreground), RT-22
+// A5: act kinds hover, press and drag. RT-21 (press has its receipt; hover
+// and drag cannot be done safely in the background on macOS), RT-11
+// (unsupported_backend, never another way), RT-22
 // (every receipt says businessResult not_evaluated).
 
 private func reason(_ r: RuntimeResponse) -> String? { errorDetails(r)?["reason"]?.stringValue }
 
-@Test func rt21_hoverByElementOrPointHasItsReceipt() throws {
+@Test func aHoverIsRefusedBecauseTheEnginesHoverIsAMiddleClick() throws {
+    // Codex P1 on #252: BackgroundInput.hover posts a middle-button press
+    // (links open, auxclick fires, some apps paste). Nothing is sent.
     let sc = try scene()
-    let byElement = try #require(data(act(sc, #"{"kind":"hover","target":{"elementRef":"el_0"}}"#)))
-    #expect(contract.validate(byElement, "ActionReceipt").isEmpty, "\(byElement.encoded())")
-    #expect(byElement["delivery"]?.stringValue == "dispatched")
-    #expect(sc.platform.performed.last?.kind == .hover && sc.platform.performed.last?.elementIndex == 0)
-    let byPoint = try #require(data(act(sc, #"{"kind":"hover","target":{"imagePoint":{"x":100,"y":100}}}"#)))
-    #expect(byPoint["target"]?["point"]?["x"]?.doubleValue == 2150)
-    #expect(sc.platform.performed.last?.kind == .hover && sc.platform.performed.last?.point?.x == 2150)
+    for target in [#"{"elementRef":"el_0"}"#, #"{"imagePoint":{"x":100,"y":100}}"#] {
+        let r = act(sc, #"{"kind":"hover","target":\#(target)}"#)
+        #expect(code(r) == "unsupported_backend" && reason(r) == "background_hover_activates", "\(target)")
+        if case let .failure(e) = r.result { #expect(e.notSent == true) }
+    }
+    #expect(sc.platform.performed.isEmpty && !sc.platform.calls.contains { $0.hasPrefix("perform") })
+    // The clipboard policy refuses it as well, should a path reach it.
+    #expect(ClipboardPolicy.refusal(PlatformAction(kind: .hover), snapshotElement: nil, pid: 101, windowId: 11,
+                                    menu: nil, platform: sc.platform) == "hover_middle_click")
 }
 
 @Test func rt21_pressIsAnAccessibilityPressOfOneElement() throws {
@@ -67,8 +72,7 @@ private func reason(_ r: RuntimeResponse) -> String? { errorDetails(r)?["reason"
 @Test func rt22_everyReceiptLeavesTheBusinessResultUnevaluated() throws {
     let sc = try scene()
     var receipts: [JSONValue] = []
-    for action in [clickContinue, #"{"kind":"hover","target":{"elementRef":"el_0"}}"#,
-                   #"{"kind":"press","target":{"elementRef":"el_0"}}"#,
+    for action in [clickContinue, #"{"kind":"press","target":{"elementRef":"el_0"}}"#,
                    #"{"kind":"scroll","direction":"down"}"#] {
         receipts.append(try #require(data(act(sc, action)), "\(action)"))
     }

@@ -282,11 +282,11 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 
 ### act 的 hover、press 与 drag（A5）
 
-- `hover {target}`：把指针移到元素（elementRef）或图像点（imagePoint）上，不点击（用于显示提示、悬停菜单）。在后台执行；不经过剪贴板策略的点击检查，因为什么都没有按下。
+- `hover {target}`：参数已定稿（elementRef 或 imagePoint）。但 macOS 引擎的后台 hover 其实是在目标点发一次**中键**按下和抬起（Chromium 不接受后台发来的鼠标移动）：会打开链接、触发 `auxclick`，在用中键粘贴的应用里还会粘贴。它做不到「不点击」，所以 Runtime 在派发前拒绝：`unsupported_backend`，`notSent: true`，`details.reason: background_hover_activates`，dispatch=0；剪贴板策略也把 hover 列为拒绝（`hover_middle_click`）。等有了不发按键事件的悬停实现再开放（Codex 在 #252 上的 P1）。
 - `press {target: {elementRef}}`：对一个元素做无障碍按下（引擎的 accessibilityPress），没有事件兜底；不能按就失败，不会改成点击。只接受 elementRef，带图像点、button、count、modifiers 等任何其他字段都是 `schema_invalid`。剪贴板策略按点击同样检查：名为粘贴、复制、剪切的控件被拒。
 - `drag {target, to}`：参数已定稿。但 macOS 引擎只有前台拖动（会把应用拉到前台、移动用户的真实指针），所以 Runtime 在派发前就拒绝：`unsupported_backend`，`notSent: true`，`details.reason: background_drag_unsupported`，dispatch=0，不会改用前台执行（RT-11）。有后台拖动能力的后端出现之后再开放。`unsupported_backend` 因此不再是预留错误码。
 - 所有回执的 `businessResult` 都是 `not_evaluated`（RT-22）。
-- 入口：CLI 新增 `act hover`、`act press`，MCP 新增 `act_hover`、`act_press`；drag 不提供入口。
+- 入口：CLI 新增 `act press`，MCP 新增 `act_press`；hover 和 drag 都不提供入口。
 
 ### 动作记录（A5）
 
