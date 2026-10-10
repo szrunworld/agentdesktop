@@ -28,9 +28,16 @@ private actor PollingClient: ContractClient {
 private actor PauseGate {
     private(set) var entered = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
     func pause() async {
         entered += 1
+        if isOpen { return }
         await withCheckedContinuation { waiters.append($0) }
+    }
+    /// Releases every held pause and lets later ones pass at once.
+    func open() {
+        isOpen = true
+        release()
     }
     func release() {
         let w = waiters
@@ -86,8 +93,10 @@ private actor ScriptClient: ContractClient {
     var script: [String?]
     let cancelAnswer: JSONValue
     let cancelGate: PauseGate?
-    init(script: [String?], cancelAnswer: JSONValue, cancelGate: PauseGate? = nil) {
-        self.script = script; self.cancelAnswer = cancelAnswer; self.cancelGate = cancelGate
+    /// Holds read number `readGate.0` until the test releases `readGate.1`.
+    let readGate: (Int, PauseGate)?
+    init(script: [String?], cancelAnswer: JSONValue, cancelGate: PauseGate? = nil, readGate: (Int, PauseGate)? = nil) {
+        self.script = script; self.cancelAnswer = cancelAnswer; self.cancelGate = cancelGate; self.readGate = readGate
     }
     func guiCapabilities() async throws -> JSONValue { .obj([]) }
     func send(_ command: String, _ params: JSONValue, idempotencyKey: String?) async throws -> JSONValue {
@@ -97,6 +106,7 @@ private actor ScriptClient: ContractClient {
         case "ai.operations.get":
             reads += 1
             let next = script.count > 1 ? script.removeFirst() : script[0]
+            if let (n, g) = readGate, n == reads { await g.pause() }
             guard let state = next else { throw ContractError(.upstreamUnavailable, "status read failed") }
             return .obj([("state", .string(state))])
         case "ai.operations.cancel":
@@ -140,27 +150,37 @@ private let notTerminal = JSONValue.obj([("terminal", .bool(false)), ("state", .
         #expect(model.canStart)
     }
     @Test func staleCancellingReadDoesNotUndoATerminalCancel() async {
-        let pauses = PauseGate()
-        let cancelGate = PauseGate()
-        // Read 1 running; read 2 leaves before the cancel answer but says
-        // "cancelling"; read 3 is the end.
+        let readGate = PauseGate()
+        // Read 2 leaves before the terminal cancel answer and comes back
+        // "cancelling" after it; read 3 would be the end.
         let client = ScriptClient(script: ["running", "cancelling", "cancelled"],
                                   cancelAnswer: .obj([("terminal", .bool(true)), ("state", .string("cancelled"))]),
-                                  cancelGate: cancelGate)
+                                  readGate: (2, readGate))
+        let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: FastClock())
+        let running = Task { await model.start() }
+        await readGate.waitForPause(1)
+        await model.cancel()
+        #expect(model.phase == .finished("cancelled"))
+        await readGate.release()
+        await running.value
+        #expect(model.phase == .finished("cancelled"))
+        #expect(model.canStart)
+        #expect(await client.reads == 2)
+    }
+    @Test func readFailuresAfterATerminalCancelKeepTheEnd() async {
+        let pauses = PauseGate()
+        let client = ScriptClient(script: ["running", nil],
+                                  cancelAnswer: .obj([("terminal", .bool(true)), ("state", .string("cancelled"))]))
         let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: GateClock(gate: pauses))
         let running = Task { await model.start() }
         await pauses.waitForPause(1)
-        let cancelling = Task { await model.cancel() }
-        await cancelGate.waitForPause(1)
-        await cancelGate.release()
-        await cancelling.value
+        await model.cancel()
         #expect(model.phase == .finished("cancelled"))
-        await pauses.release()
-        await pauses.waitForPause(2)
-        #expect(model.phase == .finished("cancelled"))
-        await pauses.release()
+        await pauses.open()
         await running.value
         #expect(model.phase == .finished("cancelled"))
+        #expect(model.problem == nil)
+        #expect(!model.canCancel)
         #expect(model.canStart)
     }
     @Test func terminalCancelWaitsForTheOldLoopBeforeStartingAgain() async {

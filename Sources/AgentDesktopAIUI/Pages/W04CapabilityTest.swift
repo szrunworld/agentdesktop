@@ -114,37 +114,62 @@ public final class CapabilityTestModel: ObservableObject {
     }
 
     /// Reads the operation until it ends. Levels never finished stay unfinished.
+    ///
+    /// After every wait the loop re-checks `settled(op)`: once the end is
+    /// known (a terminal cancel answer, say) or a newer test has started,
+    /// nothing this loop read or failed to read may change the phase or the
+    /// problem, so it stops without writing.
     public func poll() async {
-        guard let op = operationId, !isPolling else { return }
+        guard let op = operationId, !isPolling, !settled(op) else { return }
         isPolling = true
         defer { isPolling = false }
         var failures = 0
-        while true {
+        while !settled(op) {
+            let o: JSONValue
             do {
-                let o = try await client.send("ai.operations.get", .obj([("operationId", .string(op))]))
-                failures = 0
-                if problemFromPoll { show(nil) }
-                apply(o)
-                if let s = o["state"]?.stringValue, ["succeeded", "failed", "cancelled"].contains(s) {
-                    phase = .finished(s)
-                    return
-                }
-                // A read that left before a terminal cancel answer must not undo it.
-                if case .finished = phase {}
-                else if o["state"]?.stringValue == "cancelling" { phase = .cancelling }
-                else if phase == .unknown { phase = .running }
-                try await clock.pause(milliseconds: pollMs)
+                o = try await client.send("ai.operations.get", .obj([("operationId", .string(op))]))
             } catch is CancellationError {
-                if case .finished = phase {} else { phase = .unknown }
+                if !settled(op) { phase = .unknown }
                 return
             } catch {
+                guard !settled(op) else { return }
                 problem = UIProblem(error)
                 problemFromPoll = true
                 failures += 1
                 guard failures < 3 else { phase = .unknown; return }
-                do { try await clock.pause(milliseconds: pollMs * failures) }
-                catch { if case .finished = phase {} else { phase = .unknown }; return }
+                guard await pauseOrMarkUnknown(milliseconds: pollMs * failures, op) else { return }
+                continue
             }
+            guard !settled(op) else { return }
+            failures = 0
+            if problemFromPoll { show(nil) }
+            apply(o)
+            if let s = o["state"]?.stringValue, ["succeeded", "failed", "cancelled"].contains(s) {
+                phase = .finished(s)
+                return
+            }
+            if o["state"]?.stringValue == "cancelling" { phase = .cancelling }
+            else if phase == .unknown { phase = .running }
+            guard await pauseOrMarkUnknown(milliseconds: pollMs, op) else { return }
+        }
+    }
+
+    /// True when the loop for `op` must not write any more: the end is
+    /// already known, or `op` is no longer the test on the page.
+    private func settled(_ op: String) -> Bool {
+        if case .finished = phase { return true }
+        return operationId != op
+    }
+
+    /// Waits between reads; a cancelled wait leaves the state unknown
+    /// (unless already settled) and stops the loop.
+    private func pauseOrMarkUnknown(milliseconds: Int, _ op: String) async -> Bool {
+        do {
+            try await clock.pause(milliseconds: milliseconds)
+            return true
+        } catch {
+            if !settled(op) { phase = .unknown }
+            return false
         }
     }
 
