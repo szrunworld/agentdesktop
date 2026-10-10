@@ -380,20 +380,32 @@ public enum AXActions {
         write(element, kAXFocusedAttribute, kCFBooleanTrue)
         let before: String = WindowMover.copyAttribute(element, kAXValueAttribute) ?? ""
         let landed = { (now: String) in now != before && now.contains(text) }
-        var settable: DarwinBoolean = false
-        if AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
-           settable.boolValue,
-           write(element, kAXSelectedTextAttribute, text as CFString) == .success {
-            // Some apps accept a selected-text write and drop it; only a
-            // change shows it went in. Without one, try the value instead.
-            if settle(element, landed) { return .landed }
+        return insertOnce(selected: {
+            var settable: DarwinBoolean = false
+            guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
+                  settable.boolValue else { return .attributeUnsupported }
+            return write(element, kAXSelectedTextAttribute, text as CFString)
+        }, value: {
+            var settable: DarwinBoolean = false
+            guard AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
+                  settable.boolValue else { return .attributeUnsupported }
+            return write(element, kAXValueAttribute, (before + text) as CFString)
+        }, confirmed: { settle(element, landed) })
+    }
+
+    /// An accepted or ambiguous write is never followed by another write.
+    static func insertOnce(selected: () -> AXError, value: () -> AXError,
+                           confirmed: () -> Bool) -> Write {
+        switch writeOutcome(selected()) {
+        case .pressed: return confirmed() ? .landed : .unconfirmed
+        case .unknown: return .unconfirmed
+        case .notPerformed: break
         }
-        if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
-           settable.boolValue,
-           write(element, kAXValueAttribute, (before + text) as CFString) == .success {
-            return settle(element, landed) ? .landed : .unconfirmed
+        switch writeOutcome(value()) {
+        case .pressed: return confirmed() ? .landed : .unconfirmed
+        case .unknown: return .unconfirmed
+        case .notPerformed: return .refused
         }
-        return .refused
     }
 
     /// Set the element's whole text to `value`, and read it back. The page in

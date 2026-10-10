@@ -131,25 +131,21 @@ public final class InputEngine: @unchecked Sendable {
                     // never taken as not performed until #173).
                     response.route = "event.click+" + (try BackgroundInput.type(text, in: window))
                 }
-                // Some Electron apps (BOSS直聘) drop background keys but take the
-                // field's text set through accessibility, which the page sees as
-                // input. Only when the field's text reads back unchanged by the
-                // keys, so the text never lands twice.
+                // An unchanged accessibility value may lag behind the keys.
+                // Never submit a second write to compensate for that delay.
                 Thread.sleep(forTimeInterval: 0.2)
-                if let before, AXActions.value(element.snapshot, index: element.info.index) == before {
-                    switch AXActions.insert(text, into: element.snapshot, index: element.info.index) {
-                    case .landed: response.route = "ax.insert"
-                    case .unconfirmed: response.route = "ax.insert.unconfirmed"
-                    case .refused: break
-                    }
-                }
+                try Self.checkTypedText(before: before, after: AXActions.value(element.snapshot, index: element.info.index))
             } else if let element, AXActions.isText(element.info),
                       case let write = AXActions.insert(text, into: element.snapshot, index: element.info.index),
                       write != .refused {
                 if let center = element.info.center { cursor(.move, center) }
                 // Unconfirmed counts as typed: typing the keys as well could
                 // put the text in twice.
-                response.route = write == .landed ? "ax.insert" : "ax.insert.unconfirmed"
+                guard write == .landed else {
+                    DeliveryRecorder.active?.note(.unknown)
+                    throw AccessibilityError("text input result is unknown; no second write was attempted")
+                }
+                response.route = "ax.insert"
             } else {
                 response.route = try BackgroundInput.type(text, in: window)
             }
@@ -259,6 +255,14 @@ public final class InputEngine: @unchecked Sendable {
     /// One accessibility press, then an event click only if the press
     /// certainly did nothing (#172). A press with no clear answer stops
     /// here: it may have pressed, and a click after it could press twice.
+    /// A stale or unreadable AX value cannot prove that posted keys failed.
+    static func checkTypedText(before: String?, after: String?) throws {
+        guard let before, let after, before != after else {
+            DeliveryRecorder.active?.note(.unknown)
+            throw AccessibilityError("text input result is unknown; no second write was attempted")
+        }
+    }
+
     static func pressThenClick(press: () -> AXActions.PressOutcome, what: String,
                                click: () throws -> String) throws -> String {
         // Recorded here too, whatever `press` is (#173): noting an outcome
