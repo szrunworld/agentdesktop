@@ -5324,7 +5324,8 @@
                 "status": {
                   "enum": [
                     "matched",
-                    "contradicted"
+                    "contradicted",
+                    "inconclusive"
                   ]
                 },
                 "verifierId": {
@@ -5336,6 +5337,16 @@
                 },
                 "checkedAt": {
                   "$ref": "#/$defs/Timestamp"
+                },
+                "reason": {
+                  "enum": [
+                    "elements_partial",
+                    "elements_unavailable",
+                    "ambiguous",
+                    "target_missing",
+                    "value_unreadable"
+                  ],
+                  "description": "why an inconclusive verdict could not decide; absent otherwise"
                 }
               }
             }

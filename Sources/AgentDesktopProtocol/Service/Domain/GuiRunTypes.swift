@@ -13,24 +13,144 @@ public enum GuiTime {
     }
 }
 
-/// The only V1 completion condition (spec §06.4): a static text element of
-/// the bound window whose whole text equals `text`. Caller-supplied, fixed
-/// in the binding; a model can neither write nor relax it.
-public struct GuiVerification: Equatable, Sendable {
-    public let text: String
+/// A completion condition (spec §06.4, X1): caller-supplied, fixed in the
+/// binding; a model can neither write nor relax it. The verifier judges it
+/// three-valued on one observation (matched / contradicted / inconclusive).
+///
+/// - `element_text_equals`: a static text element whose whole text equals
+///   `text` (the V1 predicate, unchanged on the wire).
+/// - `element_exists`: an element of `role` whose label and/or text equal
+///   the given ones. Several matches still exist.
+/// - `value_equals_parameter`: the one element of `role` labelled `label`
+///   holds the value of goal parameter `param`. Two such elements make it
+///   inconclusive (ambiguous), never a guess.
+/// - `all` / `any` / `not`: combinators.
+///
+/// `value_equals_parameter` carries the parameter's value resolved at
+/// admission (from `goal.params`); its wire form names the parameter only.
+public indirect enum GuiVerification: Equatable, Sendable {
+    case elementTextEquals(text: String)
+    case elementExists(role: String, label: String?, text: String?)
+    case valueEqualsParameter(role: String, label: String, param: String, value: String)
+    case all([GuiVerification])
+    case any([GuiVerification])
+    case not(GuiVerification)
 
-    public init(text: String) { self.text = text }
+    /// Bounds of one predicate tree (each also in service.schema.json).
+    public static let maxDepth = 4
+    public static let maxNodes = 16
+    public static let maxOperands = 8
 
-    public init(json: JSONValue) throws {
-        guard json["kind"]?.stringValue == "element_text_equals", json["role"]?.stringValue == "static_text",
-              let text = json["text"]?.stringValue, !text.isEmpty else {
-            throw ContractError(.validationError, "verification must be element_text_equals on static_text")
-        }
-        self.text = text
+    /// The V1 predicate.
+    public init(text: String) { self = .elementTextEquals(text: text) }
+
+    /// Parse a wire predicate. `params` are the goal's parameters (string,
+    /// number or boolean values); a `value_equals_parameter` naming one that
+    /// is missing is refused here, before any Run exists.
+    public init(json: JSONValue, params: JSONValue? = nil) throws {
+        var nodes = 0
+        self = try Self.parse(json, params: params, depth: 1, nodes: &nodes)
     }
 
+    private static func parse(_ json: JSONValue, params: JSONValue?, depth: Int, nodes: inout Int) throws -> GuiVerification {
+        nodes += 1
+        guard depth <= maxDepth, nodes <= maxNodes else {
+            throw ContractError(.validationError, "a verification may nest \(maxDepth) levels and hold \(maxNodes) predicates")
+        }
+        func text(_ key: String, required: Bool) throws -> String? {
+            guard let v = json[key] else {
+                if required { throw ContractError(.validationError, "verification.\(key) is required") }
+                return nil
+            }
+            guard let s = v.stringValue, !s.isEmpty, s.count <= 1024 else {
+                throw ContractError(.validationError, "verification.\(key) must be 1 to 1024 characters")
+            }
+            return s
+        }
+        func operands() throws -> [GuiVerification] {
+            guard let list = json["of"]?.arrayValue, !list.isEmpty, list.count <= maxOperands else {
+                throw ContractError(.validationError, "verification.of must hold 1 to \(maxOperands) predicates")
+            }
+            return try list.map { try parse($0, params: params, depth: depth + 1, nodes: &nodes) }
+        }
+        switch json["kind"]?.stringValue {
+        case "element_text_equals":
+            guard json["role"]?.stringValue == "static_text" else {
+                throw ContractError(.validationError, "element_text_equals reads static_text only")
+            }
+            return .elementTextEquals(text: try text("text", required: true)!)
+        case "element_exists":
+            let role = try text("role", required: true)!
+            let label = try text("label", required: false)
+            let value = try text("text", required: false)
+            guard label != nil || value != nil else {
+                throw ContractError(.validationError, "element_exists needs a label or a text")
+            }
+            return .elementExists(role: role, label: label, text: value)
+        case "value_equals_parameter":
+            let role = try text("role", required: true)!
+            let label = try text("label", required: true)!
+            let name = try text("param", required: true)!
+            guard let raw = params?[name], let value = Self.parameterText(raw) else {
+                throw ContractError(.validationError, "goal.params has no value for \(name)")
+            }
+            return .valueEqualsParameter(role: role, label: label, param: name, value: value)
+        case "all": return .all(try operands())
+        case "any": return .any(try operands())
+        case "not":
+            guard let inner = json["of"], inner.objectMembers != nil else {
+                throw ContractError(.validationError, "not takes one predicate in verification.of")
+            }
+            return .not(try parse(inner, params: params, depth: depth + 1, nodes: &nodes))
+        default:
+            // A kind this build does not know is one no backend verifies
+            // (F40-06 row 14), not a malformed predicate.
+            throw ContractError(.capabilityMismatch, "unknown verification kind")
+        }
+    }
+
+    /// A goal parameter as the text an element would show: strings as is,
+    /// integers without a fraction, booleans as true/false. Other numbers
+    /// have no single on-screen form and are refused.
+    static func parameterText(_ v: JSONValue) -> String? {
+        if let s = v.stringValue { return s.isEmpty ? nil : s }
+        if let b = v.boolValue { return b ? "true" : "false" }
+        if let i = v.intValue { return String(i) }
+        return nil
+    }
+
+    /// Every predicate kind in the tree (combinators included).
+    public var kinds: Set<String> {
+        switch self {
+        case .elementTextEquals: return ["element_text_equals"]
+        case .elementExists: return ["element_exists"]
+        case .valueEqualsParameter: return ["value_equals_parameter"]
+        case let .all(ps): return ps.reduce(into: ["all"]) { $0.formUnion($1.kinds) }
+        case let .any(ps): return ps.reduce(into: ["any"]) { $0.formUnion($1.kinds) }
+        case let .not(p): return p.kinds.union(["not"])
+        }
+    }
+
+    /// The leaf kinds a backend must verify; combinators are the verifier's own.
+    public var leafKinds: Set<String> { kinds.subtracting(["all", "any", "not"]) }
+
+    /// The wire form. A parameter's value never appears: only its name.
     public var json: JSONValue {
-        .obj([("kind", .string("element_text_equals")), ("role", .string("static_text")), ("text", .string(text))])
+        switch self {
+        case let .elementTextEquals(text):
+            return .obj([("kind", .string("element_text_equals")), ("role", .string("static_text")), ("text", .string(text))])
+        case let .elementExists(role, label, text):
+            var m: [(String, JSONValue)] = [("kind", .string("element_exists")), ("role", .string(role))]
+            if let label { m.append(("label", .string(label))) }
+            if let text { m.append(("text", .string(text))) }
+            return .obj(m)
+        case let .valueEqualsParameter(role, label, param, _):
+            return .obj([("kind", .string("value_equals_parameter")), ("role", .string(role)), ("label", .string(label)),
+                         ("param", .string(param))])
+        case let .all(ps): return .obj([("kind", .string("all")), ("of", .array(ps.map(\.json)))])
+        case let .any(ps): return .obj([("kind", .string("any")), ("of", .array(ps.map(\.json)))])
+        case let .not(p): return .obj([("kind", .string("not")), ("of", p.json)])
+        }
     }
 }
 
@@ -306,22 +426,41 @@ public struct GuiActionReceipt: Equatable, Sendable {
 }
 
 /// A verifier's verdict on one observation (domain GoalVerification).
+/// `passed` = matched, `failed` = contradicted; `inconclusive` means the
+/// observation could not decide (a partial or unavailable element read,
+/// an ambiguous target) and is never success. `reason` says why a verdict
+/// is inconclusive.
 public struct GoalVerification: Equatable, Sendable {
-    public enum Status: String, Sendable { case notRun = "not_run", passed, failed }
+    public enum Status: String, Sendable { case notRun = "not_run", passed, failed, inconclusive }
+    /// Why a verdict is inconclusive (service.schema.json GoalVerification.reason).
+    public enum Reason: String, Sendable {
+        case elementsPartial = "elements_partial"
+        case elementsUnavailable = "elements_unavailable"
+        case ambiguous
+        /// value_equals_parameter: no element of that role carries the label.
+        case targetMissing = "target_missing"
+        /// value_equals_parameter: the one labelled element has no readable value.
+        case valueUnreadable = "value_unreadable"
+    }
     public let status: Status
     public let observationId: String?
     public let verifierId: String?
     public let checkedAt: Date?
+    public let reason: Reason?
 
-    public init(status: Status, observationId: String?, verifierId: String?, checkedAt: Date?) {
+    public init(status: Status, observationId: String?, verifierId: String?, checkedAt: Date?, reason: Reason? = nil) {
         self.status = status; self.observationId = observationId; self.verifierId = verifierId; self.checkedAt = checkedAt
+        self.reason = reason
     }
 
     public static let notRun = GoalVerification(status: .notRun, observationId: nil, verifierId: nil, checkedAt: nil)
 
     public var json: JSONValue {
-        .obj([("status", .string(status.rawValue)), ("observationId", observationId.map(JSONValue.string) ?? .null),
-              ("verifierId", verifierId.map(JSONValue.string) ?? .null),
-              ("checkedAt", checkedAt.map { .string(GuiTime.iso($0)) } ?? .null)])
+        var m: [(String, JSONValue)] = [
+            ("status", .string(status.rawValue)), ("observationId", observationId.map(JSONValue.string) ?? .null),
+            ("verifierId", verifierId.map(JSONValue.string) ?? .null),
+            ("checkedAt", checkedAt.map { .string(GuiTime.iso($0)) } ?? .null)]
+        if let reason { m.append(("reason", .string(reason.rawValue))) }
+        return .obj(m)
     }
 }

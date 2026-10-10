@@ -8,14 +8,35 @@ import Foundation
 /// An accessible element of the observed window, normalized across
 /// platforms. Internal to the Runtime and the verifier: not a wire field.
 public struct ObservedElement: Equatable, Sendable {
-    /// Normalized role; V1 verification reads "static_text" only.
+    /// Normalized role ("static_text", "text_field", "button", …).
     public let role: String
+    /// What the element shows: its value, else its label.
     public let text: String
+    /// The accessible name, when the backend read one.
+    public let label: String?
+    /// The current value, when the element has one (a field's contents).
+    public let value: String?
 
     public init(role: String, text: String) {
         self.role = role
         self.text = text
+        self.label = nil
+        self.value = nil
     }
+
+    public init(role: String, label: String?, value: String?) {
+        self.role = role
+        self.text = value ?? label ?? ""
+        self.label = label
+        self.value = value
+    }
+}
+
+/// How much of the bound window's element tree one observation read (the
+/// Runtime's observe `coverage.ax`). Only a complete read can show that
+/// something is absent.
+public enum ElementCoverage: String, Sendable {
+    case complete, partial, unavailable
 }
 
 /// One observation plus what only the Runtime may hand out: the image bytes
@@ -29,11 +50,16 @@ public struct ObservationBundle: Sendable {
     /// nil when the backend cannot read them, which makes the V1 predicate
     /// unavailable (CAPABILITY_MISMATCH), never vacuously true.
     public let elements: [ObservedElement]?
+    /// Whether `elements` is the whole tree. A truncated or timed-out read
+    /// gives partial / unavailable: what is missing from it proves nothing.
+    public let elementCoverage: ElementCoverage
 
-    public init(observation: Observation, authorizedImages: [AiImageContent], elements: [ObservedElement]?) {
+    public init(observation: Observation, authorizedImages: [AiImageContent], elements: [ObservedElement]?,
+                elementCoverage: ElementCoverage = .complete) {
         self.observation = observation
         self.authorizedImages = authorizedImages
         self.elements = elements
+        self.elementCoverage = elements == nil ? .unavailable : elementCoverage
     }
 
     /// The image of the observation's first screenshot: what the model sees.

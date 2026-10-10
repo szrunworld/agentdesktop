@@ -256,7 +256,8 @@ public struct RunDetailView: View {
                 LabeledValue(label: "决策步数", value: "\(model.stepCount)")
                 LabeledValue(label: "完成验证", value: model.verification.status == "matched"
                              ? "通过（观察 \(model.verification.observationId ?? "—")，\(Format.time(model.verification.checkedAt))）"
-                             : model.verification.status == "contradicted" ? "未满足" : "未执行")
+                             : model.verification.status == "contradicted" ? "未满足"
+                             : model.verification.status == "inconclusive" ? "无法判定（观察不完整或目标不唯一）" : "未执行")
                 if let r = model.latestReceipt {
                     GroupBox("最近的动作回执") {
                         LabeledValue(label: "动作", value: "\(r.actionType) · \(r.actionId)")

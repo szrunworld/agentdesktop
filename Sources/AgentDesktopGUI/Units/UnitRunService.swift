@@ -89,11 +89,23 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
             }
             allowed.append(kind)
         }
-        // 14. Every predicate is one the backend can verify.
+        // 14. Every predicate is one the backend can verify (combinators
+        // are the verifier's own); a value_equals_parameter takes its value
+        // from goal.params here, so a missing one ends before any Run.
         var verifications: [GuiVerification] = []
         for predicate in p["verification"]?["all"]?.arrayValue ?? [] {
-            let kind = predicate["kind"]?.stringValue ?? ""
-            guard features.verificationPredicates.contains(kind), let v = try? GuiVerification(json: predicate) else {
+            let v: GuiVerification
+            do {
+                v = try GuiVerification(json: predicate, params: p["goal"]?["params"])
+            } catch let e as ContractError where e.code == .capabilityMismatch {
+                return .failure(Self.refusal("capability_mismatch", "this backend cannot verify that predicate", "predicate_unsupported"))
+            } catch let e as ContractError {
+                return .failure(RuntimeError("schema_invalid", e.message, phase: .handler, notSent: true,
+                                             details: .obj([("reason", .string("verification_invalid"))])))
+            } catch {
+                return .failure(RuntimeError("schema_invalid", "the verification could not be read", phase: .handler, notSent: true))
+            }
+            if let kind = v.leafKinds.sorted().first(where: { !features.verificationPredicates.contains($0) }) {
                 return .failure(Self.refusal("capability_mismatch", "this backend cannot verify \(kind)", "predicate_unsupported"))
             }
             verifications.append(v)

@@ -6,9 +6,12 @@ import Foundation
 /// runtime.capabilities. Nothing is claimed that has no evidence.
 public struct GuiBackendFeatures: Sendable {
     public var actions: [GuiActionKind]
-    /// ["element_text_equals"] only when the backend reads static text of
-    /// the bound window.
+    /// The leaf predicates the backend can verify: `elementPredicates` when
+    /// it reads the bound window's elements (role, label, value), else none.
     public var verificationPredicates: [String]
+
+    /// What a backend that reads the bound window's element tree verifies.
+    public static let elementPredicates = ["element_text_equals", "element_exists", "value_equals_parameter"]
     public var directApiWithoutAi: Bool
     public var deterministicReplayWithoutAi: Bool
     public var independentDesktopConcurrency: Bool
