@@ -45,6 +45,12 @@ extension RuntimeService {
             guard c.ownedRuns.contains(r.runId) else {
                 return .failure(RuntimeError("permission_denied", "only the connection that started run \(r.runId) finishes it", phase: .handler))
             }
+            // A unit Run ends by its executor's verification or by a stop;
+            // finishing would call it a success unverified (codex on 158d2a6).
+            guard r.kind != "unit" else {
+                return .failure(RuntimeError("invalid_argument", "a unit Run is not finished by its caller; stop it with run.cancel",
+                                             phase: .handler, notSent: true, details: .obj([("reason", .string("unit_run_not_finishable"))])))
+            }
             let reason = p["exitCode"]?.intValue.map { "exit \($0)" } ?? "finished"
             switch execution.stop(runId: r.runId, reason: reason, endAs: .success) {
             case .accepted, .alreadyTerminal: return .success((runs.find(r.runId) ?? r).json)
