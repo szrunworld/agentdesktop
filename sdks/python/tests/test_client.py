@@ -106,6 +106,53 @@ class ClientTests(unittest.TestCase):
         finally:
             rt.close()
 
+    def test_delegated_run_helpers_preserve_context_and_quiescence(self):
+        def reply(r):
+            run = {"runId": "run-1", "ownership": "external_client",
+                   "lifetime": "connection_scoped", "phase": "stopping",
+                   "quiescence": "pending" if r["method"] == "run.cancel" else "confirmed"}
+            return ok(r, {"run": run, "attachToken": "test-token"} if r["method"] == "run.start" else run)
+        rt = FakeRuntime(handshake_then(reply))
+        try:
+            with RuntimeClient(rt.path, env={}) as c:
+                started = c.run_start("ses-1", request_id="start-1")
+                self.assertEqual(started["run"]["lifetime"], "connection_scoped")
+                self.assertEqual(c.run_cancel("run-1", request_id="cancel-1")["quiescence"], "pending")
+                self.assertEqual(c.run_show("run-1")["quiescence"], "confirmed")
+            start = next(r for r in rt.requests if r["method"] == "run.start")
+            self.assertEqual(start["context"], {"sessionId": "ses-1"})
+            self.assertEqual(start["params"], {})
+            self.assertEqual(start["requestId"], "start-1")
+        finally:
+            rt.close()
+
+    def test_run_start_connection_loss_is_unknown_and_never_replayed(self):
+        rt = FakeRuntime(handshake_then(lambda r: None))
+        try:
+            with RuntimeClient(rt.path, env={}) as c:
+                with self.assertRaises(RuntimeError_) as caught:
+                    c.run_start("ses-1", request_id="start-unknown")
+                self.assertEqual(caught.exception.code, "request_acceptance_unknown")
+                self.assertEqual(caught.exception.details["requestId"], "start-unknown")
+            self.assertEqual(sum(r["method"] == "run.start" for r in rt.requests), 1)
+        finally:
+            rt.close()
+
+    def test_request_show_missing_history_remains_not_found(self):
+        def reply(r):
+            return json.dumps({"apiVersion": API_VERSION, "requestId": r["requestId"], "ok": False,
+                               "error": {"code": "not_found", "message": "no retained request", "phase": "handler",
+                                         "retryable": False}}).encode()
+        rt = FakeRuntime(handshake_then(reply))
+        try:
+            with RuntimeClient(rt.path, env={}) as c:
+                with self.assertRaises(RuntimeError_) as caught:
+                    c.request_show("expired-request")
+                self.assertEqual(caught.exception.code, "not_found")
+                self.assertIsNone(caught.exception.not_sent)
+        finally:
+            rt.close()
+
     def test_errors_keep_their_code(self):
         def err(r):
             return json.dumps({"apiVersion": API_VERSION, "requestId": r["requestId"], "ok": False,

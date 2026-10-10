@@ -288,6 +288,12 @@ class RuntimeClient:
         return Session(self, desktop_id)
 
     def request_show(self, request_id: str) -> dict: return self.call("request.show", {"requestId": request_id})
+    def run_start(self, session_id: str, *, request_id=None) -> dict:
+        """Start a delegated Run on this connection. Ownership and lifetime
+        are assigned by the Runtime; disconnect stops connection-scoped Runs.
+        """
+        return self.call("run.start", {}, context={"sessionId": session_id}, request_id=request_id)
+
     def run_show(self, run_id: str) -> dict: return self.call("run.show", {"runId": run_id})
     def run_cancel(self, run_id: str, *, request_id=None) -> dict:
         return self.call("run.cancel", {"runId": run_id}, request_id=request_id)
@@ -310,7 +316,7 @@ class RuntimeClient:
 
 
 _WRITES = {"desktop.create", "desktop.destroy", "app.launch", "window.bind", "window.unbind",
-           "session.open", "session.close", "act", "run.finish", "run.cancel"}
+           "session.open", "session.close", "act", "run.start", "run.finish", "run.cancel"}
 
 
 class Session:
