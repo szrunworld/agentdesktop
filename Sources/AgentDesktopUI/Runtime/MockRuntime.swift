@@ -204,18 +204,19 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     }
 
     /// The execution side confirms a stopping Run is quiet: ended/confirmed.
-    /// The Run keeps the closing reason its stop recorded (as production).
+    /// As `ExecutionCoordinator.settle`: the Run keeps the closing reason its
+    /// stop recorded, and a Run with an unknown action ends unknown.
     public func confirmQuiescence(_ runId: String, outcome: String = "cancelled") {
         lock.withLock {
             updateRunLocked(runId) { r in
                 r.setting("phase", .string("ended")).setting("quiescence", .string("confirmed"))
-                    .setting("outcome", .string(outcome))
+                    .setting("outcome", .string((r["unknownActions"]?.intValue ?? 0) > 0 ? "unknown" : outcome))
                     .setting("closingReason", r["closingReason"].flatMap { $0 == .null ? nil : $0 } ?? .string("stopped"))
                     .setting("endedAt", .string(stamp()))
             }
             let ended = runs.first(where: { $0["runId"]?.stringValue == runId })
             appendEventLocked(runId, "run.quiescent", .obj([("revision", ended?["revision"] ?? .int(1))]))
-            appendEventLocked(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", .string(outcome)),
+            appendEventLocked(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", ended?["outcome"] ?? .string(outcome)),
                                                        ("reason", ended?["closingReason"] ?? .string("stopped"))]))
         }
     }
@@ -667,13 +668,20 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         return r
     }
 
-    /// Mirrors `ExecutionCoordinator.stop`: the Run goes stopping/pending,
-    /// records the closing reason, and a `stop.accepted` event follows.
+    /// Mirrors `ExecutionCoordinator.stop`: the first stop moves the Run to
+    /// stopping/pending and records its closing reason (revision + 1); a
+    /// later stop of a stopping Run changes nothing but is still reported,
+    /// with its own reason at the unchanged revision. The event type follows
+    /// the reason (`run.finishing` for finished/completed/exit*).
     private func stopLocked(_ id: String, reason: String) {
-        updateRunLocked(id) {
-            $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")).setting("closingReason", .string(reason))
+        guard let current = runs.first(where: { $0["runId"]?.stringValue == id }) else { return }
+        if current["phase"]?.stringValue != "stopping" {
+            updateRunLocked(id) {
+                $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")).setting("closingReason", .string(reason))
+            }
         }
-        appendEventLocked(id, "stop.accepted", .obj([("reason", .string(reason)), ("inFlight", .bool(false)), ("revision", revisionLocked(id))]))
+        let type = ["finished", "completed"].contains(reason) || reason.hasPrefix("exit") ? "run.finishing" : "stop.accepted"
+        appendEventLocked(id, type, .obj([("reason", .string(reason)), ("inFlight", .bool(false)), ("revision", revisionLocked(id))]))
     }
 
     private func revisionLocked(_ id: String) -> JSONValue {
