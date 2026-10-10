@@ -38,4 +38,29 @@ struct PairingDenialDurabilityTests {
         #expect(reopened.clients().isEmpty)
         #expect(reopened.collect(id) == nil)
     }
+    /// Another owner connection decides the pairing between the check and
+    /// the write: the answer is a definite conflict, not an unknown outcome.
+    @Test func concurrentDecisionIsConflictNotUnknown() throws {
+        let dir = try socketDirectory()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = dir + "/hub.sqlite"
+        let hub = try HubStore(path: path)
+        let identity = RuntimeIdentity(instanceId: "denial-race", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                       endpoint: dir + "/runtime.sock", buildSource: "test")
+        let s = RuntimeService(identity: identity, backend: FixedBackend(), platform: FakePlatform(), hub: hub)
+        let owner = handshaken(s)
+        let (app, _) = socketConnection(s)
+        let id = try #require(data(call(s, app, "hub.pairing.start", params: #"{"agentName":"x","requested":{"capabilities":["act"]}}"#))?["pairingId"]?.stringValue)
+        let db = try SQLiteDatabase(path: path)
+        // The other decision lands first; the denial's conditional update then matches no row.
+        try db.execute("""
+            CREATE TRIGGER other_decision BEFORE UPDATE OF state ON pairings WHEN NEW.state = 'denied' BEGIN
+            UPDATE pairings SET state = 'expired' WHERE pairing_id = NEW.pairing_id; SELECT RAISE(IGNORE); END
+            """)
+        let result = call(s, owner, "hub.pairing.deny", params: #"{"pairingId":"\#(id)"}"#)
+        #expect(code(result) == "conflict")
+        if case let .failure(e) = result.result { #expect(e.notSent == true) }
+        #expect(hub.pairing(id)?.state == "expired")
+        #expect(!hub.auditEvents().contains { $0["method"]?.stringValue == "hub.pairing.deny" })
+    }
 }
