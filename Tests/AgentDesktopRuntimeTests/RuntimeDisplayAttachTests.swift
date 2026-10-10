@@ -167,7 +167,8 @@ private func attach(_ s: RuntimeService, _ c: ConnectionState, display: Int = 1,
     let r = call(s, a, "desktop.destroy", params: #"{"desktopId":"\#(d)"}"#)
     #expect(code(r) == "permission_denied" && errorDetails(r)?["reason"]?.stringValue == "owner_only", "\(r.json.encoded())")
     #expect(errorDetails(r)?["openSessions"] == nil && errorDetails(r)?["holderRunId"] == nil)
-    #expect(!(failure(r)?.message ?? "").contains("session"))
+    let message = failure(r)?.message ?? ""
+    #expect(message.contains("session") == false)
 }
 
 @Test func aGrantStoreThatCannotRecordTheLossKeepsThePhysicalDesktop() throws {
