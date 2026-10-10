@@ -50,16 +50,22 @@ var pairDuration: Int?
 var pairTimeout = 180.0
 var rest = Array(CommandLine.arguments.dropFirst())
 if rest.first == "pair" { pairing = true; rest.removeFirst() }
+// Options that belong to one mode only; the other mode refuses them.
+let serveOnly: Set<String> = ["--demo", "--state-dir"]
+let pairOnly: Set<String> = ["--name", "--apps", "--duration", "--wait-timeout"]
 while !rest.isEmpty {
     let a = rest.removeFirst()
+    if (pairing && serveOnly.contains(a)) || (!pairing && pairOnly.contains(a)) {
+        fail("\(a) does not apply \(pairing ? "to pair" : "when serving")\n\(usage)")
+    }
     switch a {
     case "-h", "--help": print(usage); exit(0)
-    case "--demo" where !pairing: demo = true
+    case "--demo": demo = true
     case "--allow-product-endpoint": allowProduct = true
-    case "--endpoint", "--state-dir" where !pairing || a == "--endpoint":
+    case "--endpoint", "--state-dir":
         guard !rest.isEmpty, !rest[0].isEmpty else { fail("\(a) needs a path") }
         if a == "--endpoint" { endpointOption = rest.removeFirst() } else { stateDir = rest.removeFirst() }
-    case "--name", "--apps", "--duration", "--wait-timeout" where pairing:
+    case "--name", "--apps", "--duration", "--wait-timeout":
         guard !rest.isEmpty, !rest[0].isEmpty else { fail("\(a) needs a value") }
         let v = rest.removeFirst()
         switch a {

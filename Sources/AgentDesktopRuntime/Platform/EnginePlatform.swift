@@ -150,6 +150,16 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         _ = try check(handle(r))
     }
 
+    public func resizeScreen(name: String, width: Int, height: Int) throws -> ScreenHandle {
+        var r = ControlRequest(command: .screenResize)
+        r.screen = name
+        r.width = width
+        r.height = height
+        let response = try check(handle(r))
+        guard let s = response.screen else { throw PlatformError(.refused, "the engine resized no screen") }
+        return ScreenHandle(name: s.name, displayId: s.displayID, frame: Self.rect(s.frame), hiDPI: s.hiDPI)
+    }
+
     public func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws
         -> (pid: Int32, windows: [PlatformWindow]) {
         var r = ControlRequest(command: .appLaunch)
