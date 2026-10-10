@@ -17,7 +17,7 @@
 | Zed 1.23.2 | `zed --version`（已于 2026-10-08 由 Homebrew 安装在 /Applications/Zed.app，CLI 在 /opt/homebrew/bin/zed） | — |
 | 屏幕录制与辅助功能授权 | 测试副本 `agentdesktop doctor --endpoint …` | 让 Kevin 在系统设置里授权；不要自己点系统弹窗 |
 
-工作目录一律 `/tmp/adt-acp`。**不使用产品 endpoint**（`~/Library/Application Support/AgentDesktop/…`），不写登录钥匙串：测试副本需要凭据时用文件凭据（docs/plan/08 SEC-03）；一旦出现钥匙串密码框，立即停止并记录。
+工作目录一律 `/tmp/adt-acp`。**不使用产品 endpoint**（`~/Library/Application Support/AgentDesktop/…`），不写登录钥匙串：测试副本的凭据放在临时钥匙串里（§三；A4 之后凭据不写文件）；一旦出现钥匙串密码框或授权框，立即停止并记录。
 
 ## 二、测试副本
 
@@ -40,7 +40,9 @@ CLI="/tmp/adt-acp/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
 
 Zed 1.23.2 支持自定义 ACP agent（`agent_servers`，`"type": "custom"`）。在 Zed 的用户设置（`zed: open settings`，即 `~/.config/zed/settings.json`）里加一项，**测试结束后删除**。本线没有改动 Zed 的任何设置。
 
-**先配对（A4 之后必需，2026-10-10）。** A4（#137）合入后，Runtime 只对已配对的客户端提供服务。ACP 桥用钥匙串里 profile 为 `acp` 的凭据连接，没有凭据时只会得到 `pairing_required`：启动时 stderr 会提示 `not paired with …`，每次提交都是确定拒绝。测试副本要用临时钥匙串，**不要写登录钥匙串**：
+**先配对（A4 之后必需，2026-10-10）。** A4（#137）合入后，Runtime 只对已配对的客户端提供服务。ACP 桥用钥匙串里 profile 为 `acp` 的凭据连接，没有凭据时只会得到 `pairing_required`：启动时 stderr 会提示 `not paired with …`，每次提交都是确定拒绝。
+
+**ACP 桥自己配对**（`docs/security/a4-identity.md`：ACP 桥是外部 App，必须自己配对、自己保管凭据）。配对和服务必须是**同一个程序**：确认窗口显示的才是 ACP 桥本身的代码身份；钥匙串条目只信任创建它的程序，换一个程序读取会弹出钥匙串授权框（按 §一，出现就中止测试）。所以 dev 入口用 `agentdesktop-acp-dev pair`，不用 `agentdesktop agents pair`。测试副本要用临时钥匙串，**不要写登录钥匙串**：
 
 ```sh
 export AGENTDESKTOP_ENDPOINT=/tmp/adt-acp/side.runtime.sock
@@ -48,8 +50,12 @@ security create-keychain -p "$(uuidgen)" /tmp/adt-acp/test.keychain-db
 security set-keychain-settings /tmp/adt-acp/test.keychain-db       # 测试期间不自动锁
 # create-keychain 可能把它加进搜索列表；如果加了，按原样恢复（见 scripts/a4-touchid-acceptance.sh）
 export AGENTDESKTOP_KEYCHAIN=/tmp/adt-acp/test.keychain-db
-agentdesktop agents pair --name ACP --profile acp --capabilities observe,act,desktop.manage --desktops created --wait-timeout 180
+ACP_DEV=/Users/kevinshi/orca/agentdesktop/.build/debug/agentdesktop-acp-dev   # 与下面 Zed 配置的 command 完全相同
+"$ACP_DEV" pair --endpoint "$AGENTDESKTOP_ENDPOINT" --name ACP --apps com.apple.calculator --duration 8h --wait-timeout 180
 ```
+
+- 申请的授权是固定的：能力 `observe,act,desktop.manage,unit.run,run`（`unit.run` 提交任务，`run` 用于 `run.show`、`run.cancel` 和事件订阅；见 `RuntimeService+Auth.swift` 的 `capabilityOf`），Desktop 范围 `created`（只限自己创建的 Desktop），App 范围取 `--apps`（§四 的样本要启动计算器）。期限用 `--duration`：不写时是 Runtime 默认的 1 小时，到期后每次提交都是 `grant_expired`；本手册有 ≥30 分钟的长样本（ACP-P209），整轮测试按 8 小时申请，最长 7 天。
+- **配对之后不要重新编译 dev 入口。** 开发版是 ad-hoc 签名，钥匙串按程序的代码摘要识别它；重新编译后就成了「另一个程序」，读取凭据会弹授权框。重新编译过就删掉临时钥匙串，从建钥匙串那一步重来。
 
 - 配对请求出现在测试副本的 Agent Desktop 窗口里，由 Kevin 本人核对后点「批准」并用 Touch ID 确认。自动化不能代替。
 - 下面 Zed 配置的 `env` 里要同时带上 `AGENTDESKTOP_ENDPOINT` 和 `AGENTDESKTOP_KEYCHAIN`。
@@ -71,7 +77,14 @@ dev 入口（S 线合入后、CLI `acp` 之前）：
 }
 ```
 
-发布形态（CLI `acp` 合入后，ACP-P4-01、ACP-T26-* 的最终一轮用它）：
+发布形态（**`agentdesktop acp` 子命令尚未实现**，按 R9 在 G1 之后接入；合入后 ACP-P4-01、ACP-T26-* 的最终一轮用它）。`agentdesktop acp` 与 `agentdesktop agents pair` 是同一个程序，所以发布形态用 CLI 配对：
+
+```sh
+"/tmp/adt-acp/Agent Desktop.app/Contents/Resources/bin/agentdesktop" agents pair --name ACP --profile acp \
+  --capabilities observe,act,desktop.manage,unit.run,run --desktops created --apps com.apple.calculator --duration 8h --wait-timeout 180
+```
+
+Zed 配置：
 
 ```json
 {
@@ -80,7 +93,7 @@ dev 入口（S 线合入后、CLI `acp` 之前）：
       "type": "custom",
       "command": "/tmp/adt-acp/Agent Desktop.app/Contents/Resources/bin/agentdesktop",
       "args": ["acp"],
-      "env": { "AGENTDESKTOP_ENDPOINT": "/tmp/adt-acp/side.runtime.sock" }
+      "env": { "AGENTDESKTOP_ENDPOINT": "/tmp/adt-acp/side.runtime.sock", "AGENTDESKTOP_KEYCHAIN": "/tmp/adt-acp/test.keychain-db" }
     }
   }
 }
