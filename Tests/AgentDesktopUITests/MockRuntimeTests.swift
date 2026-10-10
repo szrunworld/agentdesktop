@@ -83,7 +83,7 @@ struct MockRuntimeTests {
             #expect(await code { _ = try await m.call(method) } == "capability_missing", "\(method)")
         }
         #expect(Set(MockRuntime.modeled).isSubset(of: RuntimeCatalog.implemented))
-        #expect(!RuntimeCatalog.implemented.contains("inbox.list"))
+        #expect(!RuntimeCatalog.implemented.contains("gui.knowledge.get"))
     }
 
     @Test func capabilitiesAdvertiseOnlyWhatIsModeled() async throws {
