@@ -11,7 +11,10 @@ from .client import (
     RuntimeClient,
     RuntimeError_,
     Session,
+    load_credential,
     resolve_endpoint,
+    save_credential,
 )
 
-__all__ = ["API_VERSION", "ExecContext", "RuntimeClient", "RuntimeError_", "Session", "resolve_endpoint"]
+__all__ = ["API_VERSION", "ExecContext", "RuntimeClient", "RuntimeError_", "Session", "load_credential", "resolve_endpoint",
+           "save_credential"]

@@ -1,0 +1,156 @@
+{
+  "name": "ur-disconnect",
+  "e2eClass": "disconnect",
+  "gates": [
+    "G1-10",
+    "G3-03",
+    "ACP-29"
+  ],
+  "description": "断连（ACP-29）：动作发出后编辑器断开，控制连接关闭；Runtime 按 connection_scoped 停止（owner_lost），没有回执的动作记 unknown，Run outcome unknown。ACP 之后不再发任何执行请求，也不重连恢复。",
+  "layer": "fixture: Mock today (URTestRuntime); Real after A6 (lane Q, test copy under /tmp/adt-*)",
+  "desktopId": "desk_A",
+  "input": {
+    "mode": "explore",
+    "goal": {
+      "description": "打开计算器的「关于计算器」窗口"
+    },
+    "verification": {
+      "all": [
+        {
+          "kind": "element_text_equals",
+          "role": "static_text",
+          "text": "关于计算器"
+        }
+      ]
+    },
+    "allowedActions": [
+      "click",
+      "wait"
+    ],
+    "limits": {
+      "maxSteps": 10,
+      "maxSeconds": 120
+    }
+  },
+  "runtime": {
+    "answer": "accept",
+    "phaseAfterAccept": "running",
+    "onAccept": [
+      {
+        "type": "run.started",
+        "data": {
+          "kind": "unit",
+          "origin": "agent_hub",
+          "ownership": "external_client",
+          "lifetime": "connection_scoped",
+          "desktopId": "desk_A",
+          "sessionId": "sess_A"
+        }
+      },
+      {
+        "type": "action.accepted",
+        "data": {
+          "requestId": "req_ac0000a1",
+          "kind": "click"
+        }
+      },
+      {
+        "type": "action.dispatched",
+        "data": {
+          "requestId": "req_ac0000a1"
+        }
+      }
+    ],
+    "trigger": {
+      "disconnectAfter": "action.dispatched"
+    },
+    "onTrigger": [
+      {
+        "type": "stop.accepted",
+        "data": {
+          "reason": "owner_lost",
+          "inFlight": true,
+          "revision": 2
+        }
+      },
+      {
+        "type": "action.unknown",
+        "data": {
+          "receipt": {
+            "receiptId": "rcpt_ac0000a1",
+            "requestId": "req_ac0000a1",
+            "runId": "$RUN",
+            "desktopId": "desk_A",
+            "sessionId": "sess_A",
+            "snapshotId": "snap_ac0000a1",
+            "delivery": "unknown",
+            "execution": "unknown",
+            "verification": "not_requested",
+            "businessResult": "not_evaluated",
+            "route": "ax",
+            "target": {
+              "generation": 1,
+              "process": {
+                "pid": 4242,
+                "startedAt": "2026-10-08T12:00:00.000Z"
+              },
+              "windowId": 101,
+              "elementRef": "el_about",
+              "point": null
+            },
+            "timing": {
+              "acceptedAt": "2026-10-08T12:00:03.000Z",
+              "dispatchedAt": "2026-10-08T12:00:04.000Z",
+              "completedAt": "2026-10-08T12:00:05.000Z"
+            },
+            "reason": {
+              "code": "action_delivery_unknown",
+              "message": "the executor gave no receipt"
+            }
+          }
+        }
+      },
+      {
+        "type": "run.quiescent",
+        "data": {
+          "revision": 3
+        }
+      },
+      {
+        "type": "run.ended",
+        "data": {
+          "phase": "ended",
+          "outcome": "unknown",
+          "reason": "owner_lost"
+        }
+      }
+    ],
+    "final": {
+      "outcome": "unknown",
+      "closingReason": "owner_lost",
+      "unknownActions": 1,
+      "verification": "not_run"
+    }
+  },
+  "expect": {
+    "submit": "accepted",
+    "actionLevels": [
+      "accepted",
+      "dispatched"
+    ],
+    "finalToolStatus": "in_progress",
+    "textContains": [
+      "编辑器断开后将停止输入"
+    ],
+    "textExcludes": [
+      "已验证",
+      "\"actionLevel\":\"verified\""
+    ],
+    "runtimeFinal": {
+      "outcome": "unknown",
+      "closingReason": "owner_lost"
+    },
+    "unitRunCalls": 1,
+    "cancelCalls": 0
+  }
+}

@@ -3,7 +3,7 @@ import CryptoKit
 import Foundation
 
 /// The persistent record of every write request (CLI plan §05 幂等与未知投递).
-/// The key is the verified caller (the connection's uid) plus requestId;
+/// The key is the verified caller (the connection's principal) plus requestId;
 /// never the connection, PID or lease. The digest covers method, context
 /// and params, so the same ID with other content is a conflict, and a
 /// retry with the same content gets the original outcome without running
@@ -45,9 +45,16 @@ public final class RequestLedger: @unchecked Sendable {
     public init(path: String?, now: @escaping @Sendable () -> Date = { Date() }) throws {
         db = try SQLiteDatabase(path: path)
         self.now = now
+        // Before A4 the caller was the connection's uid; every paired app has
+        // the same uid, so the key is now the principal (clientId). The old
+        // table is kept aside, never reread (retention is a week anyway).
+        let callerType = (try? db.query("SELECT type FROM pragma_table_info('requests') WHERE name = 'caller'"))?.first?[0] as? String
+        if callerType?.uppercased() == "INTEGER" {
+            try db.execute("ALTER TABLE requests RENAME TO requests_pre_a4")
+        }
         try db.execute("""
             CREATE TABLE IF NOT EXISTS requests (
-              caller INTEGER NOT NULL, request_id TEXT NOT NULL, method TEXT NOT NULL,
+              caller TEXT NOT NULL, request_id TEXT NOT NULL, method TEXT NOT NULL,
               digest TEXT NOT NULL, state TEXT NOT NULL, accepted_at TEXT NOT NULL,
               finished_at TEXT, outcome TEXT, PRIMARY KEY (caller, request_id))
             """)
@@ -82,7 +89,7 @@ public final class RequestLedger: @unchecked Sendable {
 
     /// Record the request as accepted, unless it is already known. A
     /// duplicate that arrives while the original runs waits for it.
-    public func begin(caller: uid_t, _ request: RuntimeRequest) throws -> Begin {
+    public func begin(caller: String, _ request: RuntimeRequest) throws -> Begin {
         let key = "\(caller)/\(request.requestId)"
         let digest = Self.digest(request)
         inFlight.lock()
@@ -94,7 +101,7 @@ public final class RequestLedger: @unchecked Sendable {
         try db.execute("""
             INSERT INTO requests (caller, request_id, method, digest, state, accepted_at)
             VALUES (?, ?, ?, ?, 'accepted', ?)
-            """, [.int(Int64(caller)), .text(request.requestId), .text(request.method), .text(digest),
+            """, [.text(caller), .text(request.requestId), .text(request.method), .text(digest),
                   .text(Timestamp.string(now()))])
         running.insert(key)
         return .fresh
@@ -102,14 +109,14 @@ public final class RequestLedger: @unchecked Sendable {
 
     /// The delivery boundary of an act: from here on, input may reach the
     /// app, so an interruption leaves the outcome unknown.
-    public func markDispatching(caller: uid_t, requestId: String) throws {
+    public func markDispatching(caller: String, requestId: String) throws {
         try db.execute("UPDATE requests SET dispatch_started_at = ? WHERE caller = ? AND request_id = ?",
-                        [.text(Timestamp.string(now())), .int(Int64(caller)), .text(requestId)])
+                        [.text(Timestamp.string(now())), .text(caller), .text(requestId)])
     }
 
     /// Drop a fresh request that certainly did nothing, so its requestId can
     /// be retried; duplicates waiting on it then run as fresh.
-    public func forget(caller: uid_t, requestId: String) throws {
+    public func forget(caller: String, requestId: String) throws {
         defer {
             inFlight.lock()
             running.remove("\(caller)/\(requestId)")
@@ -117,11 +124,11 @@ public final class RequestLedger: @unchecked Sendable {
             inFlight.unlock()
         }
         try db.execute("DELETE FROM requests WHERE caller = ? AND request_id = ? AND state = 'accepted'",
-                       [.int(Int64(caller)), .text(requestId)])
+                       [.text(caller), .text(requestId)])
     }
 
     /// Store the outcome of a fresh request.
-    public func finish(caller: uid_t, requestId: String, _ result: Result<JSONValue, RuntimeError>) throws {
+    public func finish(caller: String, requestId: String, _ result: Result<JSONValue, RuntimeError>) throws {
         // Always wake duplicate callers, even when the outcome cannot be saved.
         defer {
             inFlight.lock()
@@ -137,14 +144,14 @@ public final class RequestLedger: @unchecked Sendable {
         }()
         try db.execute("UPDATE requests SET state = ?, finished_at = ?, outcome = ? WHERE caller = ? AND request_id = ?",
                         [.text(state.rawValue), .text(Timestamp.string(now())), .text(outcome.encoded()),
-                         .int(Int64(caller)), .text(requestId)])
+                         .text(caller), .text(requestId)])
     }
 
-    public func record(caller: uid_t, requestId: String) throws -> Record? {
+    public func record(caller: String, requestId: String) throws -> Record? {
         let rows = try db.query("""
             SELECT request_id, method, digest, state, accepted_at, finished_at, outcome
             FROM requests WHERE caller = ? AND request_id = ?
-            """, [.int(Int64(caller)), .text(requestId)])
+            """, [.text(caller), .text(requestId)])
         guard let r = rows.first else { return nil }
         return Record(requestId: r[0] as! String, method: r[1] as! String, digest: r[2] as! String,
                       state: State(rawValue: r[3] as! String) ?? .unknown, acceptedAt: r[4] as! String,

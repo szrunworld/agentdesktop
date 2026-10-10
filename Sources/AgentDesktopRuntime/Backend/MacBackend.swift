@@ -67,6 +67,13 @@ public struct MacBackend: RuntimeBackend {
 
     public func processIdentity(_ pid: Int32) -> ProcessIdentity { Self.identity(pid) }
 
+    public func executablePath(_ pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        let n = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard n > 0 else { return nil }
+        return String(cString: buffer)
+    }
+
     /// pid plus the kernel's start time, so a reused pid is told apart.
     static func identity(_ pid: Int32) -> ProcessIdentity {
         var info = kinfo_proc()

@@ -23,7 +23,7 @@ import Testing
     #expect(sc.platform.performed.isEmpty)
     #expect(data(call(sc.s, sc.c, "runtime.status")) != nil)
     let restarted = try RequestLedger(path: path)
-    #expect(try restarted.record(caller: getuid(), requestId: "audit-before")?.outcome?["error"]?["notSent"] == .bool(true))
+    #expect(try restarted.record(caller: "local:\(getuid())", requestId: "audit-before")?.outcome?["error"]?["notSent"] == .bool(true))
 }
 
 @Test func aFailedOutcomeWriteIsUnknownAfterRestartAndNeverReplaysInput() throws {
@@ -42,7 +42,7 @@ import Testing
     #expect(sc.platform.performed.count == 1)
     try db.execute("DROP TRIGGER reject_outcome")
     let restarted = try RequestLedger(path: path)
-    let record = try #require(try restarted.record(caller: getuid(), requestId: "audit-after"))
+    let record = try #require(try restarted.record(caller: "local:\(getuid())", requestId: "audit-after"))
     #expect(record.state == .unknown)
     if case let .failure(e) = RequestLedger.replay(record) {
         #expect(e.code == "request_acceptance_unknown")

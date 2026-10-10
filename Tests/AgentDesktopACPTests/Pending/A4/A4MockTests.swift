@@ -308,8 +308,9 @@ struct A4B6LeakMockTests {
         try? await Task.sleep(for: .milliseconds(50))
         #expect(A4TestSecrets.leaked(in: h.editorText()).isEmpty)
         #expect(A4TestSecrets.leaked(in: h.storedText()).isEmpty)
-        // The stable code itself is fine to show.
-        #expect(h.connection.allText(sid).contains(code))
+        // Only the allowlisted code is shown (codes outside errors.json, such
+        // as the proposed credential_* ones, appear as unlisted_error).
+        #expect(h.connection.allText(sid).contains(ACPRedactor.errorCode(code)))
     }
 
     @Test("[Mock] server: a leaky caller failure is replaced by a fixed message")

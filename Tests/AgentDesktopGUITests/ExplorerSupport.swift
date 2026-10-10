@@ -306,7 +306,7 @@ final class GuiHarness: @unchecked Sendable {
 
     init(_ replies: [StubAiService.Reply], backend: Bool = true, limits: [(String, JSONValue)] = [],
          fixture: Bool = false, clock: ManualClock = ManualClock()) throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("adgui-\(UUID().uuidString)")
+        let dir = ScratchDirectory.url("adgui")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         store = try ConfigStore(path: dir.appendingPathComponent("c.sqlite").path, credentials: InMemoryCredentialStore(),
                                 digestKey: Data(repeating: 3, count: 32),

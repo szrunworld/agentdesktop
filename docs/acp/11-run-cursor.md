@@ -42,7 +42,7 @@
 | 4. 无效或过期游标返回明确错误 | Runtime 返回 `events_cursor_expired`（带 Run 的最新序号）；ACP 原样映射、不重试、不倒回已存游标；load 仍回复、显示快照、继续服务 | CUR-M04、M17；目标 M18 未运行 | CUR-R03 |
 | 5. 断开后 Delegated Run 不自动恢复（ADR v2.2） | 断开后 Run 结束（owner_lost）；重连（load 与 resume）不提交、不取消、不新建、不跟随；结束后的读取不产生新事件 | CUR-M07、M19 | CUR-R07（要 A6） |
 
-层级标注：每个测试名都以 `[Mock]`、`[Mock · not run]` 或 `[Real · not run]` 开头。Real 套件另有 `.enabled(if: CURTEST_REAL_ENDPOINT)`，只能指向 `/tmp/adt-*` 测试副本，不能是产品 endpoint。
+层级标注：每个测试名都以 `[Mock]`、`[Mock · not run]` 或 `[Real · not run]` 开头。Real 套件只连测试自己启动的 Runtime 子进程（`ACP_TEST_RUNTIME_BINARY`，见 [12-test-runtime-isolation.md](12-test-runtime-isolation.md)），不接受外部端点，不能是产品 endpoint。
 
 ## 四、字段与游标语义提案（交 Runtime 负责人）
 
@@ -80,7 +80,7 @@ ACP 侧届时**不需要改代码**的部分：读取 `lastEventSequence`（已�
 **游标完成的标准**（不归本包，记录在此）：
 
 1. f1 的 PR2b 冻结 P1（至少），schema、夹具、goldens 同时进入；最好同时包含 P2、P3。
-2. 把 CUR-R01～R05 的 `.disabled` 去掉，在 `/tmp/adt-*` 测试副本上运行（`CURTEST_REAL_ENDPOINT`、`CURTEST_REAL_RUN_ID`），退出码 0，记录证据。
+2. 把 CUR-R01～R05 的 `.disabled` 去掉，在测试自己启动的 Runtime 子进程上运行（`ACP_TEST_RUNTIME_BINARY`；Run 需由测试在该子进程里创建，`CURTEST_REAL_RUN_ID` 只是过渡），退出码 0，记录证据。
 3. A4 合入后运行 CUR-R06（ACP-31-03、ACP-T07-04）；A6 合入后运行 CUR-R07（ACP-30-01、02）。
 4. Zed 手工：ACP-30-01～02、ACP-T13-02（重开后事件不重复）按 tests/e2e-runbook.md §六执行。
 

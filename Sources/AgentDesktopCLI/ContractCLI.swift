@@ -37,6 +37,11 @@ public struct ContractCLI {
     /// True once the user pressed Ctrl-C (main installs the handler).
     public var interrupted: () -> Bool
 
+    /// The installed CLI: requests carry this credential.
+    public init(credential: ClientCredential?) {
+        self.init(send: { RuntimeTransport.exchange($0, path: $1, credential: credential) })
+    }
+
     public init(stdout: @escaping (String) -> Void = { FileHandle.standardOutput.write(Data(($0 + "\n").utf8)) },
                 stderr: @escaping (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) },
                 readFile: @escaping (String) throws -> Data = { try Data(contentsOf: URL(fileURLWithPath: $0)) },
@@ -232,15 +237,23 @@ public enum TransportReply: Sendable {
 /// A runtime/1 exchange on a fresh connection: handshake, then the request.
 public enum RuntimeTransport {
     public static func exchange(_ request: JSONValue, path: String) -> TransportReply {
+        exchange(request, path: path, credential: nil)
+    }
+
+    /// With the caller's credential in the handshake (A4): the CLI's own,
+    /// from its keychain; never an owner token (there is none on a socket).
+    public static func exchange(_ request: JSONValue, path: String, credential: ClientCredential?) -> TransportReply {
         let transport: UnixSocketTransport
         do { transport = try UnixSocketTransport(path: path, timeout: 120) } catch let e as RuntimeError {
             return .unreachable(e.message)
         } catch { return .unreachable("\(error)") }
         defer { transport.close() }
-        let hello = RuntimeRequest(.handshake, params: .obj([
+        var params: [(String, JSONValue)] = [
             ("apiVersions", .array(RuntimeAPI.supportedVersions.map(JSONValue.string))),
             ("client", .obj([("name", .string("agentdesktop-cli")), ("version", .string(RuntimeAPI.productVersion))])),
-        ]))
+        ]
+        if let credential { params.append(("credential", credential.json)) }
+        let hello = RuntimeRequest(.handshake, params: .obj(params))
         do {
             let ack = try StrictJSON.parse(transport.exchange(hello.json.encodedData()))
             guard ack["ok"]?.boolValue == true else { return .reply(ack.setting("requestId", request["requestId"] ?? .null)) }

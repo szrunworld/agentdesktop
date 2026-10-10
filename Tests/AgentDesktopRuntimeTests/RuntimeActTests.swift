@@ -16,9 +16,9 @@ struct Scene {
 
 func scene(_ platform: FakePlatform = FakePlatform(), backend: FixedBackend = FixedBackend(),
            ledger: RequestLedger? = nil, runs: RunStore? = nil) throws -> Scene {
-    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let s = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                           backend: backend, platform: platform, ledger: ledger, runs: runs)
+                           backend: backend, platform: platform, ledger: ledger, runs: runs, testSocketOwnerToken: testOwnerToken); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let c = handshaken(s)
     let d = try created(s, c)
     _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
@@ -160,6 +160,11 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
     #expect(after["phase"]?.stringValue == "ended" && after["outcome"]?.stringValue == "cancelled")
     #expect(after["quiescence"]?.stringValue == "confirmed")
     platform.gate = nil
+    // A new action after the cancel is refused before anything is sent:
+    // run_not_active with notSent, whether the Run is stopping or ended.
+    let afterCancel = act(sc, clickContinue, runId: runId, on: owner)
+    #expect(code(afterCancel) == "run_not_active")
+    #expect(failure(afterCancel)?.notSent == true)
     // The same cancel requestId replays; a cancel of an ended Run says so.
     #expect(data(call(sc.s, sc.c, "run.cancel", id: "cancel-1", params: #"{"runId":"\#(runId)"}"#)) == cancel)
     let late = try #require(data(call(sc.s, sc.c, "run.cancel", params: #"{"runId":"\#(runId)"}"#)))
@@ -200,18 +205,18 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
     do {
         let ledger = try RequestLedger(path: dir + "/requests.sqlite")
         let runs = try RunStore(path: dir + "/runs.sqlite")
-        _ = try ledger.begin(caller: getuid(), RuntimeRequest(requestId: "queued", method: "act", params: .obj([])))
-        _ = try ledger.begin(caller: getuid(), RuntimeRequest(requestId: "sent", method: "act", params: .obj([])))
-        try ledger.markDispatching(caller: getuid(), requestId: "sent")
+        _ = try ledger.begin(caller: "local:\(getuid())", RuntimeRequest(requestId: "queued", method: "act", params: .obj([])))
+        _ = try ledger.begin(caller: "local:\(getuid())", RuntimeRequest(requestId: "sent", method: "act", params: .obj([])))
+        try ledger.markDispatching(caller: "local:\(getuid())", requestId: "sent")
         runs.create(testRun("run_x", lifetime: .connectionScoped))
         // A durable Run whose action crossed its delivery boundary unanswered.
         runs.create(testRun("run_y", lifetime: .platformDurable))
         runs.appendEvent("run_y", "action.dispatched", .obj([("requestId", .string("sent-y"))]))
     }
     let ledger = try RequestLedger(path: dir + "/requests.sqlite")
-    #expect(try ledger.record(caller: getuid(), requestId: "queued")?.state == .failed)
-    #expect(try ledger.record(caller: getuid(), requestId: "queued")?.outcome?["error"]?["details"]?["delivery"]?.stringValue == "not_dispatched")
-    #expect(try ledger.record(caller: getuid(), requestId: "sent")?.state == .unknown)
+    #expect(try ledger.record(caller: "local:\(getuid())", requestId: "queued")?.state == .failed)
+    #expect(try ledger.record(caller: "local:\(getuid())", requestId: "queued")?.outcome?["error"]?["details"]?["delivery"]?.stringValue == "not_dispatched")
+    #expect(try ledger.record(caller: "local:\(getuid())", requestId: "sent")?.state == .unknown)
     let runs = try RunStore(path: dir + "/runs.sqlite")
     let x = try #require(runs.find("run_x"))
     #expect(x.phase == .ended && x.quiescence == .confirmed && x.outcome == .cancelled)
@@ -255,4 +260,31 @@ func testRun(_ id: String, lifetime: RunRecord.Lifetime) -> RunRecord {
                      clientId: durable ? nil : "local:\(getuid())", connectionId: durable ? nil : "conn_test",
                      sessionId: "s", desktopId: "d", phase: .running, outcome: nil, quiescence: .notConfirmed,
                      closingReason: nil, revision: 1, createdAt: Timestamp.string(Date()), endedAt: nil, receipts: [], unknownActions: 0)
+}
+
+// 2ndscreen-af (BOSS M4 L2): a run.attach from a second connection can
+// cancel; a new action then is run_not_active with notSent while the Run
+// stops and after it ended; a Run this connection neither owns nor joined
+// is refused with notSent too.
+@Test func aCancelledRunRefusesNewActionsBeforeSendingAnything() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    let owner = handshaken(sc.s)
+    let start = try #require(data(call(sc.s, owner, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#)))
+    let runId = try #require(start["run"]?["runId"]?.stringValue)
+    let token = try #require(start["attachToken"]?.stringValue)
+    let second = handshaken(sc.s)
+    #expect(data(call(sc.s, second, "run.attach", params: #"{"runId":"\#(runId)","token":"\#(token)"}"#)) != nil)
+    #expect(data(call(sc.s, second, "run.cancel", params: #"{"runId":"\#(runId)"}"#)) != nil)
+    let before = platform.performed.count
+    for conn in [owner, second] {
+        let r = act(sc, clickContinue, runId: runId, on: conn)
+        #expect(code(r) == "run_not_active")
+        #expect(failure(r)?.notSent == true)
+    }
+    let stranger = handshaken(sc.s)
+    let refused = act(sc, clickContinue, runId: runId, on: stranger)
+    #expect(code(refused) == "permission_denied")
+    #expect(failure(refused)?.notSent == true)
+    #expect(platform.performed.count == before)
 }

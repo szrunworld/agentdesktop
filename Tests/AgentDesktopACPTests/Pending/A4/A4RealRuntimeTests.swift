@@ -12,31 +12,33 @@ import Testing
 // `auth`, `principal`, `hub.pairing.*` params, `credential_*` codes) are
 // PROPOSALS and will be aligned to whatever f1 freezes.
 //
-// Run only against a scratch copy: AGENTDESKTOP_A4_TEST_ENDPOINT must point
-// at a socket under /tmp/adt-* (README §四.7), never the product endpoint.
+// Run only against a Runtime this test process launched and owns
+// (ACPTestRuntimeChild, ACP_TEST_RUNTIME_BINARY), never the product endpoint.
 
 private let waitingForA4 = "waiting for A4: Runtime identity (handshake principal, pairing, credentials, revocation) — PR3, f1"
 
 /// One raw runtime/1 connection to the scratch Runtime.
 final class A4TestLiveConnection {
-    let transport: UnixSocketTransport
+    let transport: RuntimeTransport
     private(set) var principal: JSONValue?
+    /// Nothing but the handshake is sent until the stated endpoint passed.
+    private var verified = false
 
-    static func endpoint() throws -> String {
-        guard let path = ProcessInfo.processInfo.environment["AGENTDESKTOP_A4_TEST_ENDPOINT"],
-              path.hasPrefix("/tmp/adt-") || path.hasPrefix("/private/tmp/adt-") else {
-            throw RuntimeError("invalid_argument", "set AGENTDESKTOP_A4_TEST_ENDPOINT to a /tmp/adt-* scratch socket",
-                               phase: .local)
-        }
-        return path
+    /// Kernel-pinned: the peer must be the Runtime child this test process
+    /// launched (ACPTestRuntimeChild, ACP_TEST_RUNTIME_BINARY), checked
+    /// before any byte is sent.
+    init() throws {
+        let child = try ACPTestRuntimeChild.shared()
+        transport = try ACPTestPinnedTransport(path: child.runtimeEndpoint, timeout: 5, child: child)
     }
-
-    init() throws { transport = try UnixSocketTransport(path: try Self.endpoint(), timeout: 5) }
 
     deinit { transport.close() }
 
     func send(_ method: String, _ params: JSONValue = .obj([]), requestId: String = RuntimeRequest.newId())
         throws -> Result<JSONValue, RuntimeError> {
+        guard verified || method == "runtime.handshake" else {
+            throw RuntimeError("invalid_argument", "no request before a verified handshake", phase: .local)
+        }
         let request = RuntimeRequest(requestId: requestId, method: method, params: params)
         let line = try transport.exchange(request.json.encodedData())
         let v = try StrictJSON.parse(line)
@@ -51,8 +53,20 @@ final class A4TestLiveConnection {
             ("client", .obj([("name", .string("a4-real-test")), ("version", .string("0"))])),
         ]
         if let auth { params.append(("auth", auth)) }
-        let r = try send("runtime.handshake", .obj(params))
-        if case let .success(id) = r { principal = id["principal"] }
+        let r: Result<JSONValue, RuntimeError>
+        do { r = try send("runtime.handshake", .obj(params)) } catch { transport.close(); throw error }
+        switch r {
+        case let .success(id):
+            // Post-connect check before any other request (TOCTOU, Kevin on #141).
+            do { try ACPTestEndpointGuard.verify(statedEndpoint: id["endpoint"]?.stringValue) } catch {
+                transport.close(); throw error
+            }
+            principal = id["principal"]
+            verified = true
+        case .failure:
+            // A refused handshake ends the connection (b9 on #141).
+            transport.close()
+        }
         return r
     }
 
@@ -72,7 +86,8 @@ final class A4TestLiveConnection {
     /// PROPOSED pairing flow (04 §4.2): the app starts, the owner approves,
     /// the app reads its credential once from hub.pairing.status.
     static func pairApp(name: String, capabilities: [String] = ["observe", "act", "unit.run"]) throws -> String {
-        let (app, _) = try A4TestLiveConnection.app(credential: nil)
+        let (app, hello) = try A4TestLiveConnection.app(credential: nil)
+        _ = try hello.get() // a failed handshake stops pairing here
         let start = try app.send("hub.pairing.start", .obj([
             ("agentName", .string(name)), ("publisher", .string("a4-test")),
             ("requested", .obj([("capabilities", .array(capabilities.map(JSONValue.string))),

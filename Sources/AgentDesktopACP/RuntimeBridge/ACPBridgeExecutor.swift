@@ -30,10 +30,12 @@ public struct ACPBridgeConfiguration: Sendable {
 
     /// The production client for `endpoint`: short receive timeout on event
     /// connections so a stopped stream notices quickly.
+    /// `credential`: the ACP bridge is a paired client of the Runtime (A4);
+    /// without one it can only learn that it must pair.
     public static func socketFactory(endpoint: Endpoint, info: ClientInfo = ClientInfo(name: "agentdesktop-acp", version: RuntimeAPI.productVersion),
-                                     timeout: Double = 10) -> ACPBridgeClientFactory {
+                                     timeout: Double = 10, credential: ClientCredential? = nil) -> ACPBridgeClientFactory {
         { role in
-            SocketRuntimeClient(endpoint: endpoint, info: info, timeout: role == .control ? timeout : 1)
+            SocketRuntimeClient(endpoint: endpoint, info: info, timeout: role == .control ? timeout : 1, credential: credential)
         }
     }
 }

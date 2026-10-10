@@ -186,13 +186,15 @@ final class FakeScreen: AgentScreen {
     var fields: [AXElementInfo] = []
     /// Called after each action, to change the window as an app would.
     var afterAction: ((FakeScreen) -> Void)?
+    /// The answer to an action, when not plain success.
+    var respond: ((InputAction) -> ControlResponse)?
 
     func frame() throws -> CGRect { screenFrame }
     func screenshot(size: CGSize) throws -> Data { Data([0x89, 0x50, 0x4E, 0x47]) }
     func perform(_ action: InputAction) throws -> ControlResponse {
         performed.append(action)
         afterAction?(self)
-        return ControlResponse()
+        return respond?(action) ?? ControlResponse()
     }
     func elements() throws -> [AXElementInfo] { fields }
 }
@@ -685,6 +687,26 @@ func button(_ index: Int, _ label: String, x: Double, y: Double = 100, value: St
         let model = ScriptedModel(["Action: finished(content='看过了')"])
         _ = TarsAgent(screen: screen, model: model, options: options(store)).run("算 7 加 8")
         #expect(screen.performed.map(\.index) == [11, 12, 13])
+    }
+
+    /// Codex on #127: a replayed step whose effect is unknown stops the run
+    /// for a person; the model is not handed a screen it would act on again.
+    @Test func anUnknownReplayedStepStopsWithoutTheModel() {
+        let store = MemoryStore()
+        _ = TarsAgent(screen: calculator(), model: ScriptedModel(script), options: options(store)).run("算 7 加 8")
+        let screen = calculator()
+        screen.respond = { _ in
+            guard screen.performed.count == 2 else { return ControlResponse() }
+            var unknown = ControlResponse.failure("action_delivery_unknown (transport_error): the socket closed")
+            unknown.route = "click.unknown"
+            return unknown
+        }
+        let model = ScriptedModel(["Action: finished(content='should not be asked')"])
+        let result = TarsAgent(screen: screen, model: model, options: options(store)).run("算 7 加 8")
+        #expect(result.outcome == .user)
+        #expect(result.reason.hasPrefix("stopped: ") && result.reason.contains("action_delivery_unknown"))
+        #expect(model.seen.isEmpty)
+        #expect(screen.performed.count == 2)
     }
 
     @Test func aMissingControlHandsOverToTheModel() {

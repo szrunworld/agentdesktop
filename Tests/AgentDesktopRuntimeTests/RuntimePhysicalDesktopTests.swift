@@ -12,9 +12,10 @@ import Testing
 /// window 11) bound where the user left it.
 func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBackend = FixedBackend()) throws -> Scene {
     platform.onScreen[11] = "physical-1"
-    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+    let s = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                           backend: backend, platform: platform)
+                           backend: backend, platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+    s.physicalDesktopsEnabled = true
     let c = handshaken(s)
     let d = try #require(data(call(s, c, "desktop.create", params: #"{"name":"main","physical":{}}"#))?["desktopId"]?.stringValue)
     let bound = try #require(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101,"windowId":11}"#)))
@@ -27,6 +28,7 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
 @Test func aPhysicalDesktopAttachesTheUsersDisplayAndCreatesNothing() throws {
     let platform = FakePlatform()
     let s = platformService(platform)
+    s.physicalDesktopsEnabled = true
     let c = handshaken(s)
     let d = try #require(data(call(s, c, "desktop.create", params: #"{"name":"main","physical":{"displayId":1}}"#)))
     #expect(contract.validate(d, "Desktop").isEmpty, "\(d.encoded())")
@@ -47,6 +49,7 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
 @Test func bindingOnAPhysicalDesktopNeverMovesTheWindow() throws {
     let platform = FakePlatform()
     let s = platformService(platform)
+    s.physicalDesktopsEnabled = true
     let c = handshaken(s)
     let d = try #require(data(call(s, c, "desktop.create", params: #"{"physical":{}}"#))?["desktopId"]?.stringValue)
     // Not on this display: refused, not moved over.
@@ -63,6 +66,7 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
 @Test func aPhysicalDesktopWithoutABindingShowsNothingAndLaunchesNothing() throws {
     let platform = FakePlatform()
     let s = platformService(platform)
+    s.physicalDesktopsEnabled = true
     let c = handshaken(s)
     let d = try #require(data(call(s, c, "desktop.create", params: #"{"physical":{}}"#))?["desktopId"]?.stringValue)
     let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
@@ -130,11 +134,12 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
 @Test func oversizedPhysicalDisplayIDsAreRefusedBeforeThePlatform() throws {
     let platform = FakePlatform()
     let s = platformService(platform)
+    s.physicalDesktopsEnabled = true
     let c = handshaken(s)
     #expect(code(call(s, c, "desktop.create", params: #"{"physical":{"displayId":4294967296}}"#)) == "schema_invalid")
     #expect(platform.calls.isEmpty)
     // The handler also refuses out-of-range values when called internally.
-    let result = s.createDesktop(.obj([("physical", .obj([("displayId", .int(Int.max))]))]))
+    let result = s.createDesktop(.obj([("physical", .obj([("displayId", .int(Int.max))]))]), c)
     if case let .failure(error) = result {
         #expect(error.code == "invalid_argument")
     } else {
@@ -239,4 +244,19 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     #expect(left.map { $0["desktopId"]?.stringValue } == [other])
     #expect(!sc.platform.calls.contains { $0.hasPrefix("destroy") })
     #expect(sc.platform.quit.isEmpty)
+}
+
+@Test func physicalDesktopsAreRefusedToEveryCallerUntilGrantsExist() throws {
+    let platform = FakePlatform()
+    platform.onScreen[11] = "physical-1"
+    let s = platformService(platform)
+    let c = handshaken(s)
+    let r = call(s, c, "desktop.create", params: #"{"name":"main","physical":{}}"#)
+    #expect(code(r) == "permission_denied")
+    #expect(failure(r)?.notSent == true)
+    #expect(failure(r)?.details?["reason"]?.stringValue == "physical_desktop_requires_grant")
+    #expect(platform.calls.isEmpty, "the display is not even looked up")
+    #expect(data(call(s, c, "desktop.list"))?["desktops"]?.arrayValue?.isEmpty == true)
+    // Virtual Desktops are unchanged.
+    #expect(data(call(s, c, "desktop.create", params: #"{"name":"virtual"}"#))?["kind"]?.stringValue == "virtual")
 }

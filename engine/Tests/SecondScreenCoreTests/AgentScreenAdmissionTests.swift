@@ -47,20 +47,26 @@ struct AgentScreenAdmissionTests {
         let configurator = DisplayConfigurator(queue: DispatchQueue(label: "test"))
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
-        configurator.submit("arrangement") { entered.signal(); _ = release.wait(timeout: .now() + 5) }
+        // The cap only keeps a forgotten release from hanging the run; it is
+        // far past any test's own wait. At 5 s a loaded runner (CI, the full
+        // suite) reached it before the test changed the owner, and the work
+        // went on as if released (#156).
+        configurator.submit("arrangement") { entered.signal(); _ = release.wait(timeout: .now() + 60) }
         entered.wait()
         return (configurator, release)
     }
 
     func registry(limit: Int = 8) -> (Registry, DispatchSemaphore) {
         let (configurator, release) = Self.busy()
-        return (Registry(work: DisplayWork(configurator: configurator, waitLimit: 5, assertions: Assertions(),
+        return (Registry(work: DisplayWork(configurator: configurator, waitLimit: 60, assertions: Assertions(),
                                            sleepState: { .awake }, pollNanoseconds: 5_000_000), limit: limit), release)
     }
 
-    /// Let other tasks run until `done` holds (bounded).
+    /// Let other tasks run until `done` holds, for up to 30 s of wall time:
+    /// a count of 1 ms sleeps runs out early when the pool is busy.
     func until(_ done: () -> Bool) async {
-        for _ in 0..<1_000 where !done() { try? await Task.sleep(nanoseconds: 1_000_000) }
+        let end = Date().addingTimeInterval(30)
+        while !done(), Date() < end { try? await Task.sleep(nanoseconds: 1_000_000) }
     }
 
     @Test func twoCreatesOfOneNameWhileTheWorkWaitsMakeOneScreen() async {

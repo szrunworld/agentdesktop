@@ -195,8 +195,7 @@ enum CurTestBridge {
         config.pollInterval = 0.005
         config.maxReconnects = 2
         config.uid = 501
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("curtest-\(UUID().uuidString)").appendingPathComponent("submissions.json").path
+        let path = ACPTestScratch.dir("curtest").appendingPathComponent("submissions.json").path
         return ACPBridgeRuntimePort(makeClient: wire.factory, log: try ACPSubmissionLog(path: path), config: config)
     }
 
@@ -352,8 +351,7 @@ final class CurTestHarness: @unchecked Sendable {
     let runTask: Task<Void, Never>
 
     init(port: CurTestPort, dir: URL? = nil) {
-        self.dir = dir ?? FileManager.default.temporaryDirectory
-            .appendingPathComponent("acp-cur-tests-\(UUID().uuidString)", isDirectory: true)
+        self.dir = dir ?? ACPTestScratch.dir("acp-cur-tests")
         self.port = port
         store = ACPFileSessionStore(directory: self.dir)
         var config = ACPAgentServerConfig()
@@ -405,24 +403,28 @@ final class CurTestHarness: @unchecked Sendable {
 /// the product endpoint, and only once the Runtime owner shipped the cursor
 /// contract. Until then every Real test is `.disabled`.
 enum CurTestReal {
-    static var endpoint: String? {
-        ProcessInfo.processInfo.environment["CURTEST_REAL_ENDPOINT"].flatMap { $0.isEmpty ? nil : $0 }
-    }
+    /// Real cursor tests run only against a Runtime this test process
+    /// launched (ACPTestRuntimeChild); there is no endpoint to point them at.
+    static var enabled: Bool { ACPTestRuntimeChild.binary != nil && endedRunId != nil }
 
-    /// An ended Run on that instance with at least three events.
+    /// An ended Run on the launched Runtime with at least three events.
+    /// Until the cursor contract lands the test cannot create one itself.
     static var endedRunId: String? {
         ProcessInfo.processInfo.environment["CURTEST_REAL_RUN_ID"].flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    typealias NotATestCopy = ACPTestEndpointGuard.NotATestCopy
+
+    /// Shared allowlist (ACPTestEndpointGuard); kept as a name for the cursor tests.
+    static func checkedEndpoint(_ raw: String) throws -> String { try ACPTestEndpointGuard.check(raw) }
+
     static func factory() throws -> ACPBridgeClientFactory {
-        let path = try #require(endpoint)
-        #expect(!path.contains("/Library/Application Support/AgentDesktop/"), "never the product endpoint")
-        return ACPBridgeConfiguration.socketFactory(endpoint: Endpoint(path: path, source: .environment))
+        try ACPTestPinnedTransport.verifiedFactory(child: try ACPTestRuntimeChild.shared(),
+                                                   name: "agentdesktop-acp-curtest")
     }
 
     static func port() throws -> ACPBridgeRuntimePort {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("curtest-real-\(UUID().uuidString)").appendingPathComponent("submissions.json").path
+        let path = ACPTestScratch.dir("curtest-real").appendingPathComponent("submissions.json").path
         return ACPBridgeRuntimePort(makeClient: try factory(), log: try ACPSubmissionLog(path: path))
     }
 

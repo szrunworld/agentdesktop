@@ -12,6 +12,13 @@ extension RuntimeService {
         guard let info = artifacts.info(id), isOwner(c) || info.clientId == c.clientId else {
             return .failure(.notFound("no artifact \(id)"))
         }
+        // Taken under a window grant: only while that still allows it
+        // (window-grants.md); gone is gone.
+        if windowArtifactRefusal(info, c) {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "artifact.read", decision: "denied",
+                      reason: "window_artifact_unavailable")
+            return .failure(.notFound("no artifact \(id)"))
+        }
         return .success(info)
     }
 
