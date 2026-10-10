@@ -40,32 +40,58 @@ import Testing
         return found
     }
 
-    static let touchesPasteboard = ["NSPasteboard", "scratchPasteboard(", "scratch()", ".pasteboard ="]
+    /// What reaches a pasteboard: AppKit itself, the module-level test
+    /// helper, and the engine APIs that work on one (PasteTransaction uses
+    /// the general pasteboard unless told otherwise). A file that has none
+    /// of these cannot touch one (Codex on #264: a file calling only
+    /// `scratchPasteboard()` has no `NSPasteboard` in it).
+    static let pasteboardMarkers = ["NSPasteboard", "scratchPasteboard(", "PasteboardSnapshot", "PasteboardLoan",
+                                    "PasteTransaction"]
+    /// Within a suite, also the per-suite helpers of the serialized files.
+    static let touchesPasteboard = pasteboardMarkers + ["scratch()", ".pasteboard ="]
+    static let serializedFiles: Set<String> = ["PasteboardSnapshotTests.swift", "IPhonePasteTests.swift"]
 
-    @Test func onlyTheSerializedSuitesTouchAPasteboard() throws {
-        let files = Self.swiftFiles()
-        #expect(files.count > 10)
+    /// (files touching a pasteboard outside the serialized files, suites
+    /// touching one without both attributes, serialized suites found).
+    static func violations(_ files: [(name: String, text: String)]) -> (outside: [String], unserialized: [String], serialized: Int) {
         var outside: [String] = []
         var unserialized: [String] = []
-        var serializedSuites = 0
-        for file in files {
-            let text = try String(contentsOf: file, encoding: .utf8)
-            guard text.contains("NSPasteboard") else { continue }
-            if !["PasteboardSnapshotTests.swift", "IPhonePasteTests.swift"].contains(file.lastPathComponent) {
-                outside.append(file.lastPathComponent)
-            }
-            for suite in Self.suites(in: text) where Self.touchesPasteboard.contains(where: suite.body.contains) {
+        var serialized = 0
+        for (name, text) in files where pasteboardMarkers.contains(where: text.contains) {
+            if !serializedFiles.contains(name) { outside.append(name) }
+            for suite in suites(in: text) where touchesPasteboard.contains(where: suite.body.contains) {
                 let attrs = suite.attributes.joined(separator: " ")
                 if attrs.contains("@MainActor"), attrs.contains("@Suite(.serialized)") {
-                    serializedSuites += 1
+                    serialized += 1
                 } else {
-                    unserialized.append("\(file.lastPathComponent): \(suite.name)")
+                    unserialized.append("\(name): \(suite.name)")
                 }
             }
         }
-        #expect(outside.isEmpty, "pasteboards touched outside the two serialized files: \(outside)")
-        #expect(unserialized.isEmpty, "suites that touch a pasteboard without @MainActor @Suite(.serialized): \(unserialized)")
-        #expect(serializedSuites >= 2, "the policy found \(serializedSuites) serialized pasteboard suites")
+        return (outside, unserialized, serialized)
+    }
+
+    @Test func onlyTheSerializedSuitesTouchAPasteboard() throws {
+        let files = try Self.swiftFiles().map { ($0.lastPathComponent, try String(contentsOf: $0, encoding: .utf8)) }
+        #expect(files.count > 10)
+        let found = Self.violations(files)
+        #expect(found.outside.isEmpty, "pasteboards touched outside the two serialized files: \(found.outside)")
+        #expect(found.unserialized.isEmpty,
+                "suites that touch a pasteboard without @MainActor @Suite(.serialized): \(found.unserialized)")
+        #expect(found.serialized >= 2, "the policy found \(found.serialized) serialized pasteboard suites")
+    }
+
+    @Test func aFileThatOnlyCallsTheSharedHelperIsCaught() {
+        // Codex on #264: no `NSPasteboard` in it, only the module-level
+        // helper (or an engine API that works on a pasteboard).
+        for call in ["_ = scratchPasteboard()", "_ = try PasteboardSnapshot.capture(p)", "_ = PasteTransaction()"] {
+            let text = "@Suite struct Sneaky {\n    @Test func t() throws { \(call) }\n}\n"
+            let found = Self.violations([("SneakyTests.swift", text)])
+            #expect(found.outside == ["SneakyTests.swift"], "\(call)")
+            #expect(found.unserialized == ["SneakyTests.swift: Sneaky"], "\(call)")
+        }
+        let clean = Self.violations([("PlainTests.swift", "@Suite struct Plain {\n    @Test func t() {}\n}\n")])
+        #expect(clean.outside.isEmpty && clean.unserialized.isEmpty)
     }
 
     @Test func theCheckSeesAnUnserializedSuite() {
