@@ -287,7 +287,7 @@ final class ContractEvidenceStub: GuiContractEvidence, @unchecked Sendable {
         get { lock.withLock { passing } }
         set { lock.withLock { passing = newValue } }
     }
-    func guiContractPassed(_ candidate: GuiCandidate) -> Bool { passed }
+    func guiContractPassed(_ candidate: GuiCandidate, provenance: AdapterProvenance) -> Bool { passed }
 }
 
 /// The Runtime's side of one unit Run, recorded (A6): the events the

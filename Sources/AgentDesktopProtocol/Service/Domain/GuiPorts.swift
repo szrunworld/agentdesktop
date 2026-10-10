@@ -90,8 +90,10 @@ public protocol GuiBindingResolver: Sendable {
 }
 
 /// Whether a candidate passed the GUI contract test (F40-06 row 12): its
-/// model profile revision holds verified guiContract evidence for this
-/// adapter, prompt and parser version and this connection revision.
+/// model profile and connection revisions hold verified guiContract
+/// evidence for `provenance`, the adapter, prompt, parser and coordinate
+/// protocol the run will really use (the codec's, which the capability
+/// test also records; not what a profile declares).
 public protocol GuiContractEvidence: Sendable {
-    func guiContractPassed(_ candidate: GuiCandidate) async throws -> Bool
+    func guiContractPassed(_ candidate: GuiCandidate, provenance: AdapterProvenance) async throws -> Bool
 }

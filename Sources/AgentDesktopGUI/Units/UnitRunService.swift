@@ -86,7 +86,11 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         // 12. The GUI contract test passed for every candidate as bound.
         for candidate in [resolved.primary] + resolved.fallback {
             let passed: Bool
-            do { passed = try await evidence.guiContractPassed(candidate) } catch {
+            do {
+                // The codec the run will use, as the capability test recorded it.
+                let provenance = try codecs.codec(adapterId: candidate.adapterId, coordinateProtocol: candidate.coordinateProtocol).provenance
+                passed = try await evidence.guiContractPassed(candidate, provenance: provenance)
+            } catch {
                 return .failure(RuntimeError("internal_error", "the GUI contract evidence could not be read", phase: .handler, notSent: true))
             }
             guard passed else {
@@ -196,14 +200,16 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         // even before this, keeps the next model call and input from starting.
         let gate = TaskGate()
         stop.arm { [weak self] in
-            // A stopped Run ends: what it pinned is free (codex on c702a5f:
-            // a stop racing the end of a wait must not keep the pins).
-            self?.lock.withLock { _ = self?.pinned.removeValue(forKey: runId) }
             // Visible before this returns: no model call or input starts
             // after the Runtime accepted the stop. A model call already out
             // is cancelled with the task; an input already handed to the
             // Runtime finishes and reports.
             let inputOut = signal.stop()
+            // A Run whose driver already exited (left waiting for a person)
+            // frees its pins now; a driver still running frees them when it
+            // exits (codex on 89d4596). The signal is set first and the end
+            // checks it under the same lock, so neither side misses.
+            self?.lock.withLock { if self?.tasks[runId] == nil { _ = self?.pinned.removeValue(forKey: runId) } }
             if !inputOut { gate.cancel() }
             Task { _ = await lifecycle.requestCancel() }
         }

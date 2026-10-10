@@ -894,20 +894,17 @@ public actor ConfigStore: GuiContractEvidence {
     }
 
     /// F40-06 row 12: verified guiContract evidence for exactly this
-    /// candidate (model profile revision, connection revision, adapter id
-    /// and versions, prompt, parser, coordinate protocol). Anything else,
-    /// evidence recorded before the coordinate protocol was kept included,
-    /// is not passed.
-    public func guiContractPassed(_ c: GuiCandidate) throws -> Bool {
+    /// candidate's model profile and connection revisions and the codec
+    /// provenance the run will use (adapter id and version, prompt, parser,
+    /// coordinate protocol). Anything else is not passed.
+    public func guiContractPassed(_ c: GuiCandidate, provenance p: AdapterProvenance) throws -> Bool {
         let model = c.resolvedModel.model
-        guard let adapterVersion = c.guiProfile["adapterVersion"]?.stringValue,
-              let promptVersion = c.guiProfile["promptVersion"]?.stringValue,
-              let parserVersion = c.guiProfile["parserVersion"]?.stringValue else { return false }
         guard let row = try db.row("""
             SELECT body FROM gui_contract_evidence WHERE model_profile_id=? AND model_profile_revision=? AND connection_revision=?
               AND adapter_id=? AND adapter_version=? AND prompt_version=? AND parser_version=? AND coordinate_protocol=?
             """, [.text(model.modelProfileId), .int(Int64(model.revision)), .int(Int64(c.resolvedModel.connection.revision)),
-                  .text(c.adapterId), .text(adapterVersion), .text(promptVersion), .text(parserVersion), .text(c.coordinateProtocol)]),
+                  .text(p.adapterId.rawValue), .text(p.adapterVersion), .text(p.promptVersion), .text(p.parserVersion),
+                  .text(p.coordinateProtocol.rawValue)]),
               let text = row[0].text else { return false }
         return try StrictJSON.parse(text)["status"]?.stringValue == "verified"
     }
