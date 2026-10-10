@@ -368,6 +368,20 @@ func eventTypes(_ s: RuntimeService, _ runId: String) -> [String] {
     #expect(after.confirmed == 1 && after.unknown == 2, "run_b's lost input counts, as of the restart")
 }
 
+/// The Run as the coordinator ended it (after an audit failure the RunStore
+/// takes no more writes, so its stored record stays as it was).
+final class EndedBox: @unchecked Sendable {
+    let lock = NSLock()
+    var runs: [String: RunRecord] = [:]
+    static func watch(_ s: RuntimeService) -> EndedBox {
+        let box = EndedBox()
+        let original = s.execution.onEnded
+        s.execution.onEnded = { r in box.lock.withLock { box.runs[r.runId] = r }; original?(r) }
+        return box
+    }
+    subscript(_ id: String) -> RunRecord? { lock.withLock { runs[id] } }
+}
+
 /// A paired app with unit.run on its own Desktop, the Calculator window
 /// bound under a window grant to observe and act.
 func pairedUnitScene(_ capabilities: [String]) throws -> (RuntimeService, owner: ConnectionState, app: ConnectionState, clientId: String,
@@ -504,13 +518,42 @@ func pairedUnitScene(_ capabilities: [String]) throws -> (RuntimeService, owner:
     let executor = FakeUnitExecutor()
     s.registerUnitExecutor(executor, ports: RuntimeGuiPorts(service: s))
     let runId = try #require(data(await offPool(s, c, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    let ended = EndedBox.watch(s)
     let db = try SQLiteDatabase(path: path)
     try db.execute("CREATE TRIGGER reject_wait BEFORE INSERT ON events WHEN NEW.type = 'unit.needs_input' BEGIN SELECT RAISE(ABORT, 'injected disk failure'); END")
     executor.lastSink?.finished(.needsInput(reason: "login_required"))
-    let r = try #require(s.runs.find(runId))
-    #expect(r.phase != .waitingInput, "not waiting unrecorded")
+    // Not waiting unrecorded: it ended, as its own audit failure (not the
+    // global stop's cancellation; codex on bedbff7).
+    let r = try #require(ended[runId], "the Run ended")
+    #expect(r.closingReason == "audit_unavailable" && r.outcome == .failed, "\(r.json.encoded())")
     #expect(s.execution.auditUnavailable)
     #expect(s.execution.inputAdmission != .enabled)
+}
+
+// The same for a unit.* record the RunStore could not write.
+@Test func anUnrecordedUnitEventEndsTheRunAsAnAuditFailure() async throws {
+    let dir = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runs.sqlite"
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                           backend: FixedBackend(), platform: FakePlatform(), runs: try RunStore(path: path))
+    s.bindsOnlyLaunchedProcesses = false
+    s.refusesScreenCaptureWithoutBinding = false
+    let c = handshaken(s)
+    let d = try created(s, c)
+    _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
+    let executor = FakeUnitExecutor()
+    s.registerUnitExecutor(executor, ports: RuntimeGuiPorts(service: s))
+    let runId = try #require(data(await offPool(s, c, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    let ended = EndedBox.watch(s)
+    let db = try SQLiteDatabase(path: path)
+    try db.execute("CREATE TRIGGER reject_unit BEFORE INSERT ON events WHEN NEW.type = 'unit.observation' BEGIN SELECT RAISE(ABORT, 'injected disk failure'); END")
+    let sink = try #require(executor.lastSink)
+    #expect(!sink.record("unit.observation", .obj([("observationId", .string("obs_1"))])))
+    sink.finished(.failed(reason: "audit_unavailable"))
+    let r = try #require(ended[runId], "the Run ended")
+    #expect(r.closingReason == "audit_unavailable" && r.outcome == .failed, "\(r.json.encoded())")
 }
 
 // Codex on e296d08: narrowed from run to unit.run, an app lists only its

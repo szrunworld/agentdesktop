@@ -433,6 +433,10 @@ struct UnitRunAdmissionTests {
         #expect(try await h.store.guiContractPassed(c) == false, "evidence that does not say which protocol")
         try await record(("uitars_v1", "image_pixels"))
         #expect(try await h.store.guiContractPassed(c) == true)
+        // Codex on bedbff7: testing another scope on the same model profile
+        // revision (a fallback with another protocol) keeps this one.
+        try await record(("uitars_v1", "normalized_1000"))
+        #expect(try await h.store.guiContractPassed(c) == true)
     }
 
     @Test func anActionTheBackendCannotExecuteIsRefused() async throws {

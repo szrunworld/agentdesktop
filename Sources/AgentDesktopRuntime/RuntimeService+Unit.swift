@@ -70,6 +70,9 @@ final class RuntimeUnitSink: UnitRunSink, @unchecked Sendable {
     func record(_ type: String, _ data: JSONValue) -> Bool {
         guard let service, type.hasPrefix("unit."), lock.withLock({ !done }), service.execution.isLive(runId) else { return false }
         guard service.runs.appendEvent(runId, type, data) > 0 else {
+            // Claim this Run's ending (failed, audit_unavailable) before the
+            // global stop does; the executor still reports back.
+            service.execution.stop(runId: runId, reason: "audit_unavailable", endAs: .failed, finishing: true)
             service.execution.auditStorageFailed()
             return false
         }
@@ -276,8 +279,11 @@ extension RuntimeService {
             // Fail closed (codex on 073b96f): a wait the record does not show
             // is not entered; the audit failure stops input everywhere.
             guard runs.appendEvent(runId, "unit.needs_input", .obj([("reason", .string(reason))])) > 0 else {
-                execution.auditStorageFailed()
+                // This Run's own ending first, so the global stop the audit
+                // failure brings does not record it as a cancellation (codex
+                // on bedbff7).
                 execution.finishUnit(runId: runId, reason: "audit_unavailable", endAs: .failed)
+                execution.auditStorageFailed()
                 break
             }
             execution.waitForInput(runId: runId)
