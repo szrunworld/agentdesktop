@@ -1,0 +1,58 @@
+{
+  "probe": "physical-desktop window capture",
+  "at": "2026-10-08T21:27:38+0800",
+  "steps": [
+    {
+      "id": "W1",
+      "title": "the image is the window alone (size = frame × scale, origin = window origin)",
+      "result": "passed",
+      "detail": {
+        "image": {
+          "width": 960,
+          "height": 1200,
+          "sha256": "658c7276100d2ff25ad5da4d20c39acdc44a43535c051c4176a6786d43919cd8",
+          "transform": {
+            "originX": 258,
+            "originY": 209,
+            "scale": 2
+          }
+        },
+        "windowFrame": {
+          "x": 258,
+          "y": 209,
+          "width": 480,
+          "height": 600
+        },
+        "screen": {
+          "displayId": 1,
+          "frame": {
+            "x": 0,
+            "y": 0,
+            "width": 1512,
+            "height": 982
+          },
+          "hiDPI": true
+        }
+      }
+    },
+    {
+      "id": "W2",
+      "title": "no whole-screen capture was written (no *.screen.png in the artifact directory)",
+      "result": "passed",
+      "detail": {
+        "artifactFiles": [
+          "art_c582359130b9.meta.json",
+          "art_c582359130b9.png"
+        ]
+      }
+    },
+    {
+      "id": "W3",
+      "title": "destroyed; display count unchanged",
+      "result": "passed",
+      "detail": {
+        "displays": 1
+      }
+    }
+  ]
+}

@@ -186,12 +186,15 @@ enum CommandRouter {
              options: ["--name": true, "--size": true, "--physical": false, "--display": true, "--request-id": true], positionals: []) { o, _ in
             var p: [(String, JSONValue)] = []
             if let n = o["--name"] { p.append(("name", .string(n))) }
-            if o["--physical"] != nil || o["--display"] != nil {
+            if o["--display"] != nil && o["--physical"] == nil {
+                throw RuntimeError.invalidArgument("--display picks the display of a physical Desktop; give --physical too")
+            }
+            if o["--physical"] != nil {
                 guard o["--size"] == nil else { throw RuntimeError.invalidArgument("--physical takes the display's size; leave out --size") }
                 var physical: [(String, JSONValue)] = []
                 if let s = o["--display"] {
-                    guard let id = Int(s), UInt32(exactly: id) != nil else { throw RuntimeError.invalidArgument("--display needs a display ID, got \(s)") }
-                    physical.append(("displayId", .int(id)))
+                    guard let id = UInt32(s) else { throw RuntimeError.invalidArgument("--display needs a display ID, got \(s)") }
+                    physical.append(("displayId", .int(Int(id))))
                 }
                 p.append(("physical", .obj(physical)))
                 return try write(.desktopCreate, .obj(p), o)

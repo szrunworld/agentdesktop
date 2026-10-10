@@ -1047,3 +1047,34 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     #expect(left.isEmpty, "\(left)")
     #expect(sc.s.artifacts.count(bucket: "session:" + sc.session) == 0)
 }
+
+// MARK: #143 on window grants: a granted physical window still fails closed
+
+@Test func aGrantedPhysicalWindowUnderANotificationOrOnAChangedDisplayIsNotObserved() throws {
+    let st = try Stage()
+    _ = try #require(data(st.request(["observe", "act"])))
+    #expect(data(st.bind(12)) != nil)
+    let sid = try st.session()
+    #expect(data(st.observe(sid)) != nil)
+    // Another app's banner over the granted window: refused, naming nothing of it.
+    st.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 777, pid: 600, appName: "SecretApp", title: "机密",
+                                                               frame: Rect(x: 120, y: 110, width: 300, height: 80))]
+    let o = st.observe(sid)
+    #expect(st.reason(o) == "occluded")
+    #expect(errorDetails(o)?["coveringPid"] == nil)
+    #expect(!(o.json.encoded().contains("SecretApp")) && !(o.json.encoded().contains("机密")))
+    st.platform.overlayWindows["physical-1"] = []
+    #expect(data(st.observe(sid)) != nil)
+    // The user changes the display's resolution: the grant does not carry the old geometry over.
+    st.platform.physicalDisplays[1] = ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1800, height: 1169), hiDPI: true)
+    #expect(st.reason(st.observe(sid)) == "display_changed")
+    #expect(st.platform.performed.isEmpty)
+}
+
+@Test func anOutOfRangeWindowIdIsRefusedForAPairedAppWithoutACrash() throws {
+    let st = try Stage()
+    let r = call(st.s, st.app, "window.bind", params: #"{"desktopId":"\#(st.desk)","pid":202,"windowId":4294967308}"#)
+    #expect(["invalid_argument", "schema_invalid"].contains(code(r)))
+    // 4294967308 truncated would be 12: nothing was bound.
+    #expect(data(call(st.s, st.owner, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"] == .null)
+}

@@ -213,6 +213,10 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         }
     }
 
+    /// High-layer windows over a screen (notifications, menus), by screen name.
+    var overlayWindows: [String: [PlatformWindow]] = [:]
+    func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] { lock.withLock { overlayWindows[screen.name] ?? [] } }
+
     /// The user's own displays a physical Desktop may attach, by ID.
     var physicalDisplays: [UInt32: ScreenHandle] = [
         1: ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1512, height: 982), hiDPI: true),
@@ -292,6 +296,10 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     /// Runs right after an input is "sent" or a window is captured.
     var onPerform: (() -> Void)?
     var onCapture: (() -> Void)?
+    /// Runs as an element read returns, outside the Desktop's lock.
+    var onElements: (() -> Void)?
+    /// Runs as an element read starts reading the window (before its frame is taken).
+    var onElementsRead: (() -> Void)?
 
     func stack(on screen: ScreenHandle) -> [PlatformWindow] {
         lock.withLock {
@@ -341,7 +349,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         defer { lock.withLock { axRunning -= 1 } }
         lock.withLock { axGate }?.wait()
         if let f = lock.withLock({ axFailure }) { throw f }
+        lock.withLock { onElementsRead }?()
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "the window is gone") }
+        defer { lock.withLock { onElements }?() }
         return ElementRead(window: w, elements: elements, truncated: lock.withLock { axTruncated })
     }
 

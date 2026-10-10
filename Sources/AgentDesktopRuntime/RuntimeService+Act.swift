@@ -98,7 +98,8 @@ extension RuntimeService {
                 }
                 guard backend.processIdentity(b.process.pid) == b.process else {
                     throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted; bind again",
-                                       phase: .handler, notSent: true)
+                                       phase: .handler, notSent: true,
+                                       details: .obj([("reason", .string("process_exited")), ("generation", .int(b.generation))]))
                 }
                 // G0: the observed window is still the one input would reach.
                 let window = try exposedTarget(d, b, notSent: true).window
@@ -394,6 +395,7 @@ extension RuntimeService {
             // As in observe: checks under the lock, the read on the AX threads
             // without it, then the store under the lock.
             var bound: TargetBinding?
+            var exposedBefore: (window: PlatformWindow, stack: [StackEntry])?
             let checked = withDesktop(.string(desk.desktopId), until: deadline, as: c, method: "wait") { d -> JSONValue in
                 guard let b = d.binding else {
                     throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler)
@@ -401,9 +403,14 @@ extension RuntimeService {
                 // Observe on this window, every poll (window-grants.md).
                 _ = try windowUse(c, d, b, "observe", method: "wait", audit: polls == 1)
                 guard backend.processIdentity(b.process.pid) == b.process else {
-                    throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler)
+                    throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler,
+                                       details: .obj([("reason", .string("process_exited")), ("generation", .int(b.generation))]))
                 }
                 try refuseMirroring(b.process.pid)
+                // On the user's screen, the same target checks as observe and
+                // act: display unchanged, nothing over the window (Codex on
+                // 1994bca and 4952c9e).
+                if d.kind == .physical { exposedBefore = try exposedTarget(d, b, notSent: true) }
                 bound = b
                 observations.invalidateElementRefs(desktopId: d.desktopId)
                 return .null
@@ -427,6 +434,24 @@ extension RuntimeService {
                 }
                 // Still allowed to see it before anything read is answered.
                 _ = try windowUse(c, d, b, "observe", method: "wait", audit: false)
+                // And still exposed on the display it was read against, the
+                // same window where it was, so nothing that appeared or moved
+                // during the read is answered (Codex on 86c3dd0, as observe does).
+                if d.kind == .physical, let before = exposedBefore {
+                    let after = try exposedTarget(d, b, notSent: true)
+                    // The frame the read itself saw too: a window that moved and came
+                    // back during the read leaves its elements at the other place
+                    // (Codex on 4c2536b).
+                    let readFrame = read?.window.frame ?? before.window.frame
+                    guard after.stack == before.stack, Self.sameFrame(after.window.frame, before.window.frame),
+                          Self.sameFrame(readFrame, before.window.frame) else {
+                        throw RuntimeError("stale_observation", "the windows on desktop \(d.desktopId) changed while it was read; wait again",
+                                           phase: .handler, notSent: true,
+                                           details: .obj([("reason", .string("changed_during_capture")), ("generation", .int(b.generation)),
+                                                          ("frameBefore", before.window.frame.json), ("frameRead", readFrame.json),
+                                                          ("frameAfter", after.window.frame.json)]))
+                    }
+                }
                 let snapshotId = DesktopRegistry.newId(prefix: "obs")
                 var stored = StoredObservation(snapshotId: snapshotId, desktopId: d.desktopId, capturedAt: nowString,
                                                screen: d.screen, binding: b, windowFrame: read?.window.frame, transform: nil,

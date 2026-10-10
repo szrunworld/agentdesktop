@@ -1050,14 +1050,16 @@
         "control{state,controllerRunId,clientId,clientName,transport,since,actionCount,lastActionAt}",
         "targetKind (window|device)"
       ],
-      "pr": "A5"
+      "pr": "A5",
+      "note": "kind (virtual|physical: where the display comes from) is in (#120/#143); targetKind (window|device: what is bound) is a different concept and stays planned"
     },
     "desktop.create params": {
       "add": [
         "launch",
         "bind"
       ],
-      "pr": "A5"
+      "pr": "A5",
+      "note": "physical {displayId} is in (#120/#143); its windows are reached only under per-window grants (hub.windows.*, #205); refused with permission_denied (physical_desktop_requires_grant) while the product keeps physical Desktops off"
     },
     "Run": {
       "add": [

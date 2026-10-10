@@ -749,7 +749,7 @@ enum RuntimeContractData {
         "physical": {
           "type": "object",
           "additionalProperties": false,
-          "description": "attach one of the user's own displays instead of creating a virtual one: nothing is created, window.bind needs windowId and never moves the window, app.launch is refused, desktop.destroy only drops the record; mutually exclusive with width/height",
+          "description": "attach one of the user's own displays instead of creating a virtual one: nothing is created, window.bind needs windowId and never moves the window, app.launch is refused, desktop.destroy only drops the record; with physical, width and height are refused (the display's size applies)",
           "properties": {
             "displayId": {
               "type": "integer",
@@ -767,6 +767,18 @@ enum RuntimeContractData {
         "height": [
           "width"
         ]
+      },
+      "if": {
+        "required": [
+          "physical"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "width"
+          ]
+        }
       }
     },
     "desktop_destroy_params": {
@@ -9488,14 +9500,16 @@ enum RuntimeContractData {
         "control{state,controllerRunId,clientId,clientName,transport,since,actionCount,lastActionAt}",
         "targetKind (window|device)"
       ],
-      "pr": "A5"
+      "pr": "A5",
+      "note": "kind (virtual|physical: where the display comes from) is in (#120/#143); targetKind (window|device: what is bound) is a different concept and stays planned"
     },
     "desktop.create params": {
       "add": [
         "launch",
         "bind"
       ],
-      "pr": "A5"
+      "pr": "A5",
+      "note": "physical {displayId} is in (#120/#143); its windows are reached only under per-window grants (hub.windows.*, #205); refused with permission_denied (physical_desktop_requires_grant) while the product keeps physical Desktops off"
     },
     "Run": {
       "add": [

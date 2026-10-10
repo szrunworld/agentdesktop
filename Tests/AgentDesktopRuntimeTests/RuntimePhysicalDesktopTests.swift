@@ -39,7 +39,8 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     #expect(code(call(s, c, "desktop.create", params: #"{"name":"again","physical":{"displayId":1}}"#)) == "conflict")
     // A display that is not one of the user's is not found; sizes are the display's.
     #expect(code(call(s, c, "desktop.create", params: #"{"name":"x","physical":{"displayId":42}}"#)) == "not_found")
-    #expect(code(call(s, c, "desktop.create", params: #"{"name":"y","physical":{},"width":800,"height":600}"#)) == "invalid_argument")
+    // Sizes are the display's: the contract refuses a size with physical.
+    #expect(code(call(s, c, "desktop.create", params: #"{"name":"y","physical":{},"width":800,"height":600}"#)) == "schema_invalid")
     #expect(!platform.calls.contains { $0.hasPrefix("create") })
     // A virtual Desktop still says what it is.
     let v = try #require(data(call(s, c, "desktop.create", params: #"{"name":"virtual"}"#)))
@@ -151,15 +152,64 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
 // MARK: - Review round 1 (Kevin 2026-10-08): target loss, identity, display origin
 
 @Test func displayOriginTrustsOnlyWhatTheHardwareVouchesFor() {
-    // The built-in panel.
-    #expect(DisplayOrigin.classify(builtin: true, vendor: 0x610, model: 0xa05e, hardwareVendors: []) == .physical)
-    // An external display the I/O registry has a framebuffer for.
-    #expect(DisplayOrigin.classify(builtin: false, vendor: 0x10ac, model: 0x4321, hardwareVendors: [0x10ac]) == .physical)
-    // Any engine virtual display, whoever created it — even if it claims to be built in.
-    if case .virtual = DisplayOrigin.classify(builtin: true, vendor: 0x3256, model: 2, hardwareVendors: [0x3256]) {} else { Issue.record("engine virtual display trusted") }
-    // Unknown origin is refused, not assumed physical.
-    if case .unconfirmed = DisplayOrigin.classify(builtin: false, vendor: 0x1234, model: 1, hardwareVendors: [0x10ac]) {} else { Issue.record("display without a framebuffer trusted") }
-    if case .unconfirmed = DisplayOrigin.classify(builtin: false, vendor: 0, model: 0, hardwareVendors: [0]) {} else { Issue.record("vendorless display trusted") }
+    typealias D = DisplayOrigin.Display
+    typealias F = DisplayOrigin.Framebuffer
+    let builtin = D(id: 1, builtin: true, vendor: 0x610, model: 0xa05e)
+    let builtinFB = F(vendor: 0x610, model: 57_403_046_442_049, serial: nil, external: false)   // as Apple silicon reports it
+    // An external display copying Apple's vendor: no framebuffer of its model vouches for it.
+    let copycat = D(id: 7, builtin: false, vendor: 0x610, model: 0x1234)
+    var o = DisplayOrigin.classify([builtin, copycat], framebuffers: [builtinFB])
+    #expect(o[1] == .physical)
+    if case .unconfirmed = o[7] {} else { Issue.record("a vendor copied from the built-in panel was trusted") }
+    // A real external display: its framebuffer reports the same vendor, model and serial (as on this Mac).
+    let external = D(id: 3, builtin: false, vendor: 25001, model: 49155, serial: 1)
+    let externalFB = F(vendor: 25001, model: 49155, serial: 1, external: true)
+    o = DisplayOrigin.classify([builtin, external], framebuffers: [builtinFB, externalFB])
+    #expect(o[3] == .physical)
+    // Same vendor and model, another serial: not vouched for.
+    o = DisplayOrigin.classify([D(id: 4, builtin: false, vendor: 25001, model: 49155, serial: 2)], framebuffers: [externalFB])
+    if case .unconfirmed = o[4] {} else { Issue.record("a framebuffer vouched for another serial") }
+    // A virtual display copying the real monitor's whole identity, in either
+    // display order (Codex on e0be427): neither is trusted, never the first one.
+    let clone = D(id: 9, builtin: false, vendor: 25001, model: 49155, serial: 1)
+    for order in [[clone, external], [external, clone]] {
+        o = DisplayOrigin.classify(order, framebuffers: [externalFB])
+        if case .unconfirmed = o[9] {} else { Issue.record("the clone was trusted in order \(order.map(\.id))") }
+        if case .unconfirmed = o[3] {} else { Issue.record("one framebuffer vouched for two displays") }
+    }
+    // Two identical real monitors with two framebuffers are both trusted.
+    let twin = D(id: 5, builtin: false, vendor: 25001, model: 49155, serial: 1)
+    o = DisplayOrigin.classify([external, twin], framebuffers: [externalFB, externalFB])
+    #expect(o[3] == .physical && o[5] == .physical)
+    // A framebuffer without a serial vouches by vendor and model, but still one display each.
+    let noSerial = F(vendor: 25001, model: 49155, serial: nil)
+    o = DisplayOrigin.classify([external, D(id: 6, builtin: false, vendor: 25001, model: 49155, serial: 7)], framebuffers: [noSerial])
+    if case .unconfirmed = o[3] {} else { Issue.record("one serial-less framebuffer vouched for two displays") }
+    // A clone of the built-in panel's exact identity (Codex on cb64fce): the
+    // panel's framebuffer never vouches for an external display...
+    let panel = D(id: 20, builtin: true, vendor: 0x610, model: 0xa05e, serial: 9)
+    let panelClone = D(id: 21, builtin: false, vendor: 0x610, model: 0xa05e, serial: 9)
+    o = DisplayOrigin.classify([panel, panelClone], framebuffers: [F(vendor: 0x610, model: 0xa05e, serial: 9, external: false)])
+    #expect(o[20] == .physical)
+    if case .unconfirmed = o[21] {} else { Issue.record("the built-in panel's framebuffer vouched for its clone") }
+    // ...and where the registry does not say (Intel), the panel itself is a claimant: one framebuffer, two claimants.
+    o = DisplayOrigin.classify([panelClone, panel], framebuffers: [F(vendor: 0x610, model: 0xa05e, serial: 9)])
+    #expect(o[20] == .physical)
+    if case .unconfirmed = o[21] {} else { Issue.record("an unmarked framebuffer vouched for the panel and its clone") }
+    // Overlapping counts are not a matching (Codex on 3d85886): serials [1,1,2,2]
+    // against framebuffers [1,2,nil,3] cannot all be backed, so none is trusted.
+    let four = [UInt32(1), 1, 2, 2].enumerated().map { D(id: UInt32(30 + $0.offset), builtin: false, vendor: 25001, model: 49155, serial: $0.element) }
+    let fbs = [UInt64(1), 2, nil, 3].map { F(vendor: 25001, model: 49155, serial: $0, external: true) }
+    o = DisplayOrigin.classify(four, framebuffers: fbs)
+    for d in four { if case .unconfirmed = o[d.id] {} else { Issue.record("display \(d.id) trusted without a framebuffer of its own") } }
+    // With one more serial-less framebuffer an assignment exists: all trusted.
+    o = DisplayOrigin.classify(four, framebuffers: fbs + [F(vendor: 25001, model: 49155, serial: nil, external: true)])
+    #expect(four.allSatisfy { o[$0.id] == .physical })
+    // Any engine virtual display, even one claiming to be built in, and a vendorless display.
+    o = DisplayOrigin.classify([D(id: 10, builtin: true, vendor: 0x3256, model: 2), D(id: 11, builtin: false, vendor: 0, model: 0)],
+                               framebuffers: [F(vendor: 0x3256, model: 2, serial: nil), F(vendor: 0, model: 0, serial: nil)])
+    if case .virtual = o[10] {} else { Issue.record("engine virtual display trusted") }
+    if case .unconfirmed = o[11] {} else { Issue.record("vendorless display trusted") }
 }
 
 @Test func whenTheTargetIsLostTheRunStaysButEveryActIsRefusedAndRecorded() throws {
@@ -259,4 +309,218 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     #expect(data(call(s, c, "desktop.list"))?["desktops"]?.arrayValue?.isEmpty == true)
     // Virtual Desktops are unchanged.
     #expect(data(call(s, c, "desktop.create", params: #"{"name":"virtual"}"#))?["kind"]?.stringValue == "virtual")
+}
+
+// MARK: - #143: independent review fixes, on top of window grants (#205)
+
+@Test func onAPhysicalDesktopANotificationOverTheWindowCoversIt() throws {
+    let sc = try physicalScene()
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 501, pid: 600, appName: "NotificationCenter", title: "新消息",
+                                                               frame: Rect(x: 50, y: 30, width: 350, height: 80))]
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(o)?.details?["reason"]?.stringValue == "occluded")
+    #expect(failure(o)?.details?["coveringWindowId"]?.intValue == 501)
+    #expect(code(act(sc, #"{"kind":"key","key":"return"}"#)) == "stale_observation")
+    #expect(sc.platform.performed.isEmpty)
+    // The bound app's own sheet or popover covers it too: input to the process may land on it.
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 502, pid: 101, appName: "Calculator", title: "",
+                                                               frame: Rect(x: 50, y: 30, width: 150, height: 200))]
+    #expect(failure(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?.details?["reason"]?.stringValue == "occluded")
+    // Nothing over it: usable again.
+    sc.platform.overlayWindows["physical-1"] = []
+    #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
+    // Refusals name the covering window by number only, never its app.
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 503, pid: 600, appName: "SecretApp", title: "机密",
+                                                               frame: Rect(x: 50, y: 30, width: 150, height: 200))]
+    let named = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(!(failure(named)?.message.contains("SecretApp") ?? true))
+    #expect(!(failure(named)?.message.contains("机密") ?? true))
+    #expect(failure(named)?.details?["coveringPid"] == nil)
+}
+
+@Test func overlaysOnlyCountOnAPhysicalDesktop() throws {
+    // A virtual Desktop is the agent's own screen: high-layer windows of the
+    // user's display are not over it, and the platform is not asked.
+    let sc = try scene()
+    sc.platform.overlayWindows[sc.platform.screens.keys.first ?? ""] = [PlatformWindow(windowId: 501, pid: 600, appName: "X", title: "",
+                                                                                       frame: Rect(x: 0, y: 0, width: 5000, height: 5000))]
+    #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
+}
+
+@Test func whenTheUserChangesTheDisplayAPhysicalDesktopStops() throws {
+    let sc = try physicalScene()
+    // "More space": the same display, a different logical size.
+    sc.platform.physicalDisplays[1] = ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1800, height: 1169), hiDPI: true)
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(o)?.details?["reason"]?.stringValue == "display_changed")
+    #expect(code(act(sc, #"{"kind":"key","key":"return"}"#)) == "stale_observation")
+    // Unplugged.
+    sc.platform.physicalDisplays[1] = nil
+    #expect(failure(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?.details?["reason"]?.stringValue == "display_changed")
+    #expect(sc.platform.performed.isEmpty)
+}
+
+@Test func onAPhysicalDesktopAnExitedProcessFailsClosed() throws {
+    let backend = FixedBackend()
+    let sc = try physicalScene(backend: backend)
+    backend.opened.lock.withLock { _ = backend.opened.restarted.insert(101) }
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(code(o) == "stale_observation")
+    #expect(failure(o)?.details?["reason"]?.stringValue == "process_exited")
+    let a = act(sc, #"{"kind":"key","key":"return"}"#)
+    #expect(code(a) == "stale_observation")
+    #expect(failure(a)?.details?["reason"]?.stringValue == "process_exited")
+    #expect(failure(a)?.notSent == true)
+    #expect(sc.platform.performed.isEmpty)
+}
+
+@Test func idsOutsideTheirRangeAreRefusedNotACrash() throws {
+    let platform = FakePlatform()
+    platform.onScreen[11] = "physical-1"
+    let s = platformService(platform)
+    s.physicalDesktopsEnabled = true
+    let c = handshaken(s)
+    let d = try #require(data(call(s, c, "desktop.create", params: #"{"physical":{}}"#))?["desktopId"]?.stringValue)
+    #expect(["invalid_argument", "schema_invalid"].contains(code(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101,"windowId":4294967296}"#))))
+    #expect(["invalid_argument", "schema_invalid"].contains(code(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":2147483648,"windowId":11}"#))))
+    #expect(data(call(s, c, "desktop.show", params: #"{"desktopId":"\#(d)"}"#))?["binding"] == .null)
+}
+
+@Test func twoConnectionsAttachingOneDisplayAtOnceGetOneDesktop() throws {
+    let s = platformService(FakePlatform())
+    s.physicalDesktopsEnabled = true
+    let results = LockedStrings()
+    DispatchQueue.concurrentPerform(iterations: 8) { i in
+        let c = handshaken(s)
+        results.append(code(call(s, c, "desktop.create", params: #"{"name":"race-\#(i)","physical":{"displayId":1}}"#)) ?? "ok")
+    }
+    #expect(results.values.filter { $0 == "ok" }.count == 1)
+    #expect(results.values.filter { $0 == "conflict" }.count == 7)
+}
+
+final class LockedStrings: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+    func append(_ s: String) { lock.withLock { items.append(s) } }
+    var values: [String] { lock.withLock { items } }
+}
+
+@Test func whatCountsAsAnOverlayOverTheUsersWindow() {
+    let screen = Rect(x: 0, y: 0, width: 1512, height: 982)
+    // "Dock" here means the system Dock's process; the name alone proves nothing.
+    func covers(_ f: Rect, _ owner: String = "App") -> Bool {
+        EnginePlatform.isCoveringOverlay(frame: f, systemDock: owner == "Dock", screen: screen, menuBar: 37)
+    }
+    #expect(covers(Rect(x: 1150, y: 40, width: 350, height: 80), "NotificationCenter"), "a banner")
+    #expect(covers(Rect(x: 200, y: 300, width: 220, height: 180), "Other"), "another app's menu")
+    #expect(covers(Rect(x: 0, y: 0, width: 1512, height: 982), "WGestures"), "an unknown layer over the whole display: fail closed")
+    #expect(covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Window Server"), "a display-wide Window Server layer counts")
+    #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 37), "Window Server"), "the menu bar")
+    #expect(!covers(Rect(x: 1010, y: 0, width: 38, height: 37), "WeChat"), "another app's status item")
+    #expect(EnginePlatform.isCoveringOverlay(frame: Rect(x: 1010, y: 0, width: 38, height: 37), systemDock: false, boundProcess: true,
+                                             screen: screen, menuBar: 37), "the bound app's own status item counts (Codex on 536bb4d)")
+    #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Dock"), "the Dock's display-wide layer")
+    #expect(covers(Rect(x: 600, y: 500, width: 240, height: 300), "Dock"), "a Dock menu or folder stack counts (Codex on 1994bca)")
+    // An app that calls itself "Dock" is not the Dock (Codex on 4c2536b).
+    #expect(!EnginePlatform.isSystemDock(pid: getpid()), "this test process is not the Dock")
+    #expect(!covers(Rect(x: 0, y: 38, width: 1, height: 1), "Typeless"), "a 1×1 anchor")
+    #expect(covers(Rect(x: 300, y: 200, width: 3, height: 400)), "a thin but long panel counts (Codex on 4952c9e)")
+    #expect(covers(Rect(x: 300, y: 200, width: 400, height: 3)), "and lying down")
+    #expect(covers(Rect(x: 300, y: 200, width: 3, height: 3)), "3×3: input routing can pick it (Codex on 8c1ebc1)")
+    #expect(!covers(Rect(x: 300, y: 200, width: 2, height: 400)), "2 points wide: input routing never picks it")
+}
+
+@Test func noPathCapturesTheUsersScreenOnAPhysicalDesktop() throws {
+    // Every observation on a physical Desktop: window capture only, across a whole session.
+    let sc = try physicalScene()
+    sc.s.refusesScreenCaptureWithoutBinding = false   // even with the virtual-Desktop seal off
+    for _ in 0..<3 { _ = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#) }
+    _ = call(sc.s, sc.c, "observe", params: #"{"screenshot":false}"#, context: #"{"sessionId":"\#(sc.session)"}"#)
+    sc.platform.dropWindow(11)
+    _ = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    _ = call(sc.s, sc.c, "window.unbind", params: #"{"desktopId":"\#(sc.desktop)"}"#)
+    _ = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(!sc.platform.calls.contains("screenshot physical-1"), "\(sc.platform.calls)")
+    #expect(sc.platform.calls.filter { $0 == "screenshot physical-1 window" }.count == 4, "\(sc.platform.calls)")
+}
+
+@Test func theSealsStayAsTheProductShipsThem() {
+    // As constructed, before any test helper flips a switch.
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                           backend: FixedBackend(), platform: FakePlatform())
+    #expect(s.physicalDesktopsEnabled == false)
+    #expect(s.bindsOnlyLaunchedProcesses == true)
+    #expect(s.refusesScreenCaptureWithoutBinding == true)
+}
+
+@Test func aWaitOnAPhysicalDesktopStopsWhenTheDisplayChanges() throws {
+    // Codex on 1994bca: every wait poll checks the display, not only observe and act.
+    let sc = try physicalScene()
+    sc.platform.physicalDisplays[1] = ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1800, height: 1169), hiDPI: true)
+    let w = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                 context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w)?.details?["reason"]?.stringValue == "display_changed", "\(w.json.encoded())")
+    // A display that changes between the read and the store is refused too.
+    sc.platform.physicalDisplays[1] = ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1512, height: 982), hiDPI: true)
+    let reads = sc.platform.calls.filter { $0.hasPrefix("elements") }.count
+    sc.platform.onElements = { sc.platform.physicalDisplays[1] = nil }
+    let w2 = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                  context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w2)?.details?["reason"]?.stringValue == "display_changed", "\(w2.json.encoded())")
+    #expect(sc.platform.calls.filter { $0.hasPrefix("elements") }.count > reads, "the read happened; the store was refused")
+}
+
+@Test func aWaitOnAPhysicalDesktopStopsWhenSomethingCoversTheWindow() throws {
+    // Codex on 4952c9e: wait polls check exposure like observe and act.
+    let sc = try physicalScene()
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 501, pid: 600, appName: "NotificationCenter", title: "",
+                                                               frame: Rect(x: 50, y: 30, width: 350, height: 80))]
+    let reads = sc.platform.calls.filter { $0.hasPrefix("elements") }.count
+    let w = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                 context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w)?.details?["reason"]?.stringValue == "occluded", "\(w.json.encoded())")
+    #expect(sc.platform.calls.filter { $0.hasPrefix("elements") }.count == reads, "nothing was read")
+    // Something that appears during the read: the poll's result is not stored or answered.
+    sc.platform.overlayWindows["physical-1"] = []
+    sc.platform.onElements = {
+        sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 502, pid: 600, appName: "X", title: "",
+                                                                   frame: Rect(x: 50, y: 30, width: 350, height: 80))]
+    }
+    let w2 = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                  context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w2)?.details?["reason"]?.stringValue == "occluded", "\(w2.json.encoded())")
+}
+
+@Test func aWaitOnAPhysicalDesktopStopsWhenTheWindowMovesDuringTheRead() throws {
+    // Codex on 86c3dd0: the window read must still be where it was when the poll is stored.
+    let sc = try physicalScene()
+    sc.platform.onElements = { sc.platform.moveWindow(11, by: 40) }
+    let w = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                 context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w)?.details?["reason"]?.stringValue == "changed_during_capture", "\(w.json.encoded())")
+}
+
+@Test func aWaitOnAPhysicalDesktopStopsWhenTheWindowMovedAndCameBackDuringTheRead() throws {
+    // Codex on 4c2536b: the read saw the window elsewhere; before and after agree, the read does not.
+    let sc = try physicalScene()
+    sc.platform.onElementsRead = { sc.platform.moveWindow(11, by: 40) }
+    sc.platform.onElements = { sc.platform.moveWindow(11, by: -40) }
+    let w = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                 context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w)?.details?["reason"]?.stringValue == "changed_during_capture", "\(w.json.encoded())")
+}
+
+@Test func theBoundAppsOwnOverlayCountsOnAnyIntersection() throws {
+    // Codex on 950600b: a click can land in a 1-point sliver of the bound app's own panel.
+    let sc = try physicalScene()
+    let frame = try #require(sc.platform.window(on: sc.platform.physicalDisplays[1]!, pid: 101, windowId: 11)?.frame)
+    // Its own panel crossing the window's right edge by one point.
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 601, pid: 101, appName: "Calculator", title: "",
+                                                               frame: Rect(x: frame.x + frame.width - 1, y: frame.y + 10, width: 200, height: 100))]
+    #expect(failure(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?.details?["reason"]?.stringValue == "occluded")
+    // Another app's panel by the same sliver: a shadow, not a cover.
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 602, pid: 600, appName: "Other", title: "",
+                                                               frame: Rect(x: frame.x + frame.width - 1, y: frame.y + 10, width: 200, height: 100))]
+    #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
 }
