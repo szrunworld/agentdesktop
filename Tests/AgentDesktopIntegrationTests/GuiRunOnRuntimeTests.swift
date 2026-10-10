@@ -112,6 +112,8 @@ struct Backend: RuntimeBackend {
                               bundleId: nil, title: "表单", frame: Rect(x: 0, y: 0, width: 400, height: 300), onScreen: true)]
     }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: "2026-10-08T01:00:00.000Z") }
+    /// An executable in no app bundle: known not to be iPhone Mirroring (#139).
+    func executablePath(_ pid: Int32) -> String? { "/test/bin/process" }
 }
 
 /// Ark as the capability tests and this run expect it. The button centre
@@ -149,7 +151,7 @@ final class Upstream: HTTPTransport, @unchecked Sendable {
     let platform = FormPlatform()
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_int", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: "/tmp/int.sock", buildSource: "unknown"),
-                                 backend: Backend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                                 backend: Backend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let c = ConnectionState(peerUID: getuid())
     func rt(_ method: String, _ params: String = "{}") -> JSONValue? {
         let r = runtime.respond(to: Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(RuntimeRequest.newId())","method":"\#(method)","params":\#(params)}"#.utf8), on: c)

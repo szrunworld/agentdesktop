@@ -68,14 +68,28 @@ extension RuntimeService {
             probe.key = action["key"]?.stringValue
             probe.modifiers = action["modifiers"]?.arrayValue?.compactMap(\.stringValue) ?? []
             if ClipboardPolicy.needsMenu(probe), let pid = desktops.find(desk.desktopId)?.boundPID {
+                // #139: iPhone Mirroring's menu bar is not read either; the
+                // check is made again under the lock before anything is sent.
+                do {
+                    try refuseMirroring(pid)
+                } catch let e as RuntimeError {
+                    runs.appendEvent(runId, "action.refused", .obj([("requestId", .string(request.requestId)),
+                                                                   ("reason", .obj([("code", .string(e.code)), ("message", .string(e.message))]))]))
+                    return .failure(e)
+                } catch {
+                    return .failure(RuntimeError("internal_error", "\(error)", phase: .handler))
+                }
                 menu = (pid, platform.menuItems(pid: pid))
             }
         }
 
-        let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date)) { d -> JSONValue in
+        let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date), as: c, method: "act") { d -> JSONValue in
             guard let b = d.binding else {
                 throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler, notSent: true)
             }
+            // Act on this window, for this caller (window-grants.md); checked
+            // again right before the input goes out.
+            _ = try windowUse(c, d, b, "act", method: "act", audit: false)
             return try conflicts.withProcess(b.process.pid) {
                 // The snapshot must describe the target as it is now.
                 guard let sb = snap.binding, sb.generation == b.generation else {
@@ -84,7 +98,8 @@ extension RuntimeService {
                 }
                 guard backend.processIdentity(b.process.pid) == b.process else {
                     throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted; bind again",
-                                       phase: .handler, notSent: true)
+                                       phase: .handler, notSent: true,
+                                       details: .obj([("reason", .string("process_exited")), ("generation", .int(b.generation))]))
                 }
                 // G0: the observed window is still the one input would reach.
                 let window = try exposedTarget(d, b, notSent: true).window
@@ -120,11 +135,15 @@ extension RuntimeService {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
                                        phase: .handler, notSent: true)
                 }
+                // A4: the grant as it is now, at the last moment before input,
+                // and the window grant with it.
+                if let revoked = recheckAct(c, desktopId: d.desktopId) { throw revoked }
+                _ = try windowUse(c, d, b, "act", method: "act")
                 if let stopped = execution.beginAction(runId: runId) { throw stopped }
 
                 // Delivery boundary: from here an interruption is unknown.
                 do {
-                    try ledger.markDispatching(caller: callerKey(c), requestId: request.requestId)
+                    try ledger.markDispatching(caller: c.clientId, requestId: request.requestId)
                     runs.appendEvent(runId, "action.dispatched", .obj([("requestId", .string(request.requestId))]))
                     try runs.checkWritable()
                 } catch {
@@ -368,17 +387,30 @@ extension RuntimeService {
         let wantPresent = cond["kind"]?.stringValue == "elementPresent"
         let deadline = now().addingTimeInterval(Double(request.params["timeoutMs"]?.intValue ?? 1000) / 1000)
         var lastSnapshot: String?
+        var polls = 0
         while true {
+            polls += 1
+            // Access is checked on every poll: a revoked app stops waiting.
+            if let e = recheckAct(c, desktopId: desk.desktopId, method: "wait") { return .failure(e) }
             // As in observe: checks under the lock, the read on the AX threads
             // without it, then the store under the lock.
             var bound: TargetBinding?
-            let checked = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
+            var exposedBefore: (window: PlatformWindow, stack: [StackEntry])?
+            let checked = withDesktop(.string(desk.desktopId), until: deadline, as: c, method: "wait") { d -> JSONValue in
                 guard let b = d.binding else {
                     throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler)
                 }
+                // Observe on this window, every poll (window-grants.md).
+                _ = try windowUse(c, d, b, "observe", method: "wait", audit: polls == 1)
                 guard backend.processIdentity(b.process.pid) == b.process else {
-                    throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler)
+                    throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler,
+                                       details: .obj([("reason", .string("process_exited")), ("generation", .int(b.generation))]))
                 }
+                try refuseMirroring(b.process.pid)
+                // On the user's screen, the same target checks as observe and
+                // act: display unchanged, nothing over the window (Codex on
+                // 1994bca and 4952c9e).
+                if d.kind == .physical { exposedBefore = try exposedTarget(d, b, notSent: true) }
                 bound = b
                 observations.invalidateElementRefs(desktopId: d.desktopId)
                 return .null
@@ -396,9 +428,29 @@ extension RuntimeService {
             case let .failed(e as PlatformError): return .failure(e.runtimeError)
             case let .failed(e): return .failure(RuntimeError("execution_failed", "\(e)", phase: .handler))
             }
-            let poll = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
+            let poll = withDesktop(.string(desk.desktopId), until: deadline, as: c, method: "wait") { d -> JSONValue in
                 guard d.binding?.generation == b.generation else {
                     throw RuntimeError("stale_observation", "the binding of desktop \(d.desktopId) changed", phase: .handler)
+                }
+                // Still allowed to see it before anything read is answered.
+                _ = try windowUse(c, d, b, "observe", method: "wait", audit: false)
+                // And still exposed on the display it was read against, the
+                // same window where it was, so nothing that appeared or moved
+                // during the read is answered (Codex on 86c3dd0, as observe does).
+                if d.kind == .physical, let before = exposedBefore {
+                    let after = try exposedTarget(d, b, notSent: true)
+                    // The frame the read itself saw too: a window that moved and came
+                    // back during the read leaves its elements at the other place
+                    // (Codex on 4c2536b).
+                    let readFrame = read?.window.frame ?? before.window.frame
+                    guard after.stack == before.stack, Self.sameFrame(after.window.frame, before.window.frame),
+                          Self.sameFrame(readFrame, before.window.frame) else {
+                        throw RuntimeError("stale_observation", "the windows on desktop \(d.desktopId) changed while it was read; wait again",
+                                           phase: .handler, notSent: true,
+                                           details: .obj([("reason", .string("changed_during_capture")), ("generation", .int(b.generation)),
+                                                          ("frameBefore", before.window.frame.json), ("frameRead", readFrame.json),
+                                                          ("frameAfter", after.window.frame.json)]))
+                    }
                 }
                 let snapshotId = DesktopRegistry.newId(prefix: "obs")
                 var stored = StoredObservation(snapshotId: snapshotId, desktopId: d.desktopId, capturedAt: nowString,

@@ -110,6 +110,8 @@ extension DesktopPlatform {
     public func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle {
         throw PlatformError(.refused, "this platform cannot attach the user's displays")
     }
+
+    public func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] { [] }
 }
 
 /// A refusal by the platform, already classified for the Runtime API.
@@ -157,7 +159,11 @@ public protocol DesktopPlatform: Sendable {
     /// physical Desktop. Nothing is created: the handle only names the
     /// display, and destroyScreen must never be called with it.
     func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle
-    /// Launch an app onto the screen; its process and windows there.
+    /// Launch an app onto the screen; its process and windows there. The
+    /// process is one this launch provably started (the engine's one-time
+    /// launch token, LaunchOwnership); a launch that cannot prove it throws
+    /// instead of returning a pid. The Runtime relies on this to quit what
+    /// it launched (#139).
     func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws
         -> (pid: Int32, windows: [PlatformWindow])
     /// Move a process's window (or all of them) onto the screen.
@@ -173,6 +179,13 @@ public protocol DesktopPlatform: Sendable {
     /// without anything in front of it, at the display's scale; its size in
     /// pixels. Nothing else of the screen is captured or written.
     func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int)
+    /// On-screen windows above the normal layer that overlap the screen
+    /// (notification banners, other apps' menus and popovers, system
+    /// dialogs), except the system Dock's display-wide layer and other
+    /// processes' items in the menu bar. Windows of `boundPid` always count:
+    /// input to that process may land on any of them. On a physical Desktop
+    /// any of them over the bound window counts as covering it.
+    func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow]
     /// Read the window's accessibility elements. The read replaces the
     /// backend's numbering for that window. Past `deadline` the backend
     /// reads no further node and returns what it has, marked truncated.

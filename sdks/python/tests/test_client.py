@@ -181,7 +181,21 @@ class LiveTests(unittest.TestCase):
     """Run by the Swift cross-entry test against a real RuntimeServer."""
 
     def test_flow(self):
-        with RuntimeClient(os.environ["AGENTDESKTOP_SDK_LIVE_ENDPOINT"], env={}) as c:
+        # A4: an external app pairs first; the Swift harness plays the owner
+        # and approves. Unpaired, everything but pairing is refused.
+        endpoint = os.environ["AGENTDESKTOP_SDK_LIVE_ENDPOINT"]
+        with RuntimeClient(endpoint, env={}) as anon:
+            with self.assertRaises(RuntimeError_) as cm:
+                anon.desktops()
+            self.assertEqual(cm.exception.code, "pairing_required")
+        pairer = RuntimeClient(endpoint, env={})
+        codes = []
+        cred = pairer.pair("py-live", ["observe", "act", "desktop.manage", "run"], desktops=["created"],
+                           apps=["com.apple.Notes"], on_code=lambda code, pid: codes.append(code), timeout=30, poll=0.1)
+        self.assertTrue(cred["clientId"].startswith("app:"))
+        self.assertEqual(len(codes[0]), 6)
+        with RuntimeClient(endpoint, env={}, credential=cred) as c:
+            self.assertEqual(c.identity["principal"]["role"], "paired")
             d = c.create_desktop("py", request_id="py-live-create")["desktopId"]
             self.assertEqual(c.create_desktop("py", request_id="py-live-create")["desktopId"], d)
             c.launch(d, "com.apple.Notes")

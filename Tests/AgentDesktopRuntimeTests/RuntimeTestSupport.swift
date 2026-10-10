@@ -1,3 +1,5 @@
+import Testing
+import AgentDesktopClient
 import AgentDesktopProtocol
 import Foundation
 @testable import AgentDesktopRuntime
@@ -12,10 +14,10 @@ struct FixedBackend: RuntimeBackend {
         WindowSummary(windowId: 11, process: ProcessIdentity(pid: 101, startedAt: "2026-10-08T01:00:00.000Z"),
                       appName: "Calculator", bundleId: "com.apple.calculator", title: "Calculator",
                       frame: Rect(x: 10, y: 20, width: 230, height: 400), onScreen: true),
-        WindowSummary(windowId: 12, process: ProcessIdentity(pid: 202, startedAt: nil), appName: "微信",
+        WindowSummary(windowId: 12, process: ProcessIdentity(pid: 202, startedAt: "2026-10-08T01:00:00.000Z"), appName: "微信",
                       bundleId: "com.tencent.xinWeChat", title: "文件传输助手 \"草稿\"\n第二行",
                       frame: Rect(x: -1440, y: 0, width: 800, height: 600), onScreen: true),
-        WindowSummary(windowId: 13, process: ProcessIdentity(pid: 202, startedAt: nil), appName: "微信",
+        WindowSummary(windowId: 13, process: ProcessIdentity(pid: 202, startedAt: "2026-10-08T01:00:00.000Z"), appName: "微信",
                       bundleId: "com.tencent.xinWeChat", title: "最小化的窗口",
                       frame: Rect(x: 0, y: 0, width: 400, height: 300), onScreen: false),
     ]
@@ -23,21 +25,53 @@ struct FixedBackend: RuntimeBackend {
     var platform: Platform { Platform(os: "macos", osVersion: "15.1.0", arch: "arm64") }
     func permissions() -> BackendPermissions { perms }
     func features() -> [String] { ["apps.list", "windows.list"] }
-    func applications(includeBackground: Bool) -> [AppSummary] { apps }
+    func applications(includeBackground: Bool) -> [AppSummary] { opened.appListUnreadable ? [] : opened.apps + apps }
+    func executablePath(_ pid: Int32) -> String? {
+        opened.paths[pid] ?? (opened.pathsUnreadable ? nil : "/test/bin/process")
+    }
     /// Processes the test has "restarted": same pid, other start time.
     var restarted: Set<Int32> = []
     func processIdentity(_ pid: Int32) -> ProcessIdentity {
-        ProcessIdentity(pid: pid, startedAt: restarted.contains(pid) ? "2026-10-08T09:00:00.000Z" : "2026-10-08T01:00:00.000Z")
+        if opened.lock.withLock({ opened.startUnknown.contains(pid) }) { return ProcessIdentity(pid: pid, startedAt: nil) }
+        if let at = opened.startedAt[pid] { return ProcessIdentity(pid: pid, startedAt: at) }
+        let again = restarted.contains(pid) || opened.lock.withLock { opened.restarted.contains(pid) }
+        return ProcessIdentity(pid: pid, startedAt: again ? "2026-10-08T09:00:00.000Z" : "2026-10-08T01:00:00.000Z")
     }
     /// Windows a test opens later, in front of every other (a reference, so
-    /// a test can change it after the Runtime took its copy of the backend).
-    final class Opened: @unchecked Sendable { var windows: [WindowSummary] = []; var listUnreadable = false }
+    /// a test can change it after the Runtime took its copy of the backend);
+    /// windows it closes and processes it restarts meanwhile.
+    final class Opened: @unchecked Sendable {
+        var windows: [WindowSummary] = []; var listUnreadable = false
+        let lock = NSLock()
+        var closed: Set<UInt32> = []
+        var restarted: Set<Int32> = []
+        /// Processes whose start time cannot be read.
+        var startUnknown: Set<Int32> = []
+        /// Apps started after the Runtime took its copy, and start times
+        /// that differ from the fixed one (#139).
+        var apps: [AppSummary] = []
+        var startedAt: [Int32: String] = [:]
+        /// The running-app list cannot be read: it comes back empty.
+        var appListUnreadable = false
+        /// What each process runs (the kernel's executable path). Others
+        /// run a file in no app bundle, unless `pathsUnreadable`.
+        var paths: [Int32: String] = [:]
+        var pathsUnreadable = false
+    }
     var opened = Opened()
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] {
         // The window server's list could not be read: the backend gets none.
         if opened.listUnreadable { return [] }
+        let closed = opened.lock.withLock { opened.closed }
+        let restarted = opened.lock.withLock { opened.restarted.union(opened.startUnknown) }
         return (opened.windows + wins).filter { (pid == nil || $0.process.pid == pid) && (bundleId == nil || $0.bundleId == bundleId)
-            && (includeOffscreen || $0.onScreen) }
+            && (includeOffscreen || $0.onScreen) && !closed.contains($0.windowId) }
+            .map { w in
+                guard restarted.contains(w.process.pid) else { return w }
+                var w = w
+                w.process = processIdentity(w.process.pid)
+                return w
+            }
     }
 }
 
@@ -46,8 +80,12 @@ func makeService(backend: RuntimeBackend = FixedBackend(), endpoint: String = "/
     { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(),
                                              startedAt: Timestamp.string(Date()), endpoint: endpoint,
                                              buildSource: "unknown"),
-                   backend: backend, desktops: desktops); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                   backend: backend, desktops: desktops, testSocketOwnerToken: testOwnerToken); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
 }
+
+/// The owner credential of every test Runtime made by makeService.
+let testOwnerToken = "adt1_test-owner-credential"
+let testOwner = ClientCredential(clientId: "local:\(getuid())", token: testOwnerToken)
 
 /// A short private directory for sockets (sun_path holds 104 bytes).
 func socketDirectory() throws -> String {
@@ -86,6 +124,9 @@ final class RawConnection {
 
 let handshakeLine = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"hs_1","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"t","version":"1"}}}"#
 
+/// The same handshake with the test owner credential (raw socket clients, A4).
+let ownerHandshakeLine = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"hs_1","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"t","version":"1"},"credential":{"clientId":"local:\#(getuid())","token":"adt1_test-owner-credential"}}}"#
+
 func requestLine(_ method: String, id: String = "req_1", params: String = "{}") -> String {
     #"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(id)","method":"\#(method)","params":\#(params)}"#
 }
@@ -107,7 +148,9 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         let e = els.last { $0.frame.map { point.x >= $0.x && point.x < $0.x + $0.width && point.y >= $0.y && point.y < $0.y + $0.height } ?? false }
         return PlatformHit(role: e?.role ?? "AXWindow", texts: [e?.label, e?.value].compactMap { $0 }, windowId: wins.first?.windowId)
     }
-    func menuItems(pid: Int32) -> [PlatformMenuItem]? { menu }
+    /// Menu bars read, by pid (#139: never iPhone Mirroring's).
+    var menuReads: [Int32] = []
+    func menuItems(pid: Int32) -> [PlatformMenuItem]? { lock.withLock { menuReads.append(pid) }; return menu }
     /// What has focus; by default nothing.
     /// What has focus; by default an editable text area of the app's window
     /// (where typing goes in the ordinary case).
@@ -170,6 +213,10 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         }
     }
 
+    /// High-layer windows over a screen (notifications, menus), by screen name.
+    var overlayWindows: [String: [PlatformWindow]] = [:]
+    func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] { lock.withLock { overlayWindows[screen.name] ?? [] } }
+
     /// The user's own displays a physical Desktop may attach, by ID.
     var physicalDisplays: [UInt32: ScreenHandle] = [
         1: ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1512, height: 982), hiDPI: true),
@@ -193,6 +240,8 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
 
     func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws -> (pid: Int32, windows: [PlatformWindow]) {
         note("launch \(bundleId ?? path ?? "?") on \(screen.name)")
+        onLaunch?()
+        if let launchError { throw launchError }
         guard bundleId != "com.example.missing" else { throw PlatformError(.refused, "give a bundle ID of an installed app") }
         // The engine's answer when the launch hands back a process that was
         // already running: refused before anything is moved or bound.
@@ -247,6 +296,10 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     /// Runs right after an input is "sent" or a window is captured.
     var onPerform: (() -> Void)?
     var onCapture: (() -> Void)?
+    /// Runs as an element read returns, outside the Desktop's lock.
+    var onElements: (() -> Void)?
+    /// Runs as an element read starts reading the window (before its frame is taken).
+    var onElementsRead: (() -> Void)?
 
     func stack(on screen: ScreenHandle) -> [PlatformWindow] {
         lock.withLock {
@@ -296,11 +349,17 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         defer { lock.withLock { axRunning -= 1 } }
         lock.withLock { axGate }?.wait()
         if let f = lock.withLock({ axFailure }) { throw f }
+        lock.withLock { onElementsRead }?()
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "the window is gone") }
+        defer { lock.withLock { onElements }?() }
         return ElementRead(window: w, elements: elements, truncated: lock.withLock { axTruncated })
     }
 
     var quit: [Int32] = []
+    /// Runs as a launch starts its app (#139).
+    var onLaunch: (() -> Void)?
+    /// Thrown by the launch after `onLaunch`, as the engine's refusals are.
+    var launchError: Error?
     func quit(pid: Int32) -> Bool { lock.withLock { quit.append(pid) }; return true }
     var performed: [PlatformAction] = []
     /// Fail the next action: before or after dispatch.
@@ -336,7 +395,7 @@ func platformService(_ platform: FakePlatform = FakePlatform(), backend: FixedBa
                      ledger: RequestLedger? = nil) -> RuntimeService {
     { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                              endpoint: "/tmp/t.sock", buildSource: "unknown"),
-                   backend: backend, platform: platform, ledger: ledger); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; s.socketLaunchRequiresGrant = false; s.socketDiscoveryRequiresGrant = false; s.socketGuiRunRequiresGrant = false; s.socketsSeeOnlyTheirOwn = false; s.socketExtensionsAreReadOnly = false; return s }()
+                   backend: backend, platform: platform, ledger: ledger); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
 }
 
 import CoreGraphics
@@ -361,4 +420,50 @@ func pngSize(_ data: Data) -> (Int, Int)? {
           let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
           let w = p[kCGImagePropertyPixelWidth] as? Int, let h = p[kCGImagePropertyPixelHeight] as? Int else { return nil }
     return (w, h)
+}
+
+/// A paired app on this Runtime (A4), registered the way the owner would:
+/// a pairing request, approved with this grant; the connection has shown
+/// the app's credential in its handshake.
+func pairedConnection(_ s: RuntimeService, capabilities: [String] = ["observe", "act", "run"], desktops: [String] = [],
+                      apps: [String] = [], name: String = "test-app") throws -> (ConnectionState, String) {
+    let (c, id, _) = try pairedClient(s, capabilities: capabilities, desktops: desktops, apps: apps, name: name)
+    return (c, id)
+}
+
+/// pairedConnection, with the app's token for later connections.
+func pairedClient(_ s: RuntimeService, capabilities: [String], desktops: [String] = [],
+                  apps: [String] = [], name: String = "test-app") throws -> (ConnectionState, String, String) {
+    let pairing = try s.hub.startPairing(connectionId: "conn_test", agentName: name, publisher: nil,
+                                         requested: .obj([("capabilities", .array(capabilities.map(JSONValue.string)))]),
+                                         callerFacts: .obj([]))
+    let (client, _) = try s.hub.approve(pairing, grant: HubStore.Grant(
+        clientId: "", capabilities: capabilities, desktops: desktops, apps: apps,
+        expiresAt: Timestamp.string(Date().addingTimeInterval(3600)), revision: 0, state: "active"))
+    let token = try #require(s.hub.collect(pairing.pairingId))
+    let c = ConnectionState(socketPeer: getuid(), pid: nil, executable: nil)
+    let hello = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"hs","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"t","version":"1"},"credential":{"clientId":"\#(client.clientId)","token":"\#(token)"}}}"#
+    _ = s.respond(to: Data(hello.utf8), on: c)
+    #expect(c.role == .paired)
+    return (c, client.clientId, token)
+}
+
+/// The owner's credential for a socket client of this Runtime (A4).
+func ownerCredential(_ s: RuntimeService) -> ClientCredential {
+    ClientCredential(clientId: "local:\(getuid())", token: s.testSocketOwnerToken ?? "")
+}
+
+/// A window grant the user confirmed (window-grants.md), registered the way
+/// the trusted window's approval would: by default for Calculator's window
+/// 11 of FixedBackend, every permission.
+@discardableResult
+func grantWindow(_ s: RuntimeService, clientId: String, desktopId: String, windowId: UInt32 = 11, pid: Int32 = 101,
+                 bundleId: String = "com.apple.calculator", permissions: [String] = ["observe", "act", "persist"],
+                 seconds: TimeInterval = 3600) throws -> HubStore.WindowGrant {
+    let g = HubStore.WindowGrant(windowGrantId: DesktopRegistry.newId(prefix: "wg"), clientId: clientId, desktopId: desktopId,
+                                 windowId: windowId, process: s.backend.processIdentity(pid), bundleId: bundleId, appName: "App",
+                                 permissions: permissions, state: "active", endedReason: nil, createdAt: Timestamp.string(Date()),
+                                 expiresAt: Timestamp.string(Date().addingTimeInterval(seconds)), confirmationId: "conf_test")
+    try s.hub.addWindowGrant(g)
+    return g
 }

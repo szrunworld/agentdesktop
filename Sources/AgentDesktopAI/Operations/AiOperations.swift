@@ -27,6 +27,12 @@ extension ConfigStore {
         return id
     }
 
+    /// A caller's operations still queued or running (A4 R4).
+    public func activeOperations(callerScope: String) throws -> [String] {
+        try db.rows("SELECT operation_id FROM ai_operations WHERE caller_scope=? AND state IN ('queued','running')",
+                    [.text(callerScope)]).compactMap { $0[0].text }
+    }
+
     /// The contract's AiOperation, or NOT_FOUND for another caller's id.
     public func operation(_ id: String, callerScope: String) throws -> JSONValue {
         guard let r = try db.row("""

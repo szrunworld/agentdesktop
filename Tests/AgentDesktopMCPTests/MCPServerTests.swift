@@ -70,7 +70,10 @@ struct MCPBackend: RuntimeBackend {
     var platform: AgentDesktopProtocol.Platform { .init(os: "macos", osVersion: "15", arch: "arm64") }
     func permissions() -> BackendPermissions { .init(screenRecording: .granted, accessibility: .granted) }
     func features() -> [String] { [] }
-    func applications(includeBackground: Bool) -> [AppSummary] { [] }
+    func applications(includeBackground: Bool) -> [AppSummary] {
+        [AppSummary(process: ProcessIdentity(pid: 4, startedAt: "2026-10-08T01:00:00.000Z"), bundleId: "com.apple.Notes",
+                    name: "Notes", active: false, hidden: false)]
+    }
     /// The bound window is in its app's list, as on a real machine (#163
     /// refuses input when it is not: the list could not be read).
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [AgentDesktopProtocol.WindowSummary] {
@@ -80,12 +83,15 @@ struct MCPBackend: RuntimeBackend {
                               frame: Rect(x: 3010, y: 10, width: 500, height: 400), onScreen: true)]
     }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: "2026-10-08T01:00:00.000Z") }
+    /// An executable in no app bundle: known not to be iPhone Mirroring (#139).
+    func executablePath(_ pid: Int32) -> String? { "/test/bin/process" }
 }
 
 /// A live Runtime on a temporary socket and an MCP server talking to it.
 final class MCPHarness {
     let dir: String
     let server: RuntimeServer
+    let service: RuntimeService
     let platform = MCPPlatform()
     let mcp: MCPServer
     var nextId = 0
@@ -94,14 +100,22 @@ final class MCPHarness {
         var template = Array("/tmp/adt-XXXXXX".utf8CString)
         dir = String(cString: mkdtemp(&template)!)
         let path = dir + "/runtime.sock"
-        let service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_mcp", pid: getpid(), startedAt: Timestamp.string(Date()),
+        service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_mcp", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                                endpoint: path, buildSource: "unknown"),
                                      backend: MCPBackend(), platform: platform)
         service.bindsOnlyLaunchedProcesses = false
-        service.refusesScreenCaptureWithoutBinding = false; service.socketLaunchRequiresGrant = false; service.socketDiscoveryRequiresGrant = false; service.socketGuiRunRequiresGrant = false; service.socketsSeeOnlyTheirOwn = false; service.socketExtensionsAreReadOnly = false
+        service.refusesScreenCaptureWithoutBinding = false
         server = RuntimeServer(path: path, service: service)
         try server.start()
-        mcp = MCPServer(makeClient: { SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1")) })
+        // An MCP host is an external agent: a paired app, never the owner (A4).
+        let pairing = try service.hub.startPairing(connectionId: "conn_test", agentName: "mcp-test", publisher: nil,
+                                                   requested: .obj([]), callerFacts: .obj([]))
+        let (client, _) = try service.hub.approve(pairing, grant: HubStore.Grant(
+            clientId: "", capabilities: ["observe", "act", "desktop.manage", "run"], desktops: ["created"],
+            apps: ["com.apple.Notes"], expiresAt: Timestamp.string(Date().addingTimeInterval(3600)), revision: 0, state: "active"))
+        let credential = ClientCredential(clientId: client.clientId, token: service.hub.collect(pairing.pairingId) ?? "")
+        mcp = MCPServer(makeClient: { SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1"),
+                                                          credential: credential) })
     }
 
     deinit {

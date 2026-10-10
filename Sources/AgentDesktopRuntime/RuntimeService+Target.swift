@@ -24,6 +24,11 @@ extension RuntimeService {
             }
             return RuntimeError("stale_observation", message, phase: .handler, notSent: notSent, details: .obj(details))
         }
+        // #139: bind refuses it already; checked again at every observe and
+        // act, so no binding reaches the phone, and none to an app that
+        // cannot be identified now.
+        try refuseMirroring(b.process.pid, notSent: notSent)
+        try refuseChangedDisplay(d, b, notSent: notSent)
         guard let window = platform.window(on: d.screen, pid: b.process.pid, windowId: b.windowId) else {
             throw refuse("window_gone", "window \(b.windowId) is no longer on desktop \(d.desktopId); bind a window again")
         }
@@ -32,7 +37,19 @@ extension RuntimeService {
             throw refuse("not_visible", "window \(b.windowId) is not visible on desktop \(d.desktopId)")
         }
         let front = stack[..<index]
-        if let cover = front.first(where: { Self.overlap($0.frame, window.frame) }) {
+        // On the user's screen, anything above the normal layer over the
+        // window covers it too: a notification, another app's menu, and the
+        // bound app's own sheets and popovers (the window capture does not
+        // show them, yet input posted to the process may land on them).
+        let above = d.kind == .physical ? platform.overlays(on: d.screen, boundPid: b.process.pid) : []
+        // The bound process's own overlays count on any intersection at all:
+        // input routing picks one by point containment, with no sliver
+        // tolerance (Codex on 950600b). Others keep the shadow tolerance.
+        func covers(_ w: PlatformWindow) -> Bool {
+            w.pid == b.process.pid ? Self.intersects(w.frame, window.frame) : Self.overlap(w.frame, window.frame)
+        }
+        if let cover = above.first(where: covers)
+            ?? front.first(where: { Self.overlap($0.frame, window.frame) }) {
             throw refuse("occluded",
                          "window \(cover.windowId) covers the bound window \(b.windowId); bind the window you mean, or move it away",
                          covering: cover)
@@ -64,9 +81,30 @@ extension RuntimeService {
             .map { StackEntry(windowId: $0.windowId, frame: $0.frame) })
     }
 
+    /// The user may change the display under a physical Desktop
+    /// (resolution, arrangement, unplugging it): the recorded geometry would
+    /// then map pixels and points wrongly. Checked wherever the bound window
+    /// is looked at or reached: observe, act and every wait poll.
+    func refuseChangedDisplay(_ d: DesktopRecord, _ b: TargetBinding, notSent: Bool) throws {
+        guard d.kind == .physical, let platform else { return }
+        let now = try? platform.attachDisplay(d.screen.displayId)
+        guard let now, now.frame == d.screen.frame, now.hiDPI == d.screen.hiDPI else {
+            throw RuntimeError("stale_observation",
+                               "display \(d.screen.displayId) changed or is gone since desktop \(d.desktopId) attached it; destroy it and attach the display again",
+                               phase: .handler, notSent: notSent,
+                               details: .obj([("reason", .string("display_changed")), ("generation", .int(b.generation)),
+                                              ("windowId", .int(Int(b.windowId)))]))
+        }
+    }
+
     struct StackEntry: Equatable {
         let windowId: UInt32
         let frame: AgentDesktopProtocol.Rect
+    }
+
+    /// Any intersection with an area at all.
+    static func intersects(_ a: AgentDesktopProtocol.Rect, _ b: AgentDesktopProtocol.Rect) -> Bool {
+        min(a.x + a.width, b.x + b.width) > max(a.x, b.x) && min(a.y + a.height, b.y + b.height) > max(a.y, b.y)
     }
 
     /// Overlap of more than a sliver: shadows and 1 pt borders do not count.

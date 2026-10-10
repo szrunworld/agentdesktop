@@ -63,7 +63,7 @@ import Testing
     let path = dir + "/requests.sqlite"
     do {
         let ledger = try RequestLedger(path: path)
-        #expect(try ledger.begin(caller: getuid(), RuntimeRequest(requestId: "w-1", method: "desktop.create", params: .obj([]))) == .fresh)
+        #expect(try ledger.begin(caller: "local:\(getuid())", RuntimeRequest(requestId: "w-1", method: "desktop.create", params: .obj([]))) == .fresh)
     }
     let s = platformService(ledger: try RequestLedger(path: path))
     let c = handshaken(s)

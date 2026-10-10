@@ -53,17 +53,29 @@ public final class RuntimeServer: @unchecked Sendable {
         var st = stat()
         guard stat(dir, &st) == 0, st.st_uid == getuid() else { throw StartError.notOwned(dir) }
 
-        let lfd = Darwin.open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        // Never through a link (the mode change and the record below would
+        // land on its target), and only an own regular file.
+        let lfd = Darwin.open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0o600)
         guard lfd >= 0 else { throw StartError.io("open \(lockPath): \(String(cString: strerror(errno)))") }
-        if flock(lfd, LOCK_EX | LOCK_NB) != 0 {
-            let holder = (try? String(contentsOfFile: lockPath, encoding: .utf8))
-                .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        var lst = stat()
+        // One link only: a hard link to another file would have it rewritten.
+        guard fstat(lfd, &lst) == 0, (lst.st_mode & S_IFMT) == S_IFREG, lst.st_uid == getuid(), lst.st_nlink == 1 else {
             Darwin.close(lfd)
-            throw StartError.alreadyServed(path: path, holderPID: holder)
+            throw StartError.notOwned(lockPath)
         }
-        ftruncate(lfd, 0)
-        let pidLine = "\(getpid())\n"
-        _ = pidLine.withCString { Darwin.write(lfd, $0, strlen($0)) }
+        if flock(lfd, LOCK_EX | LOCK_NB) != 0 {
+            let parsed = EndpointRecord.read(fd: lfd).map(EndpointRecord.parse)
+            Darwin.close(lfd)
+            throw StartError.alreadyServed(path: path, holderPID: parsed?.record?.pid ?? parsed?.legacyPID)
+        }
+        // An existing lock file keeps whatever mode it had: owner-only again.
+        fchmod(lfd, 0o600)
+        // Who holds the endpoint, for diagnosis: a clue, not proof (see
+        // EndpointRecord). Rewritten once the socket listens.
+        var record = EndpointRecord(product: service.identity.product, productVersion: service.identity.productVersion,
+                                    pid: getpid(), instanceId: service.identity.instanceId, endpoint: path,
+                                    listening: false, since: Timestamp.string(Date()))
+        Self.write(record, to: lfd)
 
         // Holding the lock, anything at the path is a leftover of a host
         // that died: remove it if it is a socket, refuse anything else.
@@ -103,6 +115,8 @@ public final class RuntimeServer: @unchecked Sendable {
             throw StartError.io("pipe(): \(String(cString: strerror(errno)))")
         }
 
+        record.listening = true
+        Self.write(record, to: lfd)
         lock.withLock {
             lockFD = lfd
             socketInode = mine.st_ino
@@ -114,6 +128,11 @@ public final class RuntimeServer: @unchecked Sendable {
         thread.name = "agentdesktop.runtime.accept"
         acceptThread = thread
         thread.start()
+    }
+
+    private static func write(_ record: EndpointRecord, to fd: Int32) {
+        ftruncate(fd, 0)
+        _ = record.line.withCString { pwrite(fd, $0, strlen($0), 0) }
     }
 
     /// Stop accepting, remove the socket if it is still ours, release the lock.
@@ -130,6 +149,13 @@ public final class RuntimeServer: @unchecked Sendable {
         var st = stat()
         if lstat(path, &st) == 0, st.st_ino == inode { unlink(path) }
         if lfd >= 0 {
+            // The record stays, marked as no longer listening.
+            // From the descriptor it holds, never the path: whatever now sits
+            // at the path (a FIFO, a link) cannot hold up stopping.
+            if var r = EndpointRecord.read(fd: lfd).flatMap({ EndpointRecord.parse($0).record }), r.pid == getpid() {
+                r.listening = false
+                Self.write(r, to: lfd)
+            }
             flock(lfd, LOCK_UN)
             Darwin.close(lfd)
         }
@@ -167,21 +193,28 @@ public final class RuntimeServer: @unchecked Sendable {
     /// own stream also ends once that Run has ended and was fully sent.
     private func push(_ channel: LineChannel, _ connection: ConnectionState) -> Bool {
         while connection.isSubscribed {
+            // Access withdrawn mid-stream: no more frames, the connection closes.
+            if service.subscriptionRevoked(connection) { return false }
+            service.pushCheckpoint?(connection)
             let frames = service.pendingEventFrames(connection)
             for f in frames {
-                guard channel.writeLine(f.encodedData()) else { return false }
+                guard connection.send({ channel.writeLine(f.encodedData()) }) else { return false }
             }
             if !frames.isEmpty { continue }
             if service.subscriptionDrained(connection) { return false }
             guard channel.readable(within: Self.pushInterval) else { continue }
             guard case let .line(body) = channel.readLine() else { return false }
-            guard channel.writeLine(service.respond(to: body, on: connection).json.encodedData()) else { return false }
+            let reply = service.respond(to: body, on: connection).json.encodedData()
+            guard connection.send({ channel.writeLine(reply) }) else { return false }
         }
         return true
     }
 
     private func serve(_ fd: Int32) {
-        defer { Darwin.close(fd) }
+        var connection: ConnectionState?
+        defer {
+            if let connection { connection.detach { Darwin.close(fd) } } else { Darwin.close(fd) }
+        }
         // A connection whose writes could raise SIGPIPE is not served.
         guard SocketOptions.noSigPipe(fd) else { return }
         let channel = LineChannel(fd: fd)
@@ -195,14 +228,31 @@ public final class RuntimeServer: @unchecked Sendable {
         }
         lock.withLock { open += 1 }
         defer { lock.withLock { open -= 1 } }
-        let connection = ConnectionState(socketPeer: uid)
-        defer { service.connectionClosed(connection) }
+        // Unpaired until its handshake shows a credential (A4). What the
+        // kernel says about the peer is kept as the caller's facts.
+        var pid: pid_t = 0
+        var len = socklen_t(MemoryLayout<pid_t>.size)
+        let gotPid = getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) == 0 && pid > 0
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        let executable = gotPid && proc_pidpath(pid, &path, UInt32(path.count)) > 0 ? String(cString: path) : nil
+        let state = ConnectionState(socketPeer: uid, pid: gotPid ? pid : nil, executable: executable)
+        // S2: who the kernel says is at the other end, for pairing and for
+        // checking a paired client is still the code it paired as.
+        if let token = peerAuditToken(fd) {
+            state.peerAuditToken = token
+            state.codeIdentity = service.codeVerifier.identify(auditToken: token, executable: executable)
+        } else {
+            state.codeIdentity = .unknown
+        }
+        state.attachCloser { _ = shutdown(fd, SHUT_RDWR) }
+        connection = state
+        defer { service.connectionClosed(state) }
         while true {
             switch channel.readLine() {
             case let .line(body):
-                let response = service.respond(to: body, on: connection)
-                guard channel.writeLine(response.json.encodedData()) else { return }
-                if connection.isSubscribed, !push(channel, connection) { return }
+                let response = service.respond(to: body, on: state).json.encodedData()
+                guard state.send({ channel.writeLine(response) }) else { return }
+                if state.isSubscribed, !push(channel, state) { return }
             case .tooLarge:
                 channel.writeLine(RuntimeResponse.failure(nil, RuntimeError(
                     "frame_too_large", "a message exceeds \(RuntimeAPI.maxFrameBytes) bytes", phase: .request)).json.encodedData())

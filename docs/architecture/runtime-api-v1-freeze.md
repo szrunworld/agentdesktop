@@ -71,6 +71,14 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 
 ### 2.1 PR3 之前的临时封堵（#153，Kevin 2026-10-09 裁决）
 
+> **#137（A4）合入后，本节描述的临时模型由 A4 取代**，判断统一由 Runtime 的身份与授权完成（`docs/security/a4-identity.md`）：
+> - socket 客户端分为未配对（只能配对）和已配对（`app:<id>`，按 grant 授权，默认拒绝）。不再有 `socket:<uid>` 主体，也不再有 `socketsSeeOnlyTheirOwn` 等开关。
+> - 拒绝原因保持不变：`launch_requires_grant`、`window_discovery_requires_grant`、`gui_run_requires_grant`；另有 `bind_requires_grant`。错误码按契约为 `pairing_required` / `grant_missing`。
+> - `runtime.stopAll`：配对 App 只停自己的 Run，不关闭输入准入；只有 owner 能全局停止（落实了下面的收紧计划第 1、2 条）。第 3、4 条（单独的「紧急停止」授权、主窗口显示发起者）尚未实现。
+> - AI 配置：未配对和未验证代码的客户端连读都不行；已验证客户端每次调用都要在可信窗口确认（窗口对 `ai.connections.*` 有显式警告）。
+> - `runtime.status` 对配对 App 只统计它能看到的部分。
+> - #153 的封堵测试已改写为 A4 语义的 `RuntimeSealParityTests`。
+
 在 #137（A4 身份与授权）落地之前，Runtime 按连接来源区分两类主体。来源由 Runtime 在建立连接时标记，客户端改不了：
 
 | 来源 | 怎样产生 | `clientId` | 角色 |
@@ -102,6 +110,24 @@ socket 客户端：
 - socket 客户端之间暂时共用一个主体，能互相看到并使用对方的 Desktop、会话、请求账本、Run 和产物。
 - AI 配置只读开放：socket 客户端能读到全局 AI 连接的 `baseUrl` 和 `credentialRef`（钥匙串条目 ID，不是密钥本身）。
 - `runtime.status` 向 socket 客户端返回全局计数（Desktop、会话、活动 Run），其中包括主窗口的。只泄露数量，不泄露内容。
+
+### 2.2 安全策略拒绝：iPhone 镜像（#139，Kevin 2026-10-09 裁决）
+
+iPhone 镜像（`com.apple.ScreenContinuity`）是普通 macOS 应用，但对它的输入会直接到达手机，绕开 iPhone 专用的保护（粘贴事务、剪贴板暂缓恢复、跨进程输入阻断、状态判断、G2 限制）。**在 iPhone 设备会话正式验收之前，任何主体（包括 owner）都不能通过通用 Desktop API 操作它。** 由 Runtime 强制执行，不依赖客户端。
+
+| 入口 | 行为 |
+| --- | --- |
+| `app.launch`（bundleId，大小写不敏感；或路径，包括包内文件和软链接） | 拒绝，不调用平台 |
+| `app.launch` 启动后才发现是它（或无法识别） | 不记为 Desktop 的应用，不绑定。平台只返回启动令牌（LaunchOwnership）证明由本次启动创建的进程，所以向它发出退出请求；发出前再核对 pid 和启动时间。归属不靠时间戳或应用列表判断，用户自己的镜像（包括启动过程中用户自己打开的）不动。`details.quitRequested` 说明是否发出了退出请求（请求，不代表已确认退出），`notSent: false`。引擎证明不了归属时（`launch_refused_after_open`、`launch_failed`）原样返回引擎的错误，不结束任何进程 |
+| `window.bind`（虚拟或物理 Desktop） | 在授权检查之后拒绝，不移动窗口 |
+| 指向它的已有绑定上的 `observe` / `act` / `wait` | 拒绝，在截图、读取元素、发送输入之前；act 在请求账本中记为 `failed` |
+
+- **fail-closed**：进程身份先看运行中应用列表，再看可执行文件所在的 bundle（`proc_pidpath`），任一方式认出是它就拒绝。两种方式都无法确定时（列表读不到且路径读不到，或路径所在 .app 读不出 bundle id），同样拒绝，`details.identity = unverified`（认出时为 `iphone_mirroring`）。拒绝只针对这一次请求，不缓存，下一次请求重新核实。启动后无法识别的进程不记为 Desktop 的应用；它的归属已由启动令牌证明，所以同样发出退出请求，避免成为无人管理的孤儿进程。
+- 已知残余（非阻断，b9 复审 49807b2）：Runtime 拿不到引擎的启动句柄，退出请求按 pid 重新查找进程（发出前已核对 pid 和启动时间，剩下的是微秒级的 pid 复用窗口）；退出请求不等待确认退出。当前 `verifiedApps` 为空，这条分支不可达。
+- observe 在截图、读元素之前拒绝时 `notSent: true`；截图之后的复查才是 `notSent: false`。
+- 错误：`permission_denied`，`details.reason = iphone_mirroring_blocked`。这是**安全策略拒绝，不是授权不足**：任何 grant、capability 或配对都不能解除。不新增错误码，不改已有错误码语义（不使用 `capability_missing` / `unsupported_backend`，以免被理解为补授权或技术不支持）。
+- 应用列表、窗口列表等只读方法照常列出它。
+- 合并本项不代表 iPhone 设备会话具备发布条件。解除封禁必须单独提 PR，完成设备会话授权、安全隔离和真机验收，并获得新的明确授权。
 
 ## 3. Run：一个 RunStore，两类生命周期
 
@@ -207,6 +233,7 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
 | 用量 | ai.usage.summary | ✅ PR2b-1 | PR2b |
 | Desktop 控制面 | desktop.stop / takeover / handback / closePlan / resize；app.quit；request.list / export | 🔖 | A5 |
 | 身份 | hub.pairing.start / status / approve / deny；hub.clients.list / show / revoke；hub.grants.list / set / revoke；hub.connections.list | 🔖 | PR3 |
+| 窗口授权 | hub.windows.request / list / revoke（按窗口的 observe / act / persist，见 docs/security/window-grants.md） | ✅ | 窗口授权前置 PR |
 | Inbox | inbox.list / show / resolve；run.reconcile（unknown 核对） | 🔖 | PR4 |
 | 诊断 | diagnostics.export | 🔖 | PR4 |
 | 学习 | gui.knowledge.get / events；gui.procedures.list / get / propose / revise / lifecycle；gui.validations.start / get / cancel | 🔖 | PR7 |
@@ -349,3 +376,33 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
 **明确接受的残余风险：目标应用内部的自动补全列表（Kevin 2026-10-09，#163 选方案 A）。** 打字前先点击网页输入框、或打出某个字符之后，应用可能弹出自动补全列表（同样处在弹出菜单层），而焦点仍在绑定窗口的输入框里。引擎在打字过程中**不**因此停下，因为逐字符检查菜单（方案 B，8788c3d）会让地址栏、搜索框这类常见输入只能打进一个字符，属于不可接受的功能退化。这时补全列表可能改变实际输入的位置或内容。仍然保留的约束有：每个字符发出之前都重新确认焦点在绑定窗口，焦点不在或读不出就立即停止；换行只能是最后一个字符，所以打字过程中不会选中补全项；发送后出现菜单，记为送达未知（`menu_opened_by_action`），不会报成已发出；执行结果未知时不会自动重试。因为补全可能影响实际输入，**不能只凭焦点正确就认定文本已经正确输入**：回执的 `businessResult` 始终是 `not_evaluated`，实际内容要靠后续观察确认。
 
 **残余风险：检查和发送不是原子的。** 平台接口无法保证，在"读焦点"和"发送按键"之间焦点不被移走。发送之后会再读一次菜单状态和焦点：发送前已确认没有打开的菜单，所以发送后出现菜单、或者读不出菜单状态，都说明这次输入可能打开了菜单，焦点也可能随之移走，记为"送达未知"（`menu_opened_by_action`，Codex 在 b258049 上的意见）；没有菜单时，只有确认焦点**仍在**绑定窗口才算已发出：焦点在别的窗口，记为"送达未知"（`focus_moved`）；读不出焦点或读不出它所在的窗口，也记为"送达未知"（`focus_unverified_after_send`，Codex 在 9ed802d 上的意见）。凡是"读不出"的分支，发送前一律拒绝（`notSent`），发送后一律记为送达未知：其中包括窗口列表。绑定窗口在屏幕上时，一定会出现在它所属进程的窗口列表里，列表里找不到它就说明列表读不出来，发送前拒绝（`window_list_unverified`），发送后记为送达未知。两者都不会算作成功，也不会自动重试。代价：在带自动补全的输入框里打字时，补全列表同样处在弹出菜单层，这类打字之后会报送达未知。但焦点在两次读取之间离开又回来，是发现不了的。所以这里实现的是"发送前后都核对过的窗口级检查"，不是严格的窗口级隔离。
+
+## 11. 端点所有权记录与只读诊断（Kevin 2026-10-09 批准）
+
+- **锁文件里的所有权记录**：Runtime 取得 `<endpoint>.lock` 的独占锁后，把记录写进锁文件（0600，一行 JSON）：`product`、`productVersion`、`pid`、`instanceId`、`endpoint`、`listening`、`since`。记录在监听之前写入，此时 `listening` 为 false；开始监听后改为 true；正常停止时改回 false 并保留。记录里没有任何令牌或凭据。
+- **记录只是诊断线索，不能证明 Runtime 在运行**：崩溃后记录还在，它的 pid 也可能已经被别的进程复用。
+- **诊断（`agentdesktop doctor`，实现在 `EndpointInspector`）严格只读**：
+  - 不加锁，连共享锁也不加，因为可能让正在启动的 Runtime 抢锁失败；
+  - 不修复权限，不删除 socket 或锁文件，不启动或停止 Runtime，不改动任何授权，不创建 Run；doctor 不读取钥匙串或发送配对凭据，也不调用受保护的 `run.list`（避免未配对请求写入拒绝审计）；
+  - 不枚举窗口或应用。
+- **报告的内容**：
+  - 端点属于哪类环境（产品、测试副本、自定义路径）；
+  - socket 和目录的属主与权限；
+  - 锁文件里记录的持有者：`alive`（仍在）、`gone`（已不在）、`pid_reused`（pid 已被后来的进程占用）、`legacy`（只有 pid 的旧格式）、`unknown`、`none`；
+  - Runtime 版本与契约版本；
+  - Run 服务探测状态（不带凭据的 doctor 跳过受保护探测，不能据此认定服务通过或失败）；
+  - 失败所在的环节：connect（连接）、identity（身份）、version（版本）、authorization（授权）、service（服务）。
+- **身份判定**：同时满足以下条件才判为 `verified`：
+  - 握手**所用的同一条连接**上，内核报告的对端 pid 和 uid（`LOCAL_PEERPID`、`getpeereid`）与握手内容一致；
+  - 锁文件记录一致（pid、instanceId、正在监听、进程启动时间不晚于记录时间）；
+  - 回复之后读取审计令牌（LOCAL_PEERTOKEN），按令牌核对进程**当前的签名证书与本 CLI 相同**。令牌反映读取时的 exec 代次，并不保存发送回复时的身份。按 pid 查找会被"子进程持有连接、父进程 exec 产品二进制"冒用，所以不用 pid。令牌里的 pid 必须和握手里的 pid 一致。
+  - 回复之后再读一次令牌：后续询问（capabilities）结束时，令牌必须和握手后读到的完全相同，否则判为 `mismatch`，并丢弃那些答案。
+  - **`verified` 的含义只是"各项信息一致，并且答复进程当前的签名者与本 CLI 相同"，不能证明它不是同一用户的冒充者。** 已知可以绕过：同一个进程写完回复后再 exec 成签名的产品二进制（必要时先暂停 doctor），令牌会带上新的 exec 代次，各项 pid 都一致，签名判为相同（b9 2026-10-09 复现）。内核层面没有办法拿到"发送那一刻"的身份；同一用户的进程之间本来就没有隔离边界，向真正的产品进程注入也一样防不住。所以诊断结果只用于排查，不作为授权依据。
+  - 端点目录允许其他用户写入时，不连接、不握手，直接判失败。
+
+  缺少任一项判为 `unverified`（警告）；互相矛盾（包括签名不同、对端是其他用户）判为 `mismatch`（失败），**判定后不再向它询问任何东西**，它报告的权限也不会显示。身份未核实时显示的权限会标明"由未核实的 Runtime 报告"。**连得上不等于身份可信。**
+- 锁文件只读普通文件，不跟随链接、不在 FIFO 上等待，最多读 4 KB。Runtime 停止时从自己持有的文件描述符读取记录，不按路径重新打开。已经存在的锁文件在取锁后改回 0600。
+- 端点所在目录**其他用户可写**时判为失败（别人可能把自己的 socket 放进去）；只是可读时给警告。所以直接放在 `/tmp`（权限 1777）下的端点一定被判失败，侧实例要放在自己的 0700 子目录里。Runtime 只接受只有一个链接的锁文件（拒绝硬链接）。
+- 对其他用户可读写的 socket 判为 `too_open`，不连接。**所有客户端**（CLI、MCP、ACP、SDK 用的 `EndpointResolver.inspect`）都会拒绝连接这样的 socket，不只是诊断。在 `session exec` 里运行时，只报告上下文文件的路径，不显示其中的令牌。
+
+- **A4 适配**：doctor 使用无凭据连接，仅进行握手和公开的 `runtime.capabilities`。输出握手返回的调用方 `principal`，注明这是诊断连接身份，不代表 CLI 已存储凭据的配对状态。身份矛盾时不信任 principal；不会启动配对或申请授权。

@@ -320,6 +320,20 @@ func fast() -> PasteWatcher {
             return
         }
     }
+
+    /// #180: the input barrier refused the ⌘V before sending ("stale_observation
+    /// (delivery_unknown)" names an earlier input's unknown result): nothing
+    /// was sent, so nothing was pasted.
+    @Test func pasteKeyRefusedByTheBarrierIsNotDelivered() {
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard])
+        phone.pasteResponse = .failure("stale_observation (delivery_unknown): the window may hold the result of an "
+            + "input whose delivery failed midway after an earlier input; take a screenshot before any more input")
+        guard case .notDelivered = fast().paste("hello", verify: true, driver: phone) else {
+            Issue.record("a ⌘V refused before sending was not sent")
+            return
+        }
+        #expect(phone.looks == 1)
+    }
 }
 
 @Suite struct PasteResponses {
@@ -397,6 +411,26 @@ func fast() -> PasteWatcher {
         #expect(phone.pasted == ["hello"])
         #expect(pasteboard.data(forType: .png) == Data([1, 2, 3]))
         #expect(pasteboard.string(forType: .string) == nil)
+    }
+
+    /// #180: a ⌘V the barrier refused hands the user's clipboard back at
+    /// once; it raises no barrier of its own and waits for no fetch.
+    @Test func aPasteTheBarrierRefusedRestoresTheClipboardAtOnce() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("USER", forType: .string)
+        let phone = ScriptedPhone(baseline: keyboard, [keyboard])
+        phone.pasteboard = pasteboard
+        phone.pasteResponse = .failure("stale_observation (delivery_unknown): take a screenshot before any more input")
+        let result = transaction(pasteboard, lock).paste("hello", verify: true, driver: phone)
+        guard case .notDelivered = result.outcome else {
+            Issue.record("expected notDelivered, got \(result.outcome)")
+            return
+        }
+        #expect(result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "USER")
+        #expect(phone.blocked.isEmpty)
     }
 
     @Test func refusesAPromiseAndLeavesTheClipboard() {
@@ -725,6 +759,56 @@ func fast() -> PasteWatcher {
         let chat = [line("正在从公司出发", x: 0.05, y: 0.3, width: 0.5)]
         let phone = ScriptedPhone(baseline: chat + keyboard, [chat + keyboard + [line("hello", y: 0.4)]])
         #expect(fast().paste("hello", verify: true, driver: phone) == .confirmed)
+    }
+
+    /// #174: a page that already said "Allow Paste" / "Don't Allow Paste"
+    /// before ⌘V does not keep the settling wait from seeing the transfer
+    /// end: the user's clipboard goes back once the phone is seen done.
+    @Test func pageTextAboutPastingDoesNotHoldTheSettlingWait() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("USER", forType: .string)
+        let page = [line("Allow Paste", x: 0.05, y: 0.3, width: 0.3), line("Don't Allow Paste", x: 0.05, y: 0.35, width: 0.4),
+                    line("Notes would like to paste from Mac", x: 0.05, y: 0.4, width: 0.6)]
+        // Quiet at first (unknown: no transfer seen), then the phone fetches
+        // and finishes while the page text stays where it was.
+        let phone = ScriptedPhone(baseline: page + keyboard,
+                                  [page + keyboard, page + keyboard, page + keyboard, page + keyboard + pasting,
+                                   page + keyboard])
+        phone.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.watcher.maxLooks = 3
+        paste.settleLooks = 8
+        let result = paste.paste("hello", verify: true, driver: phone)
+        #expect(result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "USER")
+    }
+
+    /// #204 review, the other way: page text of the same words is passed
+    /// over only where it was. A real alert that comes up elsewhere (the
+    /// middle) after the transfer is still the phone prompting: the wait
+    /// does not end and the clipboard is not handed back.
+    @Test func aRealPromptElsewhereStillHoldsTheSettlingWait() {
+        let (pasteboard, lock) = scratch()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("USER", forType: .string)
+        let page = [line("Allow Paste", x: 0.05, y: 0.3, width: 0.3), line("Don't Allow Paste", x: 0.05, y: 0.35, width: 0.4)]
+        // The alert's buttons only (its message not read): the same words as
+        // the page's, so only where they are tells them apart.
+        let buttons = [line("Don\u{2019}t Allow Paste", y: 0.50), line("Allow Paste", y: 0.56)]
+        let phone = ScriptedPhone(baseline: page + keyboard,
+                                  [page + keyboard, page + keyboard, page + keyboard, page + keyboard + pasting,
+                                   page + keyboard + buttons])
+        phone.pasteboard = pasteboard
+        var paste = transaction(pasteboard, lock)
+        paste.watcher.maxLooks = 3
+        paste.settleLooks = 8
+        let result = paste.paste("hello", verify: true, driver: phone)
+        #expect(!result.clipboardRestored)
+        #expect(pasteboard.string(forType: .string) == "hello")
+        #expect(phone.taps.isEmpty)
     }
 
     /// Codex on #78: input is blocked as soon as the outcome is unknown,

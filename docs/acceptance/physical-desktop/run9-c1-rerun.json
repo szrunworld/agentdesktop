@@ -1,0 +1,53 @@
+{
+  "probe": "physical-desktop target loss",
+  "at": "2026-10-08T21:24:22+0800",
+  "displaysBefore": 1,
+  "displaysAfter": 1,
+  "steps": [
+    {
+      "id": "L1",
+      "title": "bound and observed before the loss",
+      "result": "failed",
+      "displays": 1,
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "window 80 covers the bound window 1726; bind the window you mean, or move it away",
+          "phase": "handler",
+          "retryable": false,
+          "notSent": false,
+          "details": {
+            "reason": "occluded",
+            "generation": 1,
+            "windowId": 1726,
+            "coveringWindowId": 80
+          }
+        },
+        "windowId": 1726,
+        "pid": 85725
+      }
+    },
+    {
+      "id": "L7",
+      "title": "run.finish and desktop.destroy; display count unchanged",
+      "result": "passed",
+      "displays": 1,
+      "detail": {
+        "run": "ended",
+        "destroy": {
+          "desktopId": "d_553363242986",
+          "destroyed": true,
+          "quitApps": []
+        }
+      }
+    }
+  ],
+  "summary": {
+    "passed": [
+      "L7"
+    ],
+    "failed": [
+      "L1"
+    ]
+  }
+}

@@ -31,7 +31,10 @@ struct RuntimeInvocation: Equatable {
         /// run cancel, optionally waiting for quiescence.
         case runCancel(runId: String, requestId: String?, wait: Bool, timeout: Double)
         /// mcp: serve MCP on stdio.
-        case mcp
+        case mcp(profile: String?)
+        /// This CLI pairs: start, wait for the user to confirm in the Agent
+        /// Desktop window, keep the credential in the keychain.
+        case agentsPair(name: String, publisher: String?, grant: JSONValue, profile: String?, timeout: Double)
         /// session exec: own a Run while a child program acts in it.
         case sessionExec(desktopId: String?, sessionId: String?, argv: [String])
     }
@@ -92,8 +95,62 @@ enum CommandRouter {
     }
 
     static let specs: [Spec] = [
-        Spec(words: ["mcp"], summary: "serve the Runtime as MCP tools on stdio (for agents that speak MCP)",
-             options: [:], positionals: []) { _, _ in .mcp },
+        Spec(words: ["agents", "list"], summary: "paired apps, their grants, and open pairing requests (confirmed in the Agent Desktop window)",
+             options: [:], positionals: []) { _, _ in .call(RuntimeCall(method: .clientsList)) },
+        Spec(words: ["agents", "show"], summary: "one paired app: grant and open connections (confirmed in the Agent Desktop window)",
+             options: [:], positionals: ["clientId"]) { _, p in
+            .call(RuntimeCall(method: .clientsShow, params: .obj([("clientId", .string(p[0]))])))
+        },
+        Spec(words: ["agents", "approve"], summary: "approve another app's pairing request within what it asked for (confirmed in the Agent Desktop window)",
+             options: grantOptions.merging(["--request-id": true]) { a, _ in a }, positionals: ["pairingId"]) { o, p in
+            try write(.pairingApprove, .obj([("pairingId", .string(p[0])), ("grant", try grant(o))]), o)
+        },
+        Spec(words: ["agents", "deny"], summary: "deny a pairing request (confirmed in the Agent Desktop window)",
+             options: ["--request-id": true], positionals: ["pairingId"]) { o, p in
+            try write(.pairingDeny, .obj([("pairingId", .string(p[0]))]), o)
+        },
+        Spec(words: ["agents", "grant"], summary: "replace another app's grant; narrowing applies at once (confirmed in the Agent Desktop window)",
+             options: grantOptions.merging(["--request-id": true]) { a, _ in a }, positionals: ["clientId"]) { o, p in
+            var params = (try grant(o)).objectMembers ?? []
+            params.insert((key: "clientId", value: .string(p[0])), at: 0)
+            return try write(.grantsSet, .object(params), o)
+        },
+        Spec(words: ["agents", "revoke"], summary: "remove a paired app: its credential stops working and its Runs stop (confirmed in the Agent Desktop window)",
+             options: ["--request-id": true], positionals: ["clientId"]) { o, p in
+            try write(.clientsRevoke, .obj([("clientId", .string(p[0]))]), o)
+        },
+        Spec(words: ["agents", "connections"], summary: "open connections and who each one is (confirmed in the Agent Desktop window)",
+             options: [:], positionals: []) { _, _ in .call(RuntimeCall(method: .connectionsList)) },
+        Spec(words: ["agents", "pair"], summary: "pair this CLI (or an MCP host, --profile mcp): the user confirms in the Agent Desktop window; the credential goes to the keychain",
+             options: grantOptions.merging(["--name": true, "--publisher": true, "--profile": true, "--wait-timeout": true]) { a, _ in a },
+             positionals: []) { o, _ in
+            guard let name = o["--name"] else { throw RuntimeError.invalidArgument("agents pair needs --name") }
+            return .agentsPair(name: name, publisher: o["--publisher"], grant: try grant(o), profile: o["--profile"],
+                               timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 600)
+        },
+        Spec(words: ["windows", "request"],
+             summary: "ask the user for one window (observe, act, persist); confirmed in the Agent Desktop window with Touch ID",
+             options: ["--desktop": true, "--app": true, "--window": true, "--allow": true, "--duration": true, "--request-id": true],
+             positionals: []) { o, _ in
+            let allow = (o["--allow"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard !allow.isEmpty else { throw RuntimeError.invalidArgument("--allow is required (observe, act, persist)") }
+            var p: [(String, JSONValue)] = [("desktopId", .string(try required(o, "--desktop"))),
+                                            ("bundleId", .string(try required(o, "--app")))]
+            if let w = try positive(o, "--window", required: false) { p.append(("windowId", .int(w))) }
+            p.append(("permissions", .array(allow.map(JSONValue.string))))
+            if let seconds = try grantSeconds(o) { p.append(("durationSeconds", .int(seconds))) }
+            return try write(.windowsRequest, .obj(p), o)
+        },
+        Spec(words: ["windows", "list"], summary: "this client's window grants (--all: also revoked and ended ones)",
+             options: ["--all": false], positionals: []) { o, _ in
+            .call(RuntimeCall(method: .windowsList, params: o["--all"] != nil ? .obj([("includeEnded", .bool(true))]) : .obj([])))
+        },
+        Spec(words: ["windows", "revoke"], summary: "give up one window grant (confirmed in the Agent Desktop window)",
+             options: ["--request-id": true], positionals: ["windowGrantId"]) { o, p in
+            try write(.windowsRevoke, .obj([("windowGrantId", .string(p[0]))]), o)
+        },
+        Spec(words: ["mcp"], summary: "serve the Runtime as MCP tools on stdio, as the paired app of --profile (default mcp)",
+             options: ["--profile": true], positionals: []) { o, _ in .mcp(profile: o["--profile"]) },
         Spec(words: ["version"], summary: "CLI version, API version and build; no connection",
              options: [:], positionals: []) { _, _ in .version },
         Spec(words: ["runtime", "start"], summary: "start the installed Runtime if needed and wait for its handshake",
@@ -129,12 +186,15 @@ enum CommandRouter {
              options: ["--name": true, "--size": true, "--physical": false, "--display": true, "--request-id": true], positionals: []) { o, _ in
             var p: [(String, JSONValue)] = []
             if let n = o["--name"] { p.append(("name", .string(n))) }
-            if o["--physical"] != nil || o["--display"] != nil {
+            if o["--display"] != nil && o["--physical"] == nil {
+                throw RuntimeError.invalidArgument("--display picks the display of a physical Desktop; give --physical too")
+            }
+            if o["--physical"] != nil {
                 guard o["--size"] == nil else { throw RuntimeError.invalidArgument("--physical takes the display's size; leave out --size") }
                 var physical: [(String, JSONValue)] = []
                 if let s = o["--display"] {
-                    guard let id = Int(s), UInt32(exactly: id) != nil else { throw RuntimeError.invalidArgument("--display needs a display ID, got \(s)") }
-                    physical.append(("displayId", .int(id)))
+                    guard let id = UInt32(s) else { throw RuntimeError.invalidArgument("--display needs a display ID, got \(s)") }
+                    physical.append(("displayId", .int(Int(id))))
                 }
                 p.append(("physical", .obj(physical)))
                 return try write(.desktopCreate, .obj(p), o)
@@ -465,6 +525,35 @@ enum CommandRouter {
     static func required(_ o: [String: String], _ name: String) throws -> String {
         guard let v = o[name] else { throw RuntimeError.invalidArgument("\(name) is required") }
         return v
+    }
+
+    static let grantOptions: [String: Bool] = ["--capabilities": true, "--desktops": true, "--apps": true, "--duration": true]
+
+    /// --capabilities a,b --desktops d1,created --apps com.x --duration 1h|8h|7d
+    static func grant(_ o: [String: String]) throws -> JSONValue {
+        func list(_ k: String) -> [JSONValue] {
+            (o[k] ?? "").split(separator: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) }.filter { $0 != .string("") }
+        }
+        guard o["--capabilities"] != nil else { throw RuntimeError.invalidArgument("--capabilities is required (observe, act, desktop.manage, run, unit.run)") }
+        var m: [(String, JSONValue)] = [("capabilities", .array(list("--capabilities"))), ("desktops", .array(list("--desktops"))),
+                                        ("apps", .array(list("--apps")))]
+        if let seconds = try grantSeconds(o) { m.append(("durationSeconds", .int(seconds))) }
+        return .obj(m)
+    }
+
+    /// --duration 1h|8h|7d|30m as seconds, if given.
+    static func grantSeconds(_ o: [String: String]) throws -> Int? {
+        guard let d = o["--duration"] else { return nil }
+        let units: [(String, Double)] = [("d", 86400), ("h", 3600), ("m", 60), ("s", 1)]
+        guard let (suffix, scale) = units.first(where: { d.hasSuffix($0.0) }), let v = Double(d.dropLast(suffix.count)), v > 0 else {
+            throw RuntimeError.invalidArgument("--duration needs 1h, 8h, 7d or the like, got \(d)")
+        }
+        // Checked before it becomes an Int (Codex on 6598a94: 1e309s trapped).
+        let seconds = v * scale
+        guard seconds.isFinite, seconds >= 1, seconds <= 7 * 86400 else {
+            throw RuntimeError.invalidArgument("--duration must be between 1s and 7d, got \(d)")
+        }
+        return Int(seconds)
     }
 
     static func positive(_ o: [String: String], _ name: String, required: Bool) throws -> Int? {

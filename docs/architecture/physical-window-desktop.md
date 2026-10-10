@@ -60,7 +60,9 @@ AgentDesktop Runtime（唯一）
 
 ### 4.2 显示器来源识别
 
-两路独立信号（`DisplayOrigin.classify`）：内置屏可信；外接屏必须在 I/O 注册表中有厂商号一致的硬件帧缓冲（Apple 芯片 IOMobileFramebuffer，Intel IODisplayConnect）；引擎虚拟屏（厂商 0x3256 / 型号 2，无论谁建）判为虚拟；其余判为"来源未确认"。只有可信显示器登记为宿主屏，其余 `desktop.create {physical}` 返回 `not_found`——**无法确认来源时安全拒绝**。真机：另一会话的虚拟屏 9 被拒，内置屏 1 可挂接（run4）。局限：伪造与真实外接屏同厂商号的虚拟屏仍可能通过，需要更强信号时可加 EDID 序列号比对。
+`DisplayOrigin.classify` 一次判定全部显示器，结果与显示器顺序无关：内置屏可信；引擎虚拟屏（厂商 0x3256 / 型号 2，无论谁建、即使自称内置）判为虚拟；外接屏必须有硬件帧缓冲（Apple 芯片 IOMobileFramebuffer 的 `LegacyManufacturerID` / `ProductID` / `SerialNumber`，Intel IODisplayConnect 的 `DisplayVendorID` / `DisplayProductID` / `DisplaySerialNumber`）报告**相同的厂商、型号和序列号**，而且同一厂商 + 型号下，所有声称者（外接屏，以及有帧缓冲为其担保的内置屏）必须能**一一分配**到互不相同、为其担保的帧缓冲（二分图完全匹配；不报序列号的帧缓冲可匹配任意序列号，但同样只能用一次）。只比较计数不够：计数重叠时可能没有合法分配（Codex 在 3d85886 上的意见）。分配不存在时（例如虚拟屏抄用真实显示器的完整身份），该厂商 + 型号下**所有**外接屏都判为来源未确认——真实的那块也一起拒绝（fail closed），而不是按枚举顺序先到先得（Codex 在 e0be427 上的意见）。内置屏也计为它自己身份的声称者；注册表标为非外接的帧缓冲（Apple 芯片上只有外接端口带 `external = Yes`）不为任何外接屏担保，所以抄用内置屏身份的虚拟屏也不可信（Codex 在 cb64fce 上的意见）。Intel 机型的 IODisplayConnect 不标内外，此时只靠声称者计数：合盖使内置屏不在活动列表时，抄用内置屏身份的虚拟屏可能通过，这是已知残余。
+
+**来源判定的上限（Codex 在 c13ad66 上的意见）**：公开 API 无法把一个帧缓冲和它此刻驱动的 CG 显示器硬关联起来——Apple 芯片上 `CGDisplayIOServicePort` 已不可用，帧缓冲的 `IOMFBUUID` 与 `CGDisplayCreateUUIDFromDisplayID` 不是同一个值（2026-10-10 本机只读核对），内置屏合盖后其帧缓冲仍保留 `DisplayAttributes` 与分辨率。因此，一块显示器断开后若帧缓冲条目仍在，抄用它完整身份的虚拟屏可能通过来源判定。来源判定只是纵深防御：挂接显示器只属于 owner（A4），之后每个窗口还要单独 Touch ID 授权。建议 owner 入口（§7.3）在挂接时向用户展示显示器名称、分辨率和来源判定结果并要求本人确认，由用户把关；更强的硬件关联需要私有接口，不在本 PR 范围。其余判为来源未确认。只有可信显示器登记为宿主屏，其余 `desktop.create {physical}` 返回 `not_found`。真机：另一会话的虚拟屏 9 被拒，内置屏 1 可挂接（run4）；本机外接屏（厂商 25001、型号 49155、序列号 1）与其帧缓冲三项一致（2026-10-10 只读探测）。剩余局限：若虚拟屏抄用了真实显示器的身份，那块真实显示器也无法挂接，直到虚拟屏移除。
 
 ### 4.3 "一块显示器一个物理 Desktop"不阻碍多窗口
 
@@ -69,7 +71,25 @@ AgentDesktop Runtime（唯一）
 - 放开限制需要的只是：把唯一性从"每块显示器"改为"每个窗口（进程身份 + windowId）至多被一个 Desktop 绑定"（`ConflictRegistry` 已按进程串行化输入，可扩展到窗口），并把 `desktops.physical(displayId:)` 的冲突检查换成按窗口检查。
 - 契约不需要变：`physical.displayId` 与 `Desktop.kind` 已足够。
 
-### 4.4 C1
+### 4.4 独立代码审核（2026-10-08）及处理
+
+结论"修改后可合并"。处理如下：
+
+| 审核意见 | 严重度 | 处理 |
+| --- | --- | --- |
+| `displayId` 超出 UInt32 时 `UInt32.init` 使宿主崩溃（`window.bind` 的 `windowId`/`pid` 同类老问题） | 高 | 全部改为 `exactly:` 转换，越界返回 `invalid_argument`；schema 加 `maximum`；新增反例夹具与测试；CLI 用 `UInt32(s)` 解析 |
+| 物理 Desktop 观察先截整屏落盘再裁剪 | 高 | 物理 Desktop 改用引擎的单窗口截图（ScreenCaptureKit 独立窗口过滤，忽略阴影，截图前后核对窗口未动），整屏图从不产生；真机验证产物目录无 `.screen.png`（run10） |
+| 遮挡检查只看普通层，通知、菜单等高层窗口会被截进图 | 中 | 单窗口截图后高层窗口进不了图像；另外物理 Desktop 的 G0 检查加入高层覆盖物（只排除系统 Dock（按进程的 bundle 与系统路径认定，不看窗口所有者名称）的全屏层、其他进程在菜单栏条里的项目（绑定进程自己的照样计入）与任一边不超过 2 点的窗口（输入路由 `BackgroundInput.topWindow` 不会选中它们；透明窗口照样计入）；未知的全屏高层窗口与绑定进程自己的浮层也算遮挡（fail closed），通知横幅等 → `occluded` |
+| 显示器几何只在创建时记录，改分辨率后映射错误 | 中 | 物理 Desktop 每次观察和输入前重新取显示器几何，变化或拔出 → `stale_observation / display_changed` |
+| 来源判定只比厂商号 | 中低 | 改为一对一匹配帧缓冲（见 4.2） |
+| `kind` 与 `methods.json` `plannedFields` 中预留的 `targetKind` 含义相近 | 低 | 两者含义不同（`kind` 是 Desktop 的显示面来源，`targetKind` 是绑定目标是窗口还是设备），**请 Runtime 负责人确认命名**并决定是否在 `plannedFields` 登记 |
+| `physical` 与 `width/height` 互斥只写在描述里 | 低 | schema 用 `if/then/not` 表达（`window_list_params` 已用 `not`），新增反例夹具 |
+| CLI `--display` 不带 `--physical` 隐式生效；无 CLI 用例 | 低 | 要求同时给 `--physical`；新增映射与反例测试 |
+| 测试缺口 | 低 | 新增：高层覆盖物、显示器变化、进程退出、ID 越界、8 个连接并发挂接同一显示器只成功 1 个、覆盖物判定纯函数、CLI 解析 |
+
+审核中关于"另一个虚拟 Desktop 的 `window.bind` 仍可能把用户屏上的同一窗口搬走"（老行为，物理 Desktop 随之 `window_gone`，失败但安全）与"点击可能让被绑定应用短暂到前台"两点，属于虚拟 Desktop 与 FocusGuard 的既有行为，未在本 PR 修改，留给 Runtime 负责人评估。
+
+### 4.5 C1
 
 首次记录（run3）保持 failed：脚本断言过严（只认 `window_gone`）。按裁决修正断言为"`stale_observation` 且未发送即等价安全拒绝"，不改 Runtime；新增"窗口消失但进程仍在"的覆盖（run5，⌘M 经 Runtime 发出，原因 `window_gone`），并重跑 C1（run6）。
 
@@ -81,4 +101,59 @@ AgentDesktop Runtime（唯一）
 
 ## 6. 验收
 
-见 `docs/acceptance/physical-desktop/README.md`。
+见 `docs/acceptance/physical-desktop/README.md`。接入窗口授权后的真机验收见 §7.4。
+
+## 7. 接入窗口级授权（#205，2026-10-10）
+
+依据：Kevin 2026-10-09 裁决「选择 B，坚持按窗口授权」；#205 合并于 main `0ac22c4`。本 PR 在 #205 之上重放 #143 的独立审核修复，**不改任何封印开关**。
+
+### 7.1 授权模型（来自 #205，本 PR 不改）
+
+物理 Desktop 上的窗口一律属于"需要窗口授权"的一类（`docs/security/window-grants.md`）：
+
+| 入口 | 已配对客户端需要 |
+| --- | --- |
+| `desktop.create {physical}` | 不能：A4 规定挂接显示器只属于 owner（`permission_denied / owner_only`）。owner 挂接后可以把这个 Desktop 列进 App 的授权（`grant.desktops`）；此外产品封印目前对 owner 也关（见 7.3） |
+| `window.bind` | 该窗口的有效窗口授权（任一权限），必须给 `windowId`；窗口留在原处 |
+| `observe` / `wait` | `observe`（加锁后查、存储前再查、每次轮询都查） |
+| `act` | `act`（投递前最后一刻查） |
+| 截图保存 | `persist`；没有则截图为临时（120 秒、随授权失效删除） |
+| `window.list` / `desktop.show` | 只列有 `observe` 的已授权窗口；无权时绑定信息为 `null` |
+
+首次及每次授权走 A4 可信确认窗口 + Touch ID；物理 Desktop 的确认窗口额外警告"这是你自己屏幕上的真实窗口"。窗口身份 = 窗口 ID + 进程身份（pid + 启动时间）+ bundleId + Desktop + clientId，失效粘滞，防窗口 ID 复用。owner（宿主进程内）不受窗口授权约束。
+
+### 7.2 本 PR 在授权之上保留的 #143 安全修复
+
+授权回答"谁可以动这个窗口"，下面这些回答"此刻动的是不是用户以为的那个窗口"，对 owner 与已配对客户端同样生效：
+
+| 修复 | 失败时 |
+| --- | --- |
+| 显示器来源按厂商 + 型号 + 序列号匹配硬件帧缓冲，与顺序无关（4.2） | `desktop.create {physical}` → `not_found`，报错不列出有哪些显示器 |
+| 高层覆盖物（通知横幅、他应用菜单、绑定应用自己的浮层、未知全屏层，透明的也算——输入路由不看透明度）盖住绑定窗口 | `stale_observation / occluded`，只给覆盖窗口编号，不给应用名、标题、pid |
+| 显示器几何变化或拔出 | `stale_observation / display_changed` |
+| 绑定进程退出或重启 | `stale_observation / process_exited`，act `notSent=true` |
+| `pid` / `windowId` 超出 Int32 / UInt32 | `invalid_argument`，不崩溃，不截断成别的窗口 |
+| `physical` 与 `width/height` 同给 | 契约 `if/then/not` → `schema_invalid` |
+| CLI `--display` 不带 `--physical` | 本地拒绝，不连接 |
+| 物理 Desktop 任何路径 | 只做单窗口截图；未绑定时一律拒绝，不受虚拟 Desktop 的 `refusesScreenCaptureWithoutBinding` 开关影响 |
+
+被 main 上已合并的 PR 覆盖、因此本 PR 不再重复的部分：单窗口截图与 `windowScreenshot`（#145）、物理 Desktop 关闭开关与无绑定拒绝截图（#145）、启动/发现授权（#151/#153/#137）、窗口授权与绑定检查（#205）。
+
+### 7.3 封印开关：需要 Kevin 裁决
+
+本 PR 不改产品默认值，测试 `theSealsStayAsTheProductShipsThem` 锁定：
+
+| 开关 | 产品默认 | 打开后的行为 |
+| --- | --- | --- |
+| `physicalDesktopsEnabled` | 关：`desktop.create {physical}` 对所有调用方（包括 owner）返回 `permission_denied / physical_desktop_requires_grant`，不查显示器 | owner 可以挂接用户显示器，并把它列进某个 App 的授权；App 自己仍不能挂接（A4）。挂接本身看不到任何窗口：绑定、观察、操作、保存都要逐窗口 Touch ID 授权（7.1），并受 7.2 全部检查 |
+| `bindsOnlyLaunchedProcesses` | 开：虚拟 Desktop 只能绑定在它上面 `app.launch` 的进程 | 虚拟 Desktop 可以把用户窗口**搬过来**绑定（仍需窗口授权）。与物理 Desktop 无关；搬动用户窗口是另一类风险，建议单独裁决 |
+| `refusesScreenCaptureWithoutBinding` | 开：无绑定的虚拟 Desktop 不截整屏 | 与物理 Desktop 无关（物理 Desktop 无绑定时始终拒绝） |
+
+建议的裁决选项（由 Kevin 决定）：只打开 `physicalDesktopsEnabled`，另两个保持；或先只允许测试副本（side instance）打开以完成真机验收，产品仍关。
+
+**还缺一个 owner 入口**（Codex 在 dbd0673 上指出）：owner 只存在于宿主进程内（主窗口），目前主窗口没有"挂接我的显示器为物理 Desktop、并把它授权给某个 App"的操作；socket 上的 CLI 是已配对客户端，不是 owner。所以即使打开封印，App 也拿不到物理 Desktop。这个入口属于产品设计（谁在主窗口里点、怎么展示、是否需要 Touch ID），本 PR 不做，需要 Kevin 决定后另开 PR。在这之前，WeChat Agent 第四阶段仍无法绑定用户自己打开的微信窗口。
+
+### 7.4 真机验收（Kevin 本人）
+
+`scripts/physical-desktop-acceptance.sh`：测试副本、独立钥匙串文件、只开并只关一个自己启动的 Chess 实例，只对它发一次 Escape，不创建虚拟显示器、不碰正式端点和微信。目前脚本在第 2 步验证"已配对 App 不能挂接显示器"（`owner_only` 或封印拒绝）后报 `PENDING`（退出码 3），什么都不截、不绑；有了 owner 入口后，用 `PD_DESKTOP=d_…` 指定 owner 挂接的物理 Desktop 跑完第 3–8 步。记录模板：`docs/acceptance/physical-desktop/window-grants-acceptance.md`。覆盖物和显示器变化两项需要人为制造（通知、改分辨率），写在模板里作为可选手动步骤。
+

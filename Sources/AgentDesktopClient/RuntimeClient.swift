@@ -16,6 +16,18 @@ public protocol RuntimeClient: AnyObject {
     /// The next pushed event frame.
     func nextEvent() throws -> PushedEvent
     func close()
+    /// The process on the other end of this client's own connection.
+    var peer: PeerCredentials? { get }
+    /// Caller identity reported by this connection’s handshake.
+    var principal: JSONValue? { get }
+    /// The peer's audit token on this connection, read now.
+    func peerAuditToken() -> Data?
+}
+
+extension RuntimeClient {
+    public var peer: PeerCredentials? { nil }
+    public var principal: JSONValue? { nil }
+    public func peerAuditToken() -> Data? { nil }
 }
 
 /// What an event subscription delivered.
@@ -55,10 +67,19 @@ public final class SocketRuntimeClient: RuntimeClient {
     private let connect: (String, Double) throws -> RuntimeTransport
     private var transport: RuntimeTransport?
     private var identity: RuntimeIdentity?
+    public private(set) var principal: JSONValue?
+    /// The Runtime's process on this client's connection (after handshake).
+    public var peer: PeerCredentials? { transport?.peer }
+    public func peerAuditToken() -> Data? { transport?.currentPeerToken() }
 
-    public init(endpoint: Endpoint, info: ClientInfo, timeout: Double = 10,
+    /// Shown in runtime.handshake: who this client is (A4). Without one the
+    /// connection is unpaired and may only pair.
+    public let credential: ClientCredential?
+
+    public init(endpoint: Endpoint, info: ClientInfo, timeout: Double = 10, credential: ClientCredential? = nil,
                 contract: RuntimeContract = .shared,
                 connect: @escaping (String, Double) throws -> RuntimeTransport = { try UnixSocketTransport(path: $0, timeout: $1) }) {
+        self.credential = credential
         self.endpoint = endpoint
         self.info = info
         self.timeout = timeout
@@ -70,10 +91,12 @@ public final class SocketRuntimeClient: RuntimeClient {
         if let identity { return identity }
         let t = try connect(endpoint.path, timeout)
         transport = t
-        let request = RuntimeRequest(.handshake, params: .obj([
+        var params: [(String, JSONValue)] = [
             ("apiVersions", .array(RuntimeAPI.supportedVersions.map(JSONValue.string))),
             ("client", .obj([("name", .string(info.name)), ("version", .string(info.version))])),
-        ]))
+        ]
+        if let credential { params.append(("credential", credential.json)) }
+        let request = RuntimeRequest(.handshake, params: .obj(params))
         let data: JSONValue
         do {
             data = try exchange(request, on: t)
@@ -93,6 +116,7 @@ public final class SocketRuntimeClient: RuntimeClient {
                                phase: .handshake)
         }
         identity = id
+        principal = data["principal"]
         return id
     }
 
@@ -134,6 +158,7 @@ public final class SocketRuntimeClient: RuntimeClient {
         transport?.close()
         transport = nil
         identity = nil
+        principal = nil
     }
 
     private func exchange(_ request: RuntimeRequest, on transport: RuntimeTransport) throws -> JSONValue {
