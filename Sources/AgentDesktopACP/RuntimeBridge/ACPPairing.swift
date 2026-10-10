@@ -32,6 +32,20 @@ public enum ACPPairing {
         return .obj(m)
     }
 
+    /// `--duration` as `agentdesktop agents pair` reads it: a number with
+    /// d, h, m or s (8h, 30m, 7d), between 1 second and 7 days (the
+    /// Runtime's longest grant). Nil when it is not one.
+    public static func durationSeconds(_ text: String) -> Int? {
+        let units: [(String, Double)] = [("d", 86400), ("h", 3600), ("m", 60), ("s", 1)]
+        guard let (suffix, scale) = units.first(where: { text.hasSuffix($0.0) }), let v = Double(text.dropLast(suffix.count)), v > 0 else {
+            return nil
+        }
+        // Checked before it becomes an Int, so 1e309s cannot trap.
+        let seconds = v * scale
+        guard seconds.isFinite, seconds >= 1, seconds <= 7 * 86400 else { return nil }
+        return Int(seconds)
+    }
+
     /// An unpaired connection to `endpoint`, named like the serving bridge.
     public static func unpairedClient(endpoint: Endpoint) -> SocketRuntimeClient {
         SocketRuntimeClient(endpoint: endpoint, info: ClientInfo(name: "agentdesktop-acp", version: RuntimeAPI.productVersion),

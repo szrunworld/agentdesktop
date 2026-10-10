@@ -72,6 +72,18 @@ struct ACPPairingTests {
         #expect(ACPPairing.grant()["apps"]?.arrayValue?.isEmpty == true)
     }
 
+    @Test("[Mock] --duration reads like agents pair: 1s to 7d, into the requested grant")
+    func durationIsParsedLikeTheCLI() {
+        #expect(ACPPairing.durationSeconds("8h") == 8 * 3600)
+        #expect(ACPPairing.durationSeconds("30m") == 1800)
+        #expect(ACPPairing.durationSeconds("7d") == 7 * 86400)
+        #expect(ACPPairing.durationSeconds("1s") == 1)
+        for bad in ["8", "0h", "-1h", "8x", "h", "8d", "1e309s", "0.5s", ""] {
+            #expect(ACPPairing.durationSeconds(bad) == nil, "\(bad)")
+        }
+        #expect(ACPPairing.grant(durationSeconds: 28800)["durationSeconds"] == .int(28800))
+    }
+
     @Test("[Mock] approval stores the credential under profile acp for that endpoint")
     func approvalStoresTheCredential() throws {
         let client = PairingClient(statuses: [Self.approved])

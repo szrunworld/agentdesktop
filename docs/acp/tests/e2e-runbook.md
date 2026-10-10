@@ -51,10 +51,10 @@ security set-keychain-settings /tmp/adt-acp/test.keychain-db       # 测试期�
 # create-keychain 可能把它加进搜索列表；如果加了，按原样恢复（见 scripts/a4-touchid-acceptance.sh）
 export AGENTDESKTOP_KEYCHAIN=/tmp/adt-acp/test.keychain-db
 ACP_DEV=/Users/kevinshi/orca/agentdesktop/.build/debug/agentdesktop-acp-dev   # 与下面 Zed 配置的 command 完全相同
-"$ACP_DEV" pair --endpoint "$AGENTDESKTOP_ENDPOINT" --name ACP --apps com.apple.calculator --wait-timeout 180
+"$ACP_DEV" pair --endpoint "$AGENTDESKTOP_ENDPOINT" --name ACP --apps com.apple.calculator --duration 8h --wait-timeout 180
 ```
 
-- 申请的授权是固定的：能力 `observe,act,desktop.manage,unit.run,run`（`unit.run` 提交任务，`run` 用于 `run.show`、`run.cancel` 和事件订阅；见 `RuntimeService+Auth.swift` 的 `capabilityOf`），Desktop 范围 `created`（只限自己创建的 Desktop），App 范围取 `--apps`（§四 的样本要启动计算器）。
+- 申请的授权是固定的：能力 `observe,act,desktop.manage,unit.run,run`（`unit.run` 提交任务，`run` 用于 `run.show`、`run.cancel` 和事件订阅；见 `RuntimeService+Auth.swift` 的 `capabilityOf`），Desktop 范围 `created`（只限自己创建的 Desktop），App 范围取 `--apps`（§四 的样本要启动计算器）。期限用 `--duration`：不写时是 Runtime 默认的 1 小时，到期后每次提交都是 `grant_expired`；本手册有 ≥30 分钟的长样本（ACP-P209），整轮测试按 8 小时申请，最长 7 天。
 - **配对之后不要重新编译 dev 入口。** 开发版是 ad-hoc 签名，钥匙串按程序的代码摘要识别它；重新编译后就成了「另一个程序」，读取凭据会弹授权框。重新编译过就删掉临时钥匙串，从建钥匙串那一步重来。
 
 - 配对请求出现在测试副本的 Agent Desktop 窗口里，由 Kevin 本人核对后点「批准」并用 Touch ID 确认。自动化不能代替。
@@ -81,7 +81,7 @@ dev 入口（S 线合入后、CLI `acp` 之前）：
 
 ```sh
 "/tmp/adt-acp/Agent Desktop.app/Contents/Resources/bin/agentdesktop" agents pair --name ACP --profile acp \
-  --capabilities observe,act,desktop.manage,unit.run,run --desktops created --apps com.apple.calculator --wait-timeout 180
+  --capabilities observe,act,desktop.manage,unit.run,run --desktops created --apps com.apple.calculator --duration 8h --wait-timeout 180
 ```
 
 Zed 配置：

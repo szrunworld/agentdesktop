@@ -24,7 +24,7 @@ func fail(_ message: String) -> Never {
 
 let usage = """
 usage: agentdesktop-acp-dev [--demo | --endpoint PATH [--allow-product-endpoint]] [--state-dir DIR]
-       agentdesktop-acp-dev pair [--endpoint PATH [--allow-product-endpoint]] [--name NAME] [--apps ID,…] [--wait-timeout SECONDS]
+       agentdesktop-acp-dev pair [--endpoint PATH [--allow-product-endpoint]] [--name NAME] [--apps ID,…] [--duration 8h] [--wait-timeout SECONDS]
   --demo                     built-in scripted port; sessions in a temporary directory
   --endpoint PATH            Runtime socket of a side instance (else AGENTDESKTOP_ENDPOINT)
   --allow-product-endpoint   permit the installed product's own endpoint
@@ -35,6 +35,7 @@ usage: agentdesktop-acp-dev [--demo | --endpoint PATH [--allow-product-endpoint]
                              for a test copy's keychain file), where serving reads it
   --name NAME                name shown in the confirmation window (default ACP)
   --apps ID,…                bundle ids a task may launch (default none)
+  --duration 1h|8h|7d        how long the grant lasts, up to 7d (default: the Runtime's, 1h)
   --wait-timeout SECONDS     how long to wait for the answer (default 180)
 """
 
@@ -45,6 +46,7 @@ var allowProduct = false
 var stateDir: String?
 var pairName = "ACP"
 var pairApps: [String] = []
+var pairDuration: Int?
 var pairTimeout = 180.0
 var rest = Array(CommandLine.arguments.dropFirst())
 if rest.first == "pair" { pairing = true; rest.removeFirst() }
@@ -57,12 +59,15 @@ while !rest.isEmpty {
     case "--endpoint", "--state-dir" where !pairing || a == "--endpoint":
         guard !rest.isEmpty, !rest[0].isEmpty else { fail("\(a) needs a path") }
         if a == "--endpoint" { endpointOption = rest.removeFirst() } else { stateDir = rest.removeFirst() }
-    case "--name", "--apps", "--wait-timeout" where pairing:
+    case "--name", "--apps", "--duration", "--wait-timeout" where pairing:
         guard !rest.isEmpty, !rest[0].isEmpty else { fail("\(a) needs a value") }
         let v = rest.removeFirst()
         switch a {
         case "--name": pairName = v
         case "--apps": pairApps = v.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        case "--duration":
+            guard let s = ACPPairing.durationSeconds(v) else { fail("--duration needs 1h, 8h, 7d or the like (1s to 7d), got \(v)") }
+            pairDuration = s
         default:
             guard let t = Double(v), t > 0 else { fail("--wait-timeout needs a positive number of seconds") }
             pairTimeout = t
@@ -103,7 +108,7 @@ if pairing {
     defer { client.close() }
     do {
         let outcome = try ACPPairing.pair(client: client, store: credentials, endpoint: endpoint.path, name: pairName,
-                                          grant: ACPPairing.grant(apps: pairApps), timeout: pairTimeout) {
+                                          grant: ACPPairing.grant(apps: pairApps, durationSeconds: pairDuration), timeout: pairTimeout) {
             FileHandle.standardError.write(Data("agentdesktop-acp-dev: \($0)\n".utf8))
         }
         switch outcome {
