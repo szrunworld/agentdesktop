@@ -263,7 +263,7 @@ public final class AgentScreens {
         // hand the foreground straight back to whoever had it.
         Self.restoreFront(previousFront, against: pid, for: 5)
 
-        guard let window = await launching.firstWindow(pid, 15) else {
+        guard let window = await launching.firstWindow(pid, 5) else {
             // Started for the agent but nothing to place: left running it
             // would stay on the user's display, owned by no Desktop.
             await launching.quit(owned)
@@ -272,9 +272,10 @@ public final class AgentScreens {
             let id = launching.bundleInfo(url).id ?? ""
             let others = id.isEmpty ? [] : launching.processes(id).subtracting([pid])
             var response = ControlResponse.failure(others.isEmpty
-                ? "the app launched but showed no window within 15 seconds; it was quit"
-                : "the app launched, showed no window and handed over to another process this launch cannot prove it started; its own process was quit, the other was left alone and may show a window on your screen")
+                ? "the app launched but showed no window within the bounded 5-second polling budget; quitting its proved process was requested"
+                : "the app launched, showed no window and handed over to another process this launch cannot prove it started; quitting its own process was requested, the other was left alone and may show a window on your screen")
             response.pid = pid
+            response.reason = "launch_window_timeout"
             return response
         }
         // A window that just appeared often does not take an accessibility

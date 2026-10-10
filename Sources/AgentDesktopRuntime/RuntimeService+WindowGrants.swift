@@ -253,7 +253,7 @@ extension RuntimeService {
     // MARK: hub.windows.*
 
     /// Ask the user for one window: shown exactly as it will be granted.
-    func requestWindowGrant(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
+    func requestWindowGrant(_ p: JSONValue, _ c: ConnectionState, recoverBinding: Bool = false) -> Result<JSONValue, RuntimeError> {
         guard c.role == .paired else {
             return .failure(.invalidArgument("the owner reaches every window; only a paired app asks for a window grant"))
         }
@@ -276,10 +276,29 @@ extension RuntimeService {
         // The window: the one named, or the app's frontmost, where this
         // Desktop can bind it (on its display for a physical Desktop).
         let wanted = p["windowId"]?.intValue.flatMap { UInt32(exactly: $0) }
-        let candidates = backend.windows(pid: nil, bundleId: bundleId, includeOffscreen: false).filter { w in
+        var candidates = backend.windows(pid: nil, bundleId: bundleId, includeOffscreen: false).filter { w in
             guard w.bundleId == bundleId, w.frame.width >= 2, w.frame.height >= 2, wanted == nil || w.windowId == wanted else { return false }
             if d.kind == .physical { return platform?.window(on: d.screen, pid: w.process.pid, windowId: w.windowId) != nil }
             return true
+        }
+        var expectedRecovery: TargetBinding?
+        if recoverBinding {
+            guard d.lock.lock(before: now().addingTimeInterval(desktopLockWait)) else {
+                return refuse("desktop_busy", "Desktop stayed busy; recovery was not requested", code: "deadline_exceeded")
+            }
+            defer { d.lock.unlock() }
+            guard d.kind == .physical, let old = d.binding,
+                  let oldGrant = old.windowGrantId.flatMap(hub.windowGrant), oldGrant.clientId == c.clientId,
+                  oldGrant.bundleId == bundleId, backend.processIdentity(old.process.pid) == old.process,
+                  !backend.windows(pid: old.process.pid, bundleId: bundleId, includeOffscreen: true).contains(where: { $0.windowId == old.windowId })
+            else { return refuse("recovery_not_eligible", "recovery requires this client's closed bound window in the same process on a physical Desktop") }
+            guard execution.holder(of: d.desktopId) == nil else {
+                return refuse("control_busy", "stop the current Run and confirm quiescence before recovering its binding", code: "control_busy")
+            }
+            candidates = candidates.filter { $0.process == old.process && $0.windowId != old.windowId }
+            guard candidates.count == 1 else { return refuse("recovery_ambiguous", "recovery needs exactly one eligible replacement window") }
+            guard backend.windows(pid: old.process.pid, bundleId: bundleId, includeOffscreen: true).contains(where: { $0.windowId == candidates[0].windowId }) else { return refuse("recovery_unverified", "replacement window list cannot be verified") }
+            expectedRecovery = old
         }
         guard let w = candidates.first, backend.processIdentity(w.process.pid) == w.process else {
             return refuse("window_not_grantable", notGrantable)
@@ -294,15 +313,19 @@ extension RuntimeService {
         // What the user is shown; the grant then ends at that long after the
         // approval or at the client's own expiry, whichever comes first.
         let seconds = Int(max(1, min(requested, untilClientGrant)))
-        let details = JSONValue.obj([
+        var details = JSONValue.obj([
             ("desktop", .obj([("desktopId", .string(d.desktopId)), ("kind", .string(d.kind.rawValue)),
                               ("displayId", .int(Int(d.screen.displayId)))])),
             ("window", .obj([("windowId", .int(Int(w.windowId))), ("process", w.process.json), ("appName", .string(w.appName)),
                              ("bundleId", .string(bundleId)), ("title", w.title.map(JSONValue.string) ?? .null), ("frame", w.frame.json)])),
             ("permissions", .array(permissions.map(JSONValue.string))), ("durationSeconds", .int(seconds)),
         ])
+        if let old = expectedRecovery {
+            details = details.setting("bindingRecovery", .obj([("fromWindowId", .int(Int(old.windowId))),
+                ("fromGeneration", .int(old.generation)), ("toWindowId", .int(Int(w.windowId)))]))
+        }
         var confirmation: String?
-        let decision = confirm(.windowGrant, by: c, action: "hub.windows.request", details: details,
+        let decision = confirm(.windowGrant, by: c, action: recoverBinding ? "desktop.recoverBinding" : "hub.windows.request", details: details,
                                confirmed: { confirmation = $0 })
         if case let .failure(e) = decision {
             if ["user_denied", "user_cancelled", "confirmation_timeout"].contains(e.details?["reason"]?.stringValue ?? "") {
@@ -312,7 +335,7 @@ extension RuntimeService {
         }
         // Access may have gone, or the window changed, while the user decided.
         if let reason = c.cutReason { return .failure(Self.cutError(c, reason)) }
-        if let e = accessError(c, method: "hub.windows.request") { return .failure(e) }
+        if let e = accessError(c, method: recoverBinding ? "desktop.recoverBinding" : "hub.windows.request") { return .failure(e) }
         // Never past the client's grant as it is now, in absolute time (Codex
         // on 7629d6b: an interval taken before the prompt outlived it). The
         // checks below hold for this revision of it; the store records the
@@ -339,12 +362,27 @@ extension RuntimeService {
             return .failure(RuntimeError("conflict", "the window or this client's access changed while the user was asked; ask again",
                                          phase: .handler, notSent: true, details: .obj([("reason", .string("target_changed"))])))
         }
+        if let old = expectedRecovery,
+           d.binding != old || execution.holder(of: d.desktopId) != nil ||
+           !backend.windows(pid: old.process.pid, bundleId: bundleId, includeOffscreen: true).contains(where: { $0.windowId == w.windowId }) ||
+           backend.windows(pid: old.process.pid, bundleId: bundleId, includeOffscreen: true).contains(where: { $0.windowId == old.windowId }) {
+            return refuse("recovery_target_changed", "binding or control changed while approval was pending; request recovery again", code: "conflict")
+        }
         do { try hub.addWindowGrant(grant, parentRevision: parent?.revision ?? -1) } catch {
             return .failure(RuntimeError("conflict", "this client's access changed while the user was asked; ask again",
                                          phase: .handler, notSent: true, details: .obj([("reason", .string("target_changed"))])))
         }
         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.windows.request", decision: "granted",
                   reason: "\(grant.windowGrantId) \(permissions.joined(separator: ","))")
+        if let old = expectedRecovery {
+            d.generation += 1
+            d.binding = TargetBinding(generation: d.generation, process: w.process, windowId: w.windowId,
+                                      appName: w.appName, boundAt: nowString, windowGrantId: grant.windowGrantId)
+            observations.invalidateElementRefs(desktopId: d.desktopId)
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "desktop.recoverBinding", decision: "rebound",
+                      reason: "window \(old.windowId) -> \(w.windowId), generation \(d.generation), grant \(grant.windowGrantId)")
+            return .success(.obj([("desktopId", .string(d.desktopId)), ("binding", d.binding!.json), ("windowGrant", grant.json)]))
+        }
         return .success(grant.json)
     }
 

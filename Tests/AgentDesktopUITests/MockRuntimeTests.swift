@@ -131,6 +131,80 @@ struct MockRuntimeTests {
         #expect(RunStatusPresentation.make(run: r).text == "已停止")
     }
 
+    // Stop events mirror production ExecutionCoordinator: `stop.accepted`
+    // with the stop's reason (run.cancel → stopped, stopAll → global_stop),
+    // and the terminal events carry the Run's revision and that reason.
+    @Test(arguments: [("run.cancel", "stopped"), ("runtime.stopAll", "global_stop")])
+    func stopEventsCarryRevisionAndReason(_ method: String, _ reason: String) async throws {
+        let m = MockRuntime.sample()
+        let active = try await m.call("run.list", .obj([("active", .bool(true))]))["runs"]!.arrayValue!
+        let id = active.first!["runId"]!.stringValue!
+        let start = m.latestCursor
+        let stream = try await m.subscribe(after: start)
+        _ = try await m.call(method, method == "run.cancel" ? .obj([("runId", .string(id))]) : .obj([("scope", .string("all_platform_runs"))]))
+        m.confirmQuiescence(id)
+        let r = try await m.call("run.show", .obj([("runId", .string(id))]))
+        var it = stream.makeAsyncIterator()
+        var byType: [String: JSONValue] = [:]
+        for _ in 0..<(m.latestCursor - start) {
+            let e = try #require(try await it.next())["event"]!
+            guard e["runId"]?.stringValue == id else { continue }
+            byType[e["type"]!.stringValue!] = e["data"]
+        }
+        #expect(byType["run.finishing"] == nil)
+        let accepted = try #require(byType["stop.accepted"])
+        let quiescent = try #require(byType["run.quiescent"])
+        let ended = try #require(byType["run.ended"])
+        #expect(accepted["reason"]?.stringValue == reason)
+        #expect(accepted["revision"]?.intValue ?? 0 > 1)
+        #expect(quiescent["revision"] == r["revision"])
+        #expect(quiescent["revision"]?.intValue ?? 0 > accepted["revision"]?.intValue ?? 0)
+        #expect(r["closingReason"]?.stringValue == reason)
+        #expect(ended["reason"]?.stringValue == reason)
+        #expect(ended["outcome"]?.stringValue == r["outcome"]?.stringValue)
+    }
+
+    // A second stop of an already-stopping Run (run.cancel, then stopAll
+    // before quiescence) keeps the first reason and revision, as
+    // ExecutionCoordinator.stop does; the event still reports the new
+    // request's reason at the unchanged revision.
+    @Test func secondStopKeepsTheFirstReason() async throws {
+        let m = MockRuntime.sample()
+        let active = try await m.call("run.list", .obj([("active", .bool(true))]))["runs"]!.arrayValue!
+        let id = active.first!["runId"]!.stringValue!
+        let start = m.latestCursor
+        let stream = try await m.subscribe(after: start)
+        _ = try await m.call("run.cancel", .obj([("runId", .string(id))]))
+        let stopping = try await m.call("run.show", .obj([("runId", .string(id))]))
+        _ = try await m.call("runtime.stopAll", .obj([("scope", .string("all_platform_runs"))]))
+        let again = try await m.call("run.show", .obj([("runId", .string(id))]))
+        #expect(again["closingReason"]?.stringValue == "stopped")
+        #expect(again["revision"] == stopping["revision"])
+        m.confirmQuiescence(id)
+        var it = stream.makeAsyncIterator()
+        var mine: [JSONValue] = []
+        for _ in 0..<(m.latestCursor - start) {
+            let e = try #require(try await it.next())["event"]!
+            if e["runId"]?.stringValue == id { mine.append(e) }
+        }
+        let stops = mine.filter { $0["type"]?.stringValue == "stop.accepted" }.compactMap { $0["data"] }
+        #expect(stops.map { $0["reason"]?.stringValue } == ["stopped", "global_stop"])
+        #expect(stops.map { $0["revision"] } == [stopping["revision"], stopping["revision"]])
+        let ended = try #require(mine.last { $0["type"]?.stringValue == "run.ended" }?["data"])
+        #expect(ended["reason"]?.stringValue == "stopped")
+    }
+
+    // A Run with an unknown action ends unknown whatever the stop asked for.
+    @Test func unknownIsNeverOverwrittenAtQuiescence() async throws {
+        let m = MockRuntime()
+        let d = m.addDesktop(name: "D", app: "Probe")
+        let id = m.addRun(desktopId: d, unknownActions: 1)
+        _ = try await m.call("run.cancel", .obj([("runId", .string(id))]))
+        m.confirmQuiescence(id)
+        let r = try await m.call("run.show", .obj([("runId", .string(id))]))
+        #expect(r["outcome"]?.stringValue == "unknown")
+    }
+
     @Test func subscriptionCursor() async throws {
         let m = MockRuntime.sample()
         let latest = m.latestCursor

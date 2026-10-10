@@ -148,7 +148,8 @@ import Testing
     @Test func pendingTimeoutKeepsWaitingInsteadOfEnding() async {
         let rt = STestRuntime()
         rt.taskList.with { $0 = [STestHarness.task("work", freeText: true)] }
-        let h = STestHarness(runtime: rt)
+        let now = ContinuousClock().now
+        let h = STestHarness(runtime: rt, monotonicNow: { now })
         defer { h.cleanup() }
         rt.pendingError.with { $0 = ACPError(code: -32000, reason: "timeout", message: "slow") }
         let sid = await h.newSession()
@@ -156,7 +157,8 @@ import Testing
         #expect(await sEventually { rt.runs.get()["run-1"] != nil })
         rt.setPhase("run-1", "waiting_approval")
         #expect(await sEventually { h.connection.allText(sid).contains("继续查询") })
-        try? await Task.sleep(for: .milliseconds(50))
+        let reads = rt.snapshotReads.get()
+        #expect(await sEventually { rt.snapshotReads.get() >= reads + 2 })
         #expect(h.connection.replyFor(p) == nil)
         rt.end("run-1")
         #expect(stop(await h.connection.waitReply(p)) == .endTurn)

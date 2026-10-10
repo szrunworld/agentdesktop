@@ -32,7 +32,7 @@ extension RuntimeService {
     /// observation is stored. An element read that ran out of time leaves the
     /// observation with its screenshot and `coverage.ax` partial or
     /// unavailable.
-    func observe(_ request: RuntimeRequest, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
+    func observe(_ request: RuntimeRequest, _ c: ConnectionState, readOnlyFrame: Bool = false) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         let p = request.params
         let session: RuntimeSession?
@@ -87,7 +87,7 @@ extension RuntimeService {
                 let path = artifacts.path(for: artifactId, ext: "png")
                 // The bound window alone, never the screen cut down afterwards:
                 // no whole-screen image is written, even for a moment.
-                let size: (width: Int, height: Int)
+                var size: (width: Int, height: Int)
                 do {
                     if let b = d.binding, crop != nil {
                         size = try platform.windowScreenshot(d.screen, pid: b.process.pid, windowId: b.windowId, to: path)
@@ -101,8 +101,21 @@ extension RuntimeService {
                     if reserved == nil { artifacts.release(bucket: bucket) }
                     throw error
                 }
-                let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
-                let scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
+                var origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
+                var scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
+                if request.method == "observe.region" {
+                    do {
+                        let converted = try RegionObservationImage.convert(path: path, size: size,
+                                                                           origin: origin, scale: scale, params: p)
+                        size = converted.size
+                        origin = converted.origin
+                        scale = converted.scale
+                    } catch {
+                        unlink(path)
+                        if reserved == nil { artifacts.release(bucket: bucket) }
+                        throw error
+                    }
+                }
                 // Kept as usual only with persist; else for a short while,
                 // gone with the grant (window-grants.md).
                 var transientUntil: Date?
@@ -115,7 +128,7 @@ extension RuntimeService {
                     // capture (Codex on 5e30bb6 and a228d4d: the one that
                     // allowed observe may have run out meanwhile).
                     let live = liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
-                    let persisting = live.first { effectivePermissions($0).contains("persist") }
+                    let persisting = readOnlyFrame ? nil : live.first { effectivePermissions($0).contains("persist") }
                     let observing = live.first { effectivePermissions($0).contains("observe") }
                     guard let g = persisting ?? observing else {
                         // Nothing written stays, uncounted (as for a failed register).
@@ -136,6 +149,7 @@ extension RuntimeService {
                     }
                     keptUnderGrant = g
                 }
+                if readOnlyFrame { transientUntil = min(transientUntil ?? .distantFuture, now().addingTimeInterval(transientArtifactLifetime)) }
                 let info: ArtifactStore.Info
                 do {
                     info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
@@ -304,7 +318,7 @@ extension RuntimeService {
                                    ("windowId", .int(Int(b.windowId))), ("windowFrame", frame.json),
                                    ("title", .string(title))])
             }
-            observations.store(stored)
+            if !readOnlyFrame { observations.store(stored) }
             var m: [(String, JSONValue)] = [("snapshotId", .string(snapshotId)), ("desktopId", .string(d.desktopId))]
             if let session { m.append(("sessionId", .string(session.sessionId))) }
             var coverage: [(String, JSONValue)] = [("screenshot", .string(wantsImage ? "complete" : "not_requested")),

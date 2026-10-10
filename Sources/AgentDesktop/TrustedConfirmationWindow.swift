@@ -259,6 +259,9 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
             lines.append("期限：批准后 " + (seconds >= 3600 ? "\(seconds / 3600) 小时\(seconds % 3600 / 60 > 0 ? " \(seconds % 3600 / 60) 分钟" : "")" : "\(max(1, seconds / 60)) 分钟"))
         case .windowGrant:
             lines += windowLines(r.details)
+            if let recovery = r.details["bindingRecovery"] {
+                lines.append("旧窗口 \(recovery["fromWindowId"]?.intValue ?? 0) 已关闭。批准后，平台会把这个 Desktop 重新绑定到上面显示的新窗口 \(recovery["toWindowId"]?.intValue ?? 0)，并更新 generation；旧窗口的权限不会转给新窗口。")
+            }
             let perms = (r.details["permissions"]?.arrayValue ?? []).compactMap(\.stringValue)
             lines.append("权限：" + (perms.isEmpty ? "无" : perms.map { windowPermissionNames[$0] ?? inert($0, max: 40) }.joined(separator: "、")))
             if !perms.contains("persist") { lines.append("不含保存：截图只临时保留 2 分钟，授权结束即删除") }

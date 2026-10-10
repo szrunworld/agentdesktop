@@ -152,18 +152,17 @@ iPhone 镜像（`com.apple.ScreenContinuity`）是普通 macOS 应用，但对�
 
 ### 4.1 事件类型目录（F1-01，2026-10-08 冻结）
 
-Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.schema.json#/$defs/PlatformRunEvent`（按 type 分支，data 字段固定）。`run.`、`action.`、`stop.` 前缀只能是这些类型；`unit.` 前缀留给 GUI 单元，约定写在 Explorer 文档里；其他前缀保留。
+Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](../../contracts/runtime/v1/runtime.schema.json)。类型和 data 的必需字段以该契约为准，本页不维护手写副本。Swift 内嵌副本由 `scripts/generate-runtime-contract.sh` 生成。
 
-| type | data |
-| --- | --- |
-| `run.started` | kind、origin、ownership、lifetime、desktopId、sessionId |
-| `action.accepted` | requestId、kind |
-| `action.dispatched` | requestId |
-| `action.completed` / `action.failed` / `action.unknown` | receipt（完整的 ActionReceipt） |
-| `action.refused` | requestId、reason{code, message}：发送前即被拒绝（G0、快照失效、停止、deadline），没有回执 |
-| `run.finishing` / `stop.accepted` | reason、inFlight、revision |
-| `run.quiescent` | revision |
-| `run.ended` | phase=ended、outcome、reason |
+`RunEvent` 对 `run.`、`action.`、`stop.` 前缀引用该目录校验，`EventFrame` 通过其 event 字段引用 `RunEvent`；目录外类型或不符合字段要求的事件被拒绝。其他前缀的既有解析行为保留，包含扩展前缀 `x.`；这不表示这些类型已加入平台冻结目录。
+
+事件与回执的解释：
+
+- `action.refused`：Runtime 在尝试执行前主动拒绝，没有回执，例如权限、安全策略、失效快照或截止时间检查。
+- `action.failed`：执行链路出现技术错误；是否提交输入由回执的 delivery 决定。`not_dispatched` 表示失败发生在提交前，`dispatched` 表示已提交后失败。该解释也适用于已有历史事件。
+- `action.completed`：执行路径返回成功；仍以回执描述送达和执行状态，不推断外部业务已完成。
+- `action.unknown`：结果无法确认，保留未知，不重新提交输入，也不改写成 refused 或 failed。
+- 同一次动作只能有一个终态事件；审计无法可靠记录时按现有审计故障策略停止，不编造执行成功。
 
 回执（F1-03）：没有送达（not_dispatched）、执行失败或结果未知时带 `reason{code, message}`；送达时没有这个字段。经 `run.events` 和 `request.show` 回看时都能看到原因。
 
@@ -220,9 +219,9 @@ Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.sc
 | --- | --- | --- | --- |
 | 平台 | runtime.handshake / status / capabilities | ✅ | — |
 | 平台 | runtime.stopAll / enableInput | ✅ | PR1 |
-| Desktop | desktop.list / show / create / destroy；app.list / launch；window.list / bind / unbind | ✅ | — |
+| Desktop（含 `desktop.bindingStatus` / `desktop.recoverBinding` 扩展 v1） | desktop.list / show / create / destroy；app.list / launch；window.list / bind / unbind | ✅ | — |
 | 会话 | session.open / show / close | ✅ | — |
-| 输入 | observe / act / wait；request.show | ✅（observe 的 `path` 在 PR2 去掉） | — |
+| 输入 | observe / act / wait；request.show；`observe.subscribe` / `observe.unsubscribe`（只读画面扩展 v1）；`observe.region`（[区域观察扩展 v1](region-observation-v1.md)，需探测 regionObservation.version） | ✅（observe 的 `path` 在 PR2 去掉） | — |
 | Run | run.start / attach / finish / show / events / wait / cancel / list | ✅ | PR1 |
 | Run | unit.run | 🧊 | PR2 |
 | 事件 | events.subscribe / unsubscribe | ✅ | PR2e |

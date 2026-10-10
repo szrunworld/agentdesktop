@@ -20,7 +20,10 @@ func contents(_ pasteboard: NSPasteboard) -> [[String: Data]] {
 let pngBytes = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
 let rtfBytes = Data("{\\rtf1\\ansi {\\b bold} text}".utf8)
 
-@Suite struct PasteboardSnapshotTests {
+/// AppKit pasteboard calls share the main actor across test modules.
+/// These synchronous tests must not overlap even with distinct named boards.
+@MainActor
+@Suite(.serialized) struct PasteboardSnapshotTests {
     /// Fills `pasteboard` with several items of several types.
     func fill(_ pasteboard: NSPasteboard) {
         pasteboard.clearContents()

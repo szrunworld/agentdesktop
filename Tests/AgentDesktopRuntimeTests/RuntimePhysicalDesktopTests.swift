@@ -1,5 +1,6 @@
 @testable import AgentDesktopProtocol
 import Foundation
+import CoreGraphics
 import Testing
 @testable import AgentDesktopRuntime
 
@@ -528,4 +529,14 @@ final class LockedStrings: @unchecked Sendable {
     sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 602, pid: 600, appName: "Other", title: "",
                                                                frame: Rect(x: frame.x + frame.width - 1, y: frame.y + 10, width: 200, height: 100))]
     #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
+}
+
+@Test func onlyTheVerifiedSystemCursorIsExcludedFromOverlays() {
+    let layer = Int(CGWindowLevelForKey(.cursorWindow))
+    let server = "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+    #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: server))
+    #expect(EnginePlatform.cursorIdentity(layer: 1500, title: "Cursor", executable: server) == false)
+    #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Panel", executable: server) == false)
+    #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: "/tmp/WindowServer") == false)
+    #expect(EnginePlatform.isSystemCursor(pid: getpid(), layer: layer, title: "Cursor") == false)
 }

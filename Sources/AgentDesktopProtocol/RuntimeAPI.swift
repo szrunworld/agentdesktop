@@ -25,6 +25,8 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case capabilities = "runtime.capabilities"
     case desktopList = "desktop.list"
     case desktopShow = "desktop.show"
+    case bindingStatus = "desktop.bindingStatus"
+    case recoverBinding = "desktop.recoverBinding"
     case appList = "app.list"
     case windowList = "window.list"
     case desktopCreate = "desktop.create"
@@ -36,6 +38,9 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case sessionShow = "session.show"
     case sessionClose = "session.close"
     case observe
+    case observeSubscribe = "observe.subscribe"
+    case observeUnsubscribe = "observe.unsubscribe"
+    case observeRegionV1 = "observe.region"
     case requestShow = "request.show"
     case act
     case wait

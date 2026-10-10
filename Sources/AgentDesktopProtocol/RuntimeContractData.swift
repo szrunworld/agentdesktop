@@ -501,6 +501,74 @@ enum RuntimeContractData {
         "gui": {
           "type": "object",
           "description": "what the GUI execution backend supports, as the AI service reports it (ai-gui/v1 runtime_capabilities_result); absent while that service is not running"
+        },
+        "regionObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "method",
+            "maxWidth"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "method": {
+              "const": "observe.region"
+            },
+            "maxWidth": {
+              "const": 4096
+            }
+          }
+        },
+        "liveObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "method",
+            "maxFPS",
+            "maxWidth"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "method": {
+              "const": "observe.subscribe"
+            },
+            "maxFPS": {
+              "const": 2
+            },
+            "maxWidth": {
+              "const": 1920
+            }
+          }
+        },
+        "bindingRecovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "statusMethod",
+            "recoveryMethod",
+            "requiresConfirmation"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "statusMethod": {
+              "const": "desktop.bindingStatus"
+            },
+            "recoveryMethod": {
+              "const": "desktop.recoverBinding"
+            },
+            "requiresConfirmation": {
+              "const": true
+            }
+          }
         }
       }
     },
@@ -2067,7 +2135,24 @@ enum RuntimeContractData {
         "data": {
           "type": "object"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "pattern": "^(run|action|stop)\\."
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/PlatformRunEvent"
+          }
+        }
+      ]
     },
     "RunEvents": {
       "type": "object",
@@ -4244,6 +4329,270 @@ enum RuntimeContractData {
         },
         "control": {
           "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
+    "observe_region_v1_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "elements": {
+          "type": "boolean",
+          "description": "default true; needs a bound window"
+        },
+        "region": {
+          "$ref": "#/$defs/Rect"
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "region"
+          ]
+        },
+        {
+          "required": [
+            "maxWidth"
+          ]
+        }
+      ]
+    },
+    "observe_subscribe_v1_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1920
+        },
+        "region": {
+          "$ref": "#/$defs/Rect"
+        }
+      }
+    },
+    "ObservationSubscription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subscriptionId",
+        "subscribed",
+        "fps",
+        "maxWidth",
+        "version"
+      ],
+      "properties": {
+        "subscriptionId": {
+          "$ref": "#/$defs/Id"
+        },
+        "subscribed": {
+          "const": true
+        },
+        "fps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1920
+        },
+        "version": {
+          "const": 1
+        }
+      }
+    },
+    "ObservationSubscriptionEnd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subscribed"
+      ],
+      "properties": {
+        "subscribed": {
+          "const": false
+        }
+      }
+    },
+    "ObservationFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiVersion",
+        "subscriptionId",
+        "sequence",
+        "type",
+        "status"
+      ],
+      "properties": {
+        "apiVersion": {
+          "$ref": "#/$defs/ApiVersion"
+        },
+        "subscriptionId": {
+          "$ref": "#/$defs/Id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "observation.frame"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "paused"
+          ]
+        },
+        "frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image",
+            "screen",
+            "target",
+            "capturedAt"
+          ],
+          "properties": {
+            "image": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ImageArtifact"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "screen": {
+              "$ref": "#/$defs/ScreenRef"
+            },
+            "target": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ObservedTarget"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "capturedAt": {
+              "$ref": "#/$defs/Timestamp"
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/Error"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ready"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "frame"
+            ],
+            "not": {
+              "required": [
+                "error"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "paused"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "error"
+            ],
+            "not": {
+              "required": [
+                "frame"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "BindingStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "state",
+        "reason"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "enum": [
+            "unbound",
+            "valid",
+            "blocked",
+            "invalid",
+            "needs_authorization"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "binding": {
+          "$ref": "#/$defs/Binding"
+        }
+      }
+    },
+    "RecoveredBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "binding",
+        "windowGrant"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "binding": {
+          "$ref": "#/$defs/Binding"
+        },
+        "windowGrant": {
+          "$ref": "#/$defs/HubWindowGrant"
         }
       }
     }
@@ -8885,6 +9234,22 @@ enum RuntimeContractData {
       "status": "implemented"
     },
     {
+      "method": "desktop.bindingStatus",
+      "stage": "P0",
+      "mutation": false,
+      "params": "desktop_show_params",
+      "result": "BindingStatus",
+      "status": "implemented"
+    },
+    {
+      "method": "desktop.recoverBinding",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_windows_request_params",
+      "result": "RecoveredBinding",
+      "status": "implemented"
+    },
+    {
       "method": "app.list",
       "stage": "P0",
       "mutation": false,
@@ -8970,6 +9335,30 @@ enum RuntimeContractData {
       "mutation": false,
       "params": "observe_params",
       "result": "Observation",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.region",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_region_v1_params",
+      "result": "Observation",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.subscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_subscribe_v1_params",
+      "result": "ObservationSubscription",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.unsubscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "ObservationSubscriptionEnd",
       "status": "implemented"
     },
     {

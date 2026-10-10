@@ -21,7 +21,7 @@ final class EventSubscription: @unchecked Sendable {
 
 extension RuntimeService {
     func subscribe(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
-        guard c.subscription == nil else {
+        guard !c.isSubscribed else {
             return .failure(RuntimeError("conflict", "this connection is already subscribed; send events.unsubscribe first",
                                          phase: .handler, details: .obj([("reason", .string("subscribed"))])))
         }
@@ -67,6 +67,7 @@ extension RuntimeService {
     /// Frames due on a subscribed connection, oldest first; advances its
     /// cursor. Empty when nothing new happened.
     public func pendingEventFrames(_ c: ConnectionState, limit: Int = 100) -> [JSONValue] {
+        if c.frameSubscription != nil { return pendingObservationFrames(c) }
         guard let sub = c.subscription else { return [] }
         let items: [(cursor: Int, event: JSONValue)]
         if let runId = sub.runId {

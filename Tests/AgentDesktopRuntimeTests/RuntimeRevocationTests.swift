@@ -242,7 +242,7 @@ func secNoEventCreatedAfterTheWithdrawalIsSent(_ how: String) async throws {
             Thread {
                 var i = 0
                 while stop.response == nil {
-                    _ = s.runs.appendEvent(runId, "action.accepted", .obj([("requestId", .string("burst-\(i)"))]))
+                    _ = s.runs.appendEvent(runId, "action.accepted", .obj([("requestId", .string("burst-\(i)")), ("kind", .string("click"))]))
                     i += 1
                     Thread.sleep(forTimeInterval: 0.0005)
                 }
@@ -321,10 +321,10 @@ func secTheCheckThenSendRaceSendsNothingAfterTheWithdrawal(_ how: String) async 
         let watcher = streamClient(path, id, token)
         defer { watcher.close() }
         _ = try watcher.subscribe(runId: nil, after: nil)
-        _ = s.runs.appendEvent(runId, "action.accepted", .obj([("requestId", .string("before"))]))
+        _ = s.runs.appendEvent(runId, "action.accepted", .obj([("requestId", .string("before")), ("kind", .string("click"))]))
         Thread.sleep(forTimeInterval: 0.8)
         let boundary = s.runs.eventCursorRange().latest
-        _ = s.runs.appendEvent(runId, "action.accepted", .obj([("requestId", .string("after"))]))
+        _ = s.runs.appendEvent(runId, "action.accepted", .obj([("requestId", .string("after")), ("kind", .string("click"))]))
         let (cursors, closed) = try drain(watcher)
         #expect(closed)
         #expect(cursors.allSatisfy { $0 <= boundary }, "an event created after the expiry was sent")

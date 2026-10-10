@@ -1,6 +1,7 @@
 import AgentDesktopProtocol
 import AppKit
 import CoreGraphics
+import Darwin
 import Foundation
 import ImageIO
 import SecondScreenCore
@@ -241,6 +242,20 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
             && app.bundleURL?.standardizedFileURL.path == "/System/Library/CoreServices/Dock.app"
     }
 
+    /// The system cursor is a rendered pointer, not an input destination.
+    /// Window names alone never establish that identity.
+    static func isSystemCursor(pid: Int32, layer: Int, title: String) -> Bool {
+        guard layer == Int(CGWindowLevelForKey(.cursorWindow)), title == "Cursor" else { return false }
+        var path = [CChar](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return false }
+        return cursorIdentity(layer: layer, title: title, executable: String(cString: path))
+    }
+
+    static func cursorIdentity(layer: Int, title: String, executable: String) -> Bool {
+        layer == Int(CGWindowLevelForKey(.cursorWindow)) && title == "Cursor"
+            && executable == "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+    }
+
     public func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] {
         let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
         let menuBar = CGFloat(NSStatusBar.system.thickness)
@@ -256,6 +271,8 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
                   let f = CGRect(dictionaryRepresentation: b), f.intersects(bounds)
             else { return nil }
             let owner = entry[kCGWindowOwnerName as String] as? String ?? ""
+            let title = entry[kCGWindowName as String] as? String ?? ""
+            if Self.isSystemCursor(pid: pid, layer: layer, title: title) { return nil }
             let frame = Rect(x: f.minX, y: f.minY, width: f.width, height: f.height)
             guard Self.isCoveringOverlay(frame: frame, systemDock: Self.isSystemDock(pid: pid), boundProcess: pid == boundPid,
                                          screen: screen.frame, menuBar: Double(menuBar)) else { return nil }
