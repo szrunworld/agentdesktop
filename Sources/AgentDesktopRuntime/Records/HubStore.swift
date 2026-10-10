@@ -558,8 +558,17 @@ public final class HubStore: @unchecked Sendable {
         return (client(clientId)!, self.grant(clientId)!)
     }
 
-    public func deny(_ p: Pairing) throws {
-        try db.execute("UPDATE pairings SET state = 'denied' WHERE pairing_id = ? AND state = 'requested'", [.text(p.pairingId)])
+    public func deny(_ p: Pairing, connectionId: String? = nil, clientId: String? = nil) throws {
+        try db.transaction {
+            try db.execute("UPDATE pairings SET state = 'denied' WHERE pairing_id = ? AND state = 'requested'", [.text(p.pairingId)])
+            guard db.changes == 1 else { throw RuntimeStoreError("pairing is no longer open", kind: .revisionMismatch) }
+            if let connectionId, let clientId {
+                try db.execute("""
+                    INSERT INTO auth_events (at, connection_id, client_id, method, decision, reason, run_id)
+                    VALUES (?, ?, ?, 'hub.pairing.deny', 'denied', ?, NULL)
+                    """, [.text(nowString), .text(connectionId), .text(clientId), .text(p.pairingId)])
+            }
+        }
     }
 
     /// The connection that asked is gone: nothing could collect a credential,
