@@ -18,6 +18,43 @@ struct UnitRunFlowTests {
         return (rt, try URTestFlow.port(rt))
     }
 
+    private func profile(_ id: String, revision: Int) -> JSONValue {
+        .obj([("guiProfileId", .string(id)), ("name", .string(id)), ("state", .string("enabled")),
+              ("revision", .int(revision)), ("modelProfileId", .string("model_test")), ("modelProfileRevision", .int(1)),
+              ("adapterId", .string("fixture_json_v1")), ("adapterVersion", .string("1")),
+              ("promptVersion", .string("1")), ("parserVersion", .string("1")), ("coordinateProtocol", .string("normalized_1000")),
+              ("limits", .obj([("maxSteps", .int(10)), ("maxWallTimeMs", .int(120000)),
+                               ("maxModelAttemptsPerStep", .int(1)), ("maxTotalModelAttempts", .int(10)),
+                               ("maxOutputTokens", .int(1024)), ("maxWaitMs", .int(1000)), ("maxScreenshots", .int(5)),
+                               ("maxImageEncodedBytes", .int(8388608)), ("requireReportedUsage", .bool(false))])),
+              ("allowedFallbackProfileRefs", .array([])), ("createdAt", .string(URTestRuntime.at(0))),
+              ("updatedAt", .string(URTestRuntime.at(0)))])
+    }
+
+    @Test("[Mock] profileQualifiedFlowSubmitsPinnedProfile")
+    func profileQualifiedFlowSubmitsPinnedProfile() async throws {
+        let (rt, port) = try setUp("ur-normal")
+        rt.methods.insert("ai.profiles.list")
+        rt.profiles = [profile("gp_gui_v1", revision: 3)]
+        let t = try await URTestFlow.drive(rt, port)
+        URTestFlow.checkExpectations(t, rt)
+        let params = try #require(rt.with { rt.unitRunParams.first })
+        #expect(params["guiProfileId"] == .string("gp_gui_v1"))
+        #expect(params["expectedProfileRevision"] == .int(3))
+    }
+
+    @Test("[Mock] multipleProfilesRequireExplicitTask")
+    func multipleProfilesRequireExplicitTask() async throws {
+        let (rt, port) = try setUp("ur-normal")
+        rt.methods.insert("ai.profiles.list")
+        rt.profiles = ["gp_a", "gp_b"].map { profile($0, revision: 1) }
+        await #expect(throws: URTestError.self) { _ = try await URTestFlow.drive(rt, port) }
+        #expect(rt.count("unit.run") == 0)
+        let t = try await URTestFlow.drive(rt, port, taskType: "unit.run/gp_b")
+        URTestFlow.checkExpectations(t, rt)
+        #expect(rt.with { rt.unitRunParams.first?["guiProfileId"] } == .string("gp_b"))
+    }
+
     // MARK: The five E2E classes (plus the time limit)
 
     @Test("[Mock] normalCompletionIsExecutedNotVerified") func normalCompletionIsExecutedNotVerified() async throws {

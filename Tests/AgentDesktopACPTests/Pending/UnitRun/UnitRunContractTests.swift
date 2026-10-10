@@ -72,10 +72,23 @@ struct UnitRunContractTests {
         }
     }
 
+    @Test("[Mock] malformedFramesAreReportedAndPartialFramesWait")
+    func malformedFramesAreReportedAndPartialFramesWait() {
+        let bytes = Data("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\nnot-json\n{\"partial\":".utf8)
+        let parsed = URTestPipeEditor.decodeFrames(bytes)
+        #expect(parsed.frames.count == 1)
+        #expect(parsed.problems.count == 1)
+        #expect(parsed.problems.first?.contains("frame 2: invalid JSON") == true)
+        let completed = URTestPipeEditor.decodeFrames(bytes + Data("true}\n".utf8))
+        #expect(completed.frames.count == 2)
+        #expect(completed.problems.count == 1)
+    }
+
     // MARK: Catalog
 
     @Test("[Mock] noUnitRunNoTask") func noUnitRunNoTask() {
         let c = ACPTaskCatalog()
+        #expect(!URTestRuntime.withoutUnitRun.contains("unit.run"))
         #expect(c.entries(methods: URTestRuntime.withoutUnitRun, profiles: nil).isEmpty)
         #expect(c.entries(methods: URTestRuntime.withUnitRun, profiles: nil).map(\.task.taskType) == ["unit.run"])
     }

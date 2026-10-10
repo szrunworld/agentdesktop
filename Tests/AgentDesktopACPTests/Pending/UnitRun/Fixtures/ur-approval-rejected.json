@@ -1,11 +1,11 @@
 {
   "name": "ur-approval-rejected",
-  "e2eClass": "approval_rejected",
+  "e2eClass": "approval_channel_missing_cancelled",
   "gates": [
     "G2-06",
     "G2-07"
   ],
-  "description": "审批拒绝：Run 进入 waiting_approval；runtime/1 还没有 inbox（PR4），ACP 按 capability_missing 处理为拒绝，绝不当作批准；随后用户取消，Run cancelled，没有任何动作发出。编辑器 Ask 模式下的提交前确认被拒绝时则根本不发 unit.run（见服务端测试）。",
+  "description": "Mock 审批通道缺失后取消（不代表真实审批拒绝）：Run 进入 waiting_approval；runtime/1 还没有 inbox（PR4），ACP 按 capability_missing 处理为拒绝，绝不当作批准；随后用户取消，Run cancelled，没有任何动作发出。编辑器 Ask 模式下的提交前确认被拒绝时则根本不发 unit.run（见服务端测试）。",
   "layer": "fixture: Mock today (URTestRuntime); Real after A6 (lane Q, test copy under /tmp/adt-*)",
   "desktopId": "desk_A",
   "input": {

@@ -74,11 +74,13 @@ enum URTestFlow {
     /// catalog → submit → events → projector → wire, reacting to the
     /// scenario's trigger (cancel or disconnect after an event type).
     static func drive(_ rt: URTestRuntime, _ port: ACPBridgeRuntimePort, policy: ACPPrivacyPolicy = ACPPrivacyPolicy(),
-                      input: JSONValue? = nil, key: String? = nil, extra: [JSONValue] = []) async throws -> URTestTrace {
+                      input: JSONValue? = nil, key: String? = nil, taskType: String? = nil, extra: [JSONValue] = []) async throws -> URTestTrace {
         let s = rt.scenario
         var t = URTestTrace()
         t.tasks = try await port.tasks()
-        guard let task = t.tasks.first(where: { $0.taskType == ACPTaskCatalog.unitRunMethod }) else {
+        let candidates = t.tasks.filter { $0.taskType == ACPTaskCatalog.unitRunMethod || $0.taskType.hasPrefix(ACPTaskCatalog.unitRunMethod + "/") }
+        if taskType == nil && candidates.count > 1 { throw URTestError.ambiguousTask }
+        guard let task = candidates.first(where: { taskType == nil || $0.taskType == taskType }) else {
             t.receipt = .refused(code: "capability_missing", message: "no unit.run task")
             return t
         }
@@ -181,12 +183,26 @@ final class URTestPipeEditor: @unchecked Sendable {
 
     var output: Data { lock.withLock { bytes } }
     var text: String { String(decoding: output, as: UTF8.self) }
-    var frames: [JSONValue] { output.split(separator: 0x0a).compactMap { try? StrictJSON.parse(Data($0)) } }
+    static func decodeFrames(_ output: Data) -> (frames: [JSONValue], problems: [String]) {
+        var frames: [JSONValue] = []
+        var problems: [String] = []
+        var start = output.startIndex
+        for end in output.indices where output[end] == 0x0a {
+            do { frames.append(try StrictJSON.parse(Data(output[start..<end]))) }
+            catch { problems.append("frame \(frames.count + problems.count + 1): invalid JSON: \(error)") }
+            start = output.index(after: end)
+        }
+        // The reader may have received only part of the next frame.
+        return (frames, problems)
+    }
+
+    var frames: [JSONValue] { Self.decodeFrames(output).frames }
 
     /// ACP v1 schema violations over every frame the agent wrote.
     var schemaProblems: [String] {
         let methods = lock.withLock { sent }
-        return frames.flatMap { f -> [String] in
+        let decoded = Self.decodeFrames(output)
+        return decoded.problems + decoded.frames.flatMap { f -> [String] in
             let answering = f["method"] == nil ? f["id"]?.intValue.flatMap { methods[$0] } : nil
             return TTestSchema.check(f, answering: answering).map { "\(f.encoded().prefix(120)): \($0)" }
         }
@@ -253,7 +269,7 @@ final class URTestPipeEditor: @unchecked Sendable {
     }
 }
 
-enum URTestError: Error { case timeout }
+enum URTestError: Error { case timeout, ambiguousTask }
 
 extension JSONValue {
     /// The input with one more member (escalation probes).

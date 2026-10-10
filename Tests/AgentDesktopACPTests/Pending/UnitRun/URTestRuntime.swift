@@ -99,7 +99,7 @@ final class URTestRuntime: @unchecked Sendable {
 
     /// The methods a Runtime with A6 would list (runtime/1 today plus unit.run).
     static let withUnitRun: Set<String> = Set(RuntimeMethod.allCases.map(\.rawValue)).union(["unit.run"])
-    static let withoutUnitRun: Set<String> = Set(RuntimeMethod.allCases.map(\.rawValue))
+    static let withoutUnitRun: Set<String> = withUnitRun.subtracting(["unit.run"])
 
     init(_ scenario: URTestScenario) { self.scenario = scenario }
 

@@ -71,14 +71,14 @@
 | --- | --- | --- |
 | `URTestRuntime.swift` | Mock 辅助 | 按冻结形状应答的假 runtime/1：账本重放、Schema 校验、越权拒绝（F40-06 第 1 行）、前置检查拒绝、完整的 `Run`（含 `unit`）、`RuntimeStatus`、`Capabilities`、`PlatformRunEvent`、`CancelReceipt`、`RequestRecord`、`RunEvents`、`EventSubscription`。校验范围见第四节之后的「契约校验范围」，违例让测试失败 |
 | `URTestSupport.swift` | Mock 辅助 | 驱动器（目录 → 提交 → 事件 → 投影 → Wire v1 帧，按场景在某事件后取消或断连）；场景期望检查；真实管道上的编辑器（与 dev 入口同一套 Transport / Server / Projector / Wire / Store） |
-| `UnitRunContractTests.swift` | Mock | 10 个：冻结夹具、越权字段的 Schema 证据、场景输入与事件合法、目录与配置、参数构造与本地拒绝、越权本地码；UR-G2、UR-G3 为 known issue |
-| `UnitRunFlowTests.swift` | Mock | 16 个：五类场景加时限用尽、调用超时、回复丢失、14 行前置检查、越权从不发出、Runtime 侧越权应答、无宣告、`unit.*` 不泄露；UR-G4、UR-G5 为 known issue |
+| `UnitRunContractTests.swift` | Mock | 11 个：冻结夹具、越权字段的 Schema 证据、场景输入与事件合法、目录与配置、参数构造与本地拒绝、越权本地码；UR-G2、UR-G3 为 known issue |
+| `UnitRunFlowTests.swift` | Mock | 18 个：五类场景加时限用尽、调用超时、回复丢失、14 行前置检查、越权从不发出、Runtime 侧越权应答、无宣告、`unit.*` 不泄露；UR-G4、UR-G5 为 known issue |
 | `UnitRunServerTests.swift` | Mock（全栈） | 4 个：Ask 模式拒绝 → 不发 `unit.run`；批准后因 UR-G1 仍不发（known issue）；本地拒绝被说成 Runtime 拒绝（UR-G6，known issue）；prompt 里的越权被拒 |
-| `UnitRunRealRuntimeTests.swift` | Real（未运行） | 8 个，全部 `.disabled("waiting for A6 unit.run: …")`：宣告、正常、取消、断连 owner_lost、审批拒绝（另等 PR4）、结果不明、越权、前置检查落账。需要 `URTEST_DESKTOP_ID`；端点经 `URTestEndpointGuard` 检查 |
+| `UnitRunRealRuntimeTests.swift` | Real（未运行） | 8 个，全部 `.disabled("waiting for A6 unit.run: …")`：宣告、正常、取消、断连 owner_lost、审批拒绝待实现项（另等 PR4）、结果不明、越权、前置检查落账。需要 `URTEST_DESKTOP_ID`；端点经 `URTestEndpointGuard` 检查 |
 | `URTestEndpointGuard.swift` | Mock | 端点白名单与 2 个测试。照 #141 的 `ACPTestEndpointGuard`（尚未进 main）在本目录实现同样逻辑：绝对路径；所在目录经 realpath(3) 解析后必须在 `/tmp/adt-*`（macOS 上为 `/private/tmp/adt-*`）下；另外比 #141 多一条：socket 本身不能是符号链接；不符即抛错，测试在连接之前就停止。`/tmp/adt-*` 指向 `$HOME` 的符号链接、`..` 路径、指向产品 socket 的链接、相对路径、不存在的目录都被拒绝（测试证明）。**#141 合入后改用共享的 `ACPTestEndpointGuard`，删掉本地副本** |
 | `Fixtures/ur-*.json` | 夹具 | 见第五节 |
 
-计数：Mock 32 个（今天运行、全部通过，其中 7 处为固定差距的 known issue），Real 8 个（已写、禁用、未运行）。
+计数：Mock 35 个（今天运行、全部通过，其中 7 处为固定差距的 known issue），Real 8 个（7 个已写步骤、1 个审批拒绝待实现项；全部禁用、未运行）。
 
 **命名**：每个测试的显示名以层开头，`[Mock] …` 或 `[Real·not run] …`，测试输出里一眼可分。**禁用的 Real 测试永远不计为真实验收**：它们只是写好的步骤，没有运行过，不能出现在任何「通过」统计里；只有去掉 `.disabled`、在测试副本上实际运行并留下证据后，才算 L2 真 Runtime 记录。
 
@@ -98,7 +98,7 @@
 **不校验**：
 
 - 握手：`RuntimeIdentity` 由客户端类型直接构造，假 Runtime 不经 JSON，也没有握手 params；
-- runtime/1 之外的方法：`ai.profiles.list` 属于 ai-gui/v1，不在本契约里，记入 `unvalidated`；
+- 契约中找不到定义的方法才记入 `unvalidated`；`ai.profiles.list` 当前已由嵌入的 `service.schema.json` 定义，因此也校验 params 与 result；
 - `unit.*` 事件的 `data`：目录还没冻结（UR-A3），只校验外层 `RunEvent`；
 - 假 Runtime 自身的行为：比如是否真的「不建 Run」，由测试断言检查，不由 Schema 检查。
 
@@ -113,7 +113,7 @@
 | `ur-normal.json` | 正常完成 | G1-06、07、08、11 |
 | `ur-cancel.json` | 取消 | G2-05、G1-11 |
 | `ur-disconnect.json` | 断连（ACP-29） | G1-10、G3-03 |
-| `ur-approval-rejected.json` | 审批拒绝 | G2-06、07 |
+| `ur-approval-rejected.json` | Mock：审批通道缺失后取消；不代表真实审批拒绝 | G2-06、07 仍待 PR4 真实拒绝证据 |
 | `ur-unknown.json` | 结果不明（P2） | G3-01、G3-14 |
 | `ur-limit-exhausted.json` | 时限用尽 | G3-09 |
 | `ur-precheck-refusals.json` | F40-06 第 2–15 行 | G1-06 |
@@ -121,7 +121,7 @@
 
 每个场景文件：`input`（编辑器给的任务输入，不含 desktopId）、`desktopId`、`runtime`（Mock 用：受理后的阶段、`onAccept` 事件、触发条件 `cancelAfter` / `disconnectAfter`、`onTrigger` 事件、`final` Run 状态；事件里的 `$RUN` 由假 Runtime 换成真实 runId）、`expect`（两层共用：`actionLevels`、`finalToolStatus`、`finalRawOutput`、`planResult`、`textContains`、`textExcludes`、`runtimeFinal`、`unitRunCalls`、`cancelCalls`）。真 Runtime 上 `runtime` 一节不适用，只用 `input` 与 `expect`；事件序列以真实记录为准，与夹具不同之处要回报给 40 与 E。`unit.*` 事件标 `frozen: false`，按 A6 草案 3.2 写，目录冻结后改。
 
-已知小问题：夹具是测试目标里的 `.json`，SwiftPM 构建时提示「8 个文件未处理」（警告，不影响构建）。`Package.swift` 只排除了 `Fixtures`，本工作包不许改它；请协调者把 `Pending/UnitRun/Fixtures` 加进 `AgentDesktopACPTests` 的 `exclude`。
+夹具目录已在 `Package.swift` 的测试目标中通过 `exclude: ["Fixtures", "Pending/UnitRun/Fixtures"]` 排除，不再产生未处理 JSON 文件警告。
 
 ## 六、需要负责人答复的问题
 
@@ -139,7 +139,7 @@
 
 ## 七、验收标准与依赖
 
-**本工作包（已满足）**：Mock 32 个通过、Real 8 个禁用且原因写明「waiting for A6 unit.run」（不计为验收）；`swift build`、`swift test`、`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter AgentDesktopACPTests` 退出码 0（PR 正文记录）。
+**本工作包（已满足）**：Mock 35 个通过、Real 8 个禁用且原因写明「waiting for A6 unit.run」（不计为验收）；`swift build`、`swift test`、`LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter AgentDesktopACPTests` 退出码 0（PR 正文记录）。
 
 **A6 之后 ACP 侧算通过**，全部要真实记录（L2 真 Runtime 测试副本，L3 再加 Zed）：
 
@@ -152,3 +152,12 @@
 7. Real 测试去掉 `.disabled` 后在测试副本上通过；Mock 测试继续保留，作为回归。
 
 **依赖**：A6 `unit.run`（40，PR2d #50）→ 所有真实部分；PR4 inbox（f1）→ 审批拒绝的 Runtime 侧；A4 身份（f1）→ G1-09；Zed 手工 Z1（Kevin）→ L3 记录；ACP 自身：UR-G1（S）是 G1-06/G1-11 的硬前提，UR-G2～G6 与 UR-E1～E3 在 G3 之前修完。
+
+## 八、PR 审查修复与启用要求
+
+- 驱动器支持 `unit.run/<profileId>`；只有一个任务时自动选，多任务必须指定 `URTEST_TASK_TYPE`，避免在测试中选错配置。Mock 回归覆盖 profile 修订号及多配置选择。
+- “无 unit.run 能力”集合显式排除 `unit.run`，不依赖未来 RuntimeMethod 枚举内容。
+- 管道校验保留完整帧的 JSON 解析错误；尚未收到换行的尾部等待下一次读取。回归覆盖非法帧与分段读取。
+- Real 正常场景核对 ended/success 与夹具的 planResult；断连核对 unknown、unknownActions=1 及被发出动作的 action.unknown，禁止同动作记录为 completed。
+- `realApprovalRejected` 是待实现项，禁用原因包含 A6 与 PR4；去掉禁用也会明确抛出 approvalDriverNotImplemented。启用前必须接入 pending approval → 拒绝决定 → 终态、无动作执行的真实步骤。现有 ur-approval-rejected Mock 夹具只覆盖通道缺失后取消，不可用于真实审批拒绝验收。
+- Q8 已定：会话 desktop 来自可见 desktop.list，单个默认、多个用户选定；Q9 已定：refused 加可选 reasonCode，仅输出白名单原因码。Q2 未答复前按已决定的临时方案关闭自由文本入口。以上产品改动由后续 ACP 实现 PR 完成。

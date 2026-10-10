@@ -11,6 +11,7 @@ import Testing
 // endpoint:
 //
 //   AGENTDESKTOP_ENDPOINT=/tmp/adt-acp/.../control.sock \
+//   URTEST_TASK_TYPE=unit.run/<profileId> \
 //   URTEST_DESKTOP_ID=<a test Desktop with Calculator bound> swift test --filter UnitRunRealRuntimeTests
 //
 // The scenario fixtures (Fixtures/ur-*.json) carry the expectations; the
@@ -46,11 +47,12 @@ enum URTestReal {
         var raw = try URTestScenario.json(name)
         raw = raw.setting("desktopId", .string(try desktopId()))
         let rt = URTestRuntime(URTestScenario(raw: raw)) // scenario holder only; never called
-        return try await URTestFlow.drive(rt, try port(), key: "urtest-real-\(name)-\(UUID().uuidString)")
+        return try await URTestFlow.drive(rt, try port(), key: "urtest-real-\(name)-\(UUID().uuidString)",
+                                          taskType: ProcessInfo.processInfo.environment["URTEST_TASK_TYPE"])
     }
 }
 
-enum URTestRealError: Error { case noDesktop }
+enum URTestRealError: Error { case noDesktop, approvalDriverNotImplemented }
 
 @Suite("UR · Real (not run) · unit.run against a Runtime test copy", .serialized)
 struct UnitRunRealRuntimeTests {
@@ -63,7 +65,14 @@ struct UnitRunRealRuntimeTests {
     @Test("[Real·not run] realNormalCompletion", .disabled("waiting for A6 unit.run: no handler; G1-06/G1-11 normal class"))
     func realNormalCompletion() async throws {
         let t = try await URTestReal.drive("ur-normal")
-        #expect(t.runId != nil)
+        let runId = try #require(t.runId)
+        let c = try URTestReal.client()
+        defer { c.close() }
+        let run = try c.call(RuntimeRequest(.runShow, params: .obj([("runId", .string(runId))])))
+        #expect(run["phase"]?.stringValue == "ended")
+        #expect(run["outcome"]?.stringValue == "success")
+        let fixture = try URTestScenario.load("ur-normal")
+        #expect(t.planResult == fixture.expect["planResult"]?.stringValue)
         #expect(t.actionLevels.contains("executed"))
         #expect(!t.wireText.contains("已验证"))
         #expect(t.wireProblems.isEmpty)
@@ -91,12 +100,22 @@ struct UnitRunRealRuntimeTests {
         #expect(run["phase"]?.stringValue == "ended")
         #expect(run["closingReason"]?.stringValue == "owner_lost")
         #expect(run["lifetime"]?.stringValue == "connection_scoped")
+        #expect(run["outcome"]?.stringValue == "unknown")
+        #expect(run["unknownActions"]?.intValue == 1)
+        let dispatched = try #require(t.events.last(where: { $0.type == "action.dispatched" })?.payload["data"]?["requestId"]?.stringValue)
+        let history = try c.call(RuntimeRequest(.runEvents, params: .obj([("runId", .string(runId))])))
+        let events = try #require(history["events"]?.arrayValue)
+        #expect(events.contains { $0["type"]?.stringValue == "action.unknown" && $0["data"]?["receipt"]?["requestId"]?.stringValue == dispatched })
+        #expect(!events.contains { $0["type"]?.stringValue == "action.completed" && $0["data"]?["receipt"]?["requestId"]?.stringValue == dispatched })
     }
 
     @Test("[Real·not run] realApprovalRejected", .disabled("waiting for A6 unit.run and PR4 inbox: approval-rejected class needs a Runtime approval source"))
     func realApprovalRejected() async throws {
-        let t = try await URTestReal.drive("ur-approval-rejected")
-        #expect(t.actionUpdates.isEmpty)
+        // Implement after PR4: wait for a pending approval, reject its ID,
+        // then assert the rejection outcome and absence of dispatched actions.
+        // The Mock fixture cancels a Run without an approval channel; it
+        // cannot stand in for a real approval decision.
+        throw URTestRealError.approvalDriverNotImplemented
     }
 
     @Test("[Real·not run] realUnknownIsTerminal", .disabled("waiting for A6 unit.run: unknown class needs an executor without receipt (G3-01, G3-14)"))
