@@ -157,7 +157,9 @@ final class STestRuntime: ACPRuntimePort, @unchecked Sendable {
         return .accepted(runs.get()[id]!.snapshot)
     }
 
+    let snapshotReads = STestLocked(0)
     func snapshot(runId: String) async throws -> ACPRunSnapshot {
+        snapshotReads.with { $0 += 1 }
         guard let r = runs.get()[runId] else { throw ACPError(code: -32000, reason: "not_found", message: "no run") }
         var snap = r.snapshot
         snap.lastCursor = r.events.last?.cursor
@@ -291,7 +293,7 @@ final class STestHarness: @unchecked Sendable {
     private let nextId = STestLocked(100)
 
     init(version: ACPVersion = .v1, runtime: STestRuntime = STestRuntime(), dir: URL? = nil,
-         holdTime: Duration = .seconds(5), realProjector: (any ACPEventProjector)? = nil) {
+         holdTime: Duration = .seconds(5), monotonicNow: (@Sendable () -> ContinuousClock.Instant)? = nil, realProjector: (any ACPEventProjector)? = nil) {
         self.dir = dir ?? ACPTestScratch.dir("acp-s-tests")
         connection = STestConnection(version: version)
         self.runtime = runtime
@@ -299,6 +301,7 @@ final class STestHarness: @unchecked Sendable {
         var config = ACPAgentServerConfig()
         config.pollInterval = .milliseconds(5)
         config.holdTime = holdTime
+        if let monotonicNow { config.monotonicNow = monotonicNow }
         config.drainTimeout = .milliseconds(500)
         server = ACPAgentServer(connection: connection, runtime: runtime, projector: realProjector ?? projector, store: store,
                                 config: config)
