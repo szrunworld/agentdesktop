@@ -174,9 +174,9 @@ public final class AXSnapshot {
         AXUIElementSetMessagingTimeout(root, Self.queryTimeout)
         let hitStatus = AXUIElementCopyElementAtPosition(root, Float(point.x), Float(point.y), &hit)
         let geometry = WindowMover.frame(of: current)
+        let trees = webEvidenceTrees(against: fresh)
         try Self.requireCurrentWebEvidence(
-            oldTree: webEvidenceTrees(against: fresh).old, newTree: webEvidenceTrees(against: fresh).new,
-            complete: fresh.truncated == nil,
+            oldTree: trees.old, newTree: trees.new, complete: fresh.truncated == nil,
             sameIdentity: CFEqual(old, current),
             sameGeometry: Self.sameFrame(info.frame, currentInfo.frame) && Self.sameFrame(info.frame, geometry.map(Frame.init)),
             hitMatches: hitStatus == .success && hit.map { CFEqual(old, $0) } == true)
