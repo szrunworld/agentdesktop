@@ -205,6 +205,7 @@ public final class RuntimeService: @unchecked Sendable {
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
         .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
         .desktopClosePlan, .appQuit, .desktopResize,
+        .desktopStop, .desktopTakeover, .desktopHandback,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
@@ -547,6 +548,9 @@ public final class RuntimeService: @unchecked Sendable {
         case .desktopClosePlan: return closePlan(p, connection)
         case .appQuit: return quitApp(p, connection)
         case .desktopResize: return resizeDesktop(p, connection)
+        case .desktopStop: return stopDesktop(p, connection)
+        case .desktopTakeover: return takeover(request, connection)
+        case .desktopHandback: return handback(p, connection)
         }
     }
 }

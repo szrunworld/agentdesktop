@@ -617,6 +617,9 @@
         "openSessions": {
           "type": "integer",
           "minimum": 0
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
         }
       }
     },
@@ -2920,11 +2923,7 @@
               "$ref": "#/$defs/Timestamp"
             },
             "type": {
-              "enum": [
-                "action.completed",
-                "action.failed",
-                "action.unknown"
-              ]
+              "const": "action.completed"
             },
             "data": {
               "type": "object",
@@ -2934,7 +2933,116 @@
               ],
               "properties": {
                 "receipt": {
-                  "$ref": "#/$defs/ActionReceipt"
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ActionReceipt"
+                    },
+                    {
+                      "properties": {
+                        "execution": {
+                          "const": "completed"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "action.failed"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "receipt"
+              ],
+              "properties": {
+                "receipt": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ActionReceipt"
+                    },
+                    {
+                      "properties": {
+                        "execution": {
+                          "const": "failed"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "action.unknown"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "receipt"
+              ],
+              "properties": {
+                "receipt": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ActionReceipt"
+                    },
+                    {
+                      "properties": {
+                        "execution": {
+                          "const": "unknown"
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -4118,6 +4226,210 @@
             "$ref": "#/$defs/HubGrant"
           },
           "description": "the grants the Desktop was removed from, as they are now"
+        }
+      }
+    },
+    "desktop_stop_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "desktop_takeover_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "desktop_handback_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "DesktopControl": {
+      "description": "who controls the Desktop's input, derived from its lease, its admission and its last Run (docs/plan/03 §3.4); a paired client sees controllerRunId, clientId and clientName only for its own Run",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "since",
+        "actionCount"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "creating",
+            "ready",
+            "running",
+            "manual",
+            "stopping",
+            "stopped",
+            "disconnected",
+            "unknown",
+            "error"
+          ],
+          "description": "running: a Run holds the lease; manual: the user's takeover Run holds it; stopping: the Run holding it stops; stopped: desktop.stop, global stop, or the last Run ended by a stop, until a new Run or desktop.handback; disconnected: the last Run lost its control connection; unknown: the last Run has an unknown action; creating and error are reserved"
+        },
+        "controllerRunId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "clientName": {
+          "type": "string"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "actionCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "RunStopState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "phase",
+        "quiescence",
+        "outcome"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "quiescence": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "DesktopStopReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "accepted",
+        "run",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "accepted": {
+          "const": true
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStopState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the Run that held the Desktop, as stopped: phase stopping and quiescence pending while an action of it is in flight"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
+    "DesktopTakeover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "run",
+        "stopped",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "run": {
+          "$ref": "#/$defs/Run"
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStopState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the agent's Run the takeover stopped, if one held the Desktop"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
+    "DesktopHandback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "handedBack",
+        "endedRunId",
+        "observationsCleared",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "handedBack": {
+          "type": "boolean"
+        },
+        "endedRunId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observationsCleared": {
+          "type": "boolean"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
         }
       }
     },

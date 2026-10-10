@@ -621,6 +621,9 @@ enum RuntimeContractData {
         "openSessions": {
           "type": "integer",
           "minimum": 0
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
         }
       }
     },
@@ -2924,11 +2927,7 @@ enum RuntimeContractData {
               "$ref": "#/$defs/Timestamp"
             },
             "type": {
-              "enum": [
-                "action.completed",
-                "action.failed",
-                "action.unknown"
-              ]
+              "const": "action.completed"
             },
             "data": {
               "type": "object",
@@ -2938,7 +2937,116 @@ enum RuntimeContractData {
               ],
               "properties": {
                 "receipt": {
-                  "$ref": "#/$defs/ActionReceipt"
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ActionReceipt"
+                    },
+                    {
+                      "properties": {
+                        "execution": {
+                          "const": "completed"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "action.failed"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "receipt"
+              ],
+              "properties": {
+                "receipt": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ActionReceipt"
+                    },
+                    {
+                      "properties": {
+                        "execution": {
+                          "const": "failed"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "action.unknown"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "receipt"
+              ],
+              "properties": {
+                "receipt": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ActionReceipt"
+                    },
+                    {
+                      "properties": {
+                        "execution": {
+                          "const": "unknown"
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -4122,6 +4230,210 @@ enum RuntimeContractData {
             "$ref": "#/$defs/HubGrant"
           },
           "description": "the grants the Desktop was removed from, as they are now"
+        }
+      }
+    },
+    "desktop_stop_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "desktop_takeover_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "desktop_handback_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "DesktopControl": {
+      "description": "who controls the Desktop's input, derived from its lease, its admission and its last Run (docs/plan/03 §3.4); a paired client sees controllerRunId, clientId and clientName only for its own Run",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "since",
+        "actionCount"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "creating",
+            "ready",
+            "running",
+            "manual",
+            "stopping",
+            "stopped",
+            "disconnected",
+            "unknown",
+            "error"
+          ],
+          "description": "running: a Run holds the lease; manual: the user's takeover Run holds it; stopping: the Run holding it stops; stopped: desktop.stop, global stop, or the last Run ended by a stop, until a new Run or desktop.handback; disconnected: the last Run lost its control connection; unknown: the last Run has an unknown action; creating and error are reserved"
+        },
+        "controllerRunId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "clientName": {
+          "type": "string"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "actionCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "RunStopState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "phase",
+        "quiescence",
+        "outcome"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "quiescence": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "DesktopStopReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "accepted",
+        "run",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "accepted": {
+          "const": true
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStopState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the Run that held the Desktop, as stopped: phase stopping and quiescence pending while an action of it is in flight"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
+    "DesktopTakeover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "run",
+        "stopped",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "run": {
+          "$ref": "#/$defs/Run"
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStopState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the agent's Run the takeover stopped, if one held the Desktop"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
+    "DesktopHandback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "handedBack",
+        "endedRunId",
+        "observationsCleared",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "handedBack": {
+          "type": "boolean"
+        },
+        "endedRunId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observationsCleared": {
+          "type": "boolean"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
         }
       }
     },
@@ -10012,6 +10324,33 @@ enum RuntimeContractData {
       "note": "owner; takes the physical Desktop out of one client's grant (with clientId) or every client's (without), ending their window grants on it in the same transaction (desktop_removed) and cutting their connections; without clientId the Desktop is destroyed as well (its record only: the display and its windows are the user's); a paired client gets permission_denied, reason owner_only"
     },
     {
+      "method": "desktop.stop",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_stop_params",
+      "result": "DesktopStopReceipt",
+      "status": "implemented",
+      "note": "owner; closes this Desktop's input admission and stops the Run holding it (any origin, closingReason desktop_stop); the receipt separates accepted from quiescent: run.phase stopping / quiescence pending while an action of it is in flight. New Runs on the Desktop are refused (input_disabled, details.reason desktop_stopped) until desktop.handback; other Desktops are untouched; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.takeover",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_takeover_params",
+      "result": "DesktopTakeover",
+      "status": "implemented",
+      "note": "owner; manual takeover: closes agents' admission on the Desktop, stops the Run holding it (closingReason takeover) and, once nothing of it is in flight, starts a platform Run of origin user (kind exec, platform_durable) that holds the lease; every other Run is refused (control_busy, details.reason manual_control); Desktop.control.state manual. While the stopped Run still finishes an action past the deadline: stop_pending (retryable, notSent false: the takeover was accepted and admission stays closed), ask again with a new requestId. Taking over a Desktop already taken over answers its Run again; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.handback",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_handback_params",
+      "result": "DesktopHandback",
+      "status": "implemented",
+      "note": "owner; ends the user's Run (closingReason handback, outcome success), reopens the Desktop's admission (after desktop.takeover or desktop.stop) and forgets every observation of the Desktop: an agent observes again before acting and nothing queued before is replayed; on a Desktop neither stopped nor taken over nothing changes (handedBack false); a paired client gets permission_denied, reason owner_only"
+    },
+    {
       "method": "desktop.closePlan",
       "stage": "P0",
       "mutation": false,
@@ -10171,27 +10510,6 @@ enum RuntimeContractData {
       "stage": "P1"
     },
     {
-      "method": "desktop.stop",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "stop input on one Desktop; receipt separates accepted from quiescent"
-    },
-    {
-      "method": "desktop.takeover",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "manual takeover: a platform lease Run with origin user"
-    },
-    {
-      "method": "desktop.handback",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "end the takeover Run and observe again; nothing is replayed"
-    },
-    {
       "method": "request.list",
       "status": "reserved",
       "pr": "A5",
@@ -10269,11 +10587,12 @@ enum RuntimeContractData {
     },
     "Desktop": {
       "add": [
-        "control{state,controllerRunId,clientId,clientName,transport,since,actionCount,lastActionAt}",
+        "control.transport",
+        "control.lastActionAt",
         "targetKind (window|device)"
       ],
       "pr": "A5",
-      "note": "kind (virtual|physical: where the display comes from) is in (#120/#143); targetKind (window|device: what is bound) is a different concept and stays planned"
+      "note": "kind (virtual|physical: where the display comes from) is in (#120/#143); control{state,controllerRunId,clientId,clientName,since,actionCount} is in (A5 desktop.stop/takeover/handback); targetKind (window|device: what is bound) is a different concept and stays planned"
     },
     "desktop.create params": {
       "add": [
@@ -10296,7 +10615,7 @@ enum RuntimeContractData {
   "authorization": {
     "principal": "from the handshake credential only: owner (the host's in-process connections; no socket client is ever the owner), paired app (app:<id> credential from hub.pairing; a client that paired as verified code must satisfy its designated requirement, read from the socket's audit token, on every handshake), else unpaired",
     "unpaired": "runtime.handshake, runtime.capabilities, hub.pairing.start, hub.pairing.status; anything else is pairing_required",
-    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy/resize, app.launch/quit, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). hub.displays.* (attaching one of the user's displays for a client, and taking it back) is the owner's alone and is never asked for by a client. Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
+    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). hub.displays.* (attaching one of the user's displays for a client, and taking it back) is the owner's alone and is never asked for by a client. Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
     "checked": "every request, against the client and grant as they are now; an action once more right before its input goes out",
     "pairing": "hub.pairing.start asks the user in the host's trusted window (details, short code, user authentication); approved exactly as shown, the grant's duration counting from the approval; denied, cancelled, timed out or no trusted window: denied",
     "confirmation": "a confirmation is bound to a digest of exactly what will be applied, recomputed by the window from what it displayed; params are shown in full and a call too large to show is refused unseen; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch, confirmation_too_large, pairing_busy or no_trusted_ui",
