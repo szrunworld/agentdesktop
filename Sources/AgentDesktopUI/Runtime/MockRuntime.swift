@@ -211,8 +211,10 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
                     .setting("outcome", .string(outcome)).setting("closingReason", .string("cancelled"))
                     .setting("endedAt", .string(stamp()))
             }
-            appendEventLocked(runId, "run.quiescent", .obj([("revision", .int(1))]))
-            appendEventLocked(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", .string(outcome)), ("reason", .string("finished"))]))
+            let ended = runs.first(where: { $0["runId"]?.stringValue == runId })
+            appendEventLocked(runId, "run.quiescent", .obj([("revision", ended?["revision"] ?? .int(1))]))
+            appendEventLocked(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", .string(outcome)),
+                                                       ("reason", ended?["closingReason"] ?? .string("cancelled"))]))
         }
     }
 
@@ -385,7 +387,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             for r in runs where r["phase"]?.stringValue != "ended" {
                 let id = r["runId"]!.stringValue!
                 updateRunLocked(id) { $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")) }
-                appendEventLocked(id, "run.finishing", .obj([("reason", .string("cancelled")), ("inFlight", .bool(false)), ("revision", .int(1))]))
+                appendEventLocked(id, "run.finishing", .obj([("reason", .string("cancelled")), ("inFlight", .bool(false)), ("revision", revisionLocked(id))]))
                 items.append(.obj([("runId", .string(id)), ("accepted", .bool(true)), ("phase", .string("stopping")),
                                    ("quiescence", .string("pending")), ("outcome", .null)]))
                 pending.append(.string(id))
@@ -587,7 +589,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             let terminal = r["phase"]?.stringValue == "ended"
             if !terminal {
                 updateRunLocked(id) { $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")) }
-                appendEventLocked(id, "run.finishing", .obj([("reason", .string("cancelled")), ("inFlight", .bool(false)), ("revision", .int(1))]))
+                appendEventLocked(id, "run.finishing", .obj([("reason", .string("cancelled")), ("inFlight", .bool(false)), ("revision", revisionLocked(id))]))
                 r = try run(id)
             }
             var m: [(String, JSONValue)] = [
@@ -663,6 +665,10 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     private func run(_ id: String) throws -> JSONValue {
         guard let r = runs.first(where: { $0["runId"]?.stringValue == id }) else { throw RuntimeError.notFound("no Run \(id)") }
         return r
+    }
+
+    private func revisionLocked(_ id: String) -> JSONValue {
+        runs.first(where: { $0["runId"]?.stringValue == id })?["revision"] ?? .int(1)
     }
 
     private func updateRunLocked(_ id: String, _ change: (JSONValue) -> JSONValue) {

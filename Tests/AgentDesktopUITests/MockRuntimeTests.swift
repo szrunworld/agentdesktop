@@ -131,6 +131,34 @@ struct MockRuntimeTests {
         #expect(RunStatusPresentation.make(run: r).text == "已停止")
     }
 
+    // Terminal events carry the Run's current revision and closing reason,
+    // not fixed placeholders (PR #227 review).
+    @Test func cancelEventsCarryRevisionAndReason() async throws {
+        let m = MockRuntime.sample()
+        let active = try await m.call("run.list", .obj([("active", .bool(true))]))["runs"]!.arrayValue!
+        let id = active.first!["runId"]!.stringValue!
+        let start = m.latestCursor
+        let stream = try await m.subscribe(after: start)
+        _ = try await m.call("run.cancel", .obj([("runId", .string(id))]))
+        m.confirmQuiescence(id)
+        let r = try await m.call("run.show", .obj([("runId", .string(id))]))
+        var it = stream.makeAsyncIterator()
+        var byType: [String: JSONValue] = [:]
+        for _ in 0..<(m.latestCursor - start) {
+            let e = try #require(try await it.next())["event"]!
+            byType[e["type"]!.stringValue!] = e["data"]
+        }
+        let finishing = try #require(byType["run.finishing"])
+        let quiescent = try #require(byType["run.quiescent"])
+        let ended = try #require(byType["run.ended"])
+        #expect(finishing["revision"]?.intValue ?? 0 > 1)
+        #expect(quiescent["revision"] == r["revision"])
+        #expect(quiescent["revision"]?.intValue ?? 0 > finishing["revision"]?.intValue ?? 0)
+        #expect(r["closingReason"]?.stringValue == "cancelled")
+        #expect(ended["reason"]?.stringValue == "cancelled")
+        #expect(ended["outcome"]?.stringValue == r["outcome"]?.stringValue)
+    }
+
     @Test func subscriptionCursor() async throws {
         let m = MockRuntime.sample()
         let latest = m.latestCursor
