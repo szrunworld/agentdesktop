@@ -90,6 +90,40 @@ class FixtureTests(unittest.TestCase):
         self.assertGreaterEqual(checked, 4)
 
 
+class ObservationStreamTests(unittest.TestCase):
+    def test_frames_are_read_and_closing_iterator_closes_only_the_view(self):
+        def reply(r):
+            subscribed = {"subscriptionId": "view-1", "version": 1, "subscribed": True, "fps": 1, "maxWidth": 200}
+            frame = {"apiVersion": API_VERSION, "subscriptionId": "view-1", "sequence": 1,
+                     "type": "observation.frame", "status": "ready", "frame": {"image": {"width": 200}}}
+            return ok(r, subscribed) + b"\n" + json.dumps(frame).encode()
+        rt = FakeRuntime(handshake_then(reply))
+        try:
+            c = RuntimeClient(rt.path, env={})
+            frames = c.observation_frames("desk-1", max_width=200)
+            self.assertEqual(next(frames)["frame"]["image"]["width"], 200)
+            frames.close()
+            self.assertIsNone(c._sock)
+            self.assertEqual([r["method"] for r in rt.requests], ["runtime.handshake", "observe.subscribe"])
+        finally:
+            rt.close()
+
+    def test_a_foreign_subscription_frame_is_rejected(self):
+        def reply(r):
+            return ok(r, {"subscriptionId": "view-1", "version": 1}) + b"\n" + json.dumps({
+                "apiVersion": API_VERSION, "subscriptionId": "foreign", "sequence": 1,
+                "type": "observation.frame", "status": "ready", "frame": {}}).encode()
+        rt = FakeRuntime(handshake_then(reply))
+        try:
+            c = RuntimeClient(rt.path, env={})
+            with self.assertRaises(RuntimeError_) as caught:
+                next(c.observation_frames("desk-1"))
+            self.assertEqual(caught.exception.code, "instance_mismatch")
+            self.assertIsNone(c._sock)
+        finally:
+            rt.close()
+
+
 class ClientTests(unittest.TestCase):
     def test_handshake_then_requests_in_order(self):
         rt = FakeRuntime(handshake_then(lambda r: ok(r, {"desktops": [], "echo": r["method"]})))

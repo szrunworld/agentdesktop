@@ -120,11 +120,18 @@ public final class SocketRuntimeClient: RuntimeClient {
         return id
     }
 
+    private var pushedSchema = "EventFrame"
+
     public func call(_ request: RuntimeRequest) throws -> JSONValue {
         _ = try handshake()
         guard let transport else { throw RuntimeError.connectionLost("the connection is closed") }
         do {
-            return try exchange(request, on: transport)
+            let result = try exchange(request, on: transport)
+            if request.method == "observe.subscribe" { pushedSchema = "ObservationFrame" }
+            else if request.method == "events.subscribe" || request.method == "observe.unsubscribe" || request.method == "events.unsubscribe" {
+                pushedSchema = "EventFrame"
+            }
+            return result
         } catch let e as RuntimeError where e.code == "connection_lost" {
             close()
             throw e
@@ -148,8 +155,8 @@ public final class SocketRuntimeClient: RuntimeClient {
             return .closed
         }
         guard let line else { return .idle }
-        guard let frame = try? StrictJSON.parse(line), contract.validate(frame, "EventFrame").isEmpty else {
-            throw RuntimeError("instance_mismatch", "a pushed line is not an EventFrame", phase: .transport)
+        guard let frame = try? StrictJSON.parse(line), contract.validate(frame, pushedSchema).isEmpty else {
+            throw RuntimeError("instance_mismatch", "a pushed line breaks the subscription frame schema", phase: .transport)
         }
         return .frame(frame)
     }
@@ -172,7 +179,8 @@ public final class SocketRuntimeClient: RuntimeClient {
             }
             // On a subscribed connection, frames pushed before the reply
             // (events.unsubscribe) are passed over.
-            guard value["event"] != nil, value["ok"] == nil else { break }
+            guard value["ok"] == nil, value["event"] != nil ||
+                  (pushedSchema == "ObservationFrame" && contract.validate(value, pushedSchema).isEmpty) else { break }
             guard let next = try transport.receive() else {
                 throw RuntimeError.connectionLost("no reply from the Runtime within the timeout")
             }
