@@ -975,6 +975,50 @@ class WatchdogTests(unittest.TestCase):
         running = report["outcome"]["running"]
         self.assertTrue(any("another user's process" in e["why"] for e in running), running)
 
+    def test_what_a_command_leaves_in_its_group_as_it_exits_is_found(self):
+        # Codex on #215: a command that exits before any snapshot ran. Its
+        # leftover has no marker (env -i) and stays in its group: found by
+        # the last look before the command is reaped, and stopped.
+        secs = str(3000 + uuid.uuid4().int % 900)
+        marker = f"sleep {secs}"
+        try:
+            code, log, _, out = self.run_watchdog(
+                # Not on the run's terminal either: only its group links it.
+                ["sh", "-c", f"env -i /bin/sleep {secs} </dev/null >/dev/null 2>&1 & exit 0"],
+                env={"WATCHDOG_NO_SNAPSHOTS": "1", "WATCHDOG_NO_SUDO": "1"})
+            self.assertEqual(code, 124, log)
+            time.sleep(0.5)
+            self.assertFalse(alive(marker), "the leftover was missed")
+        finally:
+            subprocess.run(["pkill", "-f", marker], capture_output=True)
+
+    @unittest.skipUnless(subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0,
+                         "needs passwordless sudo (CI has it)")
+    def test_a_root_leftover_of_a_command_that_exits_at_once_is_reported_running(self):
+        # Codex on #215: sudo's process left by a command that exits at once,
+        # before any snapshot: still found (by the look before reaping),
+        # reported as another user's process still running; exit 124.
+        code, log, _, out = self.run_watchdog(["sh", "-c", "sudo -n /bin/sleep 6 & exit 0"],
+                                              env={"WATCHDOG_NO_SNAPSHOTS": "1"})
+        self.assertEqual(code, 124, log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        self.assertTrue(any("another user's process" in e["why"] for e in report["outcome"]["running"]), report)
+
+    def test_without_waitid_the_missing_last_look_is_reported_partial(self):
+        # b9 on #215: a Python without os.waitid/WNOWAIT cannot take the last
+        # look before reaping; that is reported (partial, with a warning),
+        # never skipped in silence. The command's status is kept.
+        code, log, _, out = self.run_watchdog(["sh", "-c", "echo hi; exit 0"],
+                                              env={"WATCHDOG_FAKE_NO_WAITID": "1", "WATCHDOG_NO_SUDO": "1"})
+        self.assertEqual(code, 0, log)
+        self.assertIn("::warning title=test-watchdog::", log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        step = report["steps"][0]
+        self.assertEqual(step["status"], "partial", step)
+        self.assertIn("last look before reaping the command was not taken", step["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -74,6 +74,11 @@ SNAPSHOTS = os.environ.get("WATCHDOG_NO_SNAPSHOTS") != "1"
 FAKE_UNREADABLE = os.environ.get("WATCHDOG_FAKE_UNREADABLE", "")
 # And the kernel's process list failing (#193).
 FAKE_NO_PROCESS_LIST = os.environ.get("WATCHDOG_FAKE_NO_PROCESS_LIST") == "1"
+# Whether the command's exit can be seen without reaping it (os.waitid with
+# WNOWAIT; on macOS only from Python 3.13). The self-tests can act out an
+# older Python.
+WAITID = (all(hasattr(os, n) for n in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT"))
+          and os.environ.get("WATCHDOG_FAKE_NO_WAITID") != "1")
 
 
 MARKER = "TEST_WATCHDOG_RUN"
@@ -288,6 +293,15 @@ def processes(deadline=None, problems=None, foreign=None):
     return procs
 
 
+def exited_unreaped(pid):
+    """Whether the child has exited, without reaping it (WNOWAIT): until it
+    is reaped its pid and group id cannot be given to another process."""
+    try:
+        return os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    except ChildProcessError:
+        return True  # already reaped
+
+
 def own_ancestors():
     """pid -> start of each of the watchdog's own ancestors (the shell that
     started it, and up), confirmed link by link as the run's tree is: the
@@ -365,6 +379,9 @@ class Run:
         # The watchdog's own ancestors, confirmed link by link: never part
         # of the run, so never unverifiable (#209).
         self.ancestors = own_ancestors()
+        # Set when this Python cannot see the command's exit without reaping
+        # it, so the last look before reaping is not taken (#215).
+        self.no_capture_before_reap = False
 
     def command_gone(self):
         """The command has exited and been reaped: its pid may be reused at
@@ -387,6 +404,25 @@ class Run:
             self.failed_snapshots += 1
         for pid, cmd in self._tree(procs, foreign).items():
             self.seen.setdefault(pid, (procs[pid][2], cmd))
+        for pid, row in self._foreign_linked.items():
+            self.seen_foreign.setdefault(pid, row)
+
+    def capture_before_reap(self):
+        """The run's tree, its group and the other users' processes in it,
+        remembered at the last moment the command's pid and group id are
+        surely its own: exited, not yet reaped. Not one of the periodic
+        snapshots (WATCHDOG_NO_SNAPSHOTS does not turn it off). Its children
+        were handed to launchd when it exited, so what this finds is mostly
+        by group: a process that left the group (setsid) and was not seen
+        by an earlier snapshot is still not found."""
+        problems = []
+        foreign = {}
+        procs = processes(problems=problems, foreign=foreign)
+        if any(not p.startswith("ps ") for p in problems):
+            self.failed_snapshots += 1
+        for pid, cmd in self._tree(procs, foreign).items():
+            if pid != self.root:
+                self.seen.setdefault(pid, (procs[pid][2], cmd))
         for pid, row in self._foreign_linked.items():
             self.seen_foreign.setdefault(pid, row)
 
@@ -767,6 +803,9 @@ def incomplete(run):
     command ran counts too: a process it would have remembered (one that
     then left the tree) cannot be found by any later look (Codex on #197)."""
     problems = [p for p in run.discovery_problems if not p.startswith("ps ")]
+    if getattr(run, "no_capture_before_reap", False):
+        problems.append("the last look before reaping the command was not taken (this Python has no "
+                        "os.waitid with WNOWAIT): what the command left in its group as it exited may be missed")
     if run.failed_snapshots:
         problems.append(f"{run.failed_snapshots} snapshot(s) while the command ran: the process list failed")
     return problems
@@ -956,9 +995,22 @@ def main():
                 output.take(data)
         # Checked on every turn, data or not (Codex on #188): a leftover
         # writing to the terminal must not keep the exit from being seen.
-        if child.poll() is None:
+        if not WAITID:
+            # No way to see the exit without reaping: the last look before
+            # reaping cannot be taken, which is said, never skipped silently
+            # (b9 on #215).
+            run.no_capture_before_reap = True
+        if not (exited_unreaped(child.pid) if WAITID else child.poll() is not None):
             run.snapshot()
         else:
+            # The command has exited but is not reaped yet: its pid and group
+            # id are still its own. One last full look now, before reaping,
+            # so what it left in its group (another user's process sudo
+            # started, say) is known even if no snapshot ran while it lived
+            # (Codex on #215). Then reap it.
+            if WAITID:
+                run.capture_before_reap()
+            child.wait()
             run.command_gone()
             # Drain what is left, never blocking: a process the run left
             # behind can hold the terminal open forever (b9 on #188).
