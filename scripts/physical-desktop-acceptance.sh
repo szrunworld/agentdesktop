@@ -188,11 +188,12 @@ WG=$(field "$DIR/grant.json" data.windowGrantId)
 [ -n "$WG" ] && ok "window grant $WG" || { bad "window grant: $(cat "$DIR/grant.json")"; exit 1; }
 [ "$(field "$DIR/grant.json" data.window.windowId)" = "$WIN" ] && ok "it is the probe window" || bad "granted another window"
 
-gate "Arrange probe Chess pid $PROBE in front before observation"
 echo "== 4. bind in place, observe: the window alone, transient, no screen image"
 "$B" window bind --desktop "$DESK" --pid "$PROBE" --window "$WIN" --format json > "$DIR/bind.json"
-[ "$(field "$DIR/bind.json" data.binding.windowId)" = "$WIN" ] && ok "bound in place" || bad "bind: $(cat "$DIR/bind.json")"
+[ "$(field "$DIR/bind.json" data.binding.windowId)" = "$WIN" ] && ok "bound in place" || { bad "bind: $(cat "$DIR/bind.json")"; exit 1; }
 SID=$(field "$("$B" session open --desktop "$DESK" --format json > "$DIR/session.json"; echo "$DIR/session.json")" data.sessionId)
+[ -n "$SID" ] || { bad "session: $(cat "$DIR/session.json")"; exit 1; }
+gate "After binding, hide this test host and arrange probe Chess pid $PROBE in front before observation"
 "$B" observe --session "$SID" --format json > "$DIR/observe.json"
 [ -n "$(field "$DIR/observe.json" data.snapshotId)" ] || { bad "no valid observation: $(cat "$DIR/observe.json")"; exit 1; }
 [ "$(field "$DIR/observe.json" data.target.windowId)" = "$WIN" ] && ok "observed the granted window" || bad "observe: $(cat "$DIR/observe.json")"
