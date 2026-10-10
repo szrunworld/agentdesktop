@@ -954,6 +954,10 @@ enum RuntimeContractData {
         },
         "boundAt": {
           "$ref": "#/$defs/Timestamp"
+        },
+        "windowGrantId": {
+          "$ref": "#/$defs/Id",
+          "description": "the caller's window grant this binding was made under; absent for the owner's bindings and an app's own launched windows"
         }
       }
     },
@@ -1165,6 +1169,13 @@ enum RuntimeContractData {
         },
         "transform": {
           "$ref": "#/$defs/ImageTransform"
+        },
+        "transient": {
+          "type": "boolean",
+          "description": "true: kept only briefly (no persist permission for the window); gone at expiresAt or when the window grant ends"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
         }
       }
     },
@@ -2578,6 +2589,13 @@ enum RuntimeContractData {
         },
         "runId": {
           "$ref": "#/$defs/Id"
+        },
+        "transient": {
+          "type": "boolean",
+          "description": "true: kept only briefly (no persist permission for the window); gone at expiresAt or when the window grant ends"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
         }
       }
     },
@@ -3598,6 +3616,174 @@ enum RuntimeContractData {
           "items": {
             "$ref": "#/$defs/HubGrant"
           }
+        }
+      }
+    },
+    "WindowGrantWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windowId",
+        "process",
+        "bundleId",
+        "appName"
+      ],
+      "properties": {
+        "windowId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "process": {
+          "$ref": "#/$defs/ProcessIdentity"
+        },
+        "bundleId": {
+          "type": "string"
+        },
+        "appName": {
+          "type": "string"
+        }
+      },
+      "description": "the window a grant covers: window ID together with the process launch (pid + start time) and its app; a window ID alone is never an identity"
+    },
+    "HubWindowGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windowGrantId",
+        "clientId",
+        "desktopId",
+        "window",
+        "permissions",
+        "state",
+        "createdAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "windowGrantId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowGrantWindow"
+        },
+        "permissions": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "persist"
+            ]
+          }
+        },
+        "state": {
+          "enum": [
+            "active",
+            "revoked",
+            "ended"
+          ]
+        },
+        "endedReason": {
+          "type": "string",
+          "description": "why it no longer holds: window_closed, process_changed, app_changed, window_grant_revoked, client_revoked, grant_revoked, app_removed, desktop_removed, desktop_destroyed"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "confirmationId": {
+          "type": "string"
+        }
+      }
+    },
+    "HubWindowGrantList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windowGrants"
+      ],
+      "properties": {
+        "windowGrants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubWindowGrant"
+          }
+        }
+      }
+    },
+    "hub_windows_request_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "bundleId",
+        "permissions"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "bundleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$"
+        },
+        "windowId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295,
+          "description": "omitted: the app's frontmost window where the Desktop can bind it; the user confirms the window shown"
+        },
+        "permissions": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "persist"
+            ]
+          }
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 604800
+        }
+      }
+    },
+    "hub_windows_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "includeEnded": {
+          "type": "boolean",
+          "description": "also revoked and ended grants; default active only"
+        }
+      }
+    },
+    "window_grant_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windowGrantId"
+      ],
+      "properties": {
+        "windowGrantId": {
+          "$ref": "#/$defs/Id"
         }
       }
     },
@@ -9019,6 +9205,33 @@ enum RuntimeContractData {
       "result": "HubConnectionList",
       "status": "implemented",
       "note": "owner"
+    },
+    {
+      "method": "hub.windows.request",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_windows_request_params",
+      "result": "HubWindowGrant",
+      "status": "implemented",
+      "note": "paired; the app must be in grant.apps, the Desktop in the grant, and each permission backed by a capability (observe, persist: observe; act: act); the user confirms every window grant in the trusted window with Touch ID or the login password"
+    },
+    {
+      "method": "hub.windows.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "hub_windows_list_params",
+      "result": "HubWindowGrantList",
+      "status": "implemented",
+      "note": "a paired client sees its own window grants; the owner all"
+    },
+    {
+      "method": "hub.windows.revoke",
+      "stage": "P0",
+      "mutation": true,
+      "params": "window_grant_ref_params",
+      "result": "HubWindowGrant",
+      "status": "implemented",
+      "note": "owner; a paired client only its own (another client's: permission_denied, reason not_own_window_grant), confirmed in the trusted window (A4 R1); the client's connections are cut"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -9303,6 +9516,7 @@ enum RuntimeContractData {
     "confirmation": "a confirmation is bound to a digest of exactly what will be applied, recomputed by the window from what it displayed; params are shown in full and a call too large to show is refused unseen; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch, confirmation_too_large, pairing_busy or no_trusted_ui",
     "targets": "every Desktop, session and Run a paired client's request names, in its context or params, is authorized; naming two different Desktops is invalid_argument (reason target_mismatch)",
     "handshake": "a socket connection completes runtime.handshake once (conflict, reason already_handshaken)",
+    "windowGrants": "docs/security/window-grants.md: a paired client reaches a window it did not launch itself on that Desktop only through a window grant (window ID + process launch + app + Desktop + client), each one confirmed by the user; observe, act and persist are separate; every use is checked against the grant as it is now (bind, both observe steps, each wait poll, act right before dispatch, artifact reads); a grant ends for good when the window closes, its process or app changes, its Desktop goes or the Runtime restarts, or the app or Desktop leaves the client's grant; window.list shows a paired client only windows it holds a grant for and windows of processes it launched; without persist an observation's screenshot is transient (120 s, deleted when the grant ends)",
     "policy": "iPhone Mirroring (com.apple.ScreenContinuity) is refused for every principal, the owner included, until the iPhone device session is accepted (#139): app.launch by bundle id or by a path in its bundle, window.bind of its process, and observe, act and wait on a binding to it answer permission_denied with reason iphone_mirroring_blocked, before anything is captured, read, sent, moved or recorded as a success. This is a security-policy refusal, not a missing grant: no grant, capability or pairing lifts it. Fail closed: a process is identified by the running-app list and by the bundle of its executable; when neither can tell, it is refused the same way with details.identity unverified (otherwise iphone_mirroring), for that request only, and the next request identifies it anew. A launched process found to be it, or unidentified, is never kept as the Desktop's app; it is asked to quit only because app.launch returns a process its launch token proved it started (never by time or list), and details.quitRequested says whether it was asked (a request, not proof that it exited). A launch that could not prove its process fails with the engine's own error and nothing is quit"
   }
 }

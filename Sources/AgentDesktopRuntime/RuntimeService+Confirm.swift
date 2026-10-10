@@ -7,14 +7,16 @@ import Foundation
 /// decision is bound to `digest`, computed from exactly what will be applied;
 /// an approval for anything else is refused.
 public struct ConfirmationRequest: Sendable {
-    public enum Kind: String, Sendable { case pairing, adminCall }
+    public enum Kind: String, Sendable { case pairing, adminCall, windowGrant }
     public let confirmationId: String
     public let kind: Kind
     /// Who asks: clientId, agentName, publisher, codeIdentity, callerFacts.
     public let requester: JSONValue
-    /// `hub.pairing.start` for a pairing, else the method to call.
+    /// `hub.pairing.start` for a pairing, `hub.windows.request` for a window
+    /// grant, else the method to call.
     public let action: String
-    /// The grant a pairing would get, or the call's params: shown, and applied
+    /// The grant a pairing would get, the window, Desktop and permissions a
+    /// window grant would cover, or the call's params: shown, and applied
     /// exactly as shown.
     public let details: JSONValue
     /// The pairing's short code, for the user to compare with the app's.
@@ -100,7 +102,8 @@ extension RuntimeService {
     static let confirmableMethods: Set<String> = {
         var m: Set<String> = ["runtime.enableInput",
                               "hub.clients.list", "hub.clients.show", "hub.clients.revoke",
-                              "hub.grants.list", "hub.grants.set", "hub.grants.revoke", "hub.connections.list"]
+                              "hub.grants.list", "hub.grants.set", "hub.grants.revoke", "hub.connections.list",
+                              "hub.windows.revoke"]
         for x in RuntimeContract.shared.methods where x.method.hasPrefix("ai.") { m.insert(x.method) }
         return m
     }()
@@ -127,7 +130,7 @@ extension RuntimeService {
     /// user for these about its own access only.
     func isReductive(_ request: RuntimeRequest) -> Bool {
         switch request.method {
-        case "hub.clients.revoke", "hub.grants.revoke":
+        case "hub.clients.revoke", "hub.grants.revoke", "hub.windows.revoke":
             return true
         case "hub.grants.set":
             let p = request.params
@@ -173,7 +176,7 @@ extension RuntimeService {
     /// Ask the user; success only for an approval of exactly this request.
     func confirm(_ kind: ConfirmationRequest.Kind, by c: ConnectionState, action: String, details: JSONValue,
                  agentName: String? = nil, publisher: String? = nil, shortCode: String? = nil,
-                 runId: String? = nil) -> Result<Void, RuntimeError> {
+                 runId: String? = nil, confirmed: ((String) -> Void)? = nil) -> Result<Void, RuntimeError> {
         func refuse(_ reason: String, _ message: String) -> Result<Void, RuntimeError> {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: action, decision: "denied", reason: reason, runId: runId)
             return .failure(RuntimeError("permission_denied", message, phase: .handler, notSent: true,
@@ -207,6 +210,7 @@ extension RuntimeService {
         case let .approved(digest) where digest == request.digest && now() <= request.deadline:
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: action, decision: "confirmed",
                       reason: request.confirmationId, runId: runId)
+            confirmed?(request.confirmationId)
             return .success(())
         case .approved:
             return refuse("confirmation_mismatch", "the approval does not match this request; refused")
@@ -226,9 +230,22 @@ extension RuntimeService {
     /// On approval the connection acts as the owner for this request only.
     func confirmAdminCall(_ request: RuntimeRequest, _ c: ConnectionState) -> RuntimeError? {
         let method = request.method
-        let target = request.params["clientId"]?.stringValue
+        // A window grant's client is the one whose access it changes; one
+        // that does not exist is not worth asking the user about.
+        let windowGrant = method == "hub.windows.revoke" ? request.params["windowGrantId"]?.stringValue.flatMap { hub.windowGrant($0) } : nil
+        if method == "hub.windows.revoke", windowGrant == nil {
+            return .notFound("no window grant \(request.params["windowGrantId"]?.stringValue ?? "")")
+        }
+        // An app gives up only its own window grants, verified or not (Codex
+        // on 09b8f7d); another app's is the user's to take back, in the window.
+        if let windowGrant, windowGrant.clientId != c.clientId {
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "not_own_window_grant")
+            return RuntimeError("permission_denied", "an app can only give up its own window grants",
+                                phase: .request, notSent: true, details: .obj([("reason", .string("not_own_window_grant"))]))
+        }
+        let target = request.params["clientId"]?.stringValue ?? windowGrant?.clientId
         let isSelf = target == c.clientId
-        let changesAccess = ["hub.grants.set", "hub.grants.revoke", "hub.clients.revoke"].contains(method)
+        let changesAccess = ["hub.grants.set", "hub.grants.revoke", "hub.clients.revoke", "hub.windows.revoke"].contains(method)
         // Its own access: only ever less of it (Kevin, R1 ruling of 2026-10-09).
         if isSelf, changesAccess, !isReductive(request) {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied", reason: "self_grant")
@@ -264,6 +281,7 @@ extension RuntimeService {
         }
         // Who the call is aimed at, as the Runtime knows it (review L3).
         var details: [(String, JSONValue)] = [("params", request.params)]
+        if let windowGrant { details.append(("windowGrant", windowGrant.json)) }
         // One read of the target's grant: what is shown is the revision used (round-five Low-5).
         let shownGrant = target.flatMap { hub.grant($0) }
         if let target, let client = hub.client(target) {

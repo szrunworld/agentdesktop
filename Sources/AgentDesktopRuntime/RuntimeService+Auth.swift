@@ -10,8 +10,10 @@ import Foundation
 extension RuntimeService {
     /// Methods anyone connected may call, paired or not.
     static let openMethods: Set<String> = ["runtime.handshake", "runtime.capabilities", "hub.pairing.start", "hub.pairing.status"]
-    /// Methods a paired app may call with any grant.
-    static let pairedBaseline: Set<String> = ["runtime.status"]
+    /// Methods a paired app may call with any grant. Asking the user for a
+    /// window checks the capabilities its permissions need in the handler,
+    /// and a client lists only its own window grants.
+    static let pairedBaseline: Set<String> = ["runtime.status", "hub.windows.request", "hub.windows.list"]
     /// The grant capability each method needs. Methods in none of these
     /// lists (stopAll, enableInput, ai.*, gui.runs.*, the rest of hub.*)
     /// are the owner's.

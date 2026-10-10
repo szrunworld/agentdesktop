@@ -282,3 +282,34 @@ final class Harness {
     #expect(holds, "runtime capabilities is agentdesktop.runtime/1")
     #expect(h.requests == ["runtime.capabilities"])
 }
+
+@Test func windowsCommandsSendTheirMethods() throws {
+    let cases: [([String], String, JSONValue)] = [
+        (["windows", "request", "--desktop", "d_1", "--app", "com.tencent.xinWeChat", "--allow", "observe,act", "--duration", "1h"],
+         "hub.windows.request", .obj([("desktopId", .string("d_1")), ("bundleId", .string("com.tencent.xinWeChat")),
+                                      ("permissions", .array([.string("observe"), .string("act")])), ("durationSeconds", .int(3600))])),
+        (["windows", "request", "--desktop", "d_1", "--app", "com.tencent.xinWeChat", "--window", "12", "--allow", "observe"],
+         "hub.windows.request", .obj([("desktopId", .string("d_1")), ("bundleId", .string("com.tencent.xinWeChat")), ("windowId", .int(12)),
+                                      ("permissions", .array([.string("observe")]))])),
+        (["windows", "list"], "hub.windows.list", .obj([])),
+        (["windows", "list", "--all"], "hub.windows.list", .obj([("includeEnded", .bool(true))])),
+        (["windows", "revoke", "wg_1"], "hub.windows.revoke", .obj([("windowGrantId", .string("wg_1"))])),
+    ]
+    for (args, method, params) in cases {
+        let h = Harness()
+        _ = h.cli.run(args + ["--format", "json"])
+        #expect(h.requests == [method], "\(args)")
+        #expect(h.clients.first?.calls.first?.params == params, "\(args)")
+        #expect(RuntimeContract.shared.validate(h.clients[0].calls[0].json, "Request").isEmpty, "\(args)")
+    }
+    // --allow is required, refused before any connection.
+    let h = Harness()
+    #expect(h.cli.run(["windows", "request", "--desktop", "d_1", "--app", "com.x"]) == 2)
+    #expect(h.clients.isEmpty)
+    // Durations that do not fit are argument errors, never a crash.
+    for d in ["1e309s", "1e300d", "8d", "0.1s"] {
+        let h = Harness()
+        #expect(h.cli.run(["windows", "request", "--desktop", "d_1", "--app", "com.x", "--allow", "observe", "--duration", d]) == 2, "\(d)")
+        #expect(h.clients.isEmpty)
+    }
+}

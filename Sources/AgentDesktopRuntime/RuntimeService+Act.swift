@@ -87,6 +87,9 @@ extension RuntimeService {
             guard let b = d.binding else {
                 throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler, notSent: true)
             }
+            // Act on this window, for this caller (window-grants.md); checked
+            // again right before the input goes out.
+            _ = try windowUse(c, d, b, "act", method: "act", audit: false)
             return try conflicts.withProcess(b.process.pid) {
                 // The snapshot must describe the target as it is now.
                 guard let sb = snap.binding, sb.generation == b.generation else {
@@ -131,8 +134,10 @@ extension RuntimeService {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
                                        phase: .handler, notSent: true)
                 }
-                // A4: the grant as it is now, at the last moment before input.
+                // A4: the grant as it is now, at the last moment before input,
+                // and the window grant with it.
                 if let revoked = recheckAct(c, desktopId: d.desktopId) { throw revoked }
+                _ = try windowUse(c, d, b, "act", method: "act")
                 if let stopped = execution.beginAction(runId: runId) { throw stopped }
 
                 // Delivery boundary: from here an interruption is unknown.
@@ -381,7 +386,9 @@ extension RuntimeService {
         let wantPresent = cond["kind"]?.stringValue == "elementPresent"
         let deadline = now().addingTimeInterval(Double(request.params["timeoutMs"]?.intValue ?? 1000) / 1000)
         var lastSnapshot: String?
+        var polls = 0
         while true {
+            polls += 1
             // Access is checked on every poll: a revoked app stops waiting.
             if let e = recheckAct(c, desktopId: desk.desktopId, method: "wait") { return .failure(e) }
             // As in observe: checks under the lock, the read on the AX threads
@@ -391,6 +398,8 @@ extension RuntimeService {
                 guard let b = d.binding else {
                     throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler)
                 }
+                // Observe on this window, every poll (window-grants.md).
+                _ = try windowUse(c, d, b, "observe", method: "wait", audit: polls == 1)
                 guard backend.processIdentity(b.process.pid) == b.process else {
                     throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler)
                 }
@@ -416,6 +425,8 @@ extension RuntimeService {
                 guard d.binding?.generation == b.generation else {
                     throw RuntimeError("stale_observation", "the binding of desktop \(d.desktopId) changed", phase: .handler)
                 }
+                // Still allowed to see it before anything read is answered.
+                _ = try windowUse(c, d, b, "observe", method: "wait", audit: false)
                 let snapshotId = DesktopRegistry.newId(prefix: "obs")
                 var stored = StoredObservation(snapshotId: snapshotId, desktopId: d.desktopId, capturedAt: nowString,
                                                screen: d.screen, binding: b, windowFrame: read?.window.frame, transform: nil,

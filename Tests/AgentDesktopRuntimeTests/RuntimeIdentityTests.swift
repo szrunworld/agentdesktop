@@ -23,7 +23,9 @@ func pairedScene(_ s: RuntimeService, _ platform: FakePlatform, name: String = "
     let (c, id, token) = try pairedClient(s, capabilities: ["observe", "act", "desktop.manage", "run"], desktops: ["created"],
                                        apps: ["com.apple.calculator"], name: name)
     let d = try created(s, c)
-    #expect(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)) != nil)
+    // Calculator is the user's window: the app holds a window grant for it.
+    try grantWindow(s, clientId: id, desktopId: d)
+    #expect(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101,"windowId":11}"#)) != nil)
     let sid = try #require(data(call(s, c, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
     let snap = try #require(data(call(s, c, "observe", context: #"{"sessionId":"\#(sid)"}"#))?["snapshotId"]?.stringValue)
     return (Scene(platform: platform, s: s, c: c, desktop: d, session: sid, snapshot: snap), id, token)

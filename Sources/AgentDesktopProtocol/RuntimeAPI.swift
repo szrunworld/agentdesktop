@@ -64,6 +64,9 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case grantsSet = "hub.grants.set"
     case grantsRevoke = "hub.grants.revoke"
     case connectionsList = "hub.connections.list"
+    case windowsRequest = "hub.windows.request"
+    case windowsList = "hub.windows.list"
+    case windowsRevoke = "hub.windows.revoke"
 }
 
 /// The machine-readable contract: schema, method catalog and error table.

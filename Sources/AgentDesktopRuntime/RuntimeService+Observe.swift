@@ -68,6 +68,13 @@ extension RuntimeService {
                                        imageSize: nil, elements: [:], readElements: false)
         var image: JSONValue = .null
         var exposed: (window: PlatformWindow, stack: [StackEntry])?
+        // The window grant this observation is made under (a paired app's
+        // window it did not launch here), and whether it may keep the image.
+        var windowGrant: HubStore.WindowGrant?
+        // The grant the image was registered under, and what it needs from
+        // it (persist when kept, observe when transient).
+        var keptUnderGrant: HubStore.WindowGrant?
+        var keptPermission = "observe"
 
         // 1. Under the lock: checks and screenshot.
         let first = withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
@@ -96,11 +103,45 @@ extension RuntimeService {
                 }
                 let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
                 let scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
+                // Kept as usual only with persist; else for a short while,
+                // gone with the grant (window-grants.md).
+                var transientUntil: Date?
+                // Kept under whichever live grant for this window allows
+                // persist, not only the one that allowed observe (Codex on
+                // 9ea0dad); that grant is the one the image then answers to.
+                var keptUnder = windowGrant
+                if windowGrant != nil, let b = d.binding {
+                    // Both chosen among the grants live now, after the
+                    // capture (Codex on 5e30bb6 and a228d4d: the one that
+                    // allowed observe may have run out meanwhile).
+                    let live = liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
+                    let persisting = live.first { effectivePermissions($0).contains("persist") }
+                    let observing = live.first { effectivePermissions($0).contains("observe") }
+                    guard let g = persisting ?? observing else {
+                        // Nothing written stays, uncounted (as for a failed register).
+                        unlink(path)
+                        if reserved == nil { artifacts.release(bucket: bucket) }
+                        throw RuntimeError("grant_missing", "the window grant ended while the window was captured", phase: .handler,
+                                           notSent: true, details: .obj([("reason", .string("window_grant_ended"))]))
+                    }
+                    keptUnder = g
+                    keptPermission = persisting != nil ? "persist" : "observe"
+                    if persisting != nil {
+                        hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.persist", decision: "used",
+                                  reason: "\(g.windowGrantId) observe")
+                    } else {
+                        // Never past the grant itself (Codex on 046a8c2).
+                        let lifetime = now().addingTimeInterval(transientArtifactLifetime)
+                        transientUntil = min(lifetime, Timestamp.date(g.expiresAt) ?? lifetime)
+                    }
+                    keptUnderGrant = g
+                }
                 let info: ArtifactStore.Info
                 do {
                     info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
                                                   runId: reserved.map { String($0.dropFirst("gui:".count)) } ?? request.context.runId,
-                                                  createdAt: nowString, bucket: bucket)
+                                                  createdAt: nowString, bucket: bucket, transientUntil: transientUntil,
+                                                  windowGrantId: keptUnder?.windowGrantId)
                 } catch {
                     unlink(path)
                     // A place the ports reserved is theirs to give back.
@@ -112,13 +153,15 @@ extension RuntimeService {
                 if reserved != nil { markQuotaUsed(requestId: request.requestId, connection: c) }
                 stored.transform = (origin.0, origin.1, scale)
                 stored.imageSize = size
-                image = .obj([
+                var fields: [(String, JSONValue)] = [
                     ("artifactId", .string(artifactId)), ("mediaType", .string("image/png")),
                     ("width", .int(size.width)), ("height", .int(size.height)),
                     ("byteSize", .int(info.byteSize)), ("sha256", .string(info.sha256)),
                     ("transform", .obj([("originX", .double(origin.0)), ("originY", .double(origin.1)),
                                         ("scale", .double(scale))])),
-                ])
+                ]
+                if let expiresAt = info.expiresAt { fields += [("transient", .bool(true)), ("expiresAt", .string(expiresAt))] }
+                image = .obj(fields)
             }
             guard let b = d.binding else {
                 if wantsImage && refusesScreenCaptureWithoutBinding {
@@ -134,9 +177,14 @@ extension RuntimeService {
                                        "desktop \(d.desktopId) is physical and has no bound window; bind the window to observe it",
                                        phase: .handler, notSent: true)
                 }
+                // A paired app sees a whole screen only of its own launches.
+                if wantsImage, let e = wholeScreenRefusal(c, d) { throw e }
                 if wantsImage { try capture(nil) }
                 return .null
             }
+            // Observe on this window, for this caller, as the grant is now
+            // (before anything of the window is read).
+            windowGrant = try windowUse(c, d, b, "observe", method: "observe")
             // The same launch of the same process, or the binding is stale.
             guard backend.processIdentity(b.process.pid) == b.process else {
                 throw RuntimeError("stale_observation",
@@ -180,7 +228,10 @@ extension RuntimeService {
             case .timedOut: ax = ("unavailable", "deadline")
             case .busy: ax = ("unavailable", "busy")
             // A missing permission is for the user to fix: say so.
-            case let .failed(e as PlatformError) where e.kind == .permission: return .failure(e.runtimeError)
+            case let .failed(e as PlatformError) where e.kind == .permission:
+                // Not answered: an image taken under a window grant goes now (Codex on 5ae0e5e).
+                if windowGrant != nil, let id = image["artifactId"]?.stringValue { artifacts.remove(id) }
+                return .failure(e.runtimeError)
             // An app that does not answer accessibility (frozen, busy, or
             // hiding the window from it) still has its screenshot.
             case .failed: ax = ("unavailable", "error")
@@ -188,10 +239,26 @@ extension RuntimeService {
         }
 
         // 3. Under the lock again: still the same exposed window; store.
-        return withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
+        let stored3 = withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
             var targetJSON: JSONValue = .null
             var elementsJSON: [JSONValue] = []
             if let b = stored.binding, let before = exposed {
+                // Still allowed to see it, right before it is stored and
+                // answered; else the image taken goes too.
+                do { _ = try windowUse(c, d, b, "observe", method: "observe", audit: false) } catch {
+                    if let id = image["artifactId"]?.stringValue { artifacts.remove(id) }
+                    throw error
+                }
+                // The grant the image is registered under must still hold too
+                // (Codex on f726493, a228d4d); else nothing is answered (the
+                // image goes with the failure below).
+                if let p = keptUnderGrant,
+                   !liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
+                       .contains(where: { $0.windowGrantId == p.windowGrantId && effectivePermissions($0).contains(keptPermission) }) {
+                    throw RuntimeError("stale_observation", "the window grant this screenshot was taken under ended while the window was observed; observe again",
+                                       phase: .handler,
+                                       details: .obj([("reason", .string(keptPermission == "persist" ? "persist_grant_ended" : "window_grant_ended"))]))
+                }
                 guard d.binding?.generation == b.generation else {
                     throw RuntimeError("stale_observation", "the binding changed while desktop \(d.desktopId) was observed; observe again",
                                        phase: .handler, details: .obj([("reason", .string("changed_during_capture"))]))
@@ -248,6 +315,11 @@ extension RuntimeService {
                   ("coverage", .obj(coverage))]
             return .obj(m)
         }
+        // Taken under a window grant and not answered (revoked meanwhile, the
+        // window changed, …): the image goes now, not at its expiry (Codex on
+        // 0232db6).
+        if case .failure = stored3, windowGrant != nil, let id = image["artifactId"]?.stringValue { artifacts.remove(id) }
+        return stored3
     }
 }
 

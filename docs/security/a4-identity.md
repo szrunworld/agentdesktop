@@ -66,6 +66,7 @@ Runtime 在接受连接时，通过 `LOCAL_PEERTOKEN` 取得对端进程的内�
   - `run`：run.\*、events.\*；
   - `unit.run`。
 - Desktop 范围：`grant.desktops` 里列出的 id，或 `"created"`（自己创建的 Desktop）。App 范围：`grant.apps`（app.launch、window.bind 时检查 bundleId）。
+- 窗口范围（窗口级授权，见 `docs/security/window-grants.md`）：App 授权不等于这个 App 所有窗口的授权。不是自己在该 Desktop 上启动的窗口，必须逐个经用户确认取得窗口授权（observe / act / persist 分开），`window.list` 也只列出这些窗口和自己启动的窗口。
 - `desktop.create` 带 `physical`（挂接用户自己的显示器、原地绑定用户窗口）只允许 owner 调用，配对 App 调用时返回 `permission_denied`（审计 reason 为 `physical_display`）。
 - 可确认的 owner 方法见上一节；其余 owner 方法（如 `gui.runs.*`、`hub.pairing.approve/deny`）只属于宿主进程内，socket 上返回 `permission_denied`，reason 为 `owner_only`。
 - 列表按调用方过滤：paired 只看到自己有权限的 Desktop、自己的 Run、自己的请求。

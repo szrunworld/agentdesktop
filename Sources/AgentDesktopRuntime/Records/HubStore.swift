@@ -57,6 +57,39 @@ public final class HubStore: @unchecked Sendable {
         }
     }
 
+    /// One window a client may reach (docs/security/window-grants.md): the
+    /// window ID together with the launch of its process and its app, on one
+    /// Desktop, for one client. Never a window ID alone.
+    public struct WindowGrant: Equatable, Sendable {
+        public static let permissions = ["observe", "act", "persist"]
+        public var windowGrantId: String
+        public var clientId: String
+        public var desktopId: String
+        public var windowId: UInt32
+        public var process: ProcessIdentity
+        public var bundleId: String
+        public var appName: String
+        public var permissions: [String]
+        public var state: String          // active | revoked | ended
+        public var endedReason: String?
+        public var createdAt: String
+        public var expiresAt: String
+        public var confirmationId: String?
+
+        public var json: JSONValue {
+            var m: [(String, JSONValue)] = [
+                ("windowGrantId", .string(windowGrantId)), ("clientId", .string(clientId)), ("desktopId", .string(desktopId)),
+                ("window", .obj([("windowId", .int(Int(windowId))), ("process", process.json), ("bundleId", .string(bundleId)),
+                                 ("appName", .string(appName))])),
+                ("permissions", .array(permissions.map(JSONValue.string))), ("state", .string(state)),
+            ]
+            if let endedReason { m.append(("endedReason", .string(endedReason))) }
+            m += [("createdAt", .string(createdAt)), ("expiresAt", .string(expiresAt))]
+            if let confirmationId { m.append(("confirmationId", .string(confirmationId))) }
+            return .obj(m)
+        }
+    }
+
     public struct Pairing: Equatable, Sendable {
         public var pairingId: String
         public var shortCode: String
@@ -109,6 +142,12 @@ public final class HubStore: @unchecked Sendable {
               method TEXT NOT NULL, decision TEXT NOT NULL, reason TEXT NOT NULL, run_id TEXT)
             """)
         try db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
+        try db.execute("""
+            CREATE TABLE IF NOT EXISTS window_grants (window_grant_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, desktop_id TEXT NOT NULL,
+              window_id INTEGER NOT NULL, pid INTEGER NOT NULL, process_started_at TEXT, bundle_id TEXT NOT NULL, app_name TEXT NOT NULL,
+              permissions TEXT NOT NULL, state TEXT NOT NULL, ended_reason TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+              confirmation_id TEXT)
+            """)
         // S2: the code identity a client paired with (added after the first A4 builds).
         for table in ["clients", "pairings"] {
             let cols = (try db.query("PRAGMA table_info(\(table))")).compactMap { $0[1] as? String }
@@ -199,6 +238,16 @@ public final class HubStore: @unchecked Sendable {
     /// Replace a client's grant. Anything narrower than before bumps the
     /// policy epoch, so in-flight checks see it at once.
     public func setGrant(_ g: Grant, expectedRevision: Int? = nil) throws -> Grant {
+        try setGrant(g, expectedRevision: expectedRevision, endingWindowGrants: nil).grant
+    }
+
+    /// Replace a client's grant and, in the same transaction, end the window
+    /// grants it no longer backs (window-grants.md; Codex on 48c46a8: a
+    /// narrowing is never saved without them). `endingWindowGrants` says why
+    /// a window grant ends under the new grant, or nil to keep it; a grant
+    /// that is not active ends every one. The ended ones are returned.
+    public func setGrant(_ g: Grant, expectedRevision: Int? = nil, endingWindowGrants: ((WindowGrant) -> String?)?) throws
+        -> (grant: Grant, ended: [(id: String, reason: String)]) {
         // Read, compare and write as one: a change the user confirmed against
         // revision N is not applied over revision N+1 (round-four review H1).
         writeLock.lock()
@@ -211,27 +260,188 @@ public final class HubStore: @unchecked Sendable {
             }
         }
         g.revision = (old?.revision ?? 0) + 1
-        try putGrant(g)
-        if let old, !Set(g.capabilities).isSuperset(of: old.capabilities) || !Set(g.desktops).isSuperset(of: old.desktops)
-            || !Set(g.apps).isSuperset(of: old.apps) || g.expiresAt < old.expiresAt || g.state != "active" {
-            try bumpEpoch()
+        var ended: [(id: String, reason: String)] = []
+        try db.transaction {
+            try putGrant(g)
+            // A revoked grant revokes its ended window grants too: what was kept
+            // under them goes out of reach for good (Codex on 0232db6).
+            // Ended ones are swept too (Codex on 31fd421): taking an app or
+            // Desktop away takes back what was kept under them, so an ended
+            // grant then becomes revoked.
+            for w in try loadWindowGrants(where: "client_id = ? AND state IN ('active', 'ended')", [.text(g.clientId)]) {
+                let why = g.state != "active" ? "grant_revoked" : endingWindowGrants?(w)
+                guard let why else { continue }
+                let to = g.state != "active" || w.state == "ended" ? "revoked" : "ended"
+                try endWindowGrantRow(w.windowGrantId, state: to, reason: why)
+                ended.append((w.windowGrantId, why))
+            }
+            if let old, !Set(g.capabilities).isSuperset(of: old.capabilities) || !Set(g.desktops).isSuperset(of: old.desktops)
+                || !Set(g.apps).isSuperset(of: old.apps) || g.expiresAt < old.expiresAt || g.state != "active" {
+                try bumpEpoch()
+            }
         }
-        return g
+        return (g, ended)
     }
 
     /// The client keeps its record (soft delete) but nothing of it works.
     private let writeLock = NSLock()
 
     public func revoke(_ clientId: String) throws -> Client? {
+        try revokeEndingWindowGrants(clientId)?.client
+    }
+
+    /// Revoke a client and say which window grants this revoked, read in the
+    /// same transaction (Codex on 72e8b63).
+    public func revokeEndingWindowGrants(_ clientId: String) throws -> (client: Client, windowGrants: [String])? {
         // The same lock as setGrant: a confirmed change cannot write a grant
         // back over this revocation (round-five review Low-1).
         writeLock.lock()
         defer { writeLock.unlock() }
         guard client(clientId) != nil else { return nil }
-        try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
-        try db.execute("UPDATE grants SET state = 'revoked', revision = revision + 1 WHERE client_id = ?", [.text(clientId)])
-        try bumpEpoch()
-        return client(clientId)
+        // One transaction: the client, its grant and its window grants go
+        // together or not at all.
+        let ended: [String] = try db.transaction {
+            try db.execute("UPDATE clients SET state = 'revoked', revoked_at = ? WHERE client_id = ?", [.text(nowString), .text(clientId)])
+            try db.execute("UPDATE grants SET state = 'revoked', revision = revision + 1 WHERE client_id = ?", [.text(clientId)])
+            var ids: [String] = []
+            for w in try loadWindowGrants(where: "client_id = ? AND state IN ('active', 'ended')", [.text(clientId)]) {
+                try endWindowGrantRow(w.windowGrantId, state: "revoked", reason: "client_revoked")
+                ids.append(w.windowGrantId)
+            }
+            try bumpEpoch()
+            return ids
+        }
+        return client(clientId).map { ($0, ended) }
+    }
+
+    // MARK: Window grants
+
+    /// Record a window grant, only while the client's grant is still the
+    /// revision its scope was checked against (`parentRevision`, under the
+    /// same lock as every grant change; Codex on 59ea934) and still names
+    /// the window's app.
+    public func addWindowGrant(_ g: WindowGrant, parentRevision: Int? = nil) throws {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        // A client removed, or its grant changed, while the user was asked gets nothing.
+        guard client(g.clientId)?.state == "active", let parent = grant(g.clientId), parent.state == "active",
+              parent.apps.contains(g.bundleId), parentRevision.map({ $0 == parent.revision }) ?? true else {
+            throw RuntimeStoreError("\(g.clientId) lost its access while the user was asked")
+        }
+        try db.execute("""
+            INSERT INTO window_grants (window_grant_id, client_id, desktop_id, window_id, pid, process_started_at, bundle_id, app_name,
+              permissions, state, ended_reason, created_at, expires_at, confirmation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [.text(g.windowGrantId), .text(g.clientId), .text(g.desktopId), .int(Int64(g.windowId)), .int(Int64(g.process.pid)),
+                  g.process.startedAt.map { .text($0) } ?? .null, .text(g.bundleId), .text(g.appName),
+                  .text(JSONValue.array(g.permissions.map(JSONValue.string)).encoded()), .text(g.state),
+                  g.endedReason.map { .text($0) } ?? .null, .text(g.createdAt), .text(g.expiresAt),
+                  g.confirmationId.map { .text($0) } ?? .null])
+    }
+
+    public func windowGrant(_ id: String) -> WindowGrant? {
+        windowGrants(where: "window_grant_id = ?", [.text(id)]).first
+    }
+
+    /// A client's window grants (all clients' with nil), newest first.
+    public func windowGrants(clientId: String? = nil, includeEnded: Bool = false) -> [WindowGrant] {
+        var clauses: [String] = [], args: [SQLiteDatabase.Value] = []
+        if let clientId { clauses.append("client_id = ?"); args.append(.text(clientId)) }
+        if !includeEnded { clauses.append("state = 'active'") }
+        return windowGrants(where: clauses.isEmpty ? "1 = 1" : clauses.joined(separator: " AND "), args)
+    }
+
+    private func windowGrants(where clause: String, _ args: [SQLiteDatabase.Value]) -> [WindowGrant] {
+        let rows = (try? loadWindowGrants(where: clause, args)) ?? []
+        let pending = lock.withLock { tombstones }
+        guard !pending.isEmpty else { return rows }
+        // An ending not saved yet still holds; try to save it again.
+        var out: [WindowGrant] = []
+        for var g in rows {
+            if let t = pending[g.windowGrantId], g.state == "active" {
+                if (try? db.transaction({ try endWindowGrantRow(g.windowGrantId, state: t.state, reason: t.reason) })) != nil {
+                    lock.withLock { _ = tombstones.removeValue(forKey: g.windowGrantId) }
+                }
+                g.state = t.state
+                g.endedReason = t.reason
+                if clause.contains("state = 'active'") { continue }
+            }
+            out.append(g)
+        }
+        return out
+    }
+
+    /// The throwing read, for sweeps inside a transaction: a failed read
+    /// fails the transaction instead of looking like no grants (Codex on 5f040d4).
+    private func loadWindowGrants(where clause: String, _ args: [SQLiteDatabase.Value]) throws -> [WindowGrant] {
+        (try db.query("""
+            SELECT window_grant_id, client_id, desktop_id, window_id, pid, process_started_at, bundle_id, app_name, permissions, state,
+              ended_reason, created_at, expires_at, confirmation_id FROM window_grants WHERE \(clause) ORDER BY rowid DESC
+            """, args)).map { r in
+            WindowGrant(windowGrantId: r[0] as! String, clientId: r[1] as! String, desktopId: r[2] as! String,
+                        windowId: UInt32(truncatingIfNeeded: r[3] as! Int64),
+                        process: ProcessIdentity(pid: Int32(truncatingIfNeeded: r[4] as! Int64), startedAt: r[5] as? String),
+                        bundleId: r[6] as! String, appName: r[7] as! String,
+                        permissions: ((try? StrictJSON.parse(r[8] as! String))?.arrayValue ?? []).compactMap(\.stringValue),
+                        state: r[9] as! String, endedReason: r[10] as? String, createdAt: r[11] as! String,
+                        expiresAt: r[12] as! String, confirmationId: r[13] as? String)
+        }
+    }
+
+    /// End one window grant for good (sticky): nothing brings it back.
+    /// True when this call ended it (it was active).
+    @discardableResult
+    /// `tombstone` false (an explicit revocation): nothing changes unless it
+    /// is saved, so the caller can report the failure as such (Codex on 17bb318).
+    public func endWindowGrant(_ id: String, state: String, reason: String, tombstone: Bool = true) throws -> Bool {
+        guard tombstone else { return try db.transaction { try endWindowGrantRow(id, state: state, reason: reason) } }
+        // Ended in memory first (Codex on 8e9eb9d): a store that cannot save
+        // it does not let the grant come back while this process runs; the
+        // write is tried again whenever it is read.
+        lock.withLock { if tombstones[id] == nil { tombstones[id] = (state, reason) } }
+        let ended = try db.transaction { try endWindowGrantRow(id, state: state, reason: reason) }
+        lock.withLock { _ = tombstones.removeValue(forKey: id) }
+        return ended
+    }
+
+    /// Tests: every window grant ending fails to save.
+    var failsWindowGrantWrites = false
+    /// Window grants ended in this process whose ending is not saved yet.
+    private var tombstones: [String: (state: String, reason: String)] = [:]
+
+    /// An ended grant revoked after all: its kept screenshots then go out of
+    /// the client's reach (window-grants.md).
+    public func revokeEndedWindowGrant(_ id: String) throws {
+        if failsWindowGrantWrites { throw RuntimeStoreError("window grant store unavailable (test)") }
+        try db.execute("UPDATE window_grants SET state = 'revoked', ended_reason = 'window_grant_revoked' WHERE window_grant_id = ? AND state = 'ended'",
+                       [.text(id)])
+    }
+
+    /// Inside a transaction the caller holds.
+    @discardableResult
+    private func endWindowGrantRow(_ id: String, state: String, reason: String) throws -> Bool {
+        if failsWindowGrantWrites { throw RuntimeStoreError("window grant store unavailable (test)") }
+        // Active ones end; an ended one can only become revoked, and then
+        // says why it was revoked (Codex on 30eb124).
+        try db.execute("""
+            UPDATE window_grants SET state = ?, ended_reason = ?
+            WHERE window_grant_id = ? AND (state = 'active' OR (state = 'ended' AND ? = 'revoked'))
+            """, [.text(state), .text(reason), .text(id), .text(state)])
+        return db.changes == 1
+    }
+
+    /// End every active window grant of a client (or of one Desktop); the
+    /// ids that ended.
+    @discardableResult
+    public func endWindowGrants(clientId: String? = nil, desktopId: String? = nil, state: String = "ended", reason: String) throws -> [String] {
+        var clauses = ["state = 'active'"], args: [SQLiteDatabase.Value] = []
+        if let clientId { clauses.append("client_id = ?"); args.append(.text(clientId)) }
+        if let desktopId { clauses.append("desktop_id = ?"); args.append(.text(desktopId)) }
+        return try db.transaction {
+            let ids = try db.query("SELECT window_grant_id FROM window_grants WHERE " + clauses.joined(separator: " AND "), args)
+                .compactMap { $0[0] as? String }
+            for id in ids { try endWindowGrantRow(id, state: state, reason: reason) }
+            return ids
+        }
     }
 
     private func bumpEpoch() throws {
@@ -341,15 +551,16 @@ public final class HubStore: @unchecked Sendable {
                   ORDER BY rowid DESC LIMIT -1 OFFSET ?)
                 """, [.int(Int64(auditKeptUnpaired))])
             // Paired clients' refusals too have their own cap (round-four
-            // review L4); the overall cap removes only refusals, never a
-            // decision about access.
+            // review L4); the overall cap removes only refusals and the
+            // record of each use of a window grant, never a decision about
+            // access.
             try? db.execute("""
                 DELETE FROM auth_events WHERE rowid IN (SELECT rowid FROM auth_events
                   WHERE decision IN ('denied', 'withheld') ORDER BY rowid DESC LIMIT -1 OFFSET ?)
                 """, [.int(Int64(auditKeptRefusals))])
             try? db.execute("""
                 DELETE FROM auth_events WHERE rowid IN (SELECT rowid FROM auth_events
-                  ORDER BY rowid DESC LIMIT -1 OFFSET ?) AND decision IN ('denied', 'withheld', 'requested')
+                  ORDER BY rowid DESC LIMIT -1 OFFSET ?) AND decision IN ('denied', 'withheld', 'requested', 'used')
                 """, [.int(Int64(auditKept))])
             try? db.execute("DELETE FROM pairings WHERE state != 'requested' AND client_id IS NULL AND expires_at < ?",
                             [.text(Timestamp.string(now().addingTimeInterval(-86_400)))])
