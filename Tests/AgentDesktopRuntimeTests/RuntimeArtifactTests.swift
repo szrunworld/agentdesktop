@@ -585,3 +585,32 @@ func aGuiStepIsRefusedWholeByAnyLimit(_ which: String) async throws {
     }
     #expect(!FileManager.default.fileExists(atPath: dir))
 }
+
+@Test(arguments: [false, true])
+func scratchArtifactCleanupPreservesReplacementDirectories(symbolicLink: Bool) throws {
+    let parent = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: parent) }
+    let path = parent + "/artifacts"
+    var store: ArtifactStore? = try ArtifactStore(directory: path)
+    store?.removesDirectoryWhenDone = true
+    // Keep the original inode alive so the replacement cannot reuse it.
+    try FileManager.default.moveItem(atPath: path, toPath: parent + "/original")
+    let replacement = symbolicLink ? parent + "/replacement" : path
+    try FileManager.default.createDirectory(atPath: replacement, withIntermediateDirectories: false)
+    let marker = replacement + "/keep"
+    try Data("keep".utf8).write(to: URL(fileURLWithPath: marker))
+    if symbolicLink { try FileManager.default.createSymbolicLink(atPath: path, withDestinationPath: replacement) }
+    store = nil
+    #expect(FileManager.default.fileExists(atPath: marker))
+    #expect(FileManager.default.fileExists(atPath: parent + "/original"))
+}
+
+@Test func scratchArtifactCleanupRemovesItsUnchangedDirectory() throws {
+    let parent = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: parent) }
+    let path = parent + "/artifacts"
+    var store: ArtifactStore? = try ArtifactStore(directory: path)
+    store?.removesDirectoryWhenDone = true
+    store = nil
+    #expect(!FileManager.default.fileExists(atPath: path))
+}

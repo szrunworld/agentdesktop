@@ -3,6 +3,7 @@ import enum AgentDesktopProtocol.JSONValue
 import AgentDesktopProtocol
 import CryptoKit
 import Foundation
+import Darwin
 
 /// What one observation saw, kept so later requests can be checked against
 /// it: element references and image points are valid only together with
@@ -145,9 +146,19 @@ public final class ArtifactStore: @unchecked Sendable {
     /// A scratch store (a Runtime without storage, as in tests): its
     /// directory goes with it, so test runs leave nothing in the temp folder.
     var removesDirectoryWhenDone = false
+    private var directoryIdentity: (dev_t, ino_t)?
 
     deinit {
-        if removesDirectoryWhenDone { try? FileManager.default.removeItem(atPath: directory) }
+        if removesDirectoryWhenDone {
+            var info = stat()
+            guard let (device, inode) = directoryIdentity,
+                  lstat(directory, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+                  info.st_uid == getuid(), info.st_dev == device, info.st_ino == inode else {
+                fputs("artifact cleanup skipped changed directory identity\n", stderr)
+                return
+            }
+            try? FileManager.default.removeItem(atPath: directory)
+        }
     }
 
     public init(directory: String, now: @escaping () -> Date = Date.init) throws {
@@ -156,6 +167,11 @@ public final class ArtifactStore: @unchecked Sendable {
         self.lastSweep = now()
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
+        var info = stat()
+        guard lstat(directory, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else {
+            throw RuntimeStoreError("cannot identify artifact directory")
+        }
+        directoryIdentity = (info.st_dev, info.st_ino)
         let dir = directory
         freeBytes = {
             let values = try? URL(fileURLWithPath: dir).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
