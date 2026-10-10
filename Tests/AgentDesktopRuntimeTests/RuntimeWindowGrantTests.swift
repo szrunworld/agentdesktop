@@ -1002,3 +1002,48 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
         #expect(pngs.isEmpty)
     }
 }
+
+@Test func theGrantThatAllowedObserveRunningOutDuringTheCaptureMovesTheImageToALiveOne() throws {
+    let (sc, _, g, _) = try calculatorScene(["observe"])
+    let second = try grantWindow(sc.s, clientId: sc.c.clientId, desktopId: sc.desktop, permissions: ["observe"])
+    sc.platform.lock.withLock {
+        sc.platform.onCapture = { [s = sc.s] in _ = try? s.hub.endWindowGrant(g.windowGrantId, state: "ended", reason: "test") }
+    }
+    let image = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"])
+    let id = try #require(image["artifactId"]?.stringValue)
+    #expect(sc.s.artifacts.info(id)?.windowGrantId == second.windowGrantId)
+    #expect(data(call(sc.s, sc.c, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil)
+}
+
+@Test func aSingleObserveAndPersistGrantRunningOutDuringTheReadAnswersNothing() async throws {
+    try await offPoolConfirm {
+        let (sc, _, g, _) = try calculatorScene(["observe", "persist"])
+        _ = try grantWindow(sc.s, clientId: sc.c.clientId, desktopId: sc.desktop, permissions: ["observe"])
+        let gate = DispatchSemaphore(value: 0)
+        sc.platform.lock.withLock { sc.platform.axGate = gate }
+        final class Out: @unchecked Sendable { var r: RuntimeResponse? }
+        let out = Out(), done = DispatchSemaphore(value: 0)
+        Thread { out.r = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#); done.signal() }.start()
+        let end = Date().addingTimeInterval(5)
+        while sc.platform.lock.withLock({ sc.platform.axRunning }) == 0 && Date() < end { Thread.sleep(forTimeInterval: 0.01) }
+        _ = try sc.s.hub.endWindowGrant(g.windowGrantId, state: "ended", reason: "test")
+        sc.platform.lock.withLock { sc.platform.axGate = nil }
+        gate.signal()
+        #expect(done.wait(timeout: .now() + 5) == .success)
+        let r = try #require(out.r)
+        #expect(errorDetails(r)?["reason"]?.stringValue == "persist_grant_ended", "\(r.json.encoded())")
+        let pngs = ((try? FileManager.default.contentsOfDirectory(atPath: sc.s.artifacts.directory)) ?? []).filter { $0.hasSuffix(".png") }
+        #expect(pngs.isEmpty)
+    }
+}
+
+@Test func everyGrantRunningOutDuringTheCaptureLeavesNoFile() throws {
+    let (sc, _, g, _) = try calculatorScene(["observe"])
+    sc.platform.lock.withLock {
+        sc.platform.onCapture = { [s = sc.s] in _ = try? s.hub.endWindowGrant(g.windowGrantId, state: "ended", reason: "test") }
+    }
+    #expect(code(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) == "grant_missing")
+    let left = (try? FileManager.default.contentsOfDirectory(atPath: sc.s.artifacts.directory)) ?? []
+    #expect(left.isEmpty, "\(left)")
+    #expect(sc.s.artifacts.count(bucket: "session:" + sc.session) == 0)
+}
