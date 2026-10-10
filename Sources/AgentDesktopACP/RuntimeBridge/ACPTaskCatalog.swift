@@ -21,7 +21,10 @@ public struct ACPTaskCatalog: Sendable {
     /// `owner_only`, or `unverified_identity` under A4 R1). The catalog then
     /// falls back to the default-profile task. Nothing else counts.
     public static func profilesRefusedToCaller(_ e: RuntimeError) -> Bool {
-        e.code == "permission_denied" || e.code == "unverified_identity"
+        guard e.code == "permission_denied" else { return false }
+        // Reasons the Runtime gives for an owner-only method (accessError,
+        // A4 R1); a permission_denied for anything else still fails.
+        return ["owner_only", "unverified_identity"].contains(e.details?["reason"]?.stringValue ?? "")
     }
 
     /// Params a caller may never pass: identity and run axes come from the

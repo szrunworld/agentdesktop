@@ -61,7 +61,7 @@ import Testing
 
     /// #246: ai.* is the owner's; a paired bridge refused it still offers
     /// the default-profile unit.run task and can submit it.
-    @Test(arguments: [("permission_denied", "owner_only"), ("permission_denied", "unverified_identity"), ("unverified_identity", "")])
+    @Test(arguments: [("permission_denied", "owner_only"), ("permission_denied", "unverified_identity")])
     func profilesRefusedToThePairedBridgeFallBackToTheDefaultTask(code: String, reason: String) async throws {
         let server = RTestRuntime()
         server.methods += ["unit.run", "ai.profiles.list"]
@@ -77,11 +77,13 @@ import Testing
 
     /// #246: only a definite refusal falls back; any other failure of
     /// ai.profiles.list still fails the listing, it is never swallowed.
-    @Test(arguments: ["internal_error", "connection_lost", "schema_invalid"])
-    func otherProfilesFailuresStillFailTheListing(code: String) async throws {
+    @Test(arguments: [("internal_error", ""), ("connection_lost", ""), ("schema_invalid", ""),
+                      ("permission_denied", ""), ("permission_denied", "self_grant"), ("unverified_identity", "")])
+    func otherProfilesFailuresStillFailTheListing(code: String, reason: String) async throws {
         let server = RTestRuntime()
         server.methods += ["unit.run", "ai.profiles.list"]
-        server.profilesError = RuntimeError(code, "boom", phase: .handler)
+        server.profilesError = RuntimeError(code, "boom", phase: .handler,
+                                            details: reason.isEmpty ? nil : .obj([("reason", .string(reason))]))
         let port = try RTest.port(server)
         await #expect(throws: (any Error).self) { _ = try await port.tasks() }
     }

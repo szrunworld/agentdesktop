@@ -170,7 +170,7 @@ if requestingWindow {
         fail("cannot read the bridge's credential: \(error)")
     }
     guard let credential = stored else { fail("not paired with \(endpoint.path); run `agentdesktop-acp-dev pair --endpoint \(endpoint.path) --desktops …` first") }
-    let client = ACPPairing.pairedClient(endpoint: endpoint, credential: credential)
+    let client = ACPWindowRequest.client(endpoint: endpoint, credential: credential)
     defer { client.close() }
     do {
         let outcome = try ACPWindowRequest.request(client: client, desktopId: windowDesktop, bundleId: windowBundle,

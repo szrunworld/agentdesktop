@@ -19,6 +19,20 @@ public enum ACPWindowRequest {
     /// Exactly what `unit.run` checks on the bound window.
     public static let permissions = ["observe", "act"]
 
+    /// How long to wait for the reply to hub.windows.request: the Runtime
+    /// answers only once the user has decided, up to its confirmation
+    /// timeout (120 s, RuntimeService.confirmationTimeout), sending nothing
+    /// meanwhile. A shorter wait would report a lost connection while the
+    /// window stays open and a later approval still grants (2ndscreen-69 on
+    /// #268).
+    public static let replyTimeout: Double = 150
+
+    /// The bridge's connection for this request: its own credential, and a
+    /// reply timeout that outlasts the user's decision.
+    public static func client(endpoint: Endpoint, credential: ClientCredential) -> SocketRuntimeClient {
+        ACPPairing.pairedClient(endpoint: endpoint, credential: credential, timeout: replyTimeout)
+    }
+
     public enum Outcome: Equatable, Sendable {
         /// Granted, and it is the Desktop's bound window.
         case granted(windowGrantId: String, expiresAt: String?)
@@ -49,8 +63,9 @@ public enum ACPWindowRequest {
         }
         let desktop = try client.call(RuntimeRequest(.desktopShow, params: .obj([("desktopId", .string(desktopId))])))
         guard let binding = desktop["binding"], binding != .null,
-              binding["windowId"]?.intValue == window["windowId"]?.intValue,
-              binding["process"] == window["process"] else {
+              let boundWindow = binding["windowId"]?.intValue, let grantedWindow = window["windowId"]?.intValue,
+              let boundProcess = binding["process"], let grantedProcess = window["process"],
+              boundProcess != .null, boundWindow == grantedWindow, boundProcess == grantedProcess else {
             return .notTheBoundWindow(windowGrantId: grantId)
         }
         return .granted(windowGrantId: grantId, expiresAt: grant["expiresAt"]?.stringValue)

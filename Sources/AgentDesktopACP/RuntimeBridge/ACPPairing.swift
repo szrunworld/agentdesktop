@@ -68,10 +68,10 @@ public enum ACPPairing {
     }
 
     /// A connection as the paired bridge (its own credential), named like
-    /// the serving bridge.
-    public static func pairedClient(endpoint: Endpoint, credential: ClientCredential) -> SocketRuntimeClient {
+    /// the serving bridge. `timeout` bounds each reply.
+    public static func pairedClient(endpoint: Endpoint, credential: ClientCredential, timeout: Double = 10) -> SocketRuntimeClient {
         SocketRuntimeClient(endpoint: endpoint, info: ClientInfo(name: "agentdesktop-acp", version: RuntimeAPI.productVersion),
-                            timeout: 10, credential: credential)
+                            timeout: timeout, credential: credential)
     }
 
     public enum Outcome: Equatable, Sendable {

@@ -74,11 +74,22 @@ struct ACPWindowRequestTests {
               JSONValue.obj([("windowId", .int(8)), ("process", process)]),
               JSONValue.obj([("windowId", .int(7)), ("process", .obj([("pid", .int(42)), ("startedAt", .string("2026-10-11T01:00:00Z"))]))]),
               JSONValue.null,
+              JSONValue.obj([("windowId", .int(7))]),
+              JSONValue.obj([("windowId", .int(7)), ("process", .null)]),
+              JSONValue.obj([("process", process)]),
           ])
     func otherWindowIsReported(binding: JSONValue) throws {
         let c = WindowClient(binding: binding)
         #expect(try run(c) == .notTheBoundWindow(windowGrantId: "wg_1"))
         #expect(c.methods == ["hub.windows.request", "desktop.show"])
+    }
+
+    @Test("[Mock] the request waits out the user's decision: longer than the Runtime's 120 s confirmation")
+    func replyOutlastsTheConfirmation() {
+        #expect(ACPWindowRequest.replyTimeout >= 130)
+        let c = ACPWindowRequest.client(endpoint: Endpoint(path: "/tmp/adt-x/side.runtime.sock", source: .option),
+                                        credential: ClientCredential(clientId: "app:acp", token: "t"))
+        #expect(c.timeout == ACPWindowRequest.replyTimeout)
     }
 
     @Test("[Mock] a refusal (denied, not grantable, not paired) is thrown once, never retried",

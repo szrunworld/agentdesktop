@@ -180,6 +180,8 @@ Zed 配置：
 | W11 | 主窗口把 Desktop 改绑到另一个窗口 | 原授权不延续到新窗口：`unit.run` 被拒，需要重新申请 |
 | W12 | 正常提交、查询、订阅、取消 Run | 全部正常（ACP-T26-*、ACP-P1-*） |
 | W13 | `same_user` 身份 | 能发起申请，但必须由 Kevin 在确认窗口批准；授权只属于桥自己的 clientId（`agentdesktop` 主窗口或审计里核对） |
+| W14 | W5 的确认窗口出现后等 30 秒以上再批准 | 命令一直等到作答，正常输出授权（回复超时 150 秒，长于 Runtime 的 120 秒确认时限）；不得先报 `connection_lost` |
+| W15 | `request-window --bundle-id` 用不在 `--apps` 里的 App | `grant_missing`（reason `window_not_grantable`），不弹确认窗口 |
 
 另外，至少完整跑一次 Zed → 桥 → Runtime → Desktop → GUI 执行 → 结果回到 Zed 的真机链路（下面的步骤）。
 
