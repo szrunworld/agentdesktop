@@ -1,0 +1,149 @@
+{
+  "name": "ur-limit-exhausted",
+  "e2eClass": "timeout",
+  "gates": [
+    "G3-09"
+  ],
+  "description": "时限用尽：limits.maxSeconds 到期，验证一直未达成；Run outcome failed、closingReason deadline_exceeded（A6 草案 3.1：时限用尽是 failed，不用错误码表达）。",
+  "layer": "fixture: Mock today (URTestRuntime); Real after A6 (lane Q, test copy under /tmp/adt-*)",
+  "desktopId": "desk_A",
+  "input": {
+    "mode": "explore",
+    "goal": {
+      "description": "打开计算器的「关于计算器」窗口"
+    },
+    "verification": {
+      "all": [
+        {
+          "kind": "element_text_equals",
+          "role": "static_text",
+          "text": "关于计算器"
+        }
+      ]
+    },
+    "allowedActions": [
+      "click",
+      "wait"
+    ],
+    "limits": {
+      "maxSteps": 10,
+      "maxSeconds": 120
+    }
+  },
+  "runtime": {
+    "answer": "accept",
+    "phaseAfterAccept": "running",
+    "onAccept": [
+      {
+        "type": "run.started",
+        "data": {
+          "kind": "unit",
+          "origin": "agent_hub",
+          "ownership": "external_client",
+          "lifetime": "connection_scoped",
+          "desktopId": "desk_A",
+          "sessionId": "sess_A"
+        }
+      },
+      {
+        "type": "action.accepted",
+        "data": {
+          "requestId": "req_ac0000a1",
+          "kind": "click"
+        }
+      },
+      {
+        "type": "action.dispatched",
+        "data": {
+          "requestId": "req_ac0000a1"
+        }
+      },
+      {
+        "type": "action.completed",
+        "data": {
+          "receipt": {
+            "receiptId": "rcpt_ac0000a1",
+            "requestId": "req_ac0000a1",
+            "runId": "$RUN",
+            "desktopId": "desk_A",
+            "sessionId": "sess_A",
+            "snapshotId": "snap_ac0000a1",
+            "delivery": "dispatched",
+            "execution": "completed",
+            "verification": "not_requested",
+            "businessResult": "not_evaluated",
+            "route": "ax",
+            "target": {
+              "generation": 1,
+              "process": {
+                "pid": 4242,
+                "startedAt": "2026-10-08T12:00:00.000Z"
+              },
+              "windowId": 101,
+              "elementRef": "el_about",
+              "point": null
+            },
+            "timing": {
+              "acceptedAt": "2026-10-08T12:00:03.000Z",
+              "dispatchedAt": "2026-10-08T12:00:04.000Z",
+              "completedAt": "2026-10-08T12:00:05.000Z"
+            }
+          }
+        }
+      },
+      {
+        "type": "run.finishing",
+        "data": {
+          "reason": "deadline_exceeded",
+          "inFlight": false,
+          "revision": 3
+        }
+      },
+      {
+        "type": "run.quiescent",
+        "data": {
+          "revision": 4
+        }
+      },
+      {
+        "type": "run.ended",
+        "data": {
+          "phase": "ended",
+          "outcome": "failed",
+          "reason": "deadline_exceeded"
+        }
+      }
+    ],
+    "trigger": "none",
+    "onTrigger": [],
+    "final": {
+      "outcome": "failed",
+      "closingReason": "deadline_exceeded",
+      "unknownActions": 0,
+      "verification": "contradicted"
+    }
+  },
+  "expect": {
+    "submit": "accepted",
+    "actionLevels": [
+      "accepted",
+      "dispatched",
+      "executed"
+    ],
+    "finalToolStatus": "completed",
+    "planResult": "结果：失败",
+    "textContains": [
+      "任务结束：失败",
+      "超过时限"
+    ],
+    "textExcludes": [
+      "已验证",
+      "\"actionLevel\":\"verified\""
+    ],
+    "runtimeFinal": {
+      "outcome": "failed",
+      "closingReason": "deadline_exceeded"
+    },
+    "unitRunCalls": 1
+  }
+}

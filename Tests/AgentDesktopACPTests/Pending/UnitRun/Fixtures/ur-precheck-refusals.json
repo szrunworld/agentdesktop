@@ -1,0 +1,104 @@
+{
+  "name": "ur-precheck-refusals",
+  "layer": "fixture: Mock today (URTestRuntime); Real after A6 (lane Q, test copy under /tmp/adt-*)",
+  "description": "A6 草案 F40-06 第 2–15 行：前置检查失败，Runtime 不建 Run，请求账本记一条 state=failed（07 §〇 R1）。ACP 显示为拒绝，不重发；同一提交重试只读账本。第 1 行（origin/lifetime/ownership）见 ur-escalation。",
+  "desktopId": "desk_A",
+  "input": {
+    "mode": "explore",
+    "goal": {
+      "description": "打开计算器的「关于计算器」窗口"
+    },
+    "verification": {
+      "all": [
+        {
+          "kind": "element_text_equals",
+          "role": "static_text",
+          "text": "关于计算器"
+        }
+      ]
+    },
+    "allowedActions": [
+      "click",
+      "wait"
+    ],
+    "limits": {
+      "maxSteps": 10,
+      "maxSeconds": 120
+    }
+  },
+  "rows": [
+    {
+      "row": 2,
+      "code": "schema_invalid",
+      "reason": null
+    },
+    {
+      "row": 3,
+      "code": "unsupported_backend",
+      "reason": "gui_execution_off"
+    },
+    {
+      "row": 4,
+      "code": "input_disabled",
+      "reason": null
+    },
+    {
+      "row": 5,
+      "code": "not_found",
+      "reason": "desktop_not_found"
+    },
+    {
+      "row": 6,
+      "code": "control_busy",
+      "reason": null
+    },
+    {
+      "row": 7,
+      "code": "not_found",
+      "reason": "no_default_gui_profile"
+    },
+    {
+      "row": 8,
+      "code": "not_found",
+      "reason": "gui_profile_not_found"
+    },
+    {
+      "row": 9,
+      "code": "conflict",
+      "reason": "profile_revision_changed",
+      "details": {
+        "currentRevision": 4
+      }
+    },
+    {
+      "row": 10,
+      "code": "conflict",
+      "reason": "disabled"
+    },
+    {
+      "row": 11,
+      "code": "model_unavailable",
+      "reason": "credential_required"
+    },
+    {
+      "row": 12,
+      "code": "capability_mismatch",
+      "reason": "gui_contract_not_passed"
+    },
+    {
+      "row": 13,
+      "code": "capability_mismatch",
+      "reason": "action_unsupported"
+    },
+    {
+      "row": 14,
+      "code": "capability_mismatch",
+      "reason": "predicate_unsupported"
+    },
+    {
+      "row": 15,
+      "code": "capability_missing",
+      "reason": "replay_not_available"
+    }
+  ]
+}
