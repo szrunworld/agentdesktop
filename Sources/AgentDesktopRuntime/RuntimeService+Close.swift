@@ -53,9 +53,21 @@ extension RuntimeService {
     /// app.quit: end one process app.launch started on this Desktop (a
     /// paired app: one it launched itself). Answered once the process exited,
     /// or after `quitWait` with exited false: asking is not proof.
-    func quitApp(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
+    /// The request's deadline passed while it waited: nothing is done
+    /// (Codex P1 on 2c2f442: an app must not be quit, nor a screen resized,
+    /// after the client gave the request up).
+    func refuseIfExpired(_ deadline: Date?, _ what: String) throws {
+        if let deadline, now() >= deadline {
+            throw RuntimeError("deadline_exceeded", "the deadline passed before \(what); nothing was done",
+                               phase: .handler, notSent: true)
+        }
+    }
+
+    func quitApp(_ request: RuntimeRequest, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
-        return withDesktop(p["desktopId"], as: c, method: "app.quit") { d in
+        let p = request.params
+        let deadline = request.deadline.flatMap(Timestamp.date)
+        return withDesktop(p["desktopId"], until: deadline, as: c, method: "app.quit") { d in
             guard let raw = p["pid"]?.intValue, let pid = Int32(exactly: raw) else {
                 throw RuntimeError.invalidArgument("pid must fit a process ID")
             }
@@ -73,9 +85,12 @@ extension RuntimeService {
                                    retryable: true, notSent: true,
                                    details: .obj([("desktopId", .string(d.desktopId)), ("holderRunId", .string(holder))]))
             }
+            try refuseIfExpired(deadline, "the app was asked to quit")
             let requested = platform.quit(pid: pid)
             var exited = false
-            let until = now().addingTimeInterval(requested ? quitWait : 0)
+            // Waits for the exit no longer than the deadline either.
+            var until = now().addingTimeInterval(requested ? quitWait : 0)
+            if let deadline { until = min(until, deadline) }
             repeat {
                 if backend.processIdentity(pid) != process { exited = true; break }
                 Thread.sleep(forTimeInterval: 0.05)
@@ -95,9 +110,11 @@ extension RuntimeService {
 
     /// desktop.resize: a virtual Desktop's size, changed in place. Every
     /// observation of it is forgotten (its geometry no longer holds).
-    func resizeDesktop(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
+    func resizeDesktop(_ request: RuntimeRequest, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
-        return withDesktop(p["desktopId"], as: c, method: "desktop.resize") { d in
+        let p = request.params
+        let deadline = request.deadline.flatMap(Timestamp.date)
+        return withDesktop(p["desktopId"], until: deadline, as: c, method: "desktop.resize") { d in
             guard d.kind == .virtual else {
                 throw RuntimeError("invalid_target", "desktop \(d.desktopId) is physical: its display is the user's and keeps its size",
                                    phase: .handler, notSent: true)
@@ -108,6 +125,7 @@ extension RuntimeService {
                                    details: .obj([("desktopId", .string(d.desktopId)), ("holderRunId", .string(holder))]))
             }
             let width = p["width"]?.intValue ?? 0, height = p["height"]?.intValue ?? 0
+            try refuseIfExpired(deadline, "the screen was resized")
             let screen = try platform.resizeScreen(name: d.screen.name, width: width, height: height)
             d.resized(to: screen)
             observations.forget(desktopId: d.desktopId)
