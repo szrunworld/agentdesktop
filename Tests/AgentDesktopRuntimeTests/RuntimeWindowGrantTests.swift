@@ -980,3 +980,25 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     #expect(data(call(sc.s, owner, "hub.grants.set", params: p)) != nil)
     #expect(!FileManager.default.fileExists(atPath: png))
 }
+
+@Test func aPersistGrantThatRunsOutDuringTheElementReadAnswersNoKeptImage() async throws {
+    try await offPoolConfirm {
+        let (sc, _, _, _) = try calculatorScene(["observe"])
+        let p = try grantWindow(sc.s, clientId: sc.c.clientId, desktopId: sc.desktop, permissions: ["persist"])
+        let gate = DispatchSemaphore(value: 0)
+        sc.platform.lock.withLock { sc.platform.axGate = gate }
+        final class Out: @unchecked Sendable { var r: RuntimeResponse? }
+        let out = Out(), done = DispatchSemaphore(value: 0)
+        Thread { out.r = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#); done.signal() }.start()
+        let end = Date().addingTimeInterval(5)
+        while sc.platform.lock.withLock({ sc.platform.axRunning }) == 0 && Date() < end { Thread.sleep(forTimeInterval: 0.01) }
+        _ = try sc.s.hub.endWindowGrant(p.windowGrantId, state: "ended", reason: "test")
+        sc.platform.lock.withLock { sc.platform.axGate = nil }
+        gate.signal()
+        #expect(done.wait(timeout: .now() + 5) == .success)
+        let r = try #require(out.r)
+        #expect(errorDetails(r)?["reason"]?.stringValue == "persist_grant_ended", "\(r.json.encoded())")
+        let pngs = ((try? FileManager.default.contentsOfDirectory(atPath: sc.s.artifacts.directory)) ?? []).filter { $0.hasSuffix(".png") }
+        #expect(pngs.isEmpty)
+    }
+}

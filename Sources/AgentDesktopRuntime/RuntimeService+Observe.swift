@@ -71,6 +71,8 @@ extension RuntimeService {
         // The window grant this observation is made under (a paired app's
         // window it did not launch here), and whether it may keep the image.
         var windowGrant: HubStore.WindowGrant?
+        // The grant a kept (persist) image was registered under, if not windowGrant.
+        var keptUnderOther: HubStore.WindowGrant?
 
         // 1. Under the lock: checks and screenshot.
         let first = withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
@@ -113,6 +115,7 @@ extension RuntimeService {
                         .first { effectivePermissions($0).contains("persist") }
                     if let p = persisting {
                         keptUnder = p
+                        if p.windowGrantId != g.windowGrantId { keptUnderOther = p }
                         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.persist", decision: "used",
                                   reason: "\(p.windowGrantId) observe")
                     } else {
@@ -233,6 +236,15 @@ extension RuntimeService {
                 do { _ = try windowUse(c, d, b, "observe", method: "observe", audit: false) } catch {
                     if let id = image["artifactId"]?.stringValue { artifacts.remove(id) }
                     throw error
+                }
+                // The grant the image is kept under must still hold too (Codex
+                // on f726493); else nothing kept is answered (the image goes
+                // with the failure below).
+                if let p = keptUnderOther,
+                   !liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
+                       .contains(where: { $0.windowGrantId == p.windowGrantId && effectivePermissions($0).contains("persist") }) {
+                    throw RuntimeError("stale_observation", "the grant to keep this screenshot ended while the window was observed; observe again",
+                                       phase: .handler, details: .obj([("reason", .string("persist_grant_ended"))]))
                 }
                 guard d.binding?.generation == b.generation else {
                     throw RuntimeError("stale_observation", "the binding changed while desktop \(d.desktopId) was observed; observe again",
