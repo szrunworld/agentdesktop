@@ -324,6 +324,24 @@ extension RuntimeService {
 
     /// Resolve the request's target against its snapshot.
     func platformAction(_ a: JSONValue, snap: StoredObservation, window: PlatformWindow) throws -> PlatformAction {
+        // RT-11: no backend drags in the background (the engine's drag takes
+        // the real pointer and the foreground). It is refused, never done in
+        // the foreground instead.
+        if a["kind"]?.stringValue == "drag" {
+            throw RuntimeError("unsupported_backend",
+                               "this backend cannot drag in the background; a drag would take the user's pointer and bring the app to the front, so nothing was sent",
+                               phase: .handler, notSent: true, details: .obj([("reason", .string("background_drag_unsupported"))]))
+        }
+        // Codex P1 on #252: the engine's background hover is a middle-button
+        // press and release (Chromium takes hover from no posted move). That
+        // opens links, fires auxclick and pastes in apps that paste on middle
+        // click: not a hover that presses nothing. Refused until a backend
+        // can hover without a button event.
+        if a["kind"]?.stringValue == "hover" {
+            throw RuntimeError("unsupported_backend",
+                               "this backend cannot hover without a button event (its background hover is a middle click, which opens links and may paste), so nothing was sent",
+                               phase: .handler, notSent: true, details: .obj([("reason", .string("background_hover_activates"))]))
+        }
         guard let kind = PlatformAction.Kind(rawValue: a["kind"]?.stringValue ?? "") else {
             throw RuntimeError("invalid_argument", "unknown action kind \(a["kind"]?.stringValue ?? "none")", phase: .handler, notSent: true)
         }

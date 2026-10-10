@@ -43,7 +43,7 @@ agentdesktop session exec --desktop $D -- /bin/zsh ./agent-flow.sh
 
 ## MCP
 
-`agentdesktop mcp` 在 stdio 上提供 MCP 工具（`desktop_create`、`app_launch`、`window_bind`、`session_open`、`observe`、`act_click`/`act_type`/`act_key`/`act_scroll`、`wait_for_element`、`run_show`、`run_cancel`、`request_show` 等）。`observe` 返回缩小后的截图，`act_*` 的 `x,y` 是这张图的像素，服务端换算回快照坐标。整个 MCP 会话用一条 Runtime 连接，客户端退出后它发起的输入全部停止。
+`agentdesktop mcp` 在 stdio 上提供 MCP 工具（`desktop_create`、`app_launch`、`window_bind`、`session_open`、`observe`、`act_click`/`act_type`/`act_key`/`act_scroll`/`act_press`、`wait_for_element`、`run_show`、`run_cancel`、`request_show` 等）。`observe` 返回缩小后的截图，`act_*` 的 `x,y` 是这张图的像素，服务端换算回快照坐标。整个 MCP 会话用一条 Runtime 连接，客户端退出后它发起的输入全部停止。
 
 Claude Code 配置示例：
 

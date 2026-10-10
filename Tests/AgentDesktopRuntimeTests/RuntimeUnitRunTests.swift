@@ -414,3 +414,48 @@ func pairedUnitScene(_ capabilities: [String]) throws -> (RuntimeService, owner:
     executor.lastSink?.finished(.cancelled)
     #expect(s.runs.find(runId)?.closingReason == "grant_narrowed")
 }
+
+// Codex on 158d2a6: a unit Run is never finished by its caller (that would
+// call it a success unverified); it stops with run.cancel.
+@Test func aUnitRunCannotBeFinishedByItsCaller() async throws {
+    let executor = FakeUnitExecutor()
+    let (_, s, c, d, _) = try unitScene(executor: executor)
+    let runId = try #require(data(await offPool(s, c, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    let r = call(s, c, "run.finish", params: #"{"runId":"\#(runId)","exitCode":0}"#)
+    #expect(code(r) == "invalid_argument")
+    #expect(errorDetails(r)?["reason"]?.stringValue == "unit_run_not_finishable")
+    #expect(s.runs.find(runId)?.phase == .running && executor.stopCount == 0)
+    executor.lastSink?.finished(.failed(reason: "verification_failed"))
+    #expect(s.runs.find(runId)?.outcome == .failed)
+}
+
+// Codex on 158d2a6: the window is unbound, or bound again, while the
+// executor admits: no Run is made from the stale binding.
+@Test func aBindingChangedDuringAdmissionCreatesNoRun() async throws {
+    for change in ["unbind", "rebind"] {
+        let executor = FakeUnitExecutor()
+        let (_, s, c, d, _) = try unitScene(executor: executor)
+        executor.duringAdmit = {
+            if change == "unbind" { _ = call(s, c, "window.unbind", params: #"{"desktopId":"\#(d)"}"#) }
+            else { _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#) }
+        }
+        let r = await offPool(s, c, "unit.run", params: unitParams(d))
+        guard case let .failure(e) = r.result else { Issue.record("\(change): must refuse"); continue }
+        #expect(e.code == "invalid_target" && e.details?["reason"]?.stringValue == "binding_changed", "\(change)")
+        #expect(runCount(s, c) == 0 && executor.contexts.isEmpty, "\(change)")
+        #expect(s.sessions.openCount(desktopId: d) == 0, "\(change)")
+    }
+}
+
+@Test func aDesktopDestroyedDuringAdmissionCreatesNoRun() async throws {
+    let executor = FakeUnitExecutor()
+    let (_, s, c, d, _) = try unitScene(executor: executor)
+    executor.duringAdmit = {
+        #expect(data(call(s, c, "desktop.destroy", params: #"{"desktopId":"\#(d)"}"#)) != nil)
+    }
+    let r = await offPool(s, c, "unit.run", params: unitParams(d))
+    #expect(code(r) == "not_found")
+    #expect(errorDetails(r)?["reason"]?.stringValue == "desktop_not_found")
+    #expect(runCount(s, c) == 0 && executor.contexts.isEmpty)
+    #expect(s.sessions.openCount(desktopId: d) == 0)
+}

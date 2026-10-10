@@ -245,7 +245,9 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 | GUI 参数 | ai.profiles.list / get / create / update / disable / delete / default.get / setDefault | ✅ PR2b-1 | PR2b |
 | 能力检测 | ai.tests.start；ai.operations.get / cancel | ✅ PR2b-1 | PR2b |
 | 用量 | ai.usage.summary | ✅ PR2b-1 | PR2b |
-| Desktop 控制面 | desktop.stop / takeover / handback / closePlan / resize；app.quit；request.list / export | 🔖 | A5 |
+| Desktop 控制面 | request.list / export（见下文「动作记录（A5）」） | ✅ | A5 PR③ |
+| Desktop 控制面 | desktop.closePlan / resize；app.quit（见下文「关闭计划、退出应用与调整尺寸（A5）」） | ✅ | A5 PR② |
+| Desktop 控制面 | desktop.stop / takeover / handback；`Desktop.control`（见下文「Desktop 控制面（A5）」） | ✅ | A5 PR① |
 | 身份 | hub.pairing.start / status / approve / deny；hub.clients.list / show / revoke；hub.grants.list / set / revoke；hub.connections.list | 🔖 | PR3 |
 | 窗口授权 | hub.windows.request / list / revoke（按窗口的 observe / act / persist，见 docs/security/window-grants.md） | ✅ | 窗口授权前置 PR |
 | 显示器开放 | hub.displays.list / attach / detach（owner 在主窗口把自己的显示器作为物理 Desktop 开放给已配对程序，Touch ID 确认；见 docs/security/owner-display-attach.md） | ✅ | owner 挂接入口 PR |
@@ -291,12 +293,41 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 | EVENTS_CURSOR_EXPIRED | 新码 `events_cursor_expired` |
 | INTERNAL_ERROR | internal_error |
 
+### act 的 hover、press 与 drag（A5）
+
+- `hover {target}`：参数已定稿（elementRef 或 imagePoint）。但 macOS 引擎的后台 hover 其实是在目标点发一次**中键**按下和抬起（Chromium 不接受后台发来的鼠标移动）：会打开链接、触发 `auxclick`，在用中键粘贴的应用里还会粘贴。它做不到「不点击」，所以 Runtime 在派发前拒绝：`unsupported_backend`，`notSent: true`，`details.reason: background_hover_activates`，dispatch=0；剪贴板策略也把 hover 列为拒绝（`hover_middle_click`）。等有了不发按键事件的悬停实现再开放（Codex 在 #252 上的 P1）。
+- `press {target: {elementRef}}`：对一个元素做无障碍按下（引擎的 accessibilityPress），没有事件兜底；不能按就失败，不会改成点击。只接受 elementRef，带图像点、button、count、modifiers 等任何其他字段都是 `schema_invalid`。剪贴板策略按点击同样检查：名为粘贴、复制、剪切的控件被拒。
+- `drag {target, to}`：参数已定稿。但 macOS 引擎只有前台拖动（会把应用拉到前台、移动用户的真实指针），所以 Runtime 在派发前就拒绝：`unsupported_backend`，`notSent: true`，`details.reason: background_drag_unsupported`，dispatch=0，不会改用前台执行（RT-11）。有后台拖动能力的后端出现之后再开放。`unsupported_backend` 因此不再是预留错误码。
+- 所有回执的 `businessResult` 都是 `not_evaluated`（RT-22）。
+- 入口：CLI 新增 `act press`，MCP 新增 `act_press`；hover 和 drag 都不提供入口。
+
+### 动作记录（A5）
+
+- 记录就是请求账本（7 天）里 Runtime 受理过的每个写请求。每条与 `request.show` 给出的一致，另加可选字段 `clientId`（谁发的）和 `desktopId`（它指向的 Desktop：params.desktopId，否则取它的 session 或 Run 所在的 Desktop；A5 之前的记录和不指向 Desktop 的请求没有这个字段）。`request.show` 同样带这两个字段。
+- `request.list`（`observe`）：按 method、state、desktopId、since 筛选，owner 还可以按 clientId 筛选；owner 看到所有调用者的记录，配对程序只看到自己的，desktopId 也必须在它的授权内。按受理时间倒序，limit 1–100（默认 50），用 `next` 翻页；单页超过 768 KiB 时提前结束这一页。
+- `request.export`（`observe`）：筛选条件与 request.list 相同，最多 10000 条，写成一个 JSON 文档（apiVersion、exportedAt、filter、count、truncated、requests），存为调用者的 `application/json` 产物，用 `artifact.read` 分块读取。和其他产物一样保留 24 小时，计入产物存储限额（`limit_exceeded`）。
+- 读操作不进账本，所以请求列表里只有写请求；observe 等读请求不在其中。
+
+### 关闭计划、退出应用与调整尺寸（A5）
+
+- `desktop.closePlan {desktopId}`（只读，只给 owner；配对程序得到 `permission_denied`，reason `owner_only`）：现在调用 `desktop.destroy` 会怎样，什么都不改。`blockers` 列出持有租约的 Run 与未关闭的 session（有任何一项时 `canClose: false`）；`quit` 列出 destroy 会请求退出的进程（本 Desktop 用 app.launch 启动、仍在运行）；`keep` 列出窗口在这里但会保留的进程（`not_launched_here`：用户自己的应用；物理 Desktop 上一律 `physical_desktop`，显示器也保留，`display: "kept"`）。
+- `app.quit {desktopId, pid}`（`desktop.manage`）：只结束本 Desktop 用 app.launch 启动的进程，配对程序只能结束它自己启动的；其他一律 `permission_denied`，reason `not_launched_here`，不透露该 pid 是什么。另一个客户端的 Run 持有该 Desktop 时 `control_busy`（owner 不受限）。请求退出后最多等 3 秒：进程消失则 `exited: true`，并从本 Desktop 的启动记录和绑定中移除；否则 `exited: false`（只是请求过，不代表会退出）。
+- `desktop.resize {desktopId, width, height}`（`desktop.manage`）：原地调整虚拟 Desktop 的尺寸（320×240 到显示器预留的最大值，超出为 `execution_failed`）；物理 Desktop 为 `invalid_target`。另一个客户端的 Run 持有该 Desktop 时 `control_busy`（owner 不受限）。该 Desktop 的全部观察作废，旧快照上的 act 得到 `stale_observation`。
+
+### Desktop 控制面（A5）
+
+- 三个方法都只给 owner（主窗口）；配对程序得到 `permission_denied`，reason `owner_only`。只作用于一个 Desktop，其他 Desktop 不受影响。
+- `desktop.stop {desktopId}`：关闭该 Desktop 的输入准入，停止持有租约的 Run（任何 origin，closingReason `desktop_stop`）。回执 `DesktopStopReceipt` 分开「已受理」与「已静止」：有在途动作时 `run.phase=stopping`、`quiescence=pending`。此后该 Desktop 上新的 Run 被拒（`input_disabled`，reason `desktop_stopped`），直到 `desktop.handback`。
+- `desktop.takeover {desktopId}`：先关闭 Agent 的准入、停止持有租约的 Run（closingReason `takeover`），等它没有在途动作（拿到 Desktop 锁）后，建一个 `origin=user`、`platform/platform_durable`、kind `exec` 的平台 Run 持有租约。其他 Run 一律被拒（`control_busy`，reason `manual_control`）。超过 deadline 仍有在途动作：`stop_pending`（retryable，notSent 不为 true：接管已受理、准入保持关闭），用新的 requestId 再调。已接管时再调返回同一个 Run。接管在等锁期间，如果 owner 已经 handback 或 stop 了这个 Desktop，以后者为准：接管什么都不做，返回 `conflict`，reason `superseded`。
+- `desktop.handback {desktopId}`：结束人工 Run（closingReason `handback`，outcome `success`），重新开放准入，并作废该 Desktop 的全部观察：Agent 必须重新 observe 才能动作，接管前的快照不会被重放。上一个 Run 留下的 stopped、disconnected、unknown 状态也由 handback 清除（不需要先 stop；那个 Run 自己的 outcome 不变）。Desktop 处于 ready、正由 Agent 的 Run 持有、或处于全局停止（由 `runtime.enableInput` 解除）时，什么都不改（`handedBack: false`）。
+- `Desktop.control {state, since, actionCount, controllerRunId?, clientId?, clientName?}` 由租约、Desktop 准入和最后一个 Run 推导，不落盘：running / manual / stopping / stopped / disconnected（上个 Run owner_lost）/ unknown（上个 Run 有未知动作）/ ready；creating、error 预留。stopped、disconnected、unknown 保持到新 Run 开始或 owner handback。配对程序只在控制者是自己时看到 controllerRunId、clientId、clientName。`transport`、`lastActionAt` 仍在 plannedFields。
+
 ## 6.1 已登记的后续增量（docs/plan/03 §3.2–3.5，2026-10-08 纳入）
 
 - 方法：上表 “Desktop 控制面” 一行，状态 🔖，归 A5。
 - 错误码（`errors.json`，`reserved`）：`pairing_required`、`client_revoked`、`grant_missing`、`grant_expired`、`permit_expired`（退出码 4）；`target_moved`（5）；`audit_unavailable`（7）；`unsupported_backend`、`capability_mismatch`（6）。
 - 可选字段（`methods.json` 的 `plannedFields`，每项随所属 PR 带 Schema、夹具和 golden 落地）：
-  - Action 新增 `hover` / `drag` / `press`；
+  - ~~Action 新增 `hover` / `drag` / `press`~~：已在 A5 PR④ 落地，见下文「act 的 hover、press 与 drag（A5）」；
   - 只给 `desktopId` 时使用隐式会话；
   - ActionReceipt 新增 `businessResult`（恒为 `not_evaluated`）、`elapsedMs`、`clientId`、`origin`、`geometryRevision`、`dispatchSequence`、`reconciliations` 等；
   - Observation 新增 `targetKind`、`geometryRevision`、`captureSequence`、`coverage`；

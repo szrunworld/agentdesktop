@@ -210,6 +210,8 @@ public final class RuntimeService: @unchecked Sendable {
     /// How long a request without a deadline waits for a busy Desktop
     /// (RuntimeService.desktopLockWait); tests shorten it.
     var desktopLockWait = RuntimeService.desktopLockWait
+    /// How long app.quit waits for the process to exit (RuntimeService.quitWait); tests shorten it.
+    var quitWait = RuntimeService.quitWait
     /// How long a screenshot taken under a window grant without persist is
     /// kept (window-grants.md); tests shorten it.
     var transientArtifactLifetime = RuntimeService.transientArtifactSeconds
@@ -227,6 +229,8 @@ public final class RuntimeService: @unchecked Sendable {
         .sessionOpen, .sessionShow, .sessionClose, .observe, .observeRegionV1, .observeSubscribe, .observeUnsubscribe,
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList, .unitRun,
         .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
+        .desktopClosePlan, .appQuit, .desktopResize,
+        .desktopStop, .desktopTakeover, .desktopHandback,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
@@ -399,7 +403,7 @@ public final class RuntimeService: @unchecked Sendable {
     private func ledgered(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let begin: RequestLedger.Begin
         do {
-            begin = try ledger.begin(caller: connection.clientId, request)
+            begin = try ledger.begin(caller: connection.clientId, request, desktopId: namedDesktop(request, connection))
         } catch {
             execution.auditStorageFailed()
             return .failure(ExecutionCoordinator.auditError(notSent: true))
@@ -578,6 +582,14 @@ public final class RuntimeService: @unchecked Sendable {
         case .displaysList: return listDisplays(connection)
         case .displaysAttach: return attachDisplay(p, connection)
         case .displaysDetach: return detachDisplay(p, connection)
+        case .requestList: return listRequests(p, connection)
+        case .requestExport: return exportRequests(p, connection)
+        case .desktopClosePlan: return closePlan(p, connection)
+        case .appQuit: return quitApp(request, connection)
+        case .desktopResize: return resizeDesktop(request, connection)
+        case .desktopStop: return stopDesktop(p, connection)
+        case .desktopTakeover: return takeover(request, connection)
+        case .desktopHandback: return handback(p, connection)
         }
     }
 }

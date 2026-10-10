@@ -621,6 +621,9 @@ enum RuntimeContractData {
         "openSessions": {
           "type": "integer",
           "minimum": 0
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
         }
       }
     },
@@ -1411,6 +1414,14 @@ enum RuntimeContractData {
         },
         "outcome": {
           "type": "object"
+        },
+        "clientId": {
+          "type": "string",
+          "description": "the principal that made the request"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id",
+          "description": "the Desktop the request named (absent for records older than A5 or naming none)"
         }
       }
     },
@@ -1469,7 +1480,10 @@ enum RuntimeContractData {
             "click",
             "type",
             "key",
-            "scroll"
+            "scroll",
+            "hover",
+            "press",
+            "drag"
           ]
         },
         "target": {
@@ -1520,6 +1534,10 @@ enum RuntimeContractData {
           "type": "integer",
           "minimum": 1,
           "maximum": 50
+        },
+        "to": {
+          "$ref": "#/$defs/ActionTarget",
+          "description": "drag: where to release"
         }
       },
       "allOf": [
@@ -1590,8 +1608,190 @@ enum RuntimeContractData {
               "direction"
             ]
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "hover"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "modifiers"
+                  ]
+                },
+                {
+                  "required": [
+                    "button"
+                  ]
+                },
+                {
+                  "required": [
+                    "count"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "amount"
+                  ]
+                },
+                {
+                  "required": [
+                    "to"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "press"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "required": [
+                  "elementRef"
+                ]
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "modifiers"
+                  ]
+                },
+                {
+                  "required": [
+                    "button"
+                  ]
+                },
+                {
+                  "required": [
+                    "count"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "amount"
+                  ]
+                },
+                {
+                  "required": [
+                    "to"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "drag"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target",
+              "to"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "button"
+                  ]
+                },
+                {
+                  "required": [
+                    "count"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "amount"
+                  ]
+                }
+              ]
+            }
+          }
         }
-      ]
+      ],
+      "description": "hover rests the pointer on the target; press is an accessibility press of one element (elementRef only), never an event click; drag goes from target to `to`. hover and drag are refused with unsupported_backend where the backend cannot do them in the background without side effects (macOS today: hover would be a middle click, drag would take the real pointer and the foreground), never done otherwise instead"
     },
     "act_params": {
       "type": "object",
@@ -4230,6 +4430,210 @@ enum RuntimeContractData {
         }
       }
     },
+    "desktop_stop_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "desktop_takeover_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "desktop_handback_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "DesktopControl": {
+      "description": "who controls the Desktop's input, derived from its lease, its admission and its last Run (docs/plan/03 §3.4); a paired client sees controllerRunId, clientId and clientName only for its own Run",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "since",
+        "actionCount"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "creating",
+            "ready",
+            "running",
+            "manual",
+            "stopping",
+            "stopped",
+            "disconnected",
+            "unknown",
+            "error"
+          ],
+          "description": "running: a Run holds the lease; manual: the user's takeover Run holds it; stopping: the Run holding it stops; stopped: desktop.stop, global stop, or the last Run ended by a stop, until a new Run or desktop.handback; disconnected: the last Run lost its control connection; unknown: the last Run has an unknown action; creating and error are reserved"
+        },
+        "controllerRunId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "clientName": {
+          "type": "string"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "actionCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "RunStopState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "phase",
+        "quiescence",
+        "outcome"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "quiescence": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "DesktopStopReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "accepted",
+        "run",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "accepted": {
+          "const": true
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStopState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the Run that held the Desktop, as stopped: phase stopping and quiescence pending while an action of it is in flight"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
+    "DesktopTakeover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "run",
+        "stopped",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "run": {
+          "$ref": "#/$defs/Run"
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStopState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the agent's Run the takeover stopped, if one held the Desktop"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
+    "DesktopHandback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "handedBack",
+        "endedRunId",
+        "observationsCleared",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "handedBack": {
+          "type": "boolean"
+        },
+        "endedRunId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observationsCleared": {
+          "type": "boolean"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
     "observe_region_v1_params": {
       "type": "object",
       "additionalProperties": false,
@@ -4981,6 +5385,307 @@ enum RuntimeContractData {
           }
         }
       ]
+    },
+    "desktop_closePlan_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "app_quit_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "pid"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "desktop_resize_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 16384
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 240,
+          "maximum": 16384
+        }
+      }
+    },
+    "ClosePlanProcess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process",
+        "appName",
+        "bundleId"
+      ],
+      "properties": {
+        "process": {
+          "$ref": "#/$defs/ProcessIdentity"
+        },
+        "appName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bundleId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "not_launched_here",
+            "physical_desktop"
+          ]
+        }
+      }
+    },
+    "DesktopClosePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "kind",
+        "display",
+        "canClose",
+        "blockers",
+        "quit",
+        "keep"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "enum": [
+            "virtual",
+            "physical"
+          ]
+        },
+        "display": {
+          "enum": [
+            "destroyed",
+            "kept"
+          ],
+          "description": "a virtual Desktop's display is destroyed; a physical one is the user's and kept"
+        },
+        "canClose": {
+          "type": "boolean"
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "run",
+                  "sessions"
+                ]
+              },
+              "runId": {
+                "$ref": "#/$defs/Id"
+              },
+              "origin": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "quit": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClosePlanProcess"
+          },
+          "description": "processes destroy asks to quit: launched on this Desktop and still running"
+        },
+        "keep": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClosePlanProcess"
+          },
+          "description": "processes with a window there that destroy leaves running"
+        }
+      }
+    },
+    "AppQuitResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "process",
+        "quitRequested",
+        "exited"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "process": {
+          "$ref": "#/$defs/ProcessIdentity"
+        },
+        "quitRequested": {
+          "type": "boolean"
+        },
+        "exited": {
+          "type": "boolean",
+          "description": "the process is gone; false: asked to quit, not proof that it will"
+        }
+      }
+    },
+    "request_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "completed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner only: one caller's records; ignored for a paired client, which sees only its own"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "RequestList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requests",
+        "next"
+      ],
+      "properties": {
+        "requests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RequestRecord"
+          }
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "request_export_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "completed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner only: one caller's records; ignored for a paired client, which sees only its own"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "RequestExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "count",
+        "truncated"
+      ],
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "more records matched than one export holds (10000): narrow the filter"
+        }
+      }
     }
   }
 }
@@ -9819,6 +10524,78 @@ enum RuntimeContractData {
       "result": "HubDisplayDetachment",
       "status": "implemented",
       "note": "owner; takes the physical Desktop out of one client's grant (with clientId) or every client's (without), ending their window grants on it in the same transaction (desktop_removed) and cutting their connections; without clientId the Desktop is destroyed as well (its record only: the display and its windows are the user's); a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.stop",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_stop_params",
+      "result": "DesktopStopReceipt",
+      "status": "implemented",
+      "note": "owner; closes this Desktop's input admission and stops the Run holding it (any origin, closingReason desktop_stop); the receipt separates accepted from quiescent: run.phase stopping / quiescence pending while an action of it is in flight. New Runs on the Desktop are refused (input_disabled, details.reason desktop_stopped) until desktop.handback; other Desktops are untouched; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.takeover",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_takeover_params",
+      "result": "DesktopTakeover",
+      "status": "implemented",
+      "note": "owner; manual takeover: closes agents' admission on the Desktop, stops the Run holding it (closingReason takeover) and, once nothing of it is in flight, starts a platform Run of origin user (kind exec, platform_durable) that holds the lease; every other Run is refused (control_busy, details.reason manual_control); Desktop.control.state manual. While the stopped Run still finishes an action past the deadline: stop_pending (retryable, notSent false: the takeover was accepted and admission stays closed), ask again with a new requestId. A takeover that waited while the owner handed the Desktop back or stopped it does nothing (conflict, details.reason superseded). Taking over a Desktop already taken over answers its Run again; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.handback",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_handback_params",
+      "result": "DesktopHandback",
+      "status": "implemented",
+      "note": "owner; ends the user's Run (closingReason handback, outcome success), reopens the Desktop's admission (after desktop.takeover or desktop.stop) and forgets every observation of the Desktop: an agent observes again before acting and nothing queued before is replayed; it also clears a Desktop its last Run left stopped, disconnected or unknown (the Run itself keeps its outcome); on a ready Desktop, one an agent's Run holds, or under a global stop (runtime.enableInput lifts that) nothing changes (handedBack false); a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.closePlan",
+      "stage": "P0",
+      "mutation": false,
+      "params": "desktop_closePlan_params",
+      "result": "DesktopClosePlan",
+      "status": "implemented",
+      "note": "owner; what desktop.destroy would do now, changing nothing: blockers (the Run holding the Desktop, open sessions; canClose false while any), the processes it would ask to quit (app.launch started them here and they still run) and the ones whose windows stay (not launched here: the user's own apps lent by window.bind or shown there; everything on a physical Desktop, whose display is kept); a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "app.quit",
+      "stage": "P0",
+      "mutation": true,
+      "params": "app_quit_params",
+      "result": "AppQuitResult",
+      "status": "implemented",
+      "note": "desktop.manage; ends one process app.launch started on this Desktop (a paired client: one it launched itself), never the user's own apps: anything else is permission_denied, reason not_launched_here, naming nothing; a Run of another client holding the Desktop: control_busy (the owner may quit regardless). Asks the app to quit and waits up to 3 s: exited true once the process is gone (it leaves the Desktop's launches and its binding, if bound), else exited false (asked, not proof)"
+    },
+    {
+      "method": "desktop.resize",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_resize_params",
+      "result": "Desktop",
+      "status": "implemented",
+      "note": "desktop.manage; a virtual Desktop's size, changed in place (320x240 up to what the display reserved; beyond: execution_failed); a physical Desktop is invalid_target; a Run of another client holding the Desktop: control_busy (the owner may resize regardless). Every observation of the Desktop is forgotten: act on an older snapshot is stale_observation"
+    },
+    {
+      "method": "request.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "request_list_params",
+      "result": "RequestList",
+      "status": "implemented",
+      "note": "observe; the write requests the Runtime accepted (the request ledger, 7 days), newest first, each exactly as request.show gives it plus clientId and the desktopId it named (params.desktopId, else its session's or Run's Desktop; none for records older than A5 or naming none); filters method, state, desktopId, since, and for the owner clientId (the owner sees every caller's records, a paired client only its own; a paired client's desktopId must be in its grant); limit 1–100 (default 50), cursor from next; a page ends early rather than exceed 768 KiB"
+    },
+    {
+      "method": "request.export",
+      "stage": "P0",
+      "mutation": false,
+      "params": "request_export_params",
+      "result": "RequestExport",
+      "status": "implemented",
+      "note": "observe; the same records and filters as request.list, at most 10000, newest first, written as one JSON document (apiVersion, exportedAt, filter, count, truncated, requests) into an application/json artifact of the caller: read it with artifact.read; kept like any artifact (24 h) and counted against the store's limits (limit_exceeded)"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -9942,62 +10719,6 @@ enum RuntimeContractData {
       "status": "reserved",
       "pr": "PR7+",
       "stage": "P1"
-    },
-    {
-      "method": "desktop.stop",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "stop input on one Desktop; receipt separates accepted from quiescent"
-    },
-    {
-      "method": "desktop.takeover",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "manual takeover: a platform lease Run with origin user"
-    },
-    {
-      "method": "desktop.handback",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "end the takeover Run and observe again; nothing is replayed"
-    },
-    {
-      "method": "desktop.closePlan",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "what closing a Desktop would end and what it keeps"
-    },
-    {
-      "method": "desktop.resize",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "change a Desktop's size"
-    },
-    {
-      "method": "app.quit",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "quit only a process this Desktop launched"
-    },
-    {
-      "method": "request.list",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "action records: filter and page"
-    },
-    {
-      "method": "request.export",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "action records: export"
     }
   ],
   "withdrawn": [
@@ -10028,14 +10749,6 @@ enum RuntimeContractData {
   ],
   "plannedFields": {
     "note": "optional additions agreed in docs/plan/03 §3.2–3.3; each lands with its schema, fixtures and goldens in the named PR (freeze rule 1: optional fields only)",
-    "Action.kind": {
-      "add": [
-        "hover",
-        "drag",
-        "press"
-      ],
-      "pr": "A5"
-    },
     "observe/act context": {
       "add": "desktopId alone opens an implicit session",
       "pr": "A5"
@@ -10063,11 +10776,12 @@ enum RuntimeContractData {
     },
     "Desktop": {
       "add": [
-        "control{state,controllerRunId,clientId,clientName,transport,since,actionCount,lastActionAt}",
+        "control.transport",
+        "control.lastActionAt",
         "targetKind (window|device)"
       ],
       "pr": "A5",
-      "note": "kind (virtual|physical: where the display comes from) is in (#120/#143); targetKind (window|device: what is bound) is a different concept and stays planned"
+      "note": "kind (virtual|physical: where the display comes from) is in (#120/#143); control{state,controllerRunId,clientId,clientName,since,actionCount} is in (A5 desktop.stop/takeover/handback); targetKind (window|device: what is bound) is a different concept and stays planned"
     },
     "desktop.create params": {
       "add": [
@@ -10090,7 +10804,7 @@ enum RuntimeContractData {
   "authorization": {
     "principal": "from the handshake credential only: owner (the host's in-process connections; no socket client is ever the owner), paired app (app:<id> credential from hub.pairing; a client that paired as verified code must satisfy its designated requirement, read from the socket's audit token, on every handshake), else unpaired",
     "unpaired": "runtime.handshake, runtime.capabilities, hub.pairing.start, hub.pairing.status; anything else is pairing_required",
-    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). hub.displays.* (attaching one of the user's displays for a client, and taking it back) is the owner's alone and is never asked for by a client. Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
+    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy/resize, app.launch/quit, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). hub.displays.* (attaching one of the user's displays for a client, and taking it back) is the owner's alone and is never asked for by a client. Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
     "checked": "every request, against the client and grant as they are now; an action once more right before its input goes out",
     "pairing": "hub.pairing.start asks the user in the host's trusted window (details, short code, user authentication); approved exactly as shown, the grant's duration counting from the approval; denied, cancelled, timed out or no trusted window: denied",
     "confirmation": "a confirmation is bound to a digest of exactly what will be applied, recomputed by the window from what it displayed; params are shown in full and a call too large to show is refused unseen; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch, confirmation_too_large, pairing_busy or no_trusted_ui",
@@ -10324,8 +11038,7 @@ enum RuntimeContractData {
       "code": "unsupported_backend",
       "exitCode": 6,
       "phase": "handler",
-      "reserved": true,
-      "description": "The backend cannot do this action in the background; it is not done in the foreground instead."
+      "description": "The backend cannot do this action in the background without side effects (act kind drag on macOS: background_drag_unsupported; act kind hover on macOS, which would be a middle click: background_hover_activates); it is not done another way instead. notSent: true, details.reason says which."
     },
     {
       "code": "capability_mismatch",

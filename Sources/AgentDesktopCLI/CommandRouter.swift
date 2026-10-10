@@ -314,6 +314,10 @@ enum CommandRouter {
             if o["--double"] != nil { a.append(("count", .int(2))) }
             return try act(o, a)
         },
+        Spec(words: ["act", "press"], summary: "press one element through accessibility, with no mouse event",
+             options: actOptions.merging(["--element": true]) { a, _ in a }, positionals: []) { o, _ in
+            try act(o, [("kind", .string("press")), ("target", .obj([("elementRef", .string(try required(o, "--element")))]))])
+        },
         Spec(words: ["act", "type"], summary: "type text into an element or the focused field",
              options: actOptions.merging(["--element": true, "--text": true, "--text-file": true]) { a, _ in a },
              positionals: []) { o, _ in

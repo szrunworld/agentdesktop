@@ -50,7 +50,7 @@ security create-keychain -p "$(uuidgen)" /tmp/adt-acp/test.keychain-db
 security set-keychain-settings /tmp/adt-acp/test.keychain-db       # 测试期间不自动锁
 # create-keychain 可能把它加进搜索列表；如果加了，按原样恢复（见 scripts/a4-touchid-acceptance.sh）
 export AGENTDESKTOP_KEYCHAIN=/tmp/adt-acp/test.keychain-db
-ACP_DEV=/Users/kevinshi/orca/agentdesktop/.build/debug/agentdesktop-acp-dev   # 与下面 Zed 配置的 command 完全相同
+ACP_DEV="$(git rev-parse --show-toplevel)/.build/debug/agentdesktop-acp-dev"   # 在仓库里执行；echo "$ACP_DEV"，下面 Zed 配置的 command 填这个绝对路径
 "$ACP_DEV" pair --endpoint "$AGENTDESKTOP_ENDPOINT" --name ACP --apps com.apple.calculator --duration 8h --wait-timeout 180
 ```
 
@@ -69,7 +69,7 @@ dev 入口（S 线合入后、CLI `acp` 之前）：
   "agent_servers": {
     "AgentDesktop (test /tmp/adt-acp)": {
       "type": "custom",
-      "command": "/Users/kevinshi/orca/agentdesktop/.build/debug/agentdesktop-acp-dev",
+      "command": "<仓库绝对路径>/.build/debug/agentdesktop-acp-dev",
       "args": [],
       "env": { "AGENTDESKTOP_ENDPOINT": "/tmp/adt-acp/side.runtime.sock", "AGENTDESKTOP_KEYCHAIN": "/tmp/adt-acp/test.keychain-db" }
     }

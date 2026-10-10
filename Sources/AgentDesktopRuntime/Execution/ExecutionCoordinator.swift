@@ -36,6 +36,15 @@ public final class ExecutionCoordinator: @unchecked Sendable {
     private var leases: [String: String] = [:]
     private var live: [String: Live] = [:]
     private var admission: Admission = .enabled
+    /// Per-Desktop admission (A5): desktop.stop and desktop.takeover.
+    private var gates: [String: DesktopGate] = [:]
+    /// When each gate closed, and when the owner last handed a Desktop back.
+    private var gatedAt: [String: Date] = [:]
+    private var cleared: [String: Date] = [:]
+    /// Grows whenever a Desktop's gate changes (stop, takeover, handback,
+    /// restore): a takeover that waited for the Desktop's lock checks that
+    /// the gate it closed is still the one in place (Codex on 2aaf935).
+    private var gateSerial: [String: Int] = [:]
     private var auditFailed = false
 
     var auditUnavailable: Bool { lock.withLock { auditFailed } }
@@ -116,6 +125,19 @@ public final class ExecutionCoordinator: @unchecked Sendable {
             guard !auditFailed else { return .failure(Self.auditError(notSent: true)) }
             do { try runs.checkWritable() } catch { return .failure(Self.auditError(notSent: true)) }
             guard admission == .enabled else { return .failure(inputDisabled()) }
+            switch gates[session.desktopId] {
+            case .stopped?:
+                return .failure(RuntimeError(
+                    "input_disabled", "input on desktop \(session.desktopId) was stopped by its owner (desktop.stop); it is admitted again after desktop.handback",
+                    phase: .handler, notSent: true,
+                    details: .obj([("desktopId", .string(session.desktopId)), ("reason", .string("desktop_stopped"))])))
+            case .manual? where origin != .user:
+                return .failure(RuntimeError(
+                    "control_busy", "the user took over desktop \(session.desktopId) (desktop.takeover); it is admitted again after desktop.handback",
+                    phase: .handler, retryable: true, notSent: true,
+                    details: .obj([("desktopId", .string(session.desktopId)), ("reason", .string("manual_control"))])))
+            default: break
+            }
             if let holder = leases[session.desktopId], live[holder] != nil {
                 return .failure(RuntimeError(
                     "control_busy", "desktop \(session.desktopId) is controlled by run \(holder)", phase: .handler,
@@ -376,6 +398,100 @@ public final class ExecutionCoordinator: @unchecked Sendable {
 
     /// Whether a live Run holds the Desktop (destroy refuses then).
     func holder(of desktopId: String) -> String? { lock.withLock { leases[desktopId] } }
+
+    // MARK: One Desktop's admission (A5)
+
+    /// Why a Desktop admits no new Run beside global admission: the owner
+    /// stopped it (desktop.stop), or took it over (desktop.takeover), which
+    /// admits only the user's own Run. Gone with desktop.handback.
+    public enum DesktopGate: String, Sendable { case stopped, manual }
+
+    /// What Desktop.control is derived from, read in one step.
+    struct ControlFacts {
+        var holder: RunRecord?
+        var gate: DesktopGate?
+        var gatedAt: Date?
+        var admission: Admission
+        /// When the owner last handed the Desktop back: a Run that ended
+        /// before then no longer colours its control state.
+        var clearedAt: Date?
+    }
+
+    func controlFacts(_ desktopId: String) -> ControlFacts {
+        lock.withLock {
+            ControlFacts(holder: leases[desktopId].flatMap { live[$0]?.record }, gate: gates[desktopId],
+                         gatedAt: gatedAt[desktopId], admission: admission, clearedAt: cleared[desktopId])
+        }
+    }
+
+    /// desktop.stop: close the Desktop's admission now and stop the Run
+    /// holding it, whatever its origin. Returns that Run's stop, if any.
+    func stopDesktop(_ desktopId: String) -> RunRecord? {
+        let holder: String? = lock.withLock {
+            if gates[desktopId] != .stopped { gatedAt[desktopId] = now(); gateSerial[desktopId, default: 0] += 1 }
+            gates[desktopId] = .stopped
+            return leases[desktopId]
+        }
+        guard let holder else { return nil }
+        switch stop(runId: holder, reason: "desktop_stop", endAs: .cancelled) {
+        case let .accepted(r): return runs.find(holder) ?? r
+        case let .alreadyTerminal(r): return r
+        case .notFound: return nil
+        }
+    }
+
+    /// desktop.takeover, first step: from now on only the user's Run is
+    /// admitted on the Desktop; the agent's Run holding it is stopped.
+    /// Returns that Run's stop, if any, and the gate as it was.
+    func closeForTakeover(_ desktopId: String) -> (stopped: RunRecord?, previous: DesktopGate?, serial: Int) {
+        let (holder, previous, serial): (RunRecord?, DesktopGate?, Int) = lock.withLock {
+            let previous = gates[desktopId]
+            if previous != .manual { gatedAt[desktopId] = now(); gateSerial[desktopId, default: 0] += 1 }
+            gates[desktopId] = .manual
+            return (leases[desktopId].flatMap { live[$0]?.record }, previous, gateSerial[desktopId, default: 0])
+        }
+        guard let holder, holder.origin != .user else { return (nil, previous, serial) }
+        switch stop(runId: holder.runId, reason: "takeover", endAs: .cancelled) {
+        case let .accepted(r): return (runs.find(holder.runId) ?? r, previous, serial)
+        case let .alreadyTerminal(r): return (r, previous, serial)
+        case .notFound: return (nil, previous, serial)
+        }
+    }
+
+    /// Whether the manual gate a takeover closed (its `serial`) is still in
+    /// place: no handback reopened the Desktop and no stop closed it anew.
+    func takeoverStands(_ desktopId: String, serial: Int) -> Bool {
+        lock.withLock { gates[desktopId] == .manual && gateSerial[desktopId, default: 0] == serial }
+    }
+
+    /// Put a gate back as it was (a takeover that could not start the
+    /// user's Run).
+    func restoreGate(_ desktopId: String, _ gate: DesktopGate?) {
+        lock.withLock {
+            if gates[desktopId] != gate { gateSerial[desktopId, default: 0] += 1 }
+            gates[desktopId] = gate
+            if gate == nil { gatedAt.removeValue(forKey: desktopId) }
+        }
+    }
+
+    /// desktop.handback: the Desktop admits Runs again.
+    func openDesktop(_ desktopId: String) {
+        lock.withLock {
+            if gates.removeValue(forKey: desktopId) != nil { gateSerial[desktopId, default: 0] += 1 }
+            gatedAt.removeValue(forKey: desktopId)
+            cleared[desktopId] = now()
+        }
+    }
+
+    /// The Desktop is gone: nothing of it is kept.
+    func forgetDesktop(_ desktopId: String) {
+        lock.withLock {
+            gates.removeValue(forKey: desktopId)
+            gatedAt.removeValue(forKey: desktopId)
+            cleared.removeValue(forKey: desktopId)
+            gateSerial.removeValue(forKey: desktopId)
+        }
+    }
 
     /// Live Runs, for status and diagnostics.
     func liveRuns() -> [RunRecord] { lock.withLock { live.values.map(\.record) } }

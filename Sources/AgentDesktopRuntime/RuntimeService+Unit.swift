@@ -128,6 +128,19 @@ extension RuntimeService {
         return nil
     }
 
+    /// The Desktop gone, or its bound window not the one admission checked.
+    func targetChanged(_ desktopId: String, _ binding: TargetBinding) -> RuntimeError? {
+        guard let d = desktops.find(desktopId) else {
+            return RuntimeError("not_found", "desktop \(desktopId) was destroyed", phase: .handler, notSent: true,
+                                details: .obj([("reason", .string("desktop_not_found"))]))
+        }
+        guard let now = d.lock.withLock({ d.binding }), now.generation == binding.generation else {
+            return RuntimeError("invalid_target", "the window bound on desktop \(desktopId) changed; bind it again and retry",
+                                phase: .handler, notSent: true, details: .obj([("reason", .string("binding_changed"))]))
+        }
+        return nil
+    }
+
     static func guiExecutionOff() -> RuntimeError {
         RuntimeError("unsupported_backend", "real GUI input is off here: no execution backend has passed G0", phase: .handler,
                      notSent: true, details: .obj([("reason", .string("gui_execution_off"))]))
@@ -187,6 +200,9 @@ extension RuntimeService {
         // Access may have been withdrawn while the executor admitted (codex
         // on 49111eb): the revocation's sweep found no Run to stop.
         if let lost = accessLost(c, desktopId: desktopId) { return .failure(lost) }
+        // The Desktop and its window may have changed meanwhile too (codex on
+        // 158d2a6): the Run binds what is there now, the window checked above.
+        if let changed = targetChanged(desktopId, binding) { return .failure(changed) }
         let session = sessions.open(desktopId: desktopId, caller: c.clientId, at: nowString)
         let unit = RunUnit(mode: p["mode"]?.stringValue ?? "auto",
                            goalHash: UnitRun.goalHash(p["goal"]?["description"]?.stringValue ?? ""),
@@ -210,7 +226,9 @@ extension RuntimeService {
         // Likewise a revocation or a narrowed grant: the owner's change is
         // saved before its sweep, so either the sweep found this Run or
         // this check sees the change.
-        let lostNow = !durable && c.isClosed ? "owner_lost" : accessLost(c, desktopId: desktopId).map { $0.details?["reason"]?.stringValue ?? $0.code }
+        let lostNow = !durable && c.isClosed ? "owner_lost"
+            : accessLost(c, desktopId: desktopId).map { $0.details?["reason"]?.stringValue ?? $0.code }
+            ?? targetChanged(desktopId, binding).map { $0.details?["reason"]?.stringValue ?? $0.code }
         if let reason = lostNow {
             execution.stop(runId: runId, reason: reason, endAs: .cancelled)
             execution.releaseExecutor(runId: runId)

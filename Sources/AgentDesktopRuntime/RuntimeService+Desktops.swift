@@ -13,6 +13,7 @@ extension RuntimeService {
 
     func desktopJSON(_ d: DesktopRecord) -> JSONValue {
         d.lock.withLock { d.json(openSessions: sessions.openCount(desktopId: d.desktopId)) }
+            .setting("control", controlJSON(d, for: nil))
     }
 
     /// Run `body` with the Desktop locked; a destroyed Desktop is not found.
@@ -152,6 +153,7 @@ extension RuntimeService {
                 d.generation += 1
                 d.binding = nil
                 desktops.remove(d.desktopId)
+                execution.forgetDesktop(d.desktopId)
                 observations.forget(desktopId: d.desktopId)
                 endWindowGrants(onDesktop: d.desktopId)
                 return .obj([("desktopId", .string(d.desktopId)), ("destroyed", .bool(true)), ("quitApps", .array([]))])
@@ -175,6 +177,7 @@ extension RuntimeService {
             }
             d.state = "destroyed"
             desktops.remove(d.desktopId)
+            execution.forgetDesktop(d.desktopId)
             observations.forget(desktopId: d.desktopId)
             endWindowGrants(onDesktop: d.desktopId)
             return .obj([("desktopId", .string(d.desktopId)), ("destroyed", .bool(true)), ("quitApps", .array(closed))])
@@ -301,7 +304,7 @@ extension RuntimeService {
                 d.generation += 1
                 d.binding = TargetBinding(generation: d.generation, process: process, windowId: window.windowId,
                                           appName: window.appName, boundAt: nowString, windowGrantId: windowGrantId)
-                return d.json(openSessions: sessions.openCount(desktopId: d.desktopId))
+                return d.json(openSessions: sessions.openCount(desktopId: d.desktopId)).setting("control", controlJSON(d, for: c))
             }
             let moved = try platform.moveWindows(to: d.screen, pid: pid, windowId: wanted)
             guard let chosen = wanted ?? moved.first?.windowId,
@@ -312,7 +315,7 @@ extension RuntimeService {
             d.generation += 1
             d.binding = TargetBinding(generation: d.generation, process: process, windowId: window.windowId,
                                       appName: window.appName, boundAt: nowString, windowGrantId: windowGrantId)
-            return d.json(openSessions: sessions.openCount(desktopId: d.desktopId))
+            return d.json(openSessions: sessions.openCount(desktopId: d.desktopId)).setting("control", controlJSON(d, for: c))
         }
     }
 
@@ -322,7 +325,7 @@ extension RuntimeService {
                 d.generation += 1
                 d.binding = nil
             }
-            return d.json(openSessions: sessions.openCount(desktopId: d.desktopId))
+            return d.json(openSessions: sessions.openCount(desktopId: d.desktopId)).setting("control", controlJSON(d, for: c))
         }
     }
 
@@ -351,10 +354,6 @@ extension RuntimeService {
         guard let r = try? ledger.record(caller: c.clientId, requestId: id) else {
             return .failure(.notFound("no request \(id) within the last \(RequestLedger.retentionDays) days"))
         }
-        var m: [(String, JSONValue)] = [("requestId", .string(r.requestId)), ("method", .string(r.method)),
-                                        ("state", .string(r.state.rawValue)), ("acceptedAt", .string(r.acceptedAt))]
-        if let f = r.finishedAt { m.append(("finishedAt", .string(f))) }
-        if let o = r.outcome { m.append(("outcome", o)) }
-        return .success(.obj(m))
+        return .success(r.json)
     }
 }

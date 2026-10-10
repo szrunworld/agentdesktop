@@ -218,8 +218,7 @@
       "code": "unsupported_backend",
       "exitCode": 6,
       "phase": "handler",
-      "reserved": true,
-      "description": "The backend cannot do this action in the background; it is not done in the foreground instead."
+      "description": "The backend cannot do this action in the background without side effects (act kind drag on macOS: background_drag_unsupported; act kind hover on macOS, which would be a middle click: background_hover_activates); it is not done another way instead. notSent: true, details.reason says which."
     },
     {
       "code": "capability_mismatch",

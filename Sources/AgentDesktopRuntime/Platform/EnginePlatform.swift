@@ -150,6 +150,16 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         _ = try check(handle(r))
     }
 
+    public func resizeScreen(name: String, width: Int, height: Int) throws -> ScreenHandle {
+        var r = ControlRequest(command: .screenResize)
+        r.screen = name
+        r.width = width
+        r.height = height
+        let response = try check(handle(r))
+        guard let s = response.screen else { throw PlatformError(.refused, "the engine resized no screen") }
+        return ScreenHandle(name: s.name, displayId: s.displayID, frame: Self.rect(s.frame), hiDPI: s.hiDPI)
+    }
+
     public func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws
         -> (pid: Int32, windows: [PlatformWindow]) {
         var r = ControlRequest(command: .appLaunch)
@@ -356,7 +366,9 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     }
 
     public func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
-        var input = InputAction(InputAction.Kind(rawValue: action.kind.rawValue)!)
+        // press is the engine's accessibilityPress: the element alone, no
+        // event fallback (the engine refuses any other option with it).
+        var input = InputAction(action.kind == .press ? .accessibilityPress : InputAction.Kind(rawValue: action.kind.rawValue)!)
         input.index = action.elementIndex
         input.x = action.point?.x
         input.y = action.point?.y
