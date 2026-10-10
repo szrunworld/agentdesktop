@@ -182,6 +182,15 @@ extension RuntimeService {
         case let .success(r): record = r
         }
         let runId = record.runId
+        // The control connection went away while the executor admitted
+        // (codex on 8bcb18c): its Delegated Run ends at once, never driven.
+        // connectionClosed marks the connection before stopping its Runs, so
+        // either that stop found this Run or this check sees the mark.
+        if !durable, c.isClosed {
+            execution.stop(runId: runId, reason: "owner_lost", endAs: .cancelled)
+            execution.releaseExecutor(runId: runId)
+            return .success((runs.find(runId) ?? record).json)
+        }
         // The executor acts as the Run's principal (the owner's own GUI
         // connection for a Durable Run), inside the Run.
         let acting = durable ? ConnectionState(peerUID: c.peerUID) : ConnectionState(actingFor: c)

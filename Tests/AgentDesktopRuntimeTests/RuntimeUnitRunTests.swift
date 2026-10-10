@@ -22,8 +22,12 @@ final class FakeUnitExecutor: UnitRunExecutor, @unchecked Sendable {
     /// Runs on start, with the context and sink (drive the Run from here).
     var onStart: (@Sendable (UnitRunContext, UnitRunSink) -> Void)?
 
+    /// Runs inside admit (a slow profile read).
+    var duringAdmit: (@Sendable () async -> Void)?
+
     func admit(params: JSONValue, callerScope: String) async -> Result<any UnitRunPlan, RuntimeError> {
         lock.withLock { admitted.append(params) }
+        await duringAdmit?()
         if let refusal { return .failure(refusal) }
         return .success(Plan())
     }
@@ -207,6 +211,22 @@ func eventTypes(_ s: RuntimeService, _ runId: String) -> [String] {
     executor.lastSink?.finished(.cancelled)
     let ended = try #require(s.runs.find(runId))
     #expect(ended.phase == .ended && ended.outcome == .cancelled && ended.closingReason == "owner_lost")
+}
+
+// Codex on 8bcb18c: the control connection goes away while the executor
+// admits. The Run that admission then creates is never driven: it ends at
+// once as owner_lost, and its Desktop is free again.
+@Test func aConnectionLostDuringAdmissionLeavesNoDrivenRun() async throws {
+    let executor = FakeUnitExecutor()
+    let (_, s, c, d, _) = try unitScene(executor: executor)
+    executor.duringAdmit = { s.connectionClosed(c) }
+    let r = await offPool(s, c, "unit.run", params: unitParams(d))
+    let runId = try #require(data(r)?["runId"]?.stringValue)
+    #expect(executor.contexts.isEmpty, "the executor never started it")
+    let ended = try #require(s.runs.find(runId))
+    #expect(ended.phase == .ended && ended.outcome == .cancelled && ended.closingReason == "owner_lost")
+    #expect(s.execution.holder(of: d) == nil)
+    #expect(s.sessions.find(ended.sessionId, caller: c.clientId)?.state == "closed")
 }
 
 @Test func needsInputWaitsWithoutInputUntilStopped() async throws {

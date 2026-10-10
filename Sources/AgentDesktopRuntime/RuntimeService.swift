@@ -81,6 +81,13 @@ public final class ConnectionState: @unchecked Sendable {
     func elevate(_ requestId: String, targetRevision: Int? = nil) { elevatedFor = requestId; approvedTargetRevision = targetRevision }
     func endElevation() { elevatedFor = nil; approvedTargetRevision = nil }
 
+    /// Set when the server reports the connection gone, before its Runs are
+    /// stopped: work that was admitted while it went away checks it again.
+    private let closedLock = NSLock()
+    private var closedFlag = false
+    var isClosed: Bool { closedLock.withLock { closedFlag } }
+    func markClosed() { closedLock.withLock { closedFlag = true } }
+
     func cut(_ reason: String) {
         closerLock.withLock { closer?() }
         sendGate.withLock { if cutBy == nil { cutBy = reason } }
@@ -379,6 +386,8 @@ public final class RuntimeService: @unchecked Sendable {
 
     /// The connection is gone: Runs it owned take no further input.
     public func connectionClosed(_ connection: ConnectionState) {
+        // First, so a unit.run admitted while this runs sees it (A6).
+        connection.markClosed()
         connection.frameSubscription = nil
         openConnections.remove(connection)
         hub.expirePairings(connectionId: connection.connectionId)
