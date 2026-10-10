@@ -86,25 +86,39 @@ private actor CancelClient: ContractClient {
 }
 
 /// Answers reads from a script (`nil` = a failed read; the last answer
-/// repeats). Cancel can be held until the test releases it.
+/// repeats). Starts hand out `startIds` in turn (the last repeats). Cancel,
+/// one read and one start can be held until the test releases them.
 private actor ScriptClient: ContractClient {
     var reads = 0
     var cancels = 0
+    var starts = 0
+    /// The operation each read asked for, in order.
+    var readOps: [String] = []
     var script: [String?]
+    let startIds: [String]
     let cancelAnswer: JSONValue
     let cancelGate: PauseGate?
     /// Holds read number `readGate.0` until the test releases `readGate.1`.
     let readGate: (Int, PauseGate)?
-    init(script: [String?], cancelAnswer: JSONValue, cancelGate: PauseGate? = nil, readGate: (Int, PauseGate)? = nil) {
-        self.script = script; self.cancelAnswer = cancelAnswer; self.cancelGate = cancelGate; self.readGate = readGate
+    /// Holds start number `startGate.0` until the test releases `startGate.1`.
+    let startGate: (Int, PauseGate)?
+    init(script: [String?], startIds: [String] = ["op"], cancelAnswer: JSONValue, cancelGate: PauseGate? = nil,
+         readGate: (Int, PauseGate)? = nil, startGate: (Int, PauseGate)? = nil) {
+        self.script = script; self.startIds = startIds; self.cancelAnswer = cancelAnswer
+        self.cancelGate = cancelGate; self.readGate = readGate; self.startGate = startGate
     }
     func guiCapabilities() async throws -> JSONValue { .obj([]) }
     func send(_ command: String, _ params: JSONValue, idempotencyKey: String?) async throws -> JSONValue {
         switch command {
         case "ai.profiles.get": return .obj([("revision", .int(1))])
-        case "ai.tests.start": return .obj([("operationId", .string("op"))])
+        case "ai.tests.start":
+            starts += 1
+            let id = startIds[min(starts, startIds.count) - 1]
+            if let (n, g) = startGate, n == starts { await g.pause() }
+            return id.isEmpty ? .obj([]) : .obj([("operationId", .string(id))])
         case "ai.operations.get":
             reads += 1
+            readOps.append(params["operationId"]?.stringValue ?? "")
             let next = script.count > 1 ? script.removeFirst() : script[0]
             if let (n, g) = readGate, n == reads { await g.pause() }
             guard let state = next else { throw ContractError(.upstreamUnavailable, "status read failed") }
@@ -121,6 +135,15 @@ private actor ScriptClient: ContractClient {
 private let notTerminal = JSONValue.obj([("terminal", .bool(false)), ("state", .string("cancelling"))])
 
 @MainActor struct CapabilityPollingTests {
+    @Test func startAnswerWithoutAnIdDoesNotLeaveARunningTest() async {
+        let client = ScriptClient(script: ["succeeded"], startIds: [""], cancelAnswer: notTerminal)
+        let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: FastClock())
+        await model.start()
+        #expect(model.phase == .idle)
+        #expect(model.problem?.code == .internalError)
+        #expect(model.canStart)
+        #expect(await client.readOps.isEmpty)
+    }
     @Test func cancelFromUnknownKeepsReadingUntilTheEnd() async {
         let client = ScriptClient(script: [nil, nil, nil, "cancelling", "cancelled"], cancelAnswer: notTerminal)
         let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: FastClock())
@@ -183,20 +206,49 @@ private let notTerminal = JSONValue.obj([("terminal", .bool(false)), ("state", .
         #expect(!model.canCancel)
         #expect(model.canStart)
     }
-    @Test func terminalCancelWaitsForTheOldLoopBeforeStartingAgain() async {
-        let gate = PauseGate()
-        let client = CancelClient(runningReads: 1, cancelFails: false)
-        let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: GateClock(gate: gate))
-        let running = Task { await model.start() }
-        await gate.waitForPause(1)
+    @Test func aNewTestIsWatchedWhileTheOldLoopWindsDown() async {
+        let pauses = PauseGate()
+        let client = ScriptClient(script: ["running", "succeeded"], startIds: ["opA", "opB"],
+                                  cancelAnswer: .obj([("terminal", .bool(true)), ("state", .string("cancelled"))]))
+        let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: GateClock(gate: pauses))
+        let runningA = Task { await model.start() }
+        await pauses.waitForPause(1)
         await model.cancel()
         #expect(model.phase == .finished("cancelled"))
-        #expect(model.isPolling)
-        #expect(!model.canStart)
-        await gate.release()
-        await running.value
-        #expect(!model.isPolling)
+        // A's loop is still asleep; it must neither block B nor write later.
         #expect(model.canStart)
+        await model.start()
+        #expect(model.phase == .finished("succeeded"))
+        #expect(model.operationId == "opB")
+        await pauses.open()
+        await runningA.value
+        #expect(model.phase == .finished("succeeded"))
+        #expect(!model.isPolling)
+        #expect(await client.readOps == ["opA", "opB"])
+    }
+    @Test func cancelAnswerForAnOldTestDoesNotTouchANewOne() async {
+        let cancelGate = PauseGate()
+        let startGate = PauseGate()
+        let client = ScriptClient(script: [nil, nil, nil, "cancelled", "succeeded"], startIds: ["opA", "opB"],
+                                  cancelAnswer: notTerminal, cancelGate: cancelGate, startGate: (2, startGate))
+        let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: FastClock())
+        await model.start()
+        #expect(model.phase == .unknown)
+        let cancelling = Task { await model.cancel() }
+        await cancelGate.waitForPause(1)
+        await model.poll()
+        #expect(model.phase == .finished("cancelled"))
+        let runningB = Task { await model.start() }
+        await startGate.waitForPause(1)
+        await cancelGate.release()
+        await cancelling.value
+        #expect(model.phase == .starting)
+        #expect(!model.isPolling)
+        await startGate.release()
+        await runningB.value
+        #expect(model.phase == .finished("succeeded"))
+        #expect(model.operationId == "opB")
+        #expect(await client.readOps == ["opA", "opA", "opA", "opA", "opB"])
     }
     @Test func cancelErrorSurvivesASuccessfulStatusRead() async {
         let gate = PauseGate()
