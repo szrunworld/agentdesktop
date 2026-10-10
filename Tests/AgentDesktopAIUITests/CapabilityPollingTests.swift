@@ -50,12 +50,16 @@ private struct GateClock: PollClock {
     }
 }
 
-/// Reads stay "running" for `runningReads`, then end; cancel answers as told.
+/// Reads stay "running" for `runningReads` answered reads, then end; the
+/// first read can fail; cancel answers as told.
 private actor CancelClient: ContractClient {
     var reads = 0
     let runningReads: Int
     let cancelFails: Bool
-    init(runningReads: Int, cancelFails: Bool) { self.runningReads = runningReads; self.cancelFails = cancelFails }
+    let failFirstRead: Bool
+    init(runningReads: Int, cancelFails: Bool, failFirstRead: Bool = false) {
+        self.runningReads = runningReads; self.cancelFails = cancelFails; self.failFirstRead = failFirstRead
+    }
     func guiCapabilities() async throws -> JSONValue { .obj([]) }
     func send(_ command: String, _ params: JSONValue, idempotencyKey: String?) async throws -> JSONValue {
         switch command {
@@ -63,7 +67,9 @@ private actor CancelClient: ContractClient {
         case "ai.tests.start": return .obj([("operationId", .string("op"))])
         case "ai.operations.get":
             reads += 1
-            return .obj([("state", .string(reads <= runningReads ? "running" : "cancelled"))])
+            if failFirstRead && reads == 1 { throw ContractError(.upstreamUnavailable, "status read failed") }
+            let answered = failFirstRead ? reads - 1 : reads
+            return .obj([("state", .string(answered <= runningReads ? "running" : "cancelled"))])
         case "ai.operations.cancel":
             if cancelFails { throw ContractError(.upstreamUnavailable, "cancel not delivered") }
             return .obj([("terminal", .bool(true)), ("state", .string("cancelled"))])
@@ -124,6 +130,33 @@ private actor CancelClient: ContractClient {
         await model.poll()
         #expect(model.phase == .finished("cancelled"))
         #expect(await client.reads == 4)
+    }
+    @Test func cancelErrorEqualToTheReadErrorSurvivesASuccessfulRead() async {
+        let gate = PauseGate()
+        let client = CancelClient(runningReads: 1, cancelFails: true, failFirstRead: true)
+        let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: GateClock(gate: gate))
+        let running = Task { await model.start() }
+        await gate.waitForPause(1)
+        let readProblem = model.problem
+        await model.cancel()
+        let cancelProblem = model.problem
+        #expect(cancelProblem != nil)
+        #expect(cancelProblem == readProblem)
+        await gate.release()
+        await gate.waitForPause(2)
+        #expect(model.problem == cancelProblem)
+        await gate.release()
+        await running.value
+        #expect(model.phase == .finished("cancelled"))
+        #expect(model.problem == cancelProblem)
+    }
+    @Test func unknownStatusStillAllowsCancel() async {
+        let client = PollingClient(failures: 3)
+        let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: FastClock())
+        #expect(!model.canCancel)
+        await model.start()
+        #expect(model.phase == .unknown)
+        #expect(model.canCancel)
     }
     @Test func cancelledPollingDoesNotClaimOperationCancelled() async {
         let client = PollingClient(failures: 0, cancellation: true)
