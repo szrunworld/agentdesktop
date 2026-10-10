@@ -290,7 +290,7 @@ public final class RuntimeService: @unchecked Sendable {
                     accessWithdrawn(connection.clientId)
                 }
                 if let refusal = lost ?? cut.map({ Self.cutError(connection, $0) }), case .success = response.result {
-                    return .failure(request.requestId, refusal)
+                    return .failure(request.requestId, spec.mutation ? Self.writeDone(refusal, request.requestId) : refusal)
                 }
             }
             return response
@@ -502,5 +502,18 @@ public final class RuntimeService: @unchecked Sendable {
         case .grantsRevoke: return revokeGrant(p, connection)
         case .connectionsList: return listConnections()
         }
+    }
+}
+
+extension RuntimeService {
+    /// A write the service did (the ledger holds it completed) whose caller
+    /// lost its access meanwhile (#203): the answer is still withheld, but
+    /// the refusal never says not performed (runtime-api-v1-freeze §1.1).
+    static func writeDone(_ refusal: RuntimeError, _ requestId: String) -> RuntimeError {
+        var e = refusal
+        e.notSent = false
+        e.message += "; the write was done before access was withdrawn (requestId \(requestId)), only its answer is withheld"
+        e.details = .obj((refusal.details?.objectMembers ?? []) + [("writeOutcome", .string("completed"))])
+        return e
     }
 }
