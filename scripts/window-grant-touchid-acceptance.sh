@@ -43,6 +43,7 @@ DIR=/tmp/adt-wg-acc
 EP="$DIR/side.runtime.sock"
 KC="$DIR/test.keychain-db"
 B="$APP/Contents/Resources/bin/agentdesktop"
+CONFIRM="$(dirname "$0")/window-grant-confirmation.py"
 pass=0; fail=0
 ok()  { echo "PASS  $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
@@ -197,8 +198,8 @@ echo "== before any grant: the app sees none of TextEdit's windows"
 [ "$(field "$DIR/list0.json" data.windows.0.windowId)" = "" ] && ok "window list is empty" || bad "window list: $(cat "$DIR/list0.json")"
 
 echo "== 2. ask for the probe window (查看 only): check what the window shows, then 批准 and Touch ID"
-"$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe --duration 10m \
-    --format json > "$DIR/grant.json"
+python3 "$CONFIRM" "$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe --duration 10m \
+    > "$DIR/grant.json" || { bad "window grant did not complete: $(cat "$DIR/grant.json")"; exit 1; }
 WG=$(field "$DIR/grant.json" data.windowGrantId)
 [ -n "$WG" ] && ok "window grant $WG" || bad "window grant: $(cat "$DIR/grant.json")"
 [ "$(field "$DIR/grant.json" data.window.windowId)" = "$WIN" ] && ok "it is the probe window" || bad "granted another window"
@@ -213,13 +214,15 @@ echo "== the seals stay: binding the user's window onto the virtual Desktop is s
 grep -q bind_requires_grant "$DIR/bind.json" && ok "bind refused (bind_requires_grant)" || bad "bind: $(cat "$DIR/bind.json")"
 
 echo "== 3. ask again: press 拒绝 in the window"
-"$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe,act --format json > "$DIR/deny.json"
+python3 "$CONFIRM" "$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe,act > "$DIR/deny.json"
 grep -q user_denied "$DIR/deny.json" && ok "refused (user_denied)" || bad "deny: $(cat "$DIR/deny.json")"
+grep -q user_denied "$DIR/deny.json" || exit 1
 "$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe --format json > "$DIR/cool.json"
 grep -q window_grant_cooldown "$DIR/cool.json" && ok "asking again at once is refused without a prompt" || bad "cooldown: $(cat "$DIR/cool.json")"
 
 echo "== 4. the CLI gives up its window grant: confirm in the window, approve with Touch ID or your password"
-"$B" windows revoke "$WG" --format json > "$DIR/revoke.json" || true   # its connection is cut: the reply may not arrive
+python3 "$CONFIRM" "$B" windows revoke "$WG" > "$DIR/revoke.json" \
+    || { bad "revoke did not complete: $(cat "$DIR/revoke.json")"; exit 1; }
 "$B" windows list --all --format json > "$DIR/after.json"
 python3 -c 'import json,sys
 gs=json.load(open(sys.argv[1]))["data"]["windowGrants"]
