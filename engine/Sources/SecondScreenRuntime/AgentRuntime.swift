@@ -157,12 +157,28 @@ public final class AgentRuntime {
             }
             return await screens.screenshot(displayID: screen.displayID, to: output)
         case .windowState, .input:
-            guard let screen = target() else { return missingScreen }
-            guard let pid = request.pid else { return .failure("give the app with --pid PID") }
-            // Input sleeps between events; keep the main actor, which draws
-            // the agent cursor, free while it runs.
-            let input = input
-            return await Task.detached {
+            // One recorder per input request (#173): every return below,
+            // early or late, success or failure, carries what it did.
+            let recorder = DeliveryRecorder()
+            var response = await inputOrState(request, screen: target(), missingScreen: missingScreen, recorder: recorder)
+            if request.command == .input { response.delivery = recorder.state.rawValue }
+            return response
+        default:
+            return await fallback(request)
+        }
+    }
+
+    /// `windowState` and `input`, with the request's delivery recorded in
+    /// `recorder` (the task-local the engine's input paths note into).
+    private func inputOrState(_ request: ControlRequest, screen: ScreenInfo?, missingScreen: ControlResponse,
+                              recorder: DeliveryRecorder) async -> ControlResponse {
+        guard let screen else { return missingScreen }
+        guard let pid = request.pid else { return .failure("give the app with --pid PID") }
+        // Input sleeps between events; keep the main actor, which draws
+        // the agent cursor, free while it runs.
+        let input = input
+        return await Task.detached {
+            DeliveryRecorder.$active.withValue(recorder) {
                 do {
                     let window = try InputEngine.window(pid: pid, windowID: request.windowID, on: screen)
                     var response: ControlResponse
@@ -177,10 +193,8 @@ public final class AgentRuntime {
                 } catch {
                     return .failure(error.localizedDescription)
                 }
-            }.value
-        default:
-            return await fallback(request)
-        }
+            }
+        }.value
     }
 
     /// Keep one agent cursor overlay per agent screen that exists.
