@@ -495,6 +495,7 @@ public struct PasteTransaction {
     public var leaseURL: URL = ClipboardLease.defaultURL
     /// How long to wait for another agent's paste to finish.
     public var leaseTimeout: TimeInterval = 45
+    public var giveUp: () -> Bool = { false }
     public var watcher = PasteWatcher()
     /// Extra looks, after a paste that did not settle, for the phone to be
     /// seen done with the clipboard before the user's contents go back.
@@ -523,7 +524,7 @@ public struct PasteTransaction {
 
     public func paste(_ text: String, verify: Bool, driver: PhonePasteDriver) -> Result {
         do {
-            return try ClipboardLease.with(at: leaseURL, timeout: leaseTimeout) {
+            return try ClipboardLease.with(at: leaseURL, timeout: leaseTimeout, giveUp: giveUp) {
                 if let why = pending.reason() {
                     return Result(outcome: .notDelivered("clipboard_pending: \(why); nothing was pasted"),
                                   clipboardRestored: true)

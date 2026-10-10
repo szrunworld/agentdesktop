@@ -383,7 +383,10 @@ func fast() -> PasteWatcher {
     }
 }
 
-@Suite struct PasteTransactions {
+/// AppKit pasteboard calls share the main actor across test modules.
+/// These synchronous tests must not overlap even with distinct named boards.
+@MainActor
+@Suite(.serialized) struct PasteTransactions {
     func transaction(_ pasteboard: NSPasteboard, _ lock: URL) -> PasteTransaction {
         var transaction = PasteTransaction()
         transaction.pasteboard = pasteboard

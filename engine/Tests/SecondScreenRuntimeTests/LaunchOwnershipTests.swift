@@ -461,7 +461,10 @@ extension Result where Failure == LaunchRefusal {
     sign.arguments = ["--force", "--sign", "-", app.path]
     sign.standardError = FileHandle.nullDevice
     try sign.run()
-    sign.waitUntilExit()
+    defer { if sign.isRunning { sign.terminate() } }
+    let deadline = ContinuousClock().now.advanced(by: .seconds(10))
+    while sign.isRunning && ContinuousClock().now < deadline { Thread.sleep(forTimeInterval: 0.01) }
+    try #require(!sign.isRunning, "codesign exceeded the bounded fixture deadline")
     #expect(sign.terminationStatus == 0)
     #expect(AppIdentity.read(app) == nil, "an ad-hoc copy claiming TextEdit's bundle ID has no identity")
 }
@@ -511,4 +514,61 @@ extension Result where Failure == LaunchRefusal {
     #expect(r.error?.contains("was opened") == false, "not reported as opened: \(r.error ?? "")")
     #expect(sys.opened == 1, "tried once, never retried")
     #expect(sys.focusReturned.isEmpty && sys.moves == 0 && sys.binds.isEmpty && sys.quitPIDs.isEmpty)
+}
+
+@Test(arguments: ["target", "unchanged", "other", "restoreFailed"])
+func failedOpenRestoresOnlyTheTargetForeground(scenario: String) async throws {
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    var l = sys.launching
+    l.frontmost = { sys.lock.withLock {
+        sys.opened == 0 || scenario == "unchanged" ? 77 : scenario == "other" ? 88 : 500
+    } }
+    l.open = { _, _ in
+        sys.lock.withLock {
+            sys.opened += 1
+            sys.running[500] = sys.bundles[app.path]?.id
+        }
+        return .failure(CocoaError(.executableLoad))
+    }
+    l.restoreFocusOnce = { previous, expected in
+        sys.lock.withLock { sys.focusReturned.append((previous, expected)) }
+        return scenario != "restoreFailed"
+    }
+    let result = await LaunchOwnership.openOwnedProcess(app, newInstance: true, using: l)
+    guard case let .failure(refusal) = result else { Issue.record("expected launch failure"); return }
+    #expect(refusal.reason == "launch_failed")
+    #expect(sys.opened == 1)
+    #expect(sys.moves == 0 && sys.binds.isEmpty && sys.quitPIDs.isEmpty)
+    if scenario == "target" || scenario == "restoreFailed" {
+        #expect(sys.focusReturned.count == 1)
+        #expect(sys.focusReturned.first?.0 == 77 && sys.focusReturned.first?.1 == 500)
+        #expect(refusal.message.contains(scenario == "target" ? "was restored" : "not confirmed"))
+    } else {
+        #expect(sys.focusReturned.isEmpty)
+    }
+}
+
+@Test func stalledWindowLookupReturnsWithoutWaitingForTheWorker() async {
+    let release = DispatchSemaphore(value: 0)
+    defer { release.signal() }
+    let result = await LaunchOwnership.boundedWindowLookup(pid: 500, timeout: 0.03) { _ in
+        _ = release.wait(timeout: .now() + 5)
+        return []
+    }
+    #expect(result == nil)
+}
+
+@Test func completedWindowLookupPreservesItsResult() async {
+    let result = await LaunchOwnership.boundedWindowLookup(pid: 500, timeout: 2) { _ in [] }
+    #expect(result?.isEmpty == true)
+}
+
+@Test func noWindowPollingHonorsZeroBudgetWithoutQuerying() async {
+    let window = await LaunchOwnership.firstWindow(pid: 500, timeout: 0) { _ in
+        Issue.record("a zero-budget poll must not query the system")
+        return []
+    }
+    #expect(window == nil)
 }

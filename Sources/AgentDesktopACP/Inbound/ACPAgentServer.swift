@@ -6,6 +6,8 @@ public struct ACPAgentServerConfig: Sendable {
     /// How long a prompt turn stays open on a running task before it ends
     /// with "updates continue out of turn" (plan §5.4). Default 600 s.
     public var holdTime: Duration = .seconds(600)
+    /// Monotonic time for the turn hold budget; injectable for deterministic tests.
+    public var monotonicNow: @Sendable () -> ContinuousClock.Instant = { ContinuousClock().now }
     /// How often the turn asks the Runtime for the Run's snapshot.
     public var pollInterval: Duration = .seconds(1)
     /// How long the end of a turn waits for the event stream to deliver its

@@ -228,8 +228,7 @@ extension ACPAgentServer {
     /// at a stop the Runtime confirmed, when a decision cannot be made in
     /// the editor, or after the hold time.
     func monitor(_ sid: String, _ runId: String, _ turn: ACPPromptTurn) async -> ACPStopReason {
-        let clock = ContinuousClock()
-        let start = clock.now
+        let start = config.monotonicNow()
         var unreadableSaid = false
         while true {
             if Task.isCancelled || closed { return .cancelled }
@@ -252,7 +251,7 @@ extension ACPAgentServer {
                 unreadableSaid = true
                 await say(sid, "任务 \(runId) 的状态暂时无法读取，继续等待。")
             }
-            if clock.now - start >= config.holdTime {
+            if config.monotonicNow() - start >= config.holdTime {
                 await say(sid, "本轮已等待较长时间，先结束这一轮；任务 \(runId) 的后续更新会继续在本会话中显示（不在本轮内），也可以用 /status 查看。")
                 return .endTurn
             }

@@ -68,6 +68,22 @@
       "status": "implemented"
     },
     {
+      "method": "desktop.bindingStatus",
+      "stage": "P0",
+      "mutation": false,
+      "params": "desktop_show_params",
+      "result": "BindingStatus",
+      "status": "implemented"
+    },
+    {
+      "method": "desktop.recoverBinding",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_windows_request_params",
+      "result": "RecoveredBinding",
+      "status": "implemented"
+    },
+    {
       "method": "app.list",
       "stage": "P0",
       "mutation": false,
@@ -153,6 +169,30 @@
       "mutation": false,
       "params": "observe_params",
       "result": "Observation",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.region",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_region_v1_params",
+      "result": "Observation",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.subscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_subscribe_v1_params",
+      "result": "ObservationSubscription",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.unsubscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "ObservationSubscriptionEnd",
       "status": "implemented"
     },
     {

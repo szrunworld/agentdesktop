@@ -1827,3 +1827,17 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         #expect(fake.inputs.isEmpty)
     }
 }
+
+@Test func reconnectGateRefusesASymbolicLink() throws {
+    let flag = FakeMirroring().reconnectGate
+    let gate = HostFlagLock(for: flag, wait: 0)
+    let target = gate.url.appendingPathExtension("target")
+    try FileManager.default.createDirectory(at: gate.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: gate.url); try? FileManager.default.removeItem(at: target) }
+    try Data("keep".utf8).write(to: target)
+    try FileManager.default.createSymbolicLink(at: gate.url, withDestinationURL: target)
+    var ran = false
+    #expect(throws: (any Error).self) { try gate.locked { ran = true } }
+    #expect(!ran)
+    #expect(try Data(contentsOf: target) == Data("keep".utf8))
+}
