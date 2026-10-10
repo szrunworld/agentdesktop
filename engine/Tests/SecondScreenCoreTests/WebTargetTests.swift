@@ -51,3 +51,27 @@ func webTargetChangesRefuseBeforeInput(scenario: String) {
     // Never the filtered tree.
     #expect(changed.old != observed.tree)
 }
+
+/// #249 (69 on 4865552): the whole tree a filtered walk records is exactly
+/// what an unfiltered walk shows, node by node; a filter only narrows what
+/// is shown, never what the whole tree holds.
+@Test(arguments: [
+    ("AXButton", "Delete", nil, false, true),
+    ("AXStaticText", nil, "Invoice 17", false, true),
+    ("AXGroup", nil, nil, false, false),
+    ("AXGroup", "Toolbar", nil, false, true),
+    ("AXButton", "Hidden", nil, true, true),
+    ("AXImage", nil, nil, false, false),
+] as [(String, String?, String?, Bool, Bool)])
+func aFilteredWalkKeepsTheUnfilteredTree(row: (String, String?, String?, Bool, Bool)) {
+    let (role, label, value, hidden, interesting) = row
+    let unfiltered = AXSnapshot.Walker.keep(role: role, label: label, value: value, hidden: hidden,
+                                            interesting: interesting, query: nil)
+    #expect(unfiltered.inFullTree == unfiltered.shown)
+    for query in ["delete", "invoice", "zzz", "axgroup"] {
+        let filtered = AXSnapshot.Walker.keep(role: role, label: label, value: value, hidden: hidden,
+                                              interesting: interesting, query: query)
+        #expect(filtered.inFullTree == unfiltered.shown, "\(role) under \(query)")
+        #expect(!filtered.shown || filtered.inFullTree)
+    }
+}

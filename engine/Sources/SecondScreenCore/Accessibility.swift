@@ -204,7 +204,7 @@ public final class AXSnapshot {
         return Int(trimmed[trimmed.index(after: trimmed.startIndex)..<close])
     }
 
-    private struct Walker {
+    struct Walker {
         let query: String?
         var deadline: Date? = nil
         var truncated: String?
@@ -254,9 +254,7 @@ public final class AXSnapshot {
 
             let interesting = Self.actionable.contains(role) || (role == "AXStaticText" && value != nil)
                 || label != nil || actions.contains("AXPress")
-            let shown = !hidden && (query.map { query in
-                [label, value, role].contains { $0?.lowercased().contains(query) ?? false }
-            } ?? true)
+            let keep = Self.keep(role: role, label: label, value: value, hidden: hidden, interesting: interesting, query: query)
 
             var index = -1
             if interesting, !hidden {
@@ -265,7 +263,7 @@ public final class AXSnapshot {
                 handles[index] = element
                 if inWeb { web.insert(index) }
             }
-            if !hidden, interesting || role != "AXGroup" {
+            if keep.inFullTree {
                 var info = AXElementInfo(index: index, role: subrole.map { "\(role)/\($0)" } ?? role)
                 info.label = label
                 info.value = value
@@ -273,7 +271,7 @@ public final class AXSnapshot {
                 info.frame = frame.map(Frame.init)
                 let line = Self.line(info, depth: depth)
                 fullLines.append(line)
-                if shown {
+                if keep.shown {
                     elements.append(info)
                     lines.append(line)
                 }
@@ -281,6 +279,17 @@ public final class AXSnapshot {
 
             let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
             for child in children { visit(child, depth: depth + 1, inWeb: inWeb || role == "AXWebArea") }
+        }
+
+        /// Whether a node is a line of the whole tree, and of the tree `state`
+        /// shows under `query`. A shown line is always one of the whole tree;
+        /// with no query they are the same (#249: the whole tree is what a
+        /// web target is checked against).
+        static func keep(role: String, label: String?, value: String?, hidden: Bool, interesting: Bool,
+                         query: String?) -> (inFullTree: Bool, shown: Bool) {
+            let inFullTree = !hidden && (interesting || role != "AXGroup")
+            let matches = query.map { query in [label, value, role].contains { $0?.lowercased().contains(query) ?? false } } ?? true
+            return (inFullTree, inFullTree && matches)
         }
 
         static func line(_ info: AXElementInfo, depth: Int) -> String {
