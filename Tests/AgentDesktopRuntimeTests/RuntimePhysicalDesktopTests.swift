@@ -421,6 +421,8 @@ final class LockedStrings: @unchecked Sendable {
     #expect(!covers(Rect(x: 0, y: 38, width: 1, height: 1), "Typeless"), "a 1×1 anchor")
     #expect(covers(Rect(x: 300, y: 200, width: 3, height: 400)), "a thin but long panel counts (Codex on 4952c9e)")
     #expect(covers(Rect(x: 300, y: 200, width: 400, height: 3)), "and lying down")
+    #expect(covers(Rect(x: 300, y: 200, width: 3, height: 3)), "3×3: input routing can pick it (Codex on 8c1ebc1)")
+    #expect(!covers(Rect(x: 300, y: 200, width: 2, height: 400)), "2 points wide: input routing never picks it")
 }
 
 @Test func noPathCapturesTheUsersScreenOnAPhysicalDesktop() throws {

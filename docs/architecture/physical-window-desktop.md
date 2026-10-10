@@ -77,7 +77,7 @@ AgentDesktop Runtime（唯一）
 | --- | --- | --- |
 | `displayId` 超出 UInt32 时 `UInt32.init` 使宿主崩溃（`window.bind` 的 `windowId`/`pid` 同类老问题） | 高 | 全部改为 `exactly:` 转换，越界返回 `invalid_argument`；schema 加 `maximum`；新增反例夹具与测试；CLI 用 `UInt32(s)` 解析 |
 | 物理 Desktop 观察先截整屏落盘再裁剪 | 高 | 物理 Desktop 改用引擎的单窗口截图（ScreenCaptureKit 独立窗口过滤，忽略阴影，截图前后核对窗口未动），整屏图从不产生；真机验证产物目录无 `.screen.png`（run10） |
-| 遮挡检查只看普通层，通知、菜单等高层窗口会被截进图 | 中 | 单窗口截图后高层窗口进不了图像；另外物理 Desktop 的 G0 检查加入高层覆盖物（只排除 Dock 的全屏透明层、菜单栏条与小于 4×4 的锚点窗口；未知的全屏高层窗口与绑定进程自己的浮层也算遮挡（fail closed），通知横幅等 → `occluded` |
+| 遮挡检查只看普通层，通知、菜单等高层窗口会被截进图 | 中 | 单窗口截图后高层窗口进不了图像；另外物理 Desktop 的 G0 检查加入高层覆盖物（只排除 Dock 的全屏层、菜单栏条与任一边不超过 2 点的窗口（输入路由 `BackgroundInput.topWindow` 不会选中它们；透明窗口照样计入）；未知的全屏高层窗口与绑定进程自己的浮层也算遮挡（fail closed），通知横幅等 → `occluded` |
 | 显示器几何只在创建时记录，改分辨率后映射错误 | 中 | 物理 Desktop 每次观察和输入前重新取显示器几何，变化或拔出 → `stale_observation / display_changed` |
 | 来源判定只比厂商号 | 中低 | 改为一对一匹配帧缓冲（见 4.2） |
 | `kind` 与 `methods.json` `plannedFields` 中预留的 `targetKind` 含义相近 | 低 | 两者含义不同（`kind` 是 Desktop 的显示面来源，`targetKind` 是绑定目标是窗口还是设备），**请 Runtime 负责人确认命名**并决定是否在 `plannedFields` 登记 |
