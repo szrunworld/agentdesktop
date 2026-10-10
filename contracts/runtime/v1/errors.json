@@ -147,7 +147,7 @@
       "code": "limit_exceeded",
       "exitCode": 5,
       "phase": "handler",
-      "reserved": true,
+      "reserved": false,
       "description": "A configured limit (steps, time, budget, quota) refused or ended the work."
     },
     {
@@ -173,28 +173,24 @@
       "code": "pairing_required",
       "exitCode": 4,
       "phase": "handler",
-      "reserved": true,
       "description": "The client is not paired; pair it in AgentDesktop before calling this method."
     },
     {
       "code": "client_revoked",
       "exitCode": 4,
       "phase": "handler",
-      "reserved": true,
       "description": "The client was removed; its credential no longer works."
     },
     {
       "code": "grant_missing",
       "exitCode": 4,
       "phase": "handler",
-      "reserved": true,
       "description": "The capability, Desktop or app is not in the client's grant."
     },
     {
       "code": "grant_expired",
       "exitCode": 4,
       "phase": "handler",
-      "reserved": true,
       "description": "The grant that covered this has expired."
     },
     {

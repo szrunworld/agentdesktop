@@ -52,7 +52,7 @@ final class SQLiteRunHarness: @unchecked Sendable {
         if let path {
             self.path = path
         } else {
-            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("adruns-gui-\(UUID().uuidString)")
+            let dir = ScratchDirectory.url("adruns-gui")
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             self.path = dir.appendingPathComponent("config.sqlite").path
         }
@@ -161,7 +161,7 @@ struct RunsSQLiteTests {
             let r = InMemoryGuiRunRepository(maxEventsPerRun: 5)
             return (r, { await r.prune(runId: $0, keepFrom: $1) })
         case .sqlite:
-            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("adruns-contract-\(UUID().uuidString)")
+            let dir = ScratchDirectory.url("adruns-contract")
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let r = SQLiteGuiRunRepository(store: try SQLiteRunHarness.openStore(dir.appendingPathComponent("c.sqlite").path),
                                            maxEventsPerRun: 5)

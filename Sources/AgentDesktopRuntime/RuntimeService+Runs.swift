@@ -5,7 +5,6 @@ extension RuntimeService {
     /// Until AgentHub pairing exists every local connection of the user is
     /// the owner: it sees and controls all Runs. A paired client will see
     /// only its own (clientId match).
-    func isOwner(_ c: ConnectionState) -> Bool { c.clientId.hasPrefix("local:") }
 
     func ownRun(_ p: JSONValue, _ c: ConnectionState) -> Result<RunRecord, RuntimeError> {
         let id = p["runId"]?.stringValue ?? ""
@@ -117,9 +116,41 @@ extension RuntimeService {
 
     /// Global stop (owner only): close input admission and stop every Run,
     /// Delegated and Durable, returning each one's stop state.
+    /// Every active Run of a client, all pages (round-four review L3).
+    func activeRuns(of clientId: String) -> [RunRecord] {
+        var f = RunStore.ListFilter()
+        f.clientId = clientId
+        f.activeOnly = true
+        var out: [RunRecord] = []
+        var cursor: String?
+        repeat {
+            let page = runs.list(f, after: cursor, limit: 500)
+            out += page.runs
+            cursor = page.next
+        } while cursor != nil
+        return out
+    }
+
     func stopAll(_ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
-        guard isOwner(c) else { return .failure(RuntimeError("permission_denied", "only the owner stops all input", phase: .handler)) }
-        let (admission, stopped) = execution.stopAll()
+        guard isOwner(c) || c.role == .paired else {
+            return .failure(RuntimeError("permission_denied", "only the owner stops all input", phase: .handler))
+        }
+        let admission: ExecutionCoordinator.Admission
+        let stopped: [RunRecord]
+        if c.role == .paired {
+            // A paired app stops its own Runs; input admission stays as it is
+            // (#153's plan: only the owner stops everything).
+            stopped = activeRuns(of: c.clientId).compactMap { r in
+                switch execution.stop(runId: r.runId, reason: "client_stop", endAs: .cancelled) {
+                case let .accepted(x): return runs.find(r.runId) ?? x
+                case let .alreadyTerminal(x): return x
+                case .notFound: return nil
+                }
+            }
+            admission = execution.inputAdmission
+        } else {
+            (admission, stopped) = execution.stopAll()
+        }
         let pending = stopped.filter { !$0.isEnded }.map(\.runId)
         return .success(.obj([
             ("admission", .string(admission.rawValue)),

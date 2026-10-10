@@ -9,6 +9,16 @@ import UniformTypeIdentifiers
 @testable import AgentDesktopRuntime
 
 final class MCPPlatform: DesktopPlatform, @unchecked Sendable {
+    // G2 probes: an ordinary button of window 3, a QWERTY layout, an
+    // empty menu bar.
+    func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
+        PlatformHit(role: "AXButton", texts: [], windowId: 3)
+    }
+    func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
+    func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: 3) }
+    func menuOpen(pid: Int32) -> Bool? { false }
+    func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
+
     let lock = NSLock()
     var placed = false
     var performed: [PlatformAction] = []
@@ -36,7 +46,13 @@ final class MCPPlatform: DesktopPlatform, @unchecked Sendable {
         CGImageDestinationFinalize(dest)
         return (2560, 1600)
     }
-    func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
+    /// Test double: the window alone, as the window's crop of this double's screen.
+    func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
+        return try windowImage(screen, frame: w.frame, to: path)
+    }
+
+    func windowImage(_ screen: ScreenHandle, frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
         try screenshot(screen, to: path)
     }
     func stack(on screen: ScreenHandle) -> [PlatformWindow] { lock.withLock { placed ? [window] : [] } }
@@ -54,15 +70,28 @@ struct MCPBackend: RuntimeBackend {
     var platform: AgentDesktopProtocol.Platform { .init(os: "macos", osVersion: "15", arch: "arm64") }
     func permissions() -> BackendPermissions { .init(screenRecording: .granted, accessibility: .granted) }
     func features() -> [String] { [] }
-    func applications(includeBackground: Bool) -> [AppSummary] { [] }
-    func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [AgentDesktopProtocol.WindowSummary] { [] }
+    func applications(includeBackground: Bool) -> [AppSummary] {
+        [AppSummary(process: ProcessIdentity(pid: 4, startedAt: "2026-10-08T01:00:00.000Z"), bundleId: "com.apple.Notes",
+                    name: "Notes", active: false, hidden: false)]
+    }
+    /// The bound window is in its app's list, as on a real machine (#163
+    /// refuses input when it is not: the list could not be read).
+    func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [AgentDesktopProtocol.WindowSummary] {
+        guard pid == nil || pid == 4 else { return [] }
+        return [WindowSummary(windowId: 3, process: ProcessIdentity(pid: 4, startedAt: nil), appName: "备忘录",
+                              bundleId: "com.apple.Notes", title: "购物清单",
+                              frame: Rect(x: 3010, y: 10, width: 500, height: 400), onScreen: true)]
+    }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: "2026-10-08T01:00:00.000Z") }
+    /// An executable in no app bundle: known not to be iPhone Mirroring (#139).
+    func executablePath(_ pid: Int32) -> String? { "/test/bin/process" }
 }
 
 /// A live Runtime on a temporary socket and an MCP server talking to it.
 final class MCPHarness {
     let dir: String
     let server: RuntimeServer
+    let service: RuntimeService
     let platform = MCPPlatform()
     let mcp: MCPServer
     var nextId = 0
@@ -71,12 +100,22 @@ final class MCPHarness {
         var template = Array("/tmp/adt-XXXXXX".utf8CString)
         dir = String(cString: mkdtemp(&template)!)
         let path = dir + "/runtime.sock"
-        let service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_mcp", pid: getpid(), startedAt: Timestamp.string(Date()),
+        service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_mcp", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                                endpoint: path, buildSource: "unknown"),
                                      backend: MCPBackend(), platform: platform)
+        service.bindsOnlyLaunchedProcesses = false
+        service.refusesScreenCaptureWithoutBinding = false
         server = RuntimeServer(path: path, service: service)
         try server.start()
-        mcp = MCPServer(makeClient: { SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1")) })
+        // An MCP host is an external agent: a paired app, never the owner (A4).
+        let pairing = try service.hub.startPairing(connectionId: "conn_test", agentName: "mcp-test", publisher: nil,
+                                                   requested: .obj([]), callerFacts: .obj([]))
+        let (client, _) = try service.hub.approve(pairing, grant: HubStore.Grant(
+            clientId: "", capabilities: ["observe", "act", "desktop.manage", "run"], desktops: ["created"],
+            apps: ["com.apple.Notes"], expiresAt: Timestamp.string(Date().addingTimeInterval(3600)), revision: 0, state: "active"))
+        let credential = ClientCredential(clientId: client.clientId, token: service.hub.collect(pairing.pairingId) ?? "")
+        mcp = MCPServer(makeClient: { SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1"),
+                                                          credential: credential) })
     }
 
     deinit {

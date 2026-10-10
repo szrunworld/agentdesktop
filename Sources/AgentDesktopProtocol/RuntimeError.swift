@@ -23,7 +23,11 @@ public struct RuntimeError: Error, Equatable, Sendable, CustomStringConvertible 
     public var message: String
     public var phase: ErrorPhase
     public var retryable: Bool
-    /// True only when it is certain the request never reached the Runtime.
+    /// not_performed (#170, Kevin 2026-10-09): true only when it can be
+    /// proved that this request sent no input and made no write with an
+    /// outside effect, whether or not it reached the Runtime. Never for a
+    /// partial send, a timeout, a lost connection, a missing receipt or an
+    /// unknown outcome. Not a licence to retry: a retry is judged again.
     public var notSent: Bool?
     public var details: JSONValue?
 

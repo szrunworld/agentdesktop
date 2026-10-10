@@ -1,5 +1,5 @@
 import AgentDesktopProtocol
-import AgentDesktopRuntime
+@testable import AgentDesktopRuntime
 import AgentDesktopUI
 import AppKit
 import Foundation
@@ -13,6 +13,8 @@ struct EmptyBackend: RuntimeBackend {
     func applications(includeBackground: Bool) -> [AppSummary] { [] }
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary] { [] }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: nil) }
+    /// An executable in no app bundle: known not to be iPhone Mirroring (#139).
+    func executablePath(_ pid: Int32) -> String? { "/test/bin/process" }
 }
 
 struct FastClock: PollClock {
@@ -43,9 +45,9 @@ struct MainWindowHostTests {
     // The in-process port answers runtime/1 through the Runtime itself, as
     // the owner, on a connection of its own.
     @Test func inProcessPortSpeaksRuntime1() async throws {
-        let service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_ui", pid: getpid(), startedAt: Timestamp.string(Date()),
+        let service = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_ui", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                                endpoint: "/tmp/none.sock", buildSource: "unknown"),
-                                     backend: EmptyBackend())
+                                     backend: EmptyBackend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
         let port = InProcessRuntimePort(service: service)
         #expect(!port.isSample)
         do {

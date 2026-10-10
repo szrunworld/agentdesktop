@@ -60,8 +60,30 @@ extension RuntimeService {
             return .failure(e)
         }
         let action = request.params["action"] ?? .obj([])
+        // G2: a key may need the target app's menu bar, read here, before
+        // the Desktop's lock, so a slow app never holds the lock up.
+        var menu: (pid: Int32, items: [PlatformMenuItem]?)?
+        if let kind = PlatformAction.Kind(rawValue: action["kind"]?.stringValue ?? "") {
+            var probe = PlatformAction(kind: kind)
+            probe.key = action["key"]?.stringValue
+            probe.modifiers = action["modifiers"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            if ClipboardPolicy.needsMenu(probe), let pid = desktops.find(desk.desktopId)?.boundPID {
+                // #139: iPhone Mirroring's menu bar is not read either; the
+                // check is made again under the lock before anything is sent.
+                do {
+                    try refuseMirroring(pid)
+                } catch let e as RuntimeError {
+                    runs.appendEvent(runId, "action.refused", .obj([("requestId", .string(request.requestId)),
+                                                                   ("reason", .obj([("code", .string(e.code)), ("message", .string(e.message))]))]))
+                    return .failure(e)
+                } catch {
+                    return .failure(RuntimeError("internal_error", "\(error)", phase: .handler))
+                }
+                menu = (pid, platform.menuItems(pid: pid))
+            }
+        }
 
-        let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date)) { d -> JSONValue in
+        let result = withDesktop(.string(desk.desktopId), until: request.deadline.flatMap(Timestamp.date), as: c, method: "act") { d -> JSONValue in
             guard let b = d.binding else {
                 throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler, notSent: true)
             }
@@ -83,15 +105,39 @@ extension RuntimeService {
                 }
                 var pa = try platformAction(action, snap: snap, window: window)
                 if pa.modifiers.isEmpty { pa.modifiers = [] }
+                // G2, the last check before sending: nothing goes through the
+                // user's clipboard, whoever asks (ClipboardPolicy).
+                let pressed = action["target"]?["elementRef"]?.stringValue.flatMap { snap.elements[$0] }
+                if let path = ClipboardPolicy.refusal(pa, snapshotElement: pressed, pid: b.process.pid, windowId: b.windowId,
+                                                      menu: menu, platform: platform) {
+                    throw RuntimeError("permission_denied",
+                                       "this input would or might use the system clipboard (\(path)); agents may not use the clipboard",
+                                       phase: .handler, notSent: true,
+                                       details: .obj([("reason", .string("clipboard_path_refused")), ("path", .string(path))]))
+                }
+                // #120 audit (Kevin 2026-10-09): keys and typing go to the
+                // app's focused window, not to a window id. A floating panel of
+                // the same process (not a normal-level window, so not in the
+                // checks above) may hold focus, and input would reach a window
+                // that was neither bound nor shown. Sent only when the focused
+                // window is known to be the bound one; refused when it is
+                // elsewhere or cannot be told (fail closed). With a menu open
+                // nothing is sent (Kevin 2026-10-09: whose menu it is cannot be
+                // proved); the agent closes it by clicking the bound window.
+                if pa.kind == .key || pa.kind == .type {
+                    try focusRefusal(pa, pid: b.process.pid, windowId: b.windowId, platform: platform)
+                }
                 if let deadline = request.deadline.flatMap(Timestamp.date), now() >= deadline {
                     throw RuntimeError("deadline_exceeded", "the deadline \(request.deadline!) passed before dispatch; nothing was sent",
                                        phase: .handler, notSent: true)
                 }
+                // A4: the grant as it is now, at the last moment before input.
+                if let revoked = recheckAct(c, desktopId: d.desktopId) { throw revoked }
                 if let stopped = execution.beginAction(runId: runId) { throw stopped }
 
                 // Delivery boundary: from here an interruption is unknown.
                 do {
-                    try ledger.markDispatching(caller: c.peerUID, requestId: request.requestId)
+                    try ledger.markDispatching(caller: c.clientId, requestId: request.requestId)
                     runs.appendEvent(runId, "action.dispatched", .obj([("requestId", .string(request.requestId))]))
                     try runs.checkWritable()
                 } catch {
@@ -116,6 +162,33 @@ extension RuntimeService {
                         if !Self.sameFrame(after.window.frame, window.frame) {
                             throw RuntimeError("stale_observation", "window \(b.windowId) moved while input was sent",
                                                phase: .handler, details: .obj([("reason", .string("moved"))]))
+                        }
+                        // The focus check before the send and the send are not
+                        // one step: focus that is known to have left the bound
+                        // window right after makes the delivery unknown (the
+                        // input may have gone with it). Residual: a change and
+                        // a change back between two reads is not seen.
+                        if pa.kind == .key || pa.kind == .type {
+                            // No menu was open before the send (checked above),
+                            // so a menu now, or a state that cannot be read, is
+                            // this input's doing, and focus may have gone with
+                            // it (Codex on b258049). Only with no menu is the
+                            // focus read again.
+                            guard platform.menuOpen(pid: b.process.pid) == false else {
+                                throw RuntimeError("stale_observation", "a menu opened while input was sent",
+                                                   phase: .handler, details: .obj([("reason", .string("menu_opened_by_action"))]))
+                            }
+                            // Dispatched only when focus is known to be still in
+                            // the bound window; unreadable is unknown (Codex on
+                            // 9ed802d).
+                            guard let now = platform.focusedControl(pid: b.process.pid)?.windowId else {
+                                throw RuntimeError("stale_observation", "keyboard focus could not be read after input was sent",
+                                                   phase: .handler, details: .obj([("reason", .string("focus_unverified_after_send"))]))
+                            }
+                            if now != b.windowId {
+                                throw RuntimeError("stale_observation", "keyboard focus moved to window \(now) while input was sent",
+                                                   phase: .handler, details: .obj([("reason", .string("focus_moved"))]))
+                            }
                         }
                     } catch let changed as RuntimeError {
                         delivery = "unknown"; execution = "unknown"
@@ -185,13 +258,70 @@ extension RuntimeService {
         return result
     }
 
+    /// Why a key or typing must not be sent to the bound window now (#120
+    /// audit), or nothing. Every refusal is notSent and names its reason.
+    func focusRefusal(_ pa: PlatformAction, pid: Int32, windowId: UInt32, platform: DesktopPlatform) throws {
+        func refuse(_ reason: String, _ message: String, _ extra: [(String, JSONValue)] = []) -> RuntimeError {
+            RuntimeError("stale_observation", message + "; nothing was sent", phase: .handler, notSent: true,
+                         details: .obj([("reason", .string(reason))] + extra))
+        }
+        // Kevin 2026-10-09: menu authorization is the bound window's, not the
+        // process's, and being placed over the bound window does not prove a
+        // menu is its. Which window opened a menu cannot be proved, so while
+        // the app shows any menu no key and no typing is sent, not even the
+        // arrows or Escape. Clicks are judged by what is under the point (G2).
+        switch platform.menuOpen(pid: pid) {
+        case nil:
+            throw refuse("menu_unverified", "whether the app shows a menu cannot be read")
+        case true?:
+            throw refuse("menu_open", "the app shows a menu, and whose it is cannot be proved; close it by clicking the bound window")
+        case false?:
+            break
+        }
+        guard let focus = platform.focusedControl(pid: pid) ?? platform.focusedControl(pid: pid) else {
+            throw refuse("focus_unverified", "the app's keyboard focus cannot be read")
+        }
+        guard let focusWindow = focus.windowId else {
+            throw refuse("focus_unverified", "the window holding the app's keyboard focus cannot be told")
+        }
+        guard focusWindow == windowId else {
+            throw refuse("focus_outside_bound_window", "keyboard focus is in window \(focusWindow) of the app, not the bound window \(windowId)",
+                         [("focusWindowId", .int(Int(focusWindow)))])
+        }
+        // Codex on 74278c9 (P1): typed text is sent one character at a time,
+        // and focus is checked once before. A space typed into a focused
+        // button presses it, a newline presses a default button; either may
+        // open a menu or move focus, and the rest of the text would follow it
+        // elsewhere. So typing goes only into editable text that has focus in
+        // the bound window, and a newline only at the very end (nothing left
+        // to send after what it may set off).
+        if pa.kind == .type {
+            let role = String(focus.role.split(separator: "/").first ?? "")
+            guard focus.editable || ClipboardPolicy.textRoles.contains(role) else {
+                throw refuse("type_focus_not_text", "keyboard focus is not on editable text in the bound window; typing there could press a control")
+            }
+            // At most one newline, and only as the last thing sent ("\n",
+            // "\r" or "\r\n"): a second one would go wherever the first sent
+            // focus (b9 on 4ec619b: "abc\n\n").
+            var scalars = Array((pa.text ?? "").unicodeScalars)
+            if scalars.suffix(2) == ["\r", "\n"] { scalars.removeLast(2) }
+            else if let last = scalars.last, last == "\n" || last == "\r" { scalars.removeLast() }
+            guard !scalars.contains(where: { $0 == "\n" || $0 == "\r" }) else {
+                throw refuse("type_newline_not_last", "a newline may only end the text: what it sets off could take the rest elsewhere; send the lines as separate actions")
+            }
+        }
+    }
+
     static func sameFrame(_ a: AgentDesktopProtocol.Rect, _ b: AgentDesktopProtocol.Rect) -> Bool {
         abs(a.x - b.x) < 0.5 && abs(a.y - b.y) < 0.5 && abs(a.width - b.width) < 0.5 && abs(a.height - b.height) < 0.5
     }
 
     /// Resolve the request's target against its snapshot.
     func platformAction(_ a: JSONValue, snap: StoredObservation, window: PlatformWindow) throws -> PlatformAction {
-        var pa = PlatformAction(kind: PlatformAction.Kind(rawValue: a["kind"]?.stringValue ?? "") ?? .click)
+        guard let kind = PlatformAction.Kind(rawValue: a["kind"]?.stringValue ?? "") else {
+            throw RuntimeError("invalid_argument", "unknown action kind \(a["kind"]?.stringValue ?? "none")", phase: .handler, notSent: true)
+        }
+        var pa = PlatformAction(kind: kind)
         pa.text = a["text"]?.stringValue
         pa.key = a["key"]?.stringValue
         pa.modifiers = a["modifiers"]?.arrayValue?.compactMap(\.stringValue) ?? []
@@ -216,7 +346,7 @@ extension RuntimeService {
                                    phase: .handler, notSent: true)
             }
             let px = ip["x"]?.doubleValue ?? -1, py = ip["y"]?.doubleValue ?? -1
-            guard px < Double(size.width), py < Double(size.height) else {
+            guard px >= 0, py >= 0, px < Double(size.width), py < Double(size.height) else {
                 throw RuntimeError("invalid_target", "(\(px), \(py)) is outside the \(size.width)x\(size.height) image",
                                    phase: .handler, notSent: true)
             }
@@ -224,6 +354,13 @@ extension RuntimeService {
             let f = window.frame
             guard gx >= f.x, gx < f.x + f.width, gy >= f.y, gy < f.y + f.height else {
                 throw RuntimeError("invalid_target", "image point (\(px), \(py)) is (\(gx), \(gy)) in points, outside the bound window",
+                                   phase: .handler, notSent: true)
+            }
+            // A window may reach past the screen edge; input there would not
+            // land on the window the image shows.
+            let sf = snap.screen.frame
+            guard gx >= sf.x, gx < sf.x + sf.width, gy >= sf.y, gy < sf.y + sf.height else {
+                throw RuntimeError("invalid_target", "image point (\(px), \(py)) is (\(gx), \(gy)) in points, off the Desktop's screen",
                                    phase: .handler, notSent: true)
             }
             pa.point = (gx, gy)
@@ -245,16 +382,19 @@ extension RuntimeService {
         let deadline = now().addingTimeInterval(Double(request.params["timeoutMs"]?.intValue ?? 1000) / 1000)
         var lastSnapshot: String?
         while true {
+            // Access is checked on every poll: a revoked app stops waiting.
+            if let e = recheckAct(c, desktopId: desk.desktopId, method: "wait") { return .failure(e) }
             // As in observe: checks under the lock, the read on the AX threads
             // without it, then the store under the lock.
             var bound: TargetBinding?
-            let checked = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
+            let checked = withDesktop(.string(desk.desktopId), until: deadline, as: c, method: "wait") { d -> JSONValue in
                 guard let b = d.binding else {
                     throw RuntimeError("stale_observation", "desktop \(d.desktopId) has no bound window", phase: .handler)
                 }
                 guard backend.processIdentity(b.process.pid) == b.process else {
                     throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler)
                 }
+                try refuseMirroring(b.process.pid)
                 bound = b
                 observations.invalidateElementRefs(desktopId: d.desktopId)
                 return .null
@@ -272,7 +412,7 @@ extension RuntimeService {
             case let .failed(e as PlatformError): return .failure(e.runtimeError)
             case let .failed(e): return .failure(RuntimeError("execution_failed", "\(e)", phase: .handler))
             }
-            let poll = withDesktop(.string(desk.desktopId), until: deadline) { d -> JSONValue in
+            let poll = withDesktop(.string(desk.desktopId), until: deadline, as: c, method: "wait") { d -> JSONValue in
                 guard d.binding?.generation == b.generation else {
                     throw RuntimeError("stale_observation", "the binding of desktop \(d.desktopId) changed", phase: .handler)
                 }

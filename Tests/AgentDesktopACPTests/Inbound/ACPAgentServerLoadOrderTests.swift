@@ -54,13 +54,16 @@ import Testing
 
         let lines = h2.connection.updatesFor(sid).compactMap(text)
         func at(_ needle: String) -> Int? { lines.firstIndex { $0.contains(needle) } }
-        let user = try #require(at("› 你：please go"))
+        // User input is never stored, so the replay shows the placeholder.
+        let user = try #require(at("› 你：" + ACPAgentServer.userInputPlaceholder))
         let accepted = try #require(at("任务已受理：run-1"))
         let ev1 = try #require(at("[run-1#1] step one"))
         let ev2 = try #require(at("[run-1#2] step two"))
         let ended = try #require(at("任务 run-1 已结束"))
-        let second = try #require(at("› 你：/nope"))
-        let guidance = try #require(at("没有 /nope 这个命令"))
+        let second = try #require(lines.lastIndex { $0.contains("› 你：" + ACPAgentServer.userInputPlaceholder) })
+        #expect(!lines.contains { $0.contains("please go") || $0.contains("› 你：/nope") })
+        // The live line named the command; the stored one does not echo it.
+        let guidance = try #require(at("没有这个命令。"))
         #expect(user < accepted && accepted < ev1 && ev1 < ev2 && ev2 < ended && ended < second && second < guidance,
                 "\(lines)")
         // Each event once.
@@ -94,13 +97,74 @@ import Testing
         #expect(h2.connection.updatesBeforeReply(1, sid).isEmpty)
     }
 
+    /// b9 on #141: the title is a recognised command's canonical name or
+    /// "对话"; an unknown "/word" never reaches <sid>.json or session/list.
+    @Test(arguments: [("/hunter2secret", "对话"), ("/张三13800138000", "对话"), ("hunter2 free text", "对话"),
+                      ("/help", "/help"), ("/status run-x", "/status")])
+    func theTitleIsNeverUserText(_ prompt: String, _ title: String) async throws {
+        let rt = STestRuntime()
+        rt.taskList.with { $0 = [STestHarness.task("work", freeText: false)] }
+        let h = STestHarness(runtime: rt)
+        defer { h.cleanup() }
+        let sid = await h.newSession()
+        _ = await h.connection.waitReply(h.prompt(sid, prompt))
+        #expect(try h.store.load(sessionId: sid)?.title == title)
+        let raw = try String(contentsOf: h.dir.appendingPathComponent("\(sid).json"), encoding: .utf8)
+        #expect(!raw.contains("hunter2") && !raw.contains("13800138000") && !raw.contains("张三"))
+        h.connection.request(90, .listSessions(cwd: nil))
+        guard case let .sessions(list)? = await h.connection.waitReply(90) else { Issue.record("no list"); return }
+        #expect(list.first { $0.sessionId == sid }?.title == title)
+    }
+
+    /// Kevin's S4 ruling: a reopened session says plainly that the user's
+    /// words were not kept; the notice itself is never stored.
+    @Test func aReopenedSessionSaysTheInputWasNotSaved() async throws {
+        let (h, sid) = try await conversation()
+        defer { h.cleanup() }
+        let h2 = STestHarness(runtime: h.runtime, dir: h.dir)
+        defer { h2.connection.close() }
+        h2.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
+        _ = await h2.connection.waitReply(1)
+        let lines = h2.connection.updatesBeforeReply(1, sid).compactMap(text)
+        #expect(lines.filter { $0 == ACPAgentServer.notSavedNotice }.count == 1)
+        #expect(lines.contains { $0.contains("任务已受理：run-1") }) // useful history is kept
+        let raw = try String(contentsOf: h.dir.appendingPathComponent("\(sid).history.json"), encoding: .utf8)
+        #expect(!raw.contains("为保护隐私"))
+    }
+
+    /// #141 independent review: agent lines that echo the user's input or a
+    /// Runtime question are shown live but stored without the echo.
+    @Test func echoesNeverReachTheHistoryFile() async throws {
+        let rt = STestRuntime()
+        rt.taskList.with { $0 = [STestHarness.task("work", freeText: true)] }
+        let h = STestHarness(runtime: rt)
+        defer { h.cleanup() }
+        let sid = await h.newSession()
+        for line in ["/Users/me/secret-hunter2.txt", "/runs hunter2-runs", "/status hunter2-status",
+                     "/hunter2abcdefghijklmnopqrstuvwxyzabcdefghij"] { // long all-letter token (Codex)
+            _ = await h.connection.waitReply(h.prompt(sid, line))
+        }
+        let p = h.prompt(sid, "go")
+        #expect(await sEventually { rt.runs.get()["run-1"] != nil })
+        rt.pendingByRun.with { $0["run-1"] = [.question(id: "q1", runId: "run-1", message: "hunter2-question?", choices: [])] }
+        rt.setPhase("run-1", "waiting_input")
+        _ = await h.connection.waitReply(p)
+        let live = h.connection.updatesFor(sid).compactMap(text).joined(separator: "\n")
+        #expect(live.contains("hunter2-question"))           // shown to the user live
+        #expect(!live.contains("hunter2-runs") && !live.contains("hunter2-status")) // /runs never echoes
+        let raw = try String(contentsOf: h.dir.appendingPathComponent("\(sid).history.json"), encoding: .utf8)
+        #expect(!raw.contains("hunter2"), "\(raw)")
+        #expect(raw.contains("没有这个命令") && raw.contains("问题内容不保存"))
+        rt.end("run-1")
+    }
+
     @Test func conversationIsStoredRedactedAndOwnerOnly() async throws {
         let (h, sid) = try await conversation("mail bob@example.com about 13800138000")
         defer { h.cleanup() }
         let file = h.dir.appendingPathComponent("\(sid).history.json")
         let raw = try String(contentsOf: file, encoding: .utf8)
-        #expect(!raw.contains("bob@example.com") && !raw.contains("13800138000"))
-        #expect(raw.contains(ACPRedactMask.email))
+        #expect(!raw.contains("bob@example.com") && !raw.contains("13800138000") && !raw.contains("mail "))
+        #expect(raw.contains(ACPAgentServer.userInputPlaceholder))
         let mode = (try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber)?.intValue
         #expect(mode == 0o600)
         // The replay shows the redacted line, never the raw one.
@@ -109,7 +173,7 @@ import Testing
         h2.connection.request(1, .resumeSession(sessionId: sid, cwd: nil, replay: true))
         _ = await h2.connection.waitReply(1)
         let all = h2.connection.updatesFor(sid).compactMap(text).joined(separator: "\n")
-        #expect(all.contains("› 你：mail \(ACPRedactMask.email)"))
+        #expect(all.contains("› 你：" + ACPAgentServer.userInputPlaceholder))
         #expect(!all.contains("bob@example.com"))
         // Closing forgets the conversation too.
         h2.connection.request(2, .closeSession(sessionId: sid))
@@ -120,7 +184,7 @@ import Testing
 
 @Suite struct ACPFileSessionStoreHistoryTests {
     private func store() -> (ACPFileSessionStore, URL) {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("acp-s-hist-\(UUID().uuidString)")
+        let dir = ACPTestScratch.dir("acp-s-hist")
         return (ACPFileSessionStore(directory: dir), dir)
     }
 
@@ -138,7 +202,7 @@ import Testing
         try s.save(binding("s1"))
         try s.appendHistory(sessionId: "s1", [ACPSessionManagerHistoryEntry(kind: .user, text: "hi", at: "t0")])
         try s.appendHistory(sessionId: "s1", [e("a"), e("b")])
-        #expect(try s.history(sessionId: "s1").map(\.text) == ["hi", "a", "b"])
+        #expect(try s.history(sessionId: "s1").map(\.text) == [ACPSessionManagerHistoryEntry.userInputPlaceholder, "a", "b"])
         #expect(try s.history(sessionId: "s1").first?.kind == .user)
         // The binding is untouched (its revision is not the history's).
         #expect(try s.load(sessionId: "s1")?.revision == 1)
@@ -154,8 +218,425 @@ import Testing
         let (s, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }
         try s.save(binding("s1"))
-        try s.appendHistory(sessionId: "s1", [ACPSessionManagerHistoryEntry(kind: .user, text: "to a@b.com", at: "t")])
-        #expect(try s.history(sessionId: "s1").first?.text == "to \(ACPRedactMask.email)")
+        try s.appendHistory(sessionId: "s1", [ACPSessionManagerHistoryEntry(kind: .user, text: "to a@b.com", at: "t"),
+                                              ACPSessionManagerHistoryEntry(kind: .agent, text: "to a@b.com", at: "t")])
+        // User text is never stored, whatever the caller passed; agent text is redacted.
+        #expect(try s.history(sessionId: "s1").map(\.text)
+            == [ACPSessionManagerHistoryEntry.userInputPlaceholder, "to \(ACPRedactMask.email)"])
+        let raw = try String(contentsOf: dir.appendingPathComponent("s1.history.json"), encoding: .utf8)
+        #expect(!raw.contains("a@b.com"))
+    }
+
+    /// #141 review + Kevin's S4 ruling: files written before format 2 are
+    /// cleaned on disk the first time the store is used. User lines become
+    /// the placeholder, echoes are removed, useful agent lines (accepted,
+    /// status, results) stay, and a log records counts but no text.
+    @Test func aLegacyHistoryAndTitleAreScrubbedOnDisk() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var bound = binding("s1")
+        bound.runIds = ["run-1"]
+        try s.save(bound)
+        let bindingURL = dir.appendingPathComponent("s1.json")
+        var b = try String(contentsOf: bindingURL, encoding: .utf8)
+        b = b.replacingOccurrences(of: "\"format\" : 2", with: "\"format\" : 1")
+        b = b.replacingOccurrences(of: "\"title\" : \"", with: "\"title\" : \"secret plan hunter2 ")
+        try b.write(to: bindingURL, atomically: true, encoding: .utf8)
+        let legacy = #"{"format":1,"acpSessionId":"s1","revision":3,"entries":["#
+            + #"{"kind":"user","text":"passphrase hunter2","at":"t"},"#
+            + #"{"kind":"agent","text":"任务已受理：run-1（工作）。","runId":"run-1","at":"t"},"#
+            + #"{"kind":"agent","text":"没有 /hunter2 这个命令。\n可用命令：","at":"t"},"#
+            + #"{"kind":"agent","text":"任务 run-1 需要你的回答：hunter2 是什么？\n请在下一条 prompt 里直接回答。","at":"t"},"#
+            + #"{"kind":"agent","text":"/work 的输入不符合要求，未创建任务：\n$：不接受字段 hunter2","at":"t"},"#
+            + #"{"kind":"agent","text":"run-1：阶段 ended，结果 success\nhunter2-arg：状态待核实（不会自动重试）","at":"t"},"#
+            + #"{"kind":"agent","text":"任务 run-1 已结束：阶段 ended，结果 success","runId":"run-1","at":"t"}]}"#
+        try legacy.write(to: dir.appendingPathComponent("s1.history.json"), atomically: true, encoding: .utf8)
+
+        let fresh = ACPFileSessionStore(directory: dir)
+        let h = try fresh.history(sessionId: "s1")
+        #expect(h.map(\.text) == [
+            ACPSessionManagerHistoryEntry.userInputPlaceholder,
+            "任务已受理：run-1（工作）。",
+            "没有这个命令。",
+            "任务 run-1 需要你的回答（问题内容不保存）。",
+            "/work 的输入不符合要求，未创建任务。",
+            ACPRedactor.redact("run-1：阶段 ended，结果 success\n（不属于本会话的任务，已清除）"),
+            "任务 run-1 已结束：阶段 ended，结果 success",
+        ])
+        #expect(h[1].runId == "run-1")
+        #expect(try fresh.load(sessionId: "s1")?.title == "对话")
+        #expect(try fresh.load(sessionId: "s1")?.revision == 1)
+        for name in ["s1.json", "s1.history.json", ACPFileSessionStore.migrationLogName] {
+            let raw = try String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
+            #expect(!raw.contains("hunter2") && !raw.contains("secret plan"), "\(name)")
+        }
+        let log = try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
+            .split(separator: "\n").map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
+        // Each file: an `intent` before the rewrite, a `completed` after it.
+        #expect(log.map { "\($0.file):\($0.status)" } == ["history:intent", "history:completed", "binding:intent", "binding:completed"]
+                || log.map { "\($0.file):\($0.status)" } == ["binding:intent", "binding:completed", "history:intent", "history:completed"])
+        let hist = try #require(log.first { $0.file == "history" })
+        #expect(hist.entries == 7 && hist.userScrubbed == 1 && hist.agentChanged == 4 && hist.agentKept == 2 && hist.error == nil)
+        #expect(log.contains { $0.file == "binding" && $0.titleReset && $0.error == nil })
+        let mode = (try FileManager.default.attributesOfItem(
+            atPath: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName).path)[.posixPermissions] as? NSNumber)?.intValue
+        #expect(mode == 0o600)
+        // Migrated once: a second store finds nothing to do and logs nothing.
+        _ = try ACPFileSessionStore(directory: dir).history(sessionId: "s1")
+        #expect(try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
+            .split(separator: "\n").count == log.count)
+    }
+
+    /// A session with format-1 files on disk: a title and history with a
+    /// secret, a known Run's status line and an echoed /runs argument.
+    private func legacySession(_ s: ACPFileSessionStore, _ dir: URL) throws {
+        var bound = binding("s1")
+        bound.runIds = ["run-1"]
+        try s.save(bound)
+        let bindingURL = dir.appendingPathComponent("s1.json")
+        var b = try String(contentsOf: bindingURL, encoding: .utf8)
+        b = b.replacingOccurrences(of: "\"format\" : 2", with: "\"format\" : 1")
+        b = b.replacingOccurrences(of: "\"title\" : \"", with: "\"title\" : \"hunter2 ")
+        try b.write(to: bindingURL, atomically: true, encoding: .utf8)
+        let legacy = #"{"format":1,"acpSessionId":"s1","revision":1,"entries":["#
+            + #"{"kind":"user","text":"hunter2","at":"t"},"#
+            + #"{"kind":"agent","text":"run-1：阶段 ended，结果 success","at":"t"},"#
+            + #"{"kind":"agent","text":"hunter2-arg：状态待核实（不会自动重试）","at":"t"}]}"#
+        try legacy.write(to: dir.appendingPathComponent("s1.history.json"), atomically: true, encoding: .utf8)
+    }
+
+    private func raw(_ dir: URL, _ name: String) -> String {
+        (try? String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)) ?? ""
+    }
+
+    /// Codex on #141: no log line, no rewrite; the migration stays pending
+    /// and reads are still scrubbed in memory.
+    @Test func whenTheMigrationLogCannotBeWrittenNothingIsRewritten() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName),
+                                                withIntermediateDirectories: false) // a directory: open(O_WRONLY) fails
+        let fresh = ACPFileSessionStore(directory: dir)
+        let h = try fresh.history(sessionId: "s1")
+        #expect(!h.contains { $0.text.contains("hunter2") })            // served scrubbed
+        #expect(try fresh.load(sessionId: "s1")?.title == "对话")
+        #expect(raw(dir, "s1.history.json").contains("\"format\":1"))   // not rewritten without a log line
+        // Normal writes do not slip past the missing log line either.
+        #expect(throws: ACPFileSessionStoreError.self) {
+            try fresh.appendHistory(sessionId: "s1", [ACPSessionManagerHistoryEntry(kind: .agent, text: "x", at: "t")])
+        }
+        var b1 = try #require(try fresh.load(sessionId: "s1"))
+        b1.revision += 1
+        #expect(throws: ACPFileSessionStoreError.self) { try fresh.save(b1) }
+        #expect(raw(dir, "s1.history.json").contains("\"format\":1") && raw(dir, "s1.json").contains("\"format\" : 1"))
+        // Once the log can be written, the same store finishes the job.
+        try FileManager.default.removeItem(at: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
+        _ = try fresh.history(sessionId: "s1")
+        #expect(!raw(dir, "s1.history.json").contains("hunter2") && !raw(dir, "s1.json").contains("hunter2"))
+        #expect(raw(dir, ACPFileSessionStore.migrationLogName).contains("\"file\":\"history\""))
+    }
+
+    /// Two legacy sessions s1 and s2 (four format-1 files).
+    private func twoLegacySessions(_ s: ACPFileSessionStore, _ dir: URL) throws {
+        try legacySession(s, dir)
+        for (from, to) in [("s1.json", "s2.json"), ("s1.history.json", "s2.history.json")] {
+            let text = raw(dir, from).replacingOccurrences(of: "\"s1\"", with: "\"s2\"")
+            try text.write(to: dir.appendingPathComponent(to), atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func isLegacy(_ dir: URL, _ name: String) -> Bool {
+        raw(dir, name).contains("\"format\":1") || raw(dir, name).contains("\"format\" : 1")
+    }
+
+    /// Kevin 2026-10-09: a failure to log `completed` makes the log
+    /// untrustworthy: the whole migration stops (no later file is touched).
+    @Test func aFailedCompletedRecordStopsTheWholeMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let fresh = ACPFileSessionStore(directory: dir)
+        fresh.logAppendFaultForTesting = { $0 == 2 }   // 1 = intent ok, 2 = completed fails
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 2)
+        #expect(!isLegacy(dir, "s1.history.json"))   // the first file was rewritten
+        for name in ["s1.json", "s2.history.json", "s2.json"] { #expect(isLegacy(dir, name), "\(name)") }
+    }
+
+    /// Kevin 2026-10-09: a failure to log `failed` stops the whole migration too.
+    @Test func aFailedFailureRecordStopsTheWholeMigration() throws {
+        let (s, dir) = store()
+        defer { chmod(dir.path, 0o700); try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let log = dir.appendingPathComponent(ACPFileSessionStore.migrationLogName)
+        FileManager.default.createFile(atPath: log.path, contents: Data(), attributes: [.posixPermissions: 0o600])
+        chmod(dir.path, 0o500)                        // every rewrite fails cleanly (outcome 1)
+        let fresh = ACPFileSessionStore(directory: dir)
+        fresh.logAppendFaultForTesting = { $0 == 2 }   // the `failed` record of the first file
+        _ = try? fresh.history(sessionId: "s1")
+        chmod(dir.path, 0o700)
+        #expect(fresh.migrationLogAttempts == 2)       // no third append: stopped
+        for name in ["s1.history.json", "s1.json", "s2.history.json", "s2.json"] { #expect(isLegacy(dir, name), "\(name)") }
+    }
+
+    /// Kevin 2026-10-09: a file whose rewrite result is uncertain (renamed,
+    /// directory fsync failed) is logged `uncertain` and never processed
+    /// automatically again, even if it is back to format 1 (e.g. the rename
+    /// was lost); other files still migrate, and the whole is never done.
+    @Test func anUncertainRewriteIsNeverRetriedAutomatically() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let legacyHistory = raw(dir, "s1.history.json")
+        let first = ACPFileSessionStore(directory: dir)
+        first.dirFsyncFaultForTesting = { $0 == "s1.history.json" }
+        _ = try first.history(sessionId: "s2")
+        let lines = try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
+            .split(separator: "\n").map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
+        #expect(lines.contains { $0.file == "history" && $0.sessionId == "s1" && $0.status == "uncertain" })
+        #expect(lines.filter { $0.status == "completed" }.count == 3)   // the other three files went on
+        // A power loss rolled the rename back: the file is format 1 again.
+        try legacyHistory.write(to: dir.appendingPathComponent("s1.history.json"), atomically: true, encoding: .utf8)
+        let second = ACPFileSessionStore(directory: dir)
+        let h = try second.history(sessionId: "s1")
+        #expect(second.migrationLogAttempts == 0)                       // nothing retried
+        #expect(isLegacy(dir, "s1.history.json"))                       // left for a person
+        #expect(!h.contains { $0.text.contains("hunter2") })            // still served scrubbed
+    }
+
+    /// A log path that is not a regular file is unreadable: no crash, the
+    /// migration does not start.
+    @Test func aLogPathThatIsADirectoryStopsTheMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName),
+                                                withIntermediateDirectories: false)
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 0)
+        #expect(isLegacy(dir, "s1.history.json"))
+    }
+
+    /// Codex on #141 (853e867): a newly created log is not durable until its
+    /// directory entry is; if that sync fails, the intent counts as not
+    /// written and the migration stops before any rewrite.
+    @Test func aNewLogWhoseDirectoryEntryIsNotDurableStopsTheMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let fresh = ACPFileSessionStore(directory: dir)
+        fresh.logDirFsyncFaultForTesting = true
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 1)
+        for name in ["s1.history.json", "s1.json", "s2.history.json", "s2.json"] { #expect(isLegacy(dir, name), "\(name)") }
+        // The log file now exists, but its directory entry was never synced:
+        // a later store must sync it again rather than trust it (b9).
+        let again = ACPFileSessionStore(directory: dir)
+        again.logDirFsyncFaultForTesting = true
+        _ = try again.history(sessionId: "s1")
+        #expect(again.migrationLogAttempts == 1)
+        #expect(isLegacy(dir, "s1.history.json"))
+        // Once the directory sync works, the next store carries on.
+        let next = ACPFileSessionStore(directory: dir)
+        _ = try next.history(sessionId: "s1")
+        #expect(!isLegacy(dir, "s1.history.json"))
+    }
+
+    /// Codex on #141: a file whose outcome was never recorded (a lone
+    /// intent, because the completed record could not be written) waits for
+    /// a person, and while it does the migration is never complete.
+    @Test func aLoneIntentKeepsTheFileForAPersonAndTheMigrationIncomplete() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let first = ACPFileSessionStore(directory: dir)
+        first.logAppendFaultForTesting = { $0 == 2 }   // completed of s1.history.json fails
+        _ = try first.history(sessionId: "s1")
+        #expect(!isLegacy(dir, "s1.history.json"))
+        let next = ACPFileSessionStore(directory: dir)
+        _ = try next.history(sessionId: "s1")
+        #expect(!next.migrated)                          // never complete with a lone intent
+        for name in ["s1.json", "s2.history.json", "s2.json"] { #expect(!isLegacy(dir, name), "\(name)") }
+        let lines = try String(contentsOf: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName), encoding: .utf8)
+            .split(separator: "\n").map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
+        #expect(lines.filter { $0.file == "history" && $0.sessionId == "s1" }.map(\.status) == ["intent"])
+    }
+
+    /// A legacy file whose session id does not match its file name is left
+    /// alone (a block record could not be tied to it); the others migrate and
+    /// the migration is not complete.
+    @Test func aLegacyFileWhoseIdDoesNotMatchItsNameIsLeftAlone() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        // s1's history copied under another name: content still says s1.
+        try raw(dir, "s1.history.json").write(to: dir.appendingPathComponent("s9.history.json"), atomically: true, encoding: .utf8)
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(isLegacy(dir, "s9.history.json"))
+        #expect(!isLegacy(dir, "s1.history.json") && !isLegacy(dir, "s1.json"))
+        #expect(!fresh.migrated)
+    }
+
+    /// Kevin 2026-10-09: a line without a status cannot be trusted any more
+    /// (the product never wrote one); the migration does not start.
+    @Test func aLineWithoutAStatusStopsTheMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        try Data((#"{"file":"history","sessionId":"s1","at":"2026-10-09T00:00:00Z","entries":0}"# + "\n").utf8)
+            .write(to: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 0)
+        #expect(isLegacy(dir, "s1.history.json") && isLegacy(dir, "s1.json"))
+    }
+
+    /// A well-formed record written by hand is trusted: an uncertain
+    /// history blocks only that file; the binding migrates.
+    @Test func aValidHandWrittenUncertainRecordBlocksOnlyItsFile() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        let line = #"{"agentChanged":0,"agentKept":0,"at":"2026-10-09T00:00:00Z","entries":3,"error":"dir_fsync","file":"history","sessionId":"s1","status":"uncertain","titleReset":false,"userScrubbed":1}"#
+        try Data((line + "\n").utf8).write(to: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(isLegacy(dir, "s1.history.json"))
+        #expect(!isLegacy(dir, "s1.json"))
+        #expect(!fresh.migrated)
+    }
+
+
+    /// Codex on #141: if the uncertain record itself cannot be written and
+    /// the rename is later rolled back, the lone intent still keeps the file
+    /// from being rewritten automatically.
+    @Test func aLoneIntentAfterAnUnrecordedUncertainRewriteIsNotRetried() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let legacyHistory = raw(dir, "s1.history.json")
+        let first = ACPFileSessionStore(directory: dir)
+        first.dirFsyncFaultForTesting = { $0 == "s1.history.json" }
+        first.logAppendFaultForTesting = { $0 == 2 }   // the uncertain record fails
+        _ = try first.history(sessionId: "s1")
+        try legacyHistory.write(to: dir.appendingPathComponent("s1.history.json"), atomically: true, encoding: .utf8)
+        let next = ACPFileSessionStore(directory: dir)
+        _ = try next.history(sessionId: "s1")
+        #expect(isLegacy(dir, "s1.history.json"))       // not rewritten automatically
+        #expect(!next.migrated)
+    }
+
+    /// Kevin 2026-10-09: a log that cannot be understood stops the migration.
+    @Test(arguments: ["not json\n",
+                      #"{"status":"uncertaib","file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n",
+                      #"{"status":"uncertain","file":"histroy","sessionId":"s1","at":"t","entries":0}"# + "\n",
+                      #"{"status":"uncertain","file":"history","sessionId":"","at":"t","entries":0}"# + "\n",
+                      #"{"status":"uncertain","file":"history","sessionId":"../s1","at":"t","entries":0}"# + "\n",
+                      #"{"status":"uncertain","file":"history","sessionId":"s 1","at":"t","entries":0}"# + "\n",
+                      "\n",
+                      #"{"status":"intent","file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n\n",
+                      #"{"status":"intent","file":"history","sessionId":"s1","at":"t","entries":0}"# + "\n\n"
+                        + #"{"status":"completed","file":"binding","sessionId":"s1","at":"t","entries":0}"# + "\n"])
+    func anUnreadableLogStopsTheMigration(_ content: String) throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        try Data(content.utf8).write(to: dir.appendingPathComponent(ACPFileSessionStore.migrationLogName))
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 0)
+        #expect(isLegacy(dir, "s1.history.json") && isLegacy(dir, "s1.json"))
+    }
+
+    /// Kevin 2026-10-09: if an intent cannot be written, the migration stops
+    /// at once; no file (this one or any later one) is rewritten.
+    @Test func aFailedIntentStopsTheWholeMigration() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try twoLegacySessions(s, dir)
+        let fresh = ACPFileSessionStore(directory: dir)
+        fresh.logAppendFaultForTesting = { _ in true }   // the very first intent cannot be written
+        _ = try fresh.history(sessionId: "s1")
+        #expect(fresh.migrationLogAttempts == 1)   // stopped at the first intent
+        // No later write of any kind: no temp file was ever created.
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(!names.contains { $0.hasSuffix(".tmp") }, "\(names)")
+        for name in ["s1.json", "s2.json"] { #expect(raw(dir, name).contains("\"format\" : 1"), "\(name)") }
+        for name in ["s1.history.json", "s2.history.json"] { #expect(raw(dir, name).contains("\"format\":1"), "\(name)") }
+    }
+
+    /// Codex on #141 (355036e): when the rewrite fails, the log says so;
+    /// a pre-write entry alone never reads as a completed migration.
+    @Test func aFailedRewriteIsLoggedAsFailedNotDone() throws {
+        let (s, dir) = store()
+        defer { chmod(dir.path, 0o700); try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        let log = dir.appendingPathComponent(ACPFileSessionStore.migrationLogName)
+        FileManager.default.createFile(atPath: log.path, contents: Data(), attributes: [.posixPermissions: 0o600])
+        chmod(dir.path, 0o500)  // existing files stay writable; no new temp file can be made
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try? fresh.history(sessionId: "s1")
+        chmod(dir.path, 0o700)
+        let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
+            .map { try JSONDecoder().decode(ACPFileSessionStore.MigrationLogEntry.self, from: Data($0.utf8)) }
+        #expect(!lines.isEmpty)
+        #expect(!lines.contains { $0.status == "completed" })
+        #expect(lines.contains { $0.status == "failed" && $0.error != nil })
+        #expect(raw(dir, "s1.history.json").contains("\"format\":1"))
+    }
+
+    /// Codex on #141 (1a6d9c2): a log that ends in half a line (a crash
+    /// mid-write, or a rollback that did not stick) is never appended to;
+    /// the migration stays pending and nothing is rewritten.
+    @Test func aMigrationLogEndingInAHalfLineIsNeverAppendedTo() throws {
+        let (s, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        let log = dir.appendingPathComponent(ACPFileSessionStore.migrationLogName)
+        try Data(#"{"at":"x","entries":3,"fi"#.utf8).write(to: log)
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(raw(dir, ACPFileSessionStore.migrationLogName) == #"{"at":"x","entries":3,"fi"#)  // untouched
+        #expect(raw(dir, "s1.history.json").contains("\"format\":1"))                         // not rewritten
+        #expect(!(try fresh.history(sessionId: "s1")).contains { $0.text.contains("hunter2") })  // still served scrubbed
+    }
+
+    /// Codex on #141: an unreadable binding must not turn every status line
+    /// into "another session's Run" for good.
+    @Test func anUnreadableBindingLeavesTheHistoryForALaterRetry() throws {
+        let (s, dir) = store()
+        defer {
+            chmod(dir.appendingPathComponent("s1.json").path, 0o600)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        try legacySession(s, dir)
+        chmod(dir.appendingPathComponent("s1.json").path, 0)
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try? fresh.list(principalId: "alice")
+        #expect(raw(dir, "s1.history.json").contains("\"format\":1"))
+        chmod(dir.appendingPathComponent("s1.json").path, 0o600)
+        let h = try fresh.history(sessionId: "s1")
+        #expect(h.map(\.text).contains("run-1：阶段 ended，结果 success"))   // the known Run's line survived
+        #expect(!raw(dir, "s1.history.json").contains("hunter2"))
+    }
+
+    /// Codex on #141: a legacy file that cannot be opened keeps the
+    /// migration pending instead of being skipped for good.
+    @Test func anUnreadableLegacyFileIsRetried() throws {
+        let (s, dir) = store()
+        let history = dir.appendingPathComponent("s1.history.json").path
+        defer { chmod(history, 0o600); try? FileManager.default.removeItem(at: dir) }
+        try legacySession(s, dir)
+        chmod(history, 0)
+        let fresh = ACPFileSessionStore(directory: dir)
+        _ = try? fresh.list(principalId: "alice")
+        chmod(history, 0o600)
+        _ = try fresh.history(sessionId: "s1")
+        #expect(!raw(dir, "s1.history.json").contains("hunter2"))
+        #expect(raw(dir, "s1.history.json").contains("\"format\":2"))
     }
 
     /// T06-08: a long history loads quickly.

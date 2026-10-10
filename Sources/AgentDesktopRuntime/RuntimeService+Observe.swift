@@ -6,7 +6,7 @@ extension RuntimeService {
     /// desktopId. The Session must belong to the caller.
     func target(of request: RuntimeRequest, _ c: ConnectionState) -> Result<(DesktopRecord, RuntimeSession?), RuntimeError> {
         if let sid = request.context.sessionId {
-            guard let s = sessions.find(sid, caller: c.peerUID) else { return .failure(.notFound("no session \(sid)")) }
+            guard let s = sessions.find(sid, caller: c.clientId) else { return .failure(.notFound("no session \(sid)")) }
             guard s.state == "open" else {
                 return .failure(RuntimeError("conflict", "session \(sid) is closed", phase: .handler))
             }
@@ -41,6 +41,24 @@ extension RuntimeService {
         case let .failure(e): return .failure(e)
         case let .success((d, s)): desk = d; session = s
         }
+        // Screenshots count against a quota bucket: the Run named in the
+        // context, which must be one this connection owns or joined (a made-up
+        // or another caller's runId neither gets a fresh quota nor spends
+        // someone else's); otherwise the session, else the Desktop.
+        let bucket: String
+        // The GUI ports' own observation for a GUI Run: its own bucket, its
+        // place already reserved by the ports.
+        let reserved = takeQuotaBucket(requestId: request.requestId, connection: c)
+        if let gui = reserved {
+            bucket = gui
+        } else if let runId = request.context.runId {
+            if case let .failure(e) = execution.authorized(runId: runId, connection: c) { return .failure(e) }
+            bucket = "run:" + runId
+        } else if let session {
+            bucket = "session:" + session.sessionId
+        } else {
+            bucket = "desktop:" + desk.desktopId
+        }
         let requestDeadline = request.deadline.flatMap(Timestamp.date)
         let snapshotId = DesktopRegistry.newId(prefix: "obs")
         let wantsImage = p["screenshot"]?.boolValue ?? true
@@ -52,18 +70,46 @@ extension RuntimeService {
         var exposed: (window: PlatformWindow, stack: [StackEntry])?
 
         // 1. Under the lock: checks and screenshot.
-        let first = withDesktop(.string(desk.desktopId), until: requestDeadline) { d -> JSONValue in
+        let first = withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
             stored.binding = d.binding
             /// The screen, or with a binding only the bound window's frame.
             func capture(_ crop: AgentDesktopProtocol.Rect?) throws {
+                // Within the store's limits, before anything is captured.
+                if reserved == nil { try artifacts.admit(bucket: bucket) }
                 let artifactId = "art_" + snapshotId.dropFirst(4)
                 let path = artifacts.path(for: artifactId, ext: "png")
-                let size = try crop.map { try platform.screenshot(d.screen, cropTo: $0, to: path) }
-                    ?? platform.screenshot(d.screen, to: path)
+                // The bound window alone, never the screen cut down afterwards:
+                // no whole-screen image is written, even for a moment.
+                let size: (width: Int, height: Int)
+                do {
+                    if let b = d.binding, crop != nil {
+                        size = try platform.windowScreenshot(d.screen, pid: b.process.pid, windowId: b.windowId, to: path)
+                    } else {
+                        size = try platform.screenshot(d.screen, to: path)
+                    }
+                } catch {
+                    // No half-written image is left behind, uncounted.
+                    unlink(path)
+                    // A place the ports reserved is theirs to give back.
+                    if reserved == nil { artifacts.release(bucket: bucket) }
+                    throw error
+                }
                 let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
                 let scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
-                let info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
-                                                  runId: request.context.runId, createdAt: nowString)
+                let info: ArtifactStore.Info
+                do {
+                    info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
+                                                  runId: reserved.map { String($0.dropFirst("gui:".count)) } ?? request.context.runId,
+                                                  createdAt: nowString, bucket: bucket)
+                } catch {
+                    unlink(path)
+                    // A place the ports reserved is theirs to give back.
+                    if reserved == nil { artifacts.release(bucket: bucket) }
+                    throw error
+                }
+                // The reserved place is now the stored screenshot's, whatever
+                // happens later in this observe: the ports must not give it back.
+                if reserved != nil { markQuotaUsed(requestId: request.requestId, connection: c) }
                 stored.transform = (origin.0, origin.1, scale)
                 stored.imageSize = size
                 image = .obj([
@@ -75,6 +121,12 @@ extension RuntimeService {
                 ])
             }
             guard let b = d.binding else {
+                if wantsImage && refusesScreenCaptureWithoutBinding {
+                    throw RuntimeError("invalid_target",
+                                       "desktop \(d.desktopId) has no bound window; a screenshot of the whole screen needs a screen-level grant",
+                                       phase: .handler, notSent: true,
+                                       details: .obj([("reason", .string("screen_capture_requires_grant"))]))
+                }
                 // A physical Desktop shows the user's own screen: without a
                 // bound window there is nothing it may look at.
                 guard d.kind == .virtual else {
@@ -91,16 +143,18 @@ extension RuntimeService {
                                    "the bound process \(b.process.pid) has exited or restarted; bind the window again",
                                    phase: .handler, details: .obj([("generation", .int(b.generation))]))
             }
+            // #139, before anything is captured or read: nothing was done.
+            try refuseMirroring(b.process.pid, notSent: true)
             // G0: only the bound window is shown, and only while nothing
             // else could be seen or reached in its place.
             let e = try exposedTarget(d, b, notSent: false)
             exposed = e
             if wantsImage {
-                // A window reaching past the screen edge is cut at the edge.
-                let s = d.screen.frame, f = e.window.frame
-                let x0 = max(f.x, s.x), y0 = max(f.y, s.y)
-                try capture(AgentDesktopProtocol.Rect(x: x0, y: y0, width: min(f.x + f.width, s.x + s.width) - x0,
-                                                      height: min(f.y + f.height, s.y + s.height) - y0))
+                // The window capture renders the whole window, also the part
+                // reaching past the screen edge, so the image's origin and
+                // scale are the window's own frame, never a frame cut at the
+                // edge (that would shift every image point).
+                try capture(e.window.frame)
             }
             // The read below replaces the backend's numbering: no element
             // reference of this Desktop holds until it is stored.
@@ -134,7 +188,7 @@ extension RuntimeService {
         }
 
         // 3. Under the lock again: still the same exposed window; store.
-        return withDesktop(.string(desk.desktopId), until: requestDeadline) { d -> JSONValue in
+        return withDesktop(.string(desk.desktopId), until: requestDeadline, as: c, method: "observe") { d -> JSONValue in
             var targetJSON: JSONValue = .null
             var elementsJSON: [JSONValue] = []
             if let b = stored.binding, let before = exposed {
@@ -194,5 +248,28 @@ extension RuntimeService {
                   ("coverage", .obj(coverage))]
             return .obj(m)
         }
+    }
+}
+
+extension RuntimeService {
+    /// A quota bucket set in process for one request of one connection (the
+    /// GUI ports' observation of a GUI Run). Nothing on the socket can set
+    /// one: only code in this module calls `setQuotaBucket`.
+    func setQuotaBucket(_ bucket: String, requestId: String, connection: ConnectionState) {
+        quotaBucketLock.withLock { quotaBuckets[connection.connectionId + "|" + requestId] = bucket }
+    }
+
+    func takeQuotaBucket(requestId: String, connection: ConnectionState) -> String? {
+        quotaBucketLock.withLock { quotaBuckets.removeValue(forKey: connection.connectionId + "|" + requestId) }
+    }
+
+    func markQuotaUsed(requestId: String, connection: ConnectionState) {
+        _ = quotaBucketLock.withLock { quotaBucketsUsed.insert(connection.connectionId + "|" + requestId) }
+    }
+
+    /// Whether that request's observe registered a screenshot in its reserved
+    /// place; asked once, by the ports, after the observe returns.
+    func takeQuotaUsed(requestId: String, connection: ConnectionState) -> Bool {
+        quotaBucketLock.withLock { quotaBucketsUsed.remove(connection.connectionId + "|" + requestId) != nil }
     }
 }

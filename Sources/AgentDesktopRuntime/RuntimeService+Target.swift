@@ -20,10 +20,14 @@ extension RuntimeService {
             var details: [(String, JSONValue)] = [("reason", .string(reason)), ("generation", .int(b.generation)),
                                                   ("windowId", .int(Int(b.windowId)))]
             if let covering {
-                details += [("coveringWindowId", .int(Int(covering.windowId))), ("coveringPid", .int(Int(covering.pid)))]
+                details += [("coveringWindowId", .int(Int(covering.windowId)))]
             }
             return RuntimeError("stale_observation", message, phase: .handler, notSent: notSent, details: .obj(details))
         }
+        // #139: bind refuses it already; checked again at every observe and
+        // act, so no binding reaches the phone, and none to an app that
+        // cannot be identified now.
+        try refuseMirroring(b.process.pid, notSent: notSent)
         guard let window = platform.window(on: d.screen, pid: b.process.pid, windowId: b.windowId) else {
             throw refuse("window_gone", "window \(b.windowId) is no longer on desktop \(d.desktopId); bind a window again")
         }
@@ -34,7 +38,7 @@ extension RuntimeService {
         let front = stack[..<index]
         if let cover = front.first(where: { Self.overlap($0.frame, window.frame) }) {
             throw refuse("occluded",
-                         "window \(cover.windowId) (\(cover.appName)) covers the bound window \(b.windowId); bind the window you mean, or move it away",
+                         "window \(cover.windowId) covers the bound window \(b.windowId); bind the window you mean, or move it away",
                          covering: cover)
         }
         // Keys go to the app's frontmost window, not to a window id: another
@@ -42,11 +46,18 @@ extension RuntimeService {
         // a new window). A new window never inherits the binding.
         let ownFront = backend.windows(pid: b.process.pid, bundleId: nil, includeOffscreen: false)
             .filter { $0.frame.width >= 2 && $0.frame.height >= 2 }
+        // The bound window is on screen (found above), so it is in its own
+        // process's list. When it is not, the list could not be read (the
+        // backend gives none then): which window of the app is in front
+        // cannot be told, which is refused, not passed (#163, fail closed).
+        guard ownFront.contains(where: { $0.windowId == b.windowId }) else {
+            throw refuse("window_list_unverified", "the windows of the bound window's app cannot be read")
+        }
         if let first = ownFront.first, first.windowId != b.windowId {
             let sibling = PlatformWindow(windowId: first.windowId, pid: b.process.pid, appName: first.appName,
                                          title: first.title ?? "", frame: first.frame)
             throw refuse("other_window_of_process_in_front",
-                         "\(first.appName) window \(first.windowId) is in front of the bound window \(b.windowId); bind it explicitly to use it",
+                         "window \(first.windowId) of the same app is in front of the bound window \(b.windowId); bind it explicitly to use it",
                          covering: sibling)
         }
         // The fingerprint compared around a capture: the windows that share

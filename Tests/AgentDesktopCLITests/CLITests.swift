@@ -53,6 +53,7 @@ final class Harness {
 
     var cli: CLI {
         var c = CLI()
+        c.credentials = MemoryCredentialStore()
         c.stdout = { [unowned self] in out.append($0) }
         c.stderr = { [unowned self] in err.append($0) }
         c.environment = environment
@@ -209,7 +210,7 @@ final class Harness {
         return nil
     }
     var cli = h.cli
-    let inner = cli.makeClient
+    let inner = cli.makeClient!
     cli.makeClient = { e in
         attempts += 1
         if attempts >= 4 { h.identity = .success(testIdentity) }
