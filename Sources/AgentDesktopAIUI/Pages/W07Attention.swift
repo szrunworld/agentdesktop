@@ -17,16 +17,16 @@ public final class AttentionModel: ObservableObject {
         detail = RunDetailModel(client: client, runId: runId, clock: clock)
     }
 
-    /// Only gui.runs.get / gui.runs.events. Never asks for a new observation.
+    /// Only run.show / run.events. Never asks for a new observation.
     public func refreshEvidence() async {
         await detail.refresh()
-        let unknown = detail.waitingReasonCode == ErrorCode.actionOutcomeUnknown.rawValue
-            || detail.latestReceipt?.deliveryState == "unknown"
+        let unknown = detail.unknownActions > 0 || detail.latestReceipt?.deliveryState == "unknown"
         switch detail.state {
         case "cancelling" where unknown: branch = .cancelPending
-        case "waiting_user" where unknown: branch = .unknownAction
+        case "unknown": branch = .unknownAction
+        case "running" where unknown: branch = .unknownAction
         case "waiting_user": branch = .needsUser(detail.waitingReasonCode ?? "")
-        case "failed" where detail.errorCode == ErrorCode.invalidAction.rawValue && detail.confirmedActions == 0:
+        case "failed" where ["invalid_action", "model_empty_response"].contains(detail.errorCode ?? "") && detail.confirmedActions == 0:
             branch = .invalidAction
         default: branch = detail.isTerminal ? .resolved(detail.state) : .loading
         }
@@ -45,8 +45,10 @@ public final class AttentionModel: ObservableObject {
 
     public var explanation: String {
         switch branch {
+        case .unknownAction where detail.isTerminal:
+            return "不会自动重发上一次的点击、输入、按键或滚动。运行已以“结果未知”结束；请先在 Desktop 上核实这一步是否生效，再决定是否新建运行。这里显示的证据可能是动作前的旧证据，不代表最新画面。"
         case .unknownAction, .cancelPending:
-            return "不会自动重发上一次的点击、输入、按键或滚动。冲突域保持隔离，直到 Runtime 的安全复核给出结论。这里显示的证据可能是动作前的旧证据，不代表最新画面。"
+            return "不会自动重发上一次的点击、输入、按键或滚动。运行不再接受新的输入，结束时结果记为“未知”。这里显示的证据可能是动作前的旧证据，不代表最新画面。"
         case .invalidAction:
             return "动作在执行前被拒绝（not_sent / rejected）。修正配置后可以新建运行。"
         default: return ""
@@ -61,7 +63,7 @@ public final class AttentionModel: ObservableObject {
     /// A new run is possible only after the Runtime ended this one.
     public var canCreateNewRun: Bool {
         if case .resolved = branch { return true }
-        return branch == .invalidAction
+        return branch == .invalidAction || (branch == .unknownAction && detail.isTerminal)
     }
 
     /// The only control besides reading: ask to stop. Accepted ≠ stopped.

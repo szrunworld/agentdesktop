@@ -29,8 +29,8 @@ struct ContractBundleTests {
     // The service methods: every ai/1 operation but its capabilities (now
     // runtime.capabilities `gui`), each with params and result definitions.
     @Test func catalogHasTheServiceMethodsWithSchemas() throws {
-        #expect(contract.operations.count == 31)
-        #expect(Set(contract.operations.map(\.command)).count == 31)
+        #expect(contract.operations.count == 27)
+        #expect(Set(contract.operations.map(\.command)).count == 27)
         for op in contract.operations {
             for suffix in ["params", "result"] {
                 _ = try contract.registry.schema(documentId: RuntimeContract.serviceSchemaId,
@@ -140,21 +140,23 @@ struct SchemaTests {
         #expect(!(try contract.validate(defaults.setting("maxSteps", .int(0)), "GuiLimits")).isEmpty)
     }
 
-    @Test func dependentRequiredOnRunStart() throws {
+    // unit.run (A6) replaced gui.runs.start; its params are the Runtime's.
+    @Test func dependentRequiredOnUnitRun() throws {
+        let runtime = RuntimeContract.shared
         let base: JSONValue = .obj([
-            ("desktopId", .string("desk-a")),
-            ("goal", .string("在姓名中输入 Ada，然后点击应用")),
-            ("verification", .obj([("kind", .string("element_text_equals")), ("role", .string("static_text")),
-                                   ("text", .string("已保存：Ada / MAC-001-A / 提交次数 1"))])),
+            ("desktopId", .string("desk-a")), ("mode", .string("explore")),
+            ("goal", .obj([("description", .string("在姓名中输入 Ada，然后点击应用"))])),
+            ("verification", .obj([("all", .array([.obj([("kind", .string("element_text_equals")), ("role", .string("static_text")),
+                                                         ("text", .string("已保存：Ada / MAC-001-A / 提交次数 1"))])]))])),
             ("allowedActions", .array([.string("click"), .string("type")])),
         ])
-        #expect(try contract.validate(base, "gui_runs_start_params").isEmpty)
+        #expect(runtime.validate(base, "unit_run_params").isEmpty)
         let half = base.setting("guiProfileId", .string("gp-1"))
-        #expect(try contract.validate(half, "gui_runs_start_params").contains { $0.keyword == "dependentRequired" })
+        #expect(!runtime.validate(half, "unit_run_params").isEmpty, "guiProfileId needs expectedProfileRevision")
         let dup = base.setting("allowedActions", .array([.string("click"), .string("click")]))
-        #expect(try contract.validate(dup, "gui_runs_start_params").contains { $0.keyword == "uniqueItems" })
+        #expect(!runtime.validate(dup, "unit_run_params").isEmpty)
         let drag = base.setting("allowedActions", .array([.string("drag")]))
-        #expect(!(try contract.validate(drag, "gui_runs_start_params")).isEmpty)
+        #expect(!runtime.validate(drag, "unit_run_params").isEmpty)
     }
 
     @Test func formats() {
@@ -273,8 +275,12 @@ struct SpecExampleTests {
     }()
 
     @Test func everyExampleMatchesItsParamsAndResult() throws {
-        let pairs = (examples["pairs"]?.arrayValue ?? []).filter { $0["command"]?.stringValue != "runtime.capabilities" }
-        #expect(pairs.count == 31)
+        // gui.runs.* examples stay for the Windows ai/1 contract layer
+        // (contracts/ai-gui/v1); runtime/1 withdrew them with A6.
+        let pairs = (examples["pairs"]?.arrayValue ?? []).filter {
+            $0["command"]?.stringValue != "runtime.capabilities" && $0["command"]?.stringValue?.hasPrefix("gui.runs.") != true
+        }
+        #expect(pairs.count == 27)
         for p in pairs {
             let command = p["command"]!.stringValue!
             guard let op = contract.operation(command) else { Issue.record("unknown \(command)"); continue }

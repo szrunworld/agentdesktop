@@ -58,7 +58,7 @@ let contract = RuntimeContract.shared
     // the service had but its capabilities (now runtime.capabilities `gui`),
     // each with params and result in service.schema.json.
     let served = contract.methods.filter { $0.servedBy != nil }
-    #expect(served.count == 31)
+    #expect(served.count == 27)
     for m in served {
         #expect(m.servedBy == "ai-service")
         for ref in [m.params, m.result] {

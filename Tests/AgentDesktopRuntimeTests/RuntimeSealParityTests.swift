@@ -96,7 +96,7 @@ private func namesNothing(_ e: RuntimeError?) -> Bool {
         let reads = st.backend.lock.withLock { st.backend.reads }
         for (m, p) in [("app.launch", #"{"desktopId":"d_x","bundleId":"com.apple.calculator"}"#), ("app.list", #"{"includeBackground":true}"#),
                        ("window.list", #"{"pid":202}"#), ("window.list", #"{"bundleId":"com.tencent.xinWeChat"}"#),
-                       ("window.bind", #"{"desktopId":"d_x","pid":202}"#), ("gui.runs.start", "{}")] {
+                       ("window.bind", #"{"desktopId":"d_x","pid":202}"#), ("unit.run", "{}")] {
             let r = send(anon, m, p, id: "seal-\(m)")
             #expect(r.error?.code == "pairing_required" && r.error?.notSent == true, "\(m)")
             #expect(namesNothing(r.error), "\(m)")
@@ -127,9 +127,9 @@ private func namesNothing(_ e: RuntimeError?) -> Bool {
         #expect(existing.error?.details?["reason"]?.stringValue == "bind_requires_grant")
         #expect(existing.error?.message == missing.error?.message && existing.error?.details == missing.error?.details)
         #expect(namesNothing(existing.error))
-        for m in ["gui.runs.start", "gui.runs.get"] {
-            #expect(send(launcher, m, "{}").error?.details?["reason"]?.stringValue == "gui_run_requires_grant", "\(m)")
-        }
+        // A GUI unit is a grant capability of its own (A6).
+        let unit = send(launcher, "unit.run", "{}")
+        #expect(unit.error?.code == "grant_missing" && unit.error?.details?["capability"]?.stringValue == "unit.run" && namesNothing(unit.error))
     }
 }
 

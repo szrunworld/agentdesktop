@@ -28,6 +28,9 @@ struct RuntimeInvocation: Equatable {
         case eventsWatch(runId: String?, after: Int?)
         /// run wait: observe until the Run ends (ended implies quiescent).
         case runWait(runId: String, timeout: Double)
+        /// unit run: start a GUI unit Run and stay with it until it ends (a
+        /// Delegated Run ends with this connection).
+        case unitRun(params: JSONValue, requestId: String?, timeout: Double)
         /// run cancel, optionally waiting for quiescence.
         case runCancel(runId: String, requestId: String?, wait: Bool, timeout: Double)
         /// mcp: serve MCP on stdio.
@@ -78,7 +81,7 @@ enum CommandRouter {
 
     /// Command groups of the AI/GUI contract v1 (DEV-SPEC §13), served by
     /// ContractCLI with its own flags (--json, --socket) and exit codes.
-    static let contractGroups: Set<String> = ["rpc", "ai", "gui"]
+    static let contractGroups: Set<String> = ["rpc", "ai"]
 
     /// True when the first command word, after ContractCLI's own leading
     /// options, names a contract v1 group.
@@ -385,6 +388,13 @@ enum CommandRouter {
              options: ["--wait-timeout": true], positionals: ["runId"]) { o, p in
             .runWait(runId: p[0], timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 30)
         },
+        Spec(words: ["unit", "run"], summary: "run a GUI unit on a Desktop's bound window until its goal is verified; stays until the Run ends (Ctrl-C stops it)",
+             options: ["--desktop": true, "--goal": true, "--goal-file": true, "--expect-text": true, "--verification-file": true,
+                       "--allowed-actions": true, "--mode": true, "--profile-id": true, "--expected-profile-revision": true,
+                       "--max-steps": true, "--max-seconds": true, "--request-id": true, "--wait-timeout": true],
+             positionals: []) { o, _ in
+            try unitRun(o)
+        },
         Spec(words: ["run", "list"], summary: "Delegated and Durable Runs, newest first",
              options: ["--origin": true, "--phase": true, "--desktop": true, "--active": false, "--cursor": true, "--limit": true],
              positionals: []) { o, _ in
@@ -544,6 +554,53 @@ enum CommandRouter {
         return .call(call)
     }
 
+    /// unit_run_params from the command line (A6). The goal is
+    /// --goal or --goal-file; the predicate --expect-text (static text
+    /// equals) or --verification-file (one GuiVerification, or {all: […]}).
+    static func unitRun(_ o: [String: String]) throws -> RuntimeInvocation.Command {
+        func readText(_ path: String) throws -> String {
+            guard let d = FileManager.default.contents(atPath: path) else { throw RuntimeError.invalidArgument("cannot read \(path)") }
+            return String(decoding: d, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard (o["--goal"] == nil) != (o["--goal-file"] == nil) else {
+            throw RuntimeError.invalidArgument("give exactly one of --goal and --goal-file")
+        }
+        let goal = try o["--goal"] ?? readText(o["--goal-file"]!)
+        guard (o["--expect-text"] == nil) != (o["--verification-file"] == nil) else {
+            throw RuntimeError.invalidArgument("give exactly one of --expect-text and --verification-file")
+        }
+        let verification: JSONValue
+        if let text = o["--expect-text"] {
+            verification = .obj([("all", .array([.obj([("kind", .string("element_text_equals")), ("role", .string("static_text")),
+                                                     ("text", .string(text))])]))])
+        } else {
+            let path = o["--verification-file"]!
+            guard let v = try? StrictJSON.parse(Data(try readText(path).utf8)) else {
+                throw RuntimeError.invalidArgument("\(path) is not one JSON object")
+            }
+            verification = v["all"] != nil ? v : .obj([("all", .array([v]))])
+        }
+        var p: [(String, JSONValue)] = [
+            ("desktopId", .string(try required(o, "--desktop"))), ("mode", .string(o["--mode"] ?? "explore")),
+            ("goal", .obj([("description", .string(goal))])), ("verification", verification),
+            ("allowedActions", .array(try required(o, "--allowed-actions").split(separator: ",").map { .string(String($0)) })),
+        ]
+        if let id = o["--profile-id"] { p.append(("guiProfileId", .string(id))) }
+        if let n = try positive(o, "--expected-profile-revision", required: false) { p.append(("expectedProfileRevision", .int(n))) }
+        var limits: [(String, JSONValue)] = []
+        if let n = try positive(o, "--max-steps", required: false) { limits.append(("maxSteps", .int(n))) }
+        if let n = try positive(o, "--max-seconds", required: false) { limits.append(("maxSeconds", .int(n))) }
+        if !limits.isEmpty { p.append(("limits", .obj(limits))) }
+        let params = JSONValue.obj(p)
+        let problems = RuntimeContract.shared.validate(params, "unit_run_params")
+        guard problems.isEmpty else { throw RuntimeError.schemaInvalid("these options do not make a unit run: \(problems.joined(separator: "; "))") }
+        if let id = o["--request-id"], !RuntimeContract.shared.validate(.string(id), "Id").isEmpty {
+            throw RuntimeError.invalidArgument("--request-id must be 1-128 of A-Z a-z 0-9 . _ : - and start with a letter or digit")
+        }
+        return .unitRun(params: params, requestId: o["--request-id"],
+                        timeout: try o["--wait-timeout"].map { try duration($0, "--wait-timeout") } ?? 3600)
+    }
+
     static func required(_ o: [String: String], _ name: String) throws -> String {
         guard let v = o[name] else { throw RuntimeError.invalidArgument("\(name) is required") }
         return v
@@ -665,7 +722,7 @@ enum CommandRouter {
         lines += [
             "",
             "--format json prints one JSON object on stdout; diagnostics go to stderr.",
-            "AI/GUI service methods (runtime/1): agentdesktop rpc|ai|gui …; see agentdesktop ai --help.",
+            "AI/GUI service methods (runtime/1): agentdesktop rpc|ai …; see agentdesktop ai --help.",
             "--endpoint (or AGENTDESKTOP_ENDPOINT) selects a Runtime other than the installed product's.",
             "Exit codes: 0 done, 2 arguments, 3 Runtime offline, 4 permission, 5 conflict,",
             "6 version/capability, 7 known failure, 8 wait timeout, 9 result unknown.",

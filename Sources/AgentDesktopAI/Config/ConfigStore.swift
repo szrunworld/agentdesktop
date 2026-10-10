@@ -103,8 +103,6 @@ public actor ConfigStore {
     /// Budget scopes whose last attempt end could not be written.
     var blockedBudgetScopes: Set<String> = []
     var ledgerFaults: Set<LedgerFault> = []
-    /// Injected run-store write failures (tests only).
-    var runStoreFaults: Set<RunStoreFault> = []
 
     public init(path: String, credentials: CredentialStore, digestKey: Data,
                 clock: ConfigClock = SystemConfigClock(), options: ConfigOptions = ConfigOptions(),
@@ -169,7 +167,8 @@ public actor ConfigStore {
         revocationListeners.append(listener)
     }
 
-    /// Whether an active GUI run references a resource (protects delete).
+    /// Whether a live GUI unit Run pins a resource (protects delete). Set by
+    /// the unit.run executor (A6); the Runtime keeps the Runs themselves.
     public func setActiveRunCheck(_ check: @escaping @Sendable (ConfigResourceKind, String) -> Bool) {
         activeRunCheck = check
     }
@@ -278,7 +277,9 @@ public actor ConfigStore {
     }
 
     /// GUI runs, their events, inference and action receipts, and the
-    /// runtime epoch (spec §05.3, §07.4, §09.3, §10.3).
+    /// runtime epoch (spec §05.3, §07.4, §09.3, §10.3). Unused since A6
+    /// (unit Runs live in the Runtime's RunStore); kept so stores created
+    /// before it open unchanged.
     private static func migrateV3(_ db: SQLiteDatabase, now: String) throws {
         try db.transaction {
             try db.exec("""
@@ -723,7 +724,7 @@ public actor ConfigStore {
 
     public func delete(_ kind: ConfigResourceKind, _ id: String, expectedRevision: Int) throws -> JSONValue {
         let row = try requireCurrent(kind, id, expectedRevision: expectedRevision)
-        if try isReferenced(kind, id) || activeRunCheck(kind, id) || referencedByActiveRun(kind, id) {
+        if try isReferenced(kind, id) || activeRunCheck(kind, id) {
             throw ContractError(.resourceInUse, "\(kind.rawValue) is still referenced; change those references first")
         }
         let t = now

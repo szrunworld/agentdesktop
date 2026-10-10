@@ -101,7 +101,8 @@ extension RuntimeService {
     /// Methods only the owner may call that a paired client may still ask
     /// for, one call at a time, each confirmed by the user in the Agent
     /// Desktop window. Pairing approval is not among them: a pairing asks
-    /// the user itself, when it starts. gui.runs.* stays the window's own.
+    /// the user itself, when it starts. A paired app runs GUI units with the
+    /// unit.run capability of its grant (A6).
     static let confirmableMethods: Set<String> = {
         var m: Set<String> = ["runtime.enableInput",
                               "hub.clients.list", "hub.clients.show", "hub.clients.revoke",

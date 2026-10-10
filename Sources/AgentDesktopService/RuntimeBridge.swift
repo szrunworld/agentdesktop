@@ -32,7 +32,7 @@ public enum RuntimeBridge {
     /// What the GUI execution backend supports, for the `gui` section of
     /// runtime.capabilities.
     public static func guiCapabilities(_ service: AgentDesktopService) -> JSONValue? {
-        service.runs.capabilities()
+        service.guiCapabilities()
     }
 
     static func answer(_ call: ExtensionCall, service: AgentDesktopService, idempotent: Bool,
@@ -43,7 +43,7 @@ public enum RuntimeBridge {
         // The service scopes configuration by caller; the local owner keeps
         // the scope it has always had.
         let scope = call.clientId.hasPrefix("local:") ? "uid:" + call.clientId.dropFirst("local:".count) : call.clientId
-        let router = service.router(callerScope: scope, trustedOwner: call.owner)
+        let router = service.router(callerScope: scope)
         final class Box: @unchecked Sendable { var outcome: Result<JSONValue, ContractError>? }
         let box = Box()
         let done = DispatchSemaphore(value: 0)

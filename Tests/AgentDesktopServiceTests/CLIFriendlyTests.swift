@@ -164,62 +164,18 @@ struct CLIFriendlyTests {
         #expect(s.slice.upstream.chatRequests == calls)
     }
 
-    // CLI-003: async run with --wait; same key, same run; events --follow.
-    @Test func guiRunWaitFollowAndDuplicateKey() async throws {
-        let s = try await Served()
-        defer { s.server.stop() }
-        _ = try await s.slice.configure()
-        func runArgs(_ key: String, wait: Bool) -> [String] {
-            ["gui", "run", "--desktop", "desk-a", "--goal-file", "goal.txt", "--verification-file", "v.json",
-             "--allowed-actions", "click,type,key", "--idempotency-key", key] + (wait ? ["--wait"] : [])
-        }
-        func files(_ r: CLIRun) {
-            r.files["goal.txt"] = goal + "\n"
-            r.files["v.json"] = #"{"kind":"element_text_equals","role":"static_text","text":"\#(expected)"}"#
-        }
-        let r = CLIRun(); files(r)
-        #expect(await s.run(r, runArgs("cli-run-1", wait: true)) == .ok, "\(r.err.lines)")
-        let final = try r.json()
-        #expect(final["data"]?["state"]?.stringValue == "succeeded")
-        #expect(r.err.lines.contains { $0.contains("accepted runId") }, "the acceptance goes to stderr")
-        #expect(r.out.lines.count == 1)
-        let runId = final["data"]!["runId"]!.stringValue!
-
-        // Without --wait the id comes back at once; the same key gives the same run.
-        let again = CLIRun(); files(again)
-        #expect(await s.run(again, runArgs("cli-run-1", wait: false)) == .ok)
-        #expect(try again.json()["data"]?["runId"]?.stringValue == runId)
-        #expect(await s.slice.executor.executed.count == 3)
-
-        let ev = CLIRun()
-        #expect(await s.run(ev, ["gui", "events", "--run-id", runId, "--after-sequence", "0", "--follow"]) == .ok)
-        var seq: [Int] = []
-        for line in ev.out.lines {
-            let v = try StrictJSON.parse(line)
-            seq += v["data"]?["events"]?.arrayValue?.compactMap { $0["sequence"]?.intValue } ?? []
-        }
-        #expect(!seq.isEmpty && seq == Array(seq.sorted()) && Set(seq).count == seq.count)
-
-        let after = CLIRun()
-        #expect(await s.run(after, ["gui", "events", "--run-id", runId, "--after-sequence", String(seq.last!)]) == .ok)
-        #expect(try after.json()["data"]?["events"]?.arrayValue?.isEmpty == true)
-    }
-
     // CLI-004: dry-run validates and shows what would be sent, and sends nothing.
     @Test func dryRunSendsNothing() async throws {
         let s = try await Served()
         defer { s.server.stop() }
         let r = CLIRun()
-        r.files["goal.txt"] = goal
-        r.files["v.json"] = #"{"kind":"element_text_equals","role":"static_text","text":"x"}"#
         let before = s.slice.upstream.requests.count
-        #expect(await s.run(r, ["gui", "run", "--desktop", "desk-a", "--goal-file", "goal.txt", "--verification-file", "v.json",
-                                "--allowed-actions", "click", "--idempotency-key", "dry-run-0001", "--dry-run", "--wait"]) == .ok)
+        #expect(await s.run(r, ["ai", "tests", "start", "--profile-id", "gp-1", "--expected-revision", "1",
+                                "--idempotency-key", "dry-run-0001", "--dry-run", "--wait"]) == .ok)
         #expect(try r.json()["dryRun"]?.boolValue == true, "\(r.err.lines)")
         let bad = CLIRun()
-        bad.files = r.files
-        #expect(await s.run(bad, ["gui", "run", "--desktop", "desk-a", "--goal-file", "goal.txt", "--verification-file", "v.json",
-                                  "--allowed-actions", "drag", "--idempotency-key", "dry-run-0002", "--dry-run"]) == .localValidation)
+        #expect(await s.run(bad, ["ai", "tests", "start", "--profile-id", "gp-1", "--expected-revision", "one",
+                                  "--idempotency-key", "dry-run-0002", "--dry-run"]) == .localValidation)
         let key = CLIRun()
         key.files["conn.json"] = #"{"name":"Ark","protocol":"openai_chat","baseUrl":"https://ark.example.com/api/v3","timeoutMs":30000}"#
         key.stdin = canary
@@ -231,27 +187,5 @@ struct CLIFriendlyTests {
         let list = CLIRun()
         #expect(await s.run(list, ["ai", "connections", "list"]) == .ok)
         #expect(try list.json()["data"]?["items"]?.arrayValue?.isEmpty == true, "dry-run created nothing")
-    }
-
-    // Exit 6: the client stops waiting; exit 130: Ctrl-C cancels the run first.
-    @Test func waitTimeoutAndInterrupt() async throws {
-        let s = try await Served()
-        defer { s.server.stop() }
-        _ = try await s.slice.configure()
-        let r = CLIRun()
-        r.files["goal.txt"] = goal
-        r.files["v.json"] = #"{"kind":"element_text_equals","role":"static_text","text":"never shown"}"#
-        // A 1 ms client wait: the CLI stops waiting (6) unless the run already
-        // ended as failed (4); either way it never reports success.
-        let timedOut = await s.run(r, ["gui", "run", "--desktop", "desk-a", "--goal-file", "goal.txt", "--verification-file", "v.json",
-                                       "--allowed-actions", "click,type", "--idempotency-key", "slow-run-0001", "--wait", "--wait-timeout-ms", "1"])
-        #expect([ExitCode.waitTimedOut, .rejected].contains(timedOut), "\(r.err.lines)")
-
-        let c = CLIRun()
-        c.files = r.files
-        c.interruptAfterPolls = 0
-        #expect(await s.run(c, ["gui", "run", "--desktop", "desk-a", "--goal-file", "goal.txt", "--verification-file", "v.json",
-                                "--allowed-actions", "click,type", "--idempotency-key", "interrupt-0001", "--wait"]) == .interrupted)
-        #expect(c.err.lines.contains { $0.contains("cancel accepted") }, "\(c.err.lines)")
     }
 }

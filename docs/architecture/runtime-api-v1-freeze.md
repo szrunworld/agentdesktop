@@ -88,7 +88,7 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | `socket` | `RuntimeServer` 接受的任何本机客户端（CLI、MCP、ACP、SDK、各 Agent） | `socket:<uid>` | 非 owner |
 
 socket 客户端：
-- 不能启动应用，不能枚举应用和窗口，不能调用任何 `gui.runs.*`；服务方法只能调用白名单里的读取方法。拒绝都是 `permission_denied`、`notSent`，发生在请求账本和平台之前。
+- 不能启动应用，不能枚举应用和窗口，不能调用 `unit.run`（A6 起它是授权里的 `unit.run` 能力）；服务方法只能调用白名单里的读取方法。拒绝都是 `permission_denied`、`notSent`，发生在请求账本和平台之前。
 - 看不到也用不了主窗口创建的 Desktop、会话、请求结果、Run、事件和产物。
 
 #### 剩余风险：反复 Stop 的可用性风险
@@ -138,7 +138,7 @@ iPhone 镜像（`com.apple.ScreenContinuity`）是普通 macOS 应用，但对�
   - `unit.run` 启动一个 GUI 单元运行（kind `unit`）：探索 / 回放 / 自动，参数见 §5。
   - 读取、等待、停止、事件统一走 `run.show` / `run.wait` / `run.cancel` / `run.events` / `run.list`。
 - 从连接（CLI、MCP、SDK、外部 App）发起的 `unit.run` 是 Delegated Run（external_client / connection_scoped，origin agent_hub）。主窗口的 GUI Explorer 在进程内经 Runtime 创建 Durable Run（platform / platform_durable，origin gui_explorer），**不经过线协议**，因此线上没有任何参数能得到 Durable Run。
-- `gui_runs` 表不再作为权威，Explorer 只写 RunStore 事件与 ActionReceipt 的 ID 引用；AiService 只写推理 attempt（集成设计 §4）。
+- `gui_runs` 表不再作为权威，Explorer 只写 RunStore 事件与 ActionReceipt 的 ID 引用；AiService 只写推理 attempt（集成设计 §4）。A6-2（2026-10-10）删除了 `gui.runs.*`、AI 服务的运行表读写与重启恢复；旧库里的 `gui_runs` 等表保留但不再读写。`ai.usage.summary` 的 confirmedActions / unknownActionOutcomes 由宿主按调用者的 unit Run 统计：RunStore 在写 `action.completed` / `action.unknown` 时同一事务记下动作结果（表 `action_outcomes`，不随 Run 的 7 天保留期删除）；重启恢复时，在途的动作以恢复时刻记为 unknown。
 
 ## 4. 事件：单调序号 + 游标 + 修订号
 
@@ -355,13 +355,13 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 ## 9. 单一端点落地说明（PR2b-1、PR2b-2，2026-10-08）
 
 - 宿主只监听一个端点（目前仍叫 `runtime.sock`；`control.sock` 这个名字等引擎侧不再用它时再改），**没有 `ai.sock`**。
-- `ai.*` 与过渡保留的 `gui.runs.*` 由宿主里的 AI 服务应答，在 `methods.json` 里标为 `servedBy: "ai-service"`：
+- `ai.*` 由宿主里的 AI 服务应答，在 `methods.json` 里标为 `servedBy: "ai-service"`：
   - 同一信封、握手和订阅规则；
   - params 与 result 的定义在 **`contracts/runtime/v1/service.schema.json`**，由 Runtime 合同统一加载；
   - 不进 Runtime 请求账本，requestId 就是 AI 服务的幂等键（写操作 8–128 个字符）；
   - 错误按 §6 映射成小写码，服务自己的分类放在 `details.serviceCode`。
 - ai/1 的 `runtime.capabilities` 并入 `runtime.capabilities` 的可选字段 `gui`（定义 `GuiCapabilities`）。
-- `gui.runs.*` 在单一端点上过渡保留（`status: transitional`，`removedBy: A6`），unit.run 落地时删除。
+- `gui.runs.*` 曾在单一端点上过渡保留，A6-2（2026-10-10）已删除，只留在 `methods.json` 的 `withdrawn` 里；CLI 的 `gui run/status/cancel/events` 换成 `agentdesktop unit run` 与 `run show|events|wait|cancel`。
 - **PR2b-2 起，Swift 端已没有 ai/1 信封**：
   - 不再编码或解码 `schemaVersion` / `command` / `context.idempotencyKey`；
   - 服务内部用 `ServiceRouter.answer(method:params:deadline:idempotencyKey:)` 直接调度；

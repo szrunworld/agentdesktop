@@ -4,14 +4,12 @@ import Foundation
 import Testing
 @testable import AgentDesktopGUI
 
-/// A binding taken from a real start through the service, so the
+/// A binding from the resolver a unit Run's admission uses, so the
 /// candidate snapshots are the configuration store's own.
 func boundBinding(_ h: GuiHarness, limits: [(String, JSONValue)] = []) async throws -> GuiRunBinding {
-    let runId = try await h.start(key: "provider-key-\(UUID().uuidString.prefix(6))")
-    _ = try await h.ok("gui.runs.cancel", .obj([("runId", .string(runId))]), key: "cancel-\(UUID().uuidString.prefix(8))")
-    await h.finished(runId)
-    let json = try await h.run(runId)["binding"]!
-    let primary = json["primary"]!
+    let resolved = try await ConfigBindingResolver(store: h.store, codecs: h.codecs)
+        .resolve(guiProfileId: nil, expectedProfileRevision: nil, callerScope: "owner")
+    let primary = resolved.primary.json
     var gui = primary["guiProfile"]!
     var l = gui["limits"]!
     for (k, v) in limits { l = l.setting(k, v) }
@@ -34,7 +32,7 @@ struct ProviderTests {
         let provider = GuiAiProvider(service: StubAiService([]))
         func scan(_ value: Any, depth: Int = 0) {
             #expect(!(value is GuiObservationPort) && !(value is GuiExecutionPort) && !(value is GuiAuditPort)
-                    && !(value is GuiSessionAuthority) && !(value is GuiRunRepository), "provider holds \(type(of: value))")
+                    && !(value is UnitRunSink), "provider holds \(type(of: value))")
             guard depth < 3 else { return }
             for child in Mirror(reflecting: value).children { scan(child.value, depth: depth + 1) }
         }
@@ -115,13 +113,12 @@ struct ProviderTests {
                                limits: [("maxSteps", .int(1))])
         let a = try await h.setUpProfile(name: "A")
         try await h.setUpProfile(name: "B", fallback: [.obj([("guiProfileId", a["guiProfileId"]!), ("revision", a["revision"]!)])])
-        let runId = try await h.start(key: "fallback-key-01")
+        let runId = try await h.start()
         await h.finished(runId)
-        let run = try await h.run(runId)
-        #expect(run["binding"]?["fallbackCandidates"]?.arrayValue?.count == 1)
-        #expect(run["latestInferenceReceipt"]?["candidateIndex"]?.intValue == 1)
-        #expect(run["latestInferenceReceipt"]?["guiProfileId"] == a["guiProfileId"])
+        let last = try #require(await h.audit.inferences.last)
+        #expect(last.candidate.candidateIndex == 1)
+        #expect(last.candidate.guiProfileId == a["guiProfileId"]?.stringValue)
         #expect(h.ai.callCount == 2)
-        #expect(run["modelAttemptCount"]?.intValue == 2)
+        #expect(h.run(runId).modelAttempts == 2)
     }
 }

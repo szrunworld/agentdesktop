@@ -47,6 +47,10 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     let clock: MonotonicClock
     private let lock = NSLock()
     private var tasks: [String: Task<Void, Never>] = [:]
+    /// Resources each live Run pinned at admission: none of them may be
+    /// deleted while it lasts (spec §04.1). A Run waiting for a person keeps
+    /// them until it is stopped.
+    private var pinned: [String: [(ConfigResourceKind, String)]] = [:]
 
     public init(resolver: GuiBindingResolver, ports: GuiExplorerPorts, features: GuiBackendFeatures, aiService: AiService,
                 codecs: GuiCodecRegistry = GuiCodecRegistry(), clock: MonotonicClock = SystemMonotonicClock()) {
@@ -115,7 +119,7 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     static func goalText(_ goal: JSONValue) -> String {
         let description = goal["description"]?.stringValue ?? ""
         guard let params = goal["params"], params.objectMembers?.isEmpty == false else { return description }
-        return description + "\n\nParameters (JSON): " + GuiRunService.canonical(params).encoded()
+        return description + "\n\nParameters (JSON): " + GuiCapabilities.canonical(params).encoded()
     }
 
     /// The resolver's refusal in F40-06 terms.
@@ -164,10 +168,17 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
                                   provider: GuiAiProvider(service: aiService, codecs: codecs, clock: clock), budget: budget,
                                   clock: clock, callerScope: c.callerScope, startedAtNs: startedAt, stopSignal: signal)
         let runId = c.runId
+        let pins = ([plan.primary] + plan.fallback).flatMap { c -> [(ConfigResourceKind, String)] in
+            [(.guiProfile, c.guiProfileId), (.modelProfile, c.resolvedModel.model.modelProfileId),
+             (.connection, c.resolvedModel.connection.connectionId)]
+        }
+        lock.withLock { pinned[runId] = pins }
         // Armed before the driver can run: a stop accepted at any moment,
         // even before this, keeps the next model call and input from starting.
         let gate = TaskGate()
-        stop.arm {
+        stop.arm { [weak self] in
+            // A Run waiting for a person ends with this stop.
+            self?.lock.withLock { if self?.tasks[runId] == nil { _ = self?.pinned.removeValue(forKey: runId) } }
             // Visible before this returns: no model call or input starts
             // after the Runtime accepted the stop. A model call already out
             // is cancelled with the task; an input already handed to the
@@ -178,11 +189,21 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         }
         let task = Task.detached { [weak self] in
             await driver.run()
-            sink.finished(await Self.ending(of: lifecycle, stopped: signal.isStopped))
-            self?.lock.withLock { _ = self?.tasks.removeValue(forKey: runId) }
+            let ending = await Self.ending(of: lifecycle, stopped: signal.isStopped)
+            sink.finished(ending)
+            self?.lock.withLock {
+                _ = self?.tasks.removeValue(forKey: runId)
+                if case .needsInput = ending {} else { _ = self?.pinned.removeValue(forKey: runId) }
+            }
         }
         gate.set(task)
         lock.withLock { tasks[runId] = task }
+    }
+
+    /// Whether a live unit Run pinned this resource (ConfigStore's
+    /// active-run check: delete answers RESOURCE_IN_USE).
+    public func pins(_ kind: ConfigResourceKind, _ id: String) -> Bool {
+        lock.withLock { pinned.values.contains { $0.contains { $0.0 == kind && $0.1 == id } } }
     }
 
     /// The task driving a Run, for callers that await its end (tests).

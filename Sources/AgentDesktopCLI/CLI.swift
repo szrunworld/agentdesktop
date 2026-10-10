@@ -139,6 +139,8 @@ struct CLI {
             return runEvents(runId: runId, after: after, follow: follow, format: invocation.format, out, endpoint: endpoint)
         case let .runWait(runId, timeout):
             return runWait(runId: runId, timeout: timeout, out, endpoint: endpoint)
+        case let .unitRun(params, requestId, timeout):
+            return unitRun(params: params, requestId: requestId, timeout: timeout, out, endpoint: endpoint)
         case let .runCancel(runId, requestId, wait, timeout):
             return runCancel(runId: runId, requestId: requestId, wait: wait, timeout: timeout, out, endpoint: endpoint)
         case let .agentsPair(name, publisher, grant, profile, timeout):

@@ -12,7 +12,7 @@ struct CommandSpec {
         let param: String       // wire field
         let value: Value
     }
-    enum Waits { case operation, run }
+    enum Waits { case operation }
 
     let words: [String]
     let command: String
@@ -24,7 +24,6 @@ struct CommandSpec {
     var paramsFile: ParamsFile = .none
     var credentialStdin: Bool = false
     var waits: Waits?
-    var follows = false
 
     enum ParamsFile { case none, whole, patch }
 }
@@ -87,18 +86,6 @@ enum CommandTable {
             CommandSpec(words: ["ai", "usage"], command: "ai.usage.summary",
                         flags: [.s("from", "from"), .s("to", "to"), .s("connection-id", "connectionId")],
                         required: ["from", "to"]),
-            CommandSpec(words: ["gui", "run"], command: "gui.runs.start",
-                        flags: [.s("desktop", "desktopId"), .s("session", "sessionId"),
-                                .s("profile-id", "guiProfileId"), .i("expected-profile-revision", "expectedProfileRevision"),
-                                .init(name: "allowed-actions", param: "allowedActions", value: .list)],
-                        required: ["desktopId", "goal", "verification", "allowedActions"], waits: .run),
-            CommandSpec(words: ["gui", "status"], command: "gui.runs.get",
-                        flags: [.s("run-id", "runId")], required: ["runId"]),
-            CommandSpec(words: ["gui", "cancel"], command: "gui.runs.cancel",
-                        flags: [.s("run-id", "runId")], required: ["runId"]),
-            CommandSpec(words: ["gui", "events"], command: "gui.runs.events",
-                        flags: [.s("run-id", "runId"), .i("after-sequence", "afterSequence"), .i("limit", "limit")],
-                        required: ["runId", "afterSequence"], follows: true),
         ]
         return t
     }()
@@ -118,7 +105,6 @@ struct Invocation {
     var deadlineAt: String?
     var dryRun = false
     var wait = false
-    var follow = false
     var waitTimeoutMs = 600_000
     var pollMs = 500
 }
@@ -139,8 +125,6 @@ extension ContractCLI {
             order.append(key)
         }
         var paramsFile: String?
-        var goalFile: String?
-        var verificationFile: String?
         var credentialStdin = false
         var i = 0
         func next(_ flag: String) throws -> String {
@@ -161,13 +145,10 @@ extension ContractCLI {
             case "params-file":
                 guard spec.paramsFile != .none else { throw LocalFailure.usage("this command takes no --params-file") }
                 paramsFile = try next(name)
-            case "goal-file" where spec.command == "gui.runs.start": goalFile = try next(name)
-            case "verification-file" where spec.command == "gui.runs.start": verificationFile = try next(name)
             case "idempotency-key": inv.idempotencyKey = try next(name)
             case "deadline-at": inv.deadlineAt = try next(name)
             case "dry-run": inv.dryRun = true
             case "wait" where spec.waits != nil: inv.wait = true
-            case "follow" where spec.follows: inv.follow = true
             case "wait-timeout-ms":
                 guard let v = Int(try next(name)), v > 0 else { throw LocalFailure.usage("--wait-timeout-ms needs a positive integer") }
                 inv.waitTimeoutMs = v
@@ -210,18 +191,6 @@ extension ContractCLI {
                 for m in members { try put(m.key, m.value, from: "--params-file") }
             }
         }
-        if let goalFile {
-            guard let text = try? String(decoding: readFile(goalFile), as: UTF8.self) else {
-                throw LocalFailure.usage("cannot read \(goalFile)")
-            }
-            try put("goal", .string(text.trimmingCharacters(in: .whitespacesAndNewlines)), from: "--goal-file")
-        }
-        if let verificationFile {
-            guard let data = try? readFile(verificationFile), let v = try? StrictJSON.parse(data) else {
-                throw LocalFailure.usage("\(verificationFile) is not one JSON object")
-            }
-            try put("verification", v, from: "--verification-file")
-        }
         if spec.credentialStdin {
             guard credentialStdin else { throw LocalFailure.usage("pass the key on stdin with --credential-stdin") }
             var key = String(decoding: readStdin(), as: UTF8.self)
@@ -234,7 +203,6 @@ extension ContractCLI {
         if !missing.isEmpty { throw LocalFailure.usage("missing \(missing.joined(separator: ", "))") }
         inv.params = order.map { ($0, fields[$0]!) }
         inv.wait = inv.wait && !inv.dryRun
-        inv.follow = inv.follow && !inv.dryRun
         return inv
     }
 
@@ -268,10 +236,9 @@ extension ContractCLI {
         }
         let request = envelope(spec.command, .obj(inv.params), key: op.requiresIdempotencyKey ? inv.idempotencyKey : nil,
                                deadlineAt: inv.deadlineAt)
-        if !inv.wait && !inv.follow {
+        if !inv.wait {
             return submit(request.encodedData(), socket: socket, dryRun: inv.dryRun)
         }
-        if inv.follow { return follow(request, socket: socket, inv: inv) }
         return waitFor(request, spec: spec, socket: socket, inv: inv)
     }
 
@@ -285,8 +252,7 @@ extension ContractCLI {
             stdout(accepted.encoded())
             return mapError(accepted)
         }
-        let isRun = spec.waits == .run
-        let idField = isRun ? "runId" : "operationId"
+        let idField = "operationId"
         guard let id = result[idField]?.stringValue else {
             stdout(accepted.encoded())
             return .ok
@@ -296,15 +262,10 @@ extension ContractCLI {
         var last = accepted
         while true {
             if interrupted() {
-                if isRun, let key = inv.idempotencyKey {
-                    let cancel = envelope("gui.runs.cancel", .obj([("runId", .string(id))]), key: "\(key)-cancel")
-                    let (ack, _) = exchange(cancel, socket: socket)
-                    if let ack { stderr("agentdesktop: cancel \(ack["ok"]?.boolValue == true ? "accepted" : "refused"): \(ack.encoded())") }
-                }
                 stdout(last.encoded())
                 return .interrupted
             }
-            let get = envelope(isRun ? "gui.runs.get" : "ai.operations.get", .obj([(idField, .string(id))]), key: nil)
+            let get = envelope("ai.operations.get", .obj([(idField, .string(id))]), key: nil)
             let (reply, code) = exchange(get, socket: socket)
             guard let reply else { return code }
             last = reply
@@ -323,39 +284,6 @@ extension ContractCLI {
                 stdout(reply.encoded())
                 return .waitTimedOut
             }
-            sleepMs(inv.pollMs)
-        }
-    }
-
-    /// `gui events --follow`: one complete response per line (NDJSON) until
-    /// the run is terminal and no events remain.
-    func follow(_ request: JSONValue, socket: String, inv: Invocation) -> ExitCode {
-        guard Self.problems(request) == nil, let p = request["params"] else {
-            return submit(request.encodedData(), socket: socket, dryRun: true)
-        }
-        let runId = p["runId"]!.stringValue!
-        var after = p["afterSequence"]?.intValue ?? 0
-        let started = nowMs()
-        while true {
-            if interrupted() { return .interrupted }
-            var params: [(String, JSONValue)] = [("runId", .string(runId)), ("afterSequence", .int(after))]
-            if let limit = p["limit"] { params.append(("limit", limit)) }
-            let (reply, code) = exchange(envelope("gui.runs.events", .obj(params), key: nil), socket: socket)
-            guard let reply else { return code }
-            stdout(reply.encoded())
-            guard code == .ok, let result = reply["data"] else { return mapError(reply) }
-            after = result["nextAfterSequence"]?.intValue ?? after
-            if result["hasMore"]?.boolValue == true { continue }
-            let (status, sc) = exchange(envelope("gui.runs.get", .obj([("runId", .string(runId))]), key: nil), socket: socket)
-            guard let status else { return sc }
-            let state = status["data"]?["state"]?.stringValue ?? ""
-            if ["succeeded", "failed", "cancelled"].contains(state) {
-                // One last read so events written with the terminal state are not lost.
-                let (tail, _) = exchange(envelope("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(after))]), key: nil), socket: socket)
-                if let tail, tail["data"]?["events"]?.arrayValue?.isEmpty == false { stdout(tail.encoded()) }
-                return .ok
-            }
-            if nowMs() - started >= UInt64(inv.waitTimeoutMs) { return .waitTimedOut }
             sleepMs(inv.pollMs)
         }
     }

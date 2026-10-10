@@ -271,6 +271,14 @@ extension RuntimeService {
         units.current?.ports.unbind(runId: r.runId)
     }
 
+    /// Inputs of these Runs in [from, to): executed, and those whose
+    /// outcome is unknown. For ai.usage.summary (A6: the AI service no
+    /// longer keeps action receipts of its own). Read from the RunStore's
+    /// action outcomes, which outlive the Runs' retention.
+    public func actionOutcomes(runIds: [String], from: Date, to: Date) -> (confirmed: Int, unknown: Int) {
+        runs.actionOutcomes(runIds: runIds, from: from, to: to)
+    }
+
     /// Wait for async work from a synchronous handler, off the cooperative
     /// pool (the server answers on its own threads).
     static func blocking<T: Sendable>(_ body: @escaping @Sendable () async -> T) -> T {

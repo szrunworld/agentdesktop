@@ -249,15 +249,15 @@ func aControlWhoseNameSaysPasteCopyOrCutIsRefusedInAnyLanguage(_ role: String, _
 }
 
 @Test func theGuiExplorersKeysAndPointClicksGoThroughTheSameRule() async throws {
-    let (platform, _, ports, d) = try guiScene()
-    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
-    let bundle = try await ports.observe(runId: "r1", expectedGeneration: 1)
+    let (platform, s, ports, d) = try guiScene()
+    let r1 = try await guiRun(s, ports, d)
+    let bundle = try await ports.observe(runId: r1, expectedGeneration: 1)
     let shot = bundle.observation.screenshots[0].screenshotId
-    let paste = proposal(.action(.key(keys: ["Meta", "V"])), run: "r1", stamp: bundle.observation.stamp, shot: shot)
+    let paste = proposal(.action(.key(keys: ["Meta", "V"])), run: r1, stamp: bundle.observation.stamp, shot: shot)
     #expect(try await ports.execute(paste, actionId: "act-paste").deliveryState == .rejected)
     // The explorer clicks by point only: a context menu's Paste under it is refused.
     platform.hitAt = hit("AXMenuItem", ["Paste"], window: nil, inMenu: true)
-    let click = proposal(.action(.click(sourcePixel: Point(x: 100, y: 100))), run: "r1", stamp: bundle.observation.stamp, shot: shot)
+    let click = proposal(.action(.click(sourcePixel: Point(x: 100, y: 100))), run: r1, stamp: bundle.observation.stamp, shot: shot)
     #expect(try await ports.execute(click, actionId: "act-menu").deliveryState == .rejected)
     #expect(platform.performed.isEmpty)
 }

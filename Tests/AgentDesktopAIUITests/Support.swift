@@ -104,13 +104,162 @@ actor NoAudit: GuiAuditPort {
     func recordAction(_ receipt: GuiActionReceipt) {}
 }
 
-struct OwnerSessions: GuiSessionAuthority {
-    func authorize(sessionId: String?, desktopId: String, callerScope: String, trustedOwner: Bool,
-                   runId: String) throws -> (sessionId: String, bindingEpoch: UInt64) {
-        guard desktopId == "desk-a", sessionId == nil ? trustedOwner : sessionId == "sess-a" else {
-            throw ContractError(.forbidden, "not authorized for this desktop")
+/// A scripted Runtime for the run pages (A6): it starts unit Runs with the
+/// service's executor and keeps each Run the way the Runtime writes it —
+/// phase, outcome, closingReason, Run.unit, and events with the action.*
+/// receipts beside the explorer's unit.* events. It is a stand-in: the real
+/// Runtime is exercised in AgentDesktopRuntimeTests and the integration tests.
+final class ScriptedRuntime: @unchecked Sendable {
+    final class Run: UnitRunSink, @unchecked Sendable {
+        let runId: String
+        let lock = NSLock()
+        var phase = "running"
+        var outcome: String?
+        var closingReason: String?
+        var unknownActions = 0
+        var verification: JSONValue = .obj([("status", .string("not_run"))])
+        var events: [JSONValue] = []
+        var stop: UnitRunStopHandle?
+        var executorDone = false
+        let profile: (String?, Int?)
+
+        init(runId: String, profile: (String?, Int?)) { self.runId = runId; self.profile = profile }
+
+        func append(_ type: String, _ data: JSONValue) {
+            events.append(.obj([("runId", .string(runId)), ("sequence", .int(events.count + 1)),
+                                ("at", .string(Timestamp.string(Date()))), ("type", .string(type)), ("data", data)]))
         }
-        return ("sess-a", 1)
+
+        func record(_ type: String, _ data: JSONValue) -> Bool {
+            lock.withLock {
+                guard phase != "ended" else { return false }
+                if type == "unit.action", let requestId = data["requestId"]?.stringValue {
+                    let delivery = data["deliveryState"]?.stringValue ?? ""
+                    append("action.accepted", .obj([("requestId", .string(requestId)), ("kind", .string("click"))]))
+                    let receipt = JSONValue.obj([("requestId", .string(requestId)), ("snapshotId", .string("snap")),
+                                                 ("delivery", .string(delivery == "not_sent" ? "not_dispatched" : "dispatched"))])
+                    switch delivery {
+                    case "confirmed": append("action.completed", .obj([("receipt", receipt)]))
+                    case "unknown", "submitted": unknownActions += 1; append("action.unknown", .obj([("receipt", receipt)]))
+                    default: append("action.failed", .obj([("receipt", receipt)]))
+                    }
+                }
+                append(type, data)
+                return true
+            }
+        }
+
+        func verified(status: String, observationId: String?, checkedAt: Date) {
+            lock.withLock {
+                verification = .obj([("status", .string(status)), ("observationId", observationId.map(JSONValue.string) ?? .null),
+                                     ("checkedAt", .string(Timestamp.string(checkedAt)))])
+            }
+        }
+
+        func finished(_ ending: UnitRunEnding) {
+            lock.withLock {
+                executorDone = true
+                switch ending {
+                case .needsInput(let reason):
+                    if phase == "running" { phase = "waiting_input"; append("unit.needs_input", .obj([("reason", .string(reason))])) }
+                    else { end(outcome: "cancelled", reason: closingReason ?? "stopped") }
+                case .verified: end(outcome: "success", reason: "goal_verified")
+                case .failed(let reason): end(outcome: phase == "stopping" ? "cancelled" : "failed", reason: phase == "stopping" ? closingReason! : reason)
+                case .cancelled: end(outcome: "cancelled", reason: closingReason ?? "stopped")
+                }
+            }
+        }
+
+        /// Under the lock.
+        func end(outcome: String, reason: String) {
+            phase = "ended"
+            self.outcome = unknownActions > 0 ? "unknown" : outcome
+            closingReason = closingReason ?? reason
+            append("run.ended", .obj([("phase", .string("ended")), ("outcome", .string(self.outcome!)), ("reason", .string(closingReason!))]))
+        }
+
+        var json: JSONValue {
+            lock.withLock {
+                .obj([("runId", .string(runId)), ("kind", .string("unit")), ("origin", .string("gui_explorer")),
+                      ("ownership", .string("platform")), ("lifetime", .string("platform_durable")),
+                      ("desktopId", .string("desk-a")), ("sessionId", .string("sess-a")), ("phase", .string(phase)),
+                      ("outcome", outcome.map(JSONValue.string) ?? .null), ("closingReason", closingReason.map(JSONValue.string) ?? .null),
+                      ("createdAt", .string("2026-10-10T00:00:00Z")), ("unknownActions", .int(unknownActions)),
+                      ("unit", .obj([("mode", .string("explore")), ("goalHash", .string("sha256:" + String(repeating: "0", count: 64))),
+                                     ("guiProfileId", profile.0.map(JSONValue.string) ?? .null),
+                                     ("guiProfileRevision", profile.1.map(JSONValue.int) ?? .null),
+                                     ("verification", verification)]))])
+            }
+        }
+    }
+
+    private let lock = NSLock()
+    private var runs: [String: Run] = [:]
+    var units: UnitRunService?
+
+    func run(_ id: String) -> Run? { lock.withLock { runs[id] } }
+
+    func start(_ params: JSONValue) async -> Result<JSONValue, RuntimeError> {
+        guard let units else {
+            return .failure(RuntimeError("unsupported_backend", "off", phase: .handler, details: .obj([("reason", .string("gui_execution_off"))])))
+        }
+        if lock.withLock({ runs.values.contains { r in r.lock.withLock { r.phase != "ended" } } }) {
+            return .failure(RuntimeError("control_busy", "desk-a is controlled", phase: .handler))
+        }
+        let plan: any UnitRunPlan
+        switch await units.admit(params: params, callerScope: "owner") {
+        case let .failure(e): return .failure(e)
+        case let .success(p): plan = p
+        }
+        let r = Run(runId: "run_\(UUID().uuidString.prefix(8).lowercased())", profile: (plan.guiProfileId, plan.guiProfileRevision))
+        lock.withLock { runs[r.runId] = r }
+        let stop = UnitRunStopHandle()
+        r.lock.withLock { r.stop = stop }
+        units.start(plan, context: UnitRunContext(runId: r.runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
+                                                  callerScope: "owner", params: params), sink: r, stop: stop)
+        return .success(r.json)
+    }
+
+    func call(_ method: String, _ params: JSONValue) -> Result<JSONValue, RuntimeError> {
+        guard let r = run(params["runId"]?.stringValue ?? "") else { return .failure(.notFound("no run")) }
+        switch method {
+        case "run.show": return .success(r.json)
+        case "run.events":
+            let after = params["after"]?.intValue ?? 0, limit = params["limit"]?.intValue ?? 100
+            let page = r.lock.withLock { Array(r.events.dropFirst(after).prefix(limit)) }
+            return .success(.obj([("events", .array(page)), ("next", .int(after + page.count)),
+                                  ("ended", .bool(r.lock.withLock { r.phase == "ended" }))]))
+        case "run.cancel":
+            let stop: UnitRunStopHandle? = r.lock.withLock {
+                guard r.phase != "ended", r.phase != "stopping" else { return nil }
+                r.closingReason = "stopped"
+                if r.executorDone { r.end(outcome: "cancelled", reason: "stopped"); return nil }
+                r.phase = "stopping"
+                r.append("stop.accepted", .obj([("reason", .string("stopped"))]))
+                return r.stop
+            }
+            stop?.stop()
+            let j = r.json
+            return .success(.obj([("execution", .obj([("phase", j["phase"]!), ("outcome", j["outcome"]!)]))]))
+        default: return .failure(.notFound("no method"))
+        }
+    }
+
+    /// Inputs of these Runs, as the host answers ai.usage.summary.
+    func outcomes(_ ids: [String]) -> (confirmed: Int, unknown: Int) {
+        var c = 0, u = 0
+        for id in ids {
+            guard let r = run(id) else { continue }
+            r.lock.withLock {
+                c += r.events.filter { $0["type"]?.stringValue == "action.completed" }.count
+                u += r.events.filter { $0["type"]?.stringValue == "action.unknown" }.count
+            }
+        }
+        return (c, u)
+    }
+
+    var port: RuntimeRunsPort {
+        RuntimeRunsPort(start: { await self.start($0) }, call: { m, p, _ in self.call(m, p) })
     }
 }
 
@@ -120,6 +269,8 @@ final class ScriptedUpstream: HTTPTransport, @unchecked Sendable {
     var colorAnswer = SyntheticGuiFixture.colorAnswer
     var usageReported = true
     var delayMs = 0
+    /// Run steps ask for a person instead (call_user).
+    var callUser = false
 
     static let runReplies = [
         "Thought: focus the name field.\nAction: click(start_box='(500,250)')",
@@ -142,6 +293,8 @@ final class ScriptedUpstream: HTTPTransport, @unchecked Sendable {
             reply = lock.withLock { colorAnswer }
         } else if body.contains(SyntheticGuiFixture.guiTask) {
             reply = "Thought: the blue button.\nAction: click(start_box='(750,780)')"
+        } else if body.contains("Ada"), lock.withLock({ callUser }) {
+            reply = "Thought: a login prompt.\nAction: call_user(content='please log in')"
         } else if body.contains("Ada") {
             reply = lock.withLock {
                 defer { runStep += 1 }
@@ -188,6 +341,16 @@ final class SpyClient: ContractClient, @unchecked Sendable {
         if fails { throw ContractError(.upstreamUnavailable, "service unreachable", retryable: true) }
         return try await inner.send(command, params, idempotencyKey: idempotencyKey)
     }
+    func startUnitRun(_ params: JSONValue) async throws -> JSONValue {
+        let fails = lock.withLock { calls.append("unit.run"); return failing.contains("unit.run") }
+        if fails { throw ContractError(.upstreamUnavailable, "runtime unreachable", retryable: true) }
+        return try await inner.startUnitRun(params)
+    }
+    func runtime(_ method: String, _ params: JSONValue, requestId: String?) async throws -> JSONValue {
+        let fails = lock.withLock { calls.append(method); return failing.contains(method) }
+        if fails { throw ContractError(.upstreamUnavailable, "runtime unreachable", retryable: true) }
+        return try await inner.runtime(method, params, requestId: requestId)
+    }
 }
 
 final class Harness: @unchecked Sendable {
@@ -199,6 +362,7 @@ final class Harness: @unchecked Sendable {
     let service: AgentDesktopService
     let router: ServiceRouter
     let client: InProcessContractClient
+    let runtime = ScriptedRuntime()
 
     init(backend: Bool = true) async throws {
         dir = URL(fileURLWithPath: "/tmp/adui-\(UUID().uuidString.prefix(8))")
@@ -207,14 +371,16 @@ final class Harness: @unchecked Sendable {
         executor = FormExecutor(form: form)
         let be = GuiExecutionBackend(
             ports: GuiExplorerPorts(observation: observation, execution: executor, audit: NoAudit()),
-            sessions: OwnerSessions(),
             features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]))
+        let runtime = runtime
         service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
             databasePath: dir.appendingPathComponent("config.sqlite").path,
-            credentials: InMemoryCredentialStore(), http: upstream, executionBackend: backend ? be : nil))
-        router = service.router(callerScope: "owner", trustedOwner: true)
-        let runs = service.runs
-        client = InProcessContractClient(router: router, guiCapabilities: { runs.capabilities() })
+            credentials: InMemoryCredentialStore(), http: upstream, executionBackend: backend ? be : nil,
+            actionOutcomes: { ids, _, _ in runtime.outcomes(ids) }))
+        runtime.units = service.units
+        router = service.router(callerScope: "owner")
+        let service = service
+        client = InProcessContractClient(router: router, guiCapabilities: { service.guiCapabilities() }, runs: runtime.port)
     }
 
     /// Every String reachable from a model's stored properties, to prove

@@ -25,7 +25,6 @@ public final class RunStartModel: ObservableObject {
     @Published public private(set) var startedRunId: String?
 
     let client: ContractClient
-    private var startKey = SubmissionKey()
 
     public init(client: ContractClient, guiProfileId: String? = nil) {
         self.client = client
@@ -65,11 +64,14 @@ public final class RunStartModel: ObservableObject {
         fieldErrors = errors
         guard errors.isEmpty, let profile else { return nil }
         let order = ["click", "type", "key", "scroll"]
+        // unit_run_params (A6): the main window starts a Durable unit Run.
         return .obj([
-            ("desktopId", .string(d)), ("guiProfileId", .string(profile.id)), ("expectedProfileRevision", .int(profile.revision)),
-            ("goal", .string(g)),
-            ("verification", .obj([("kind", .string("element_text_equals")), ("role", .string("static_text")), ("text", .string(t))])),
+            ("desktopId", .string(d)), ("mode", .string("explore")),
+            ("goal", .obj([("description", .string(g))])),
+            ("verification", .obj([("all", .array([.obj([("kind", .string("element_text_equals")), ("role", .string("static_text")),
+                                                         ("text", .string(t))])]))])),
             ("allowedActions", .array(order.filter(allowedActions.contains).map(JSONValue.string))),
+            ("guiProfileId", .string(profile.id)), ("expectedProfileRevision", .int(profile.revision)),
         ])
     }
 
@@ -84,17 +86,17 @@ public final class RunStartModel: ObservableObject {
         } catch { problem = UIProblem(error) }
     }
 
-    /// One logical start: double clicks or a retry reuse the same key.
+    /// One start: a second click while starting sends nothing, and once a
+    /// Run started this page starts no other until prepareNew. The Runtime
+    /// refuses a second Run on a Desktop it already runs on (control_busy).
     public func start() async {
-        guard !starting, let params = params() else { return }
+        guard !starting, startedRunId == nil, let params = params() else { return }
         starting = true
         defer { starting = false }
         do {
-            let r = try await client.send("gui.runs.start", params, idempotencyKey: startKey.key(for: params, prefix: "w05-run"))
+            let r = try await client.startUnitRun(params)
             startedRunId = r["runId"]?.stringValue
             problem = nil
-        } catch let e as ContractError where e.code == .idempotencyConflict {
-            problem = UIProblem(e)
         } catch {
             problem = UIProblem(error)
         }
@@ -102,7 +104,6 @@ public final class RunStartModel: ObservableObject {
 
     /// After a finished run, a new start is a new submission.
     public func prepareNew() {
-        startKey.reset()
         startedRunId = nil
     }
 }

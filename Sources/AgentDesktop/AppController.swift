@@ -175,7 +175,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     /// Model connections, profiles, capability tests and GUI runs. GUI runs
     /// get the Runtime's ports only when real GUI input is switched on;
-    /// otherwise gui.runs.start answers CAPABILITY_MISMATCH.
+    /// otherwise there is no unit.run executor and unit.run answers unsupported_backend.
     private func startAIService(runtime: RuntimeService, records: String) {
         let enabled = role.guiExecutionEnabled
         let credentialBackend = role.credentialBackend
@@ -184,7 +184,6 @@ final class AppController: NSObject, NSApplicationDelegate {
             do {
                 let backend = enabled ? GuiExecutionBackend(
                     ports: GuiExplorerPorts(observation: ports, execution: ports, audit: NoGuiAudit()),
-                    sessions: ports,
                     features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"],
                                                  independentDesktopConcurrency: true)) : nil
                 let credentials: CredentialStore
@@ -193,7 +192,8 @@ final class AppController: NSObject, NSApplicationDelegate {
                 case .files(let directory): credentials = try FileCredentialStore(directory: directory.path)
                 }
                 let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
-                    databasePath: records + "/ai.sqlite", credentials: credentials, executionBackend: backend))
+                    databasePath: records + "/ai.sqlite", credentials: credentials, executionBackend: backend,
+                    actionOutcomes: { runIds, from, to in runtime.actionOutcomes(runIds: runIds, from: from, to: to) }))
                 // A2: one endpoint. The AI service answers ai.* through the
                 // Runtime's server; it has no socket of its own.
                 let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
@@ -207,14 +207,38 @@ final class AppController: NSObject, NSApplicationDelegate {
                     self.aiService = service
                     // The AI/GUI pages live in Settings and keep their
                     // contract v1 client until U6.
-                    let client = InProcessContractClient(router: service.router(callerScope: "uid:\(getuid())", trustedOwner: true),
-                                                         guiCapabilities: { service.runs.capabilities() })
+                    let client = InProcessContractClient(router: service.router(callerScope: "uid:\(getuid())"),
+                                                         guiCapabilities: { service.guiCapabilities() },
+                                                         runs: Self.runtimeRuns(runtime))
                     self.mainWindow.attachAISettings(AISettingsModel(client: client))
                 }
             } catch {
                 FileHandle.standardError.write(Data("AI service unavailable: \(error)\n".utf8))
             }
         }
+    }
+
+    /// The main window's way to its Runs (A6): unit Runs it starts are
+    /// Durable (in-process, never on the wire); reading and stopping go
+    /// through the Runtime as the owner. Off the cooperative pool: the
+    /// Runtime answers synchronously.
+    nonisolated static func runtimeRuns(_ runtime: RuntimeService) -> RuntimeRunsPort {
+        let owner = ConnectionState(peerUID: getuid())
+        _ = runtime.respond(to: Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"w05-handshake","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"agentdesktop-window","version":"1"}}}"#.utf8),
+                            on: owner)
+        @Sendable func offPool<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
+            await withCheckedContinuation { cont in DispatchQueue.global().async { cont.resume(returning: body()) } }
+        }
+        return RuntimeRunsPort(
+            start: { params in await offPool { runtime.startDurableUnitRun(params: params) } },
+            call: { method, params, requestId in
+                await offPool {
+                    let line = JSONValue.obj([("apiVersion", .string(RuntimeAPI.version)),
+                                              ("requestId", .string(requestId ?? RuntimeRequest.newId(prefix: "w06"))),
+                                              ("method", .string(method)), ("params", params)]).encodedData()
+                    return runtime.respond(to: line, on: owner).result
+                }
+            })
     }
 
     private func startRuntimeServer() {

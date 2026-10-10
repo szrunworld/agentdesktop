@@ -92,6 +92,47 @@ extension CLI {
         }
     }
 
+    /// Start a GUI unit Run and stay on its control connection until it
+    /// ends: the Run is Delegated, so leaving earlier would stop it
+    /// (owner_lost). Ctrl-C or the timeout cancels it and waits for the
+    /// stop. Exit 0 only when its goal was verified.
+    func unitRun(params: JSONValue, requestId: String?, timeout: Double, _ out: ResultWriter, endpoint: Endpoint) -> Int32 {
+        withClient(out, endpoint: endpoint) { client in
+            _ = try client.handshake()
+            let start = RuntimeRequest(.unitRun, requestId: requestId ?? RuntimeRequest.newId(prefix: "unit"), params: params)
+            recordRequest(start.requestId, start.method, endpoint.path)
+            let run = try client.call(start)
+            let runId = run["runId"]?.stringValue ?? ""
+            stderr("unit run \(runId) on desktop \(run["desktopId"]?.stringValue ?? "")")
+            let deadline = now().addingTimeInterval(timeout)
+            var final: JSONValue?
+            var stopped = false
+            while final == nil {
+                if !stopped, interrupted() || now() >= deadline {
+                    stopped = true
+                    stderr(interrupted() ? "stopping unit run \(runId)" : "unit run \(runId) ran past the wait timeout; stopping it")
+                    _ = try? client.call(RuntimeRequest(.runCancel, requestId: RuntimeRequest.newId(prefix: "unit-stop"),
+                                                        params: .obj([("runId", .string(runId))])))
+                }
+                do {
+                    final = try client.call(RuntimeRequest(.runWait, params: .obj([("runId", .string(runId)), ("timeoutMs", .int(2000))])))
+                } catch let e as RuntimeError where e.code == "wait_timeout" {
+                    continue
+                }
+            }
+            let r = final!
+            out.success(requestId: start.requestId, data: r) { Self.runText(r) }
+            // 0 verified, 7 failed, 9 result unknown, 8 stopped at the wait
+            // timeout, 130 stopped by Ctrl-C.
+            switch r["outcome"]?.stringValue {
+            case "success": return ExitStatus.ok
+            case "unknown": return 9
+            case "cancelled" where stopped: return interrupted() ? 130 : 8
+            default: return 7
+            }
+        }
+    }
+
     /// Accept the cancel; with --wait, observe until no input is possible.
     /// The same --request-id repeats the cancel without cancelling twice.
     func runCancel(runId: String, requestId: String?, wait: Bool, timeout: Double, _ out: ResultWriter, endpoint: Endpoint) -> Int32 {

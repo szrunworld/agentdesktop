@@ -119,7 +119,7 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
         #expect(RuntimeContract.shared.validate(caps, "Capabilities").isEmpty)
         let names = Set((caps["interface"]?["methods"]?.arrayValue ?? []).compactMap { $0["method"]?.stringValue })
         #expect(names.contains("ai.connections.create"))
-        #expect(names.contains("gui.runs.start"))
+        #expect(!names.contains("gui.runs.start"), "withdrawn with A6")
         #expect(names.contains("runtime.handshake"))
         #expect(caps["gui"] != nil)
     }

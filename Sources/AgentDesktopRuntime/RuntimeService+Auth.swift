@@ -15,7 +15,7 @@ extension RuntimeService {
     /// and a client lists only its own window grants.
     static let pairedBaseline: Set<String> = ["runtime.status", "hub.windows.request", "hub.windows.list"]
     /// The grant capability each method needs. Methods in none of these
-    /// lists (stopAll, enableInput, ai.*, gui.runs.*, the rest of hub.*)
+    /// lists (stopAll, enableInput, ai.*, the rest of hub.*)
     /// are the owner's.
     static let capabilityOf: [String: String] = {
         var m: [String: String] = [:]
@@ -39,9 +39,7 @@ extension RuntimeService {
     /// clients see the same refusal once grants replace the seal.
     static let grantReason: [String: String] = ["app.launch": "launch_requires_grant",
                                                 "app.list": "window_discovery_requires_grant",
-                                                "window.list": "window_discovery_requires_grant",
-                                                "gui.runs.start": "gui_run_requires_grant", "gui.runs.get": "gui_run_requires_grant",
-                                                "gui.runs.cancel": "gui_run_requires_grant", "gui.runs.events": "gui_run_requires_grant"]
+                                                "window.list": "window_discovery_requires_grant"]
 
     /// Why the caller may not make this request, if it may not.
     func authorization(_ request: RuntimeRequest, _ c: ConnectionState) -> RuntimeError? {

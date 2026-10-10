@@ -110,6 +110,16 @@ extension ConfigStore {
 
     /// Ledger rows of one caller for usage, oldest first. Interrupted and
     /// reserved rows count as attempts with unknown usage.
+    /// The GUI unit Runs of this caller that called a model (on this
+    /// connection, when given): the Runs whose inputs ai.usage.summary
+    /// counts. Their actions are the Runtime's (A6), read by the host.
+    public func unitRunIds(callerScope: String, connectionId: String?) throws -> [String] {
+        var sql = "SELECT DISTINCT run_id FROM inference_attempts WHERE purpose='gui_step' AND caller_scope=? AND run_id IS NOT NULL"
+        var args: [SQLValue] = [.text(callerScope)]
+        if let connectionId { sql += " AND connection_id=?"; args.append(.text(connectionId)) }
+        return try db.rows(sql + " ORDER BY run_id", args).compactMap { $0[0].text }
+    }
+
     public func usageRows(callerScope: String) throws -> [UsageRow] {
         let rows = try db.rows("""
             SELECT attempt_id, COALESCE(started_at, reserved_at), connection_id, input_tokens, output_tokens,
