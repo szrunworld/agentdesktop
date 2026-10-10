@@ -18,7 +18,7 @@ public struct AgentDesktopServiceOptions: Sendable {
     public var executionBackend: GuiExecutionBackend?
     /// The inputs of these unit Runs in [from, to), for ai.usage.summary:
     /// the host reads them from the Runtime's RunStore.
-    public var actionOutcomes: @Sendable ([String], Date, Date) -> (confirmed: Int, unknown: Int)
+    public var actionOutcomes: @Sendable ([String], Date, Date) throws -> (confirmed: Int, unknown: Int)
     public var prices: AiPriceTable?
 
     public init(databasePath: String,
@@ -27,7 +27,7 @@ public struct AgentDesktopServiceOptions: Sendable {
                 clock: MonotonicClock = SystemMonotonicClock(),
                 config: ConfigOptions = ConfigOptions(),
                 executionBackend: GuiExecutionBackend? = nil,
-                actionOutcomes: @escaping @Sendable ([String], Date, Date) -> (confirmed: Int, unknown: Int) = { _, _, _ in (0, 0) },
+                actionOutcomes: @escaping @Sendable ([String], Date, Date) throws -> (confirmed: Int, unknown: Int) = { _, _, _ in (0, 0) },
                 prices: AiPriceTable? = nil) {
         self.databasePath = databasePath
         self.credentials = credentials
@@ -73,7 +73,7 @@ public final class AgentDesktopService: Sendable {
         // unit.run keeps no run table here: the Runtime's RunStore, request
         // ledger and the AI call ledger are the records (A6 principle 3).
         let units = o.executionBackend.map { be in
-            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs),
+            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs), evidence: store,
                            ports: GuiExplorerPorts(observation: be.ports.observation, execution: be.ports.execution,
                                                    audit: UnitRunAudit()),
                            features: be.features, aiService: ai, codecs: codecs, clock: o.clock)

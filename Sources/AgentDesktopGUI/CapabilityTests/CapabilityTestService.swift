@@ -287,7 +287,8 @@ public final class CapabilityTestService: Sendable {
             modelProfileId: resolved.model.model.modelProfileId, revision: Int(resolved.model.model.revision),
             layer: level.layer, status: o.status == "passed" ? "verified" : "failed",
             operationId: operationId, reasonCode: o.reasonCode,
-            adapter: level == .guiContract ? (v.adapterVersion, v.promptVersion, v.parserVersion) : nil)
+            adapter: level == .guiContract ? (v.adapterVersion, v.promptVersion, v.parserVersion) : nil,
+            gui: level == .guiContract ? (v.adapterId.rawValue, v.coordinateProtocol.rawValue) : nil)
     }
 
     func testResult(_ resolved: ResolvedGuiProfile, _ outcomes: [Level: LevelOutcome]) async throws -> JSONValue {
