@@ -45,8 +45,14 @@ struct DisplayAttachTests {
         // The display is now attached: listed as such, and a second attach reuses the Desktop.
         let again = AttachDisplayFlow(runtime: m)
         await again.load()
-        #expect(again.displayId == nil, "nothing attachable is preselected")
-        #expect(again.displays[0]["desktopId"]?.stringValue == id && AttachDisplayFlow.originText(again.displays[0]).text == "已挂接")
+        #expect(again.displays[0]["desktopId"]?.stringValue == id && AttachDisplayFlow.originText(again.displays[0]).text.hasPrefix("已挂接"))
+        // An attached display can still be opened to another app: the Desktop is shared (Codex on a6a9088).
+        let b = m.addClient(name: "second")
+        again.displayId = 1
+        again.clientId = b
+        #expect(again.canSubmit)
+        await again.submit()
+        #expect(again.isDone && again.result?["created"]?.boolValue == false && again.desktopId == id, "\(again.step)")
     }
 
     @Test func aRefusalShowsTheProblemAndKeepsTheForm() async {
@@ -72,10 +78,6 @@ struct DisplayAttachTests {
         await flow.submit()
         let id = try #require(flow.desktopId)
         let b = m.addClient(name: "second", apps: ["com.example.probe"])
-        let second = AttachDisplayFlow(runtime: m)
-        await second.load()
-        second.displayId = 1
-        #expect(!second.canSubmit, "already attached: not offered again")
         let access = PhysicalDesktopAccess(runtime: m, desktopId: id)
         await access.load()
         #expect(access.grants.map { $0["clientId"]?.stringValue } == ["app:mock-001"])

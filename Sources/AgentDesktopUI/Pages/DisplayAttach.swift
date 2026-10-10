@@ -30,7 +30,14 @@ public final class AttachDisplayFlow: ObservableObject {
     public var desktopId: String? { result?["desktop"]?["desktopId"]?.stringValue }
     public var canSubmit: Bool {
         guard step == .pending, let displayId, clientId != nil else { return false }
-        return displays.first { $0["displayId"]?.intValue == displayId }.map(Self.attachable) ?? false
+        return displays.first { $0["displayId"]?.intValue == displayId }.map(Self.openable) ?? false
+    }
+
+    /// A display the owner can open to an app: proved physical, whether
+    /// not attached yet or already attached (the Desktop is then shared,
+    /// `created: false`; Codex on a6a9088).
+    public static func openable(_ d: JSONValue) -> Bool {
+        d["attachable"]?.boolValue == true || (d["origin"]?.stringValue == "physical" && d["desktopId"]?.stringValue != nil)
     }
 
     /// Only a display the Runtime proved physical and has not attached yet.
@@ -38,7 +45,7 @@ public final class AttachDisplayFlow: ObservableObject {
 
     /// The origin as the Runtime proved it, in the user's words.
     public static func originText(_ d: JSONValue) -> StatusText {
-        if d["desktopId"]?.stringValue != nil { return StatusText("已挂接", .idle) }
+        if d["desktopId"]?.stringValue != nil { return StatusText("已挂接，可再开放给其他程序", .idle) }
         switch d["origin"]?.stringValue {
         case "physical": return StatusText("已证实为物理显示器", .running)
         case "virtual": return StatusText("虚拟显示器，不可开放", .danger)
@@ -63,7 +70,9 @@ public final class AttachDisplayFlow: ObservableObject {
             let c = try await runtime.call("hub.clients.list")
             displays = d["displays"]?.arrayValue ?? []
             clients = Self.openable(c["clients"]?.arrayValue ?? [])
-            if displayId == nil, let first = displays.first(where: Self.attachable) { displayId = first["displayId"]?.intValue }
+            if displayId == nil, let first = displays.first(where: Self.attachable) ?? displays.first(where: Self.openable) {
+                displayId = first["displayId"]?.intValue
+            }
             if clientId == nil, clients.count == 1 { clientId = clients[0]["clientId"]?.stringValue }
             loadProblem = nil
         } catch {
@@ -118,7 +127,7 @@ public struct AttachDisplaySheet: View {
     var form: some View {
         VStack(alignment: .leading, spacing: ADSpace.l) {
             VStack(alignment: .leading, spacing: ADSpace.xs) {
-                Text("显示器（只有系统证实为物理显示器的才能开放）").font(ADFont.noteStrong).foregroundStyle(ADColor.ink)
+                Text("显示器（只有系统证实为物理显示器的才能开放；已挂接的可以再开放给另一个程序，共用同一个 Desktop）").font(ADFont.noteStrong).foregroundStyle(ADColor.ink)
                 if flow.displays.isEmpty, flow.loadProblem == nil {
                     Text("没有读到任何显示器。").font(ADFont.note).foregroundStyle(ADColor.muted)
                 }
@@ -168,7 +177,7 @@ public struct AttachDisplaySheet: View {
     func displayRow(_ d: JSONValue) -> some View {
         let id = d["displayId"]?.intValue ?? -1
         let on = flow.displayId == id
-        let usable = AttachDisplayFlow.attachable(d)
+        let usable = AttachDisplayFlow.openable(d)
         return Button { if usable { flow.displayId = id } } label: {
             HStack(spacing: ADSpace.m) {
                 Image(systemName: on ? "largecircle.fill.circle" : "circle").foregroundStyle(on ? ADColor.primary : ADColor.muted)

@@ -132,6 +132,46 @@ private func attach(_ s: RuntimeService, _ c: ConnectionState, display: Int = 1,
     #expect(platform.calls.isEmpty, "\(platform.calls)")
 }
 
+@Test func aPairedAppWithDesktopManageCannotDestroyThePhysicalDesktopItWasOpened() throws {
+    // Codex on a6a9088: desktop.manage covers desktop.destroy; a shared
+    // physical Desktop is the owner's to take back, not one app's to drop.
+    let platform = FakePlatform()
+    let s = displayService(platform)
+    let owner = handshaken(s)
+    let (a, aId, _) = try pairedClient(s, capabilities: ["observe", "act", "desktop.manage"], desktops: ["created"],
+                                       apps: ["com.apple.calculator"], name: "a")
+    let (_, bId, _) = try pairedClient(s, capabilities: ["observe"], desktops: [], name: "b")
+    let d = try #require(data(attach(s, owner, client: aId))?["desktop"]?["desktopId"]?.stringValue)
+    _ = try #require(data(attach(s, owner, client: bId)))
+    let r = call(s, a, "desktop.destroy", params: #"{"desktopId":"\#(d)"}"#)
+    #expect(code(r) == "permission_denied" && errorDetails(r)?["reason"]?.stringValue == "owner_only", "\(r.json.encoded())")
+    #expect(failure(r)?.notSent == true)
+    #expect(s.desktops.find(d) != nil && s.hub.grant(bId)?.desktops == [d])
+    // Its own virtual Desktop it still destroys.
+    let v = try created(s, a)
+    #expect(data(call(s, a, "desktop.destroy", params: #"{"desktopId":"\#(v)"}"#))?["destroyed"]?.boolValue == true)
+    // The owner's desktop.destroy of a physical Desktop goes through detach's cleanup: no grant keeps the id.
+    _ = try #require(data(call(s, owner, "desktop.destroy", params: #"{"desktopId":"\#(d)"}"#)))
+    #expect(s.hub.grant(aId)?.desktops == ["created"] && s.hub.grant(bId)?.desktops == [])
+}
+
+@Test func aGrantThatExpiredWhileTheUserDecidedGetsNoDesktop() throws {
+    let platform = FakePlatform()
+    let s = displayService(platform, confirmer: nil)
+    let owner = handshaken(s)
+    let (_, id, _) = try pairedClient(s, capabilities: ["observe"], desktops: ["created"])
+    s.confirmer = FakeConfirmer { r in
+        // Expired during the prompt, revision unchanged (Codex on a6a9088).
+        var g = s.hub.grant(id)!
+        g.expiresAt = Timestamp.string(Date().addingTimeInterval(-1))
+        try! s.hub.putGrant(g)
+        return .approved(digest: r.digest)
+    }
+    let r = attach(s, owner, client: id)
+    #expect(code(r) == "conflict" && errorDetails(r)?["reason"]?.stringValue == "grant_expired", "\(r.json.encoded())")
+    #expect(platform.calls.isEmpty && s.desktops.count == 0)
+}
+
 @Test func aClientThatChangedWhileTheUserDecidedGetsNothing() throws {
     let platform = FakePlatform()
     let s = displayService(platform, confirmer: nil)

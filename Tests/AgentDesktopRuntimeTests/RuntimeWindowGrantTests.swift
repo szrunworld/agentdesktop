@@ -634,8 +634,12 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
         return .approved(digest: r.digest)
     }
     let r = st.request(["observe"])
-    #expect(code(r) == "conflict" || code(r) == "not_found", "\(r.json.encoded())")
+    // The destroyed physical Desktop also left the app's grant (owner
+    // display attach): the app's connection is cut as for any narrowing.
+    #expect(code(r) == "conflict" || code(r) == "not_found" || errorDetails(r)?["reason"]?.stringValue == "grant_narrowed",
+            "\(r.json.encoded())")
     #expect(st.s.hub.windowGrants(clientId: st.appId).isEmpty)
+    #expect(st.s.hub.grant(st.appId)?.desktops.contains(st.desk) == false)
 }
 
 @Test func aLaunchWithoutAStartTimeIsNotTheClientsOwn() throws {

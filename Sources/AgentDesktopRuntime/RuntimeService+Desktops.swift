@@ -125,6 +125,16 @@ extension RuntimeService {
                                    phase: .handler, details: .obj([("openSessions", .int(open))]))
             }
             if d.kind == .physical {
+                // The user's display, opened to one or more apps by the
+                // owner: only the owner takes it back (hub.displays.detach),
+                // which also removes it from every grant. An app that may
+                // use it may not pull it from under the others (Codex on
+                // a6a9088).
+                if c.role == .paired {
+                    hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "desktop.destroy", decision: "denied", reason: "owner_only")
+                    throw RuntimeError("permission_denied", "a physical Desktop is the owner's to detach (hub.displays.detach); an app cannot destroy it",
+                                       phase: .handler, notSent: true, details: .obj([("reason", .string("owner_only"))]))
+                }
                 // The display and every window on it are the user's: drop
                 // the binding and the record, nothing else.
                 d.state = "destroyed"
@@ -133,6 +143,10 @@ extension RuntimeService {
                 desktops.remove(d.desktopId)
                 observations.forget(desktopId: d.desktopId)
                 endWindowGrants(onDesktop: d.desktopId)
+                // Then every app it was opened to loses it, as detach does
+                // (Codex on a6a9088): no grant keeps a dropped Desktop's id.
+                // The Desktop is gone either way; every check finds it so.
+                _ = takeDesktopFromGrants(d.desktopId, only: nil, by: c, endingWindowGrants: false)
                 return .obj([("desktopId", .string(d.desktopId)), ("destroyed", .bool(true)), ("quitApps", .array([]))])
             }
             d.state = "destroying"

@@ -93,6 +93,12 @@ extension RuntimeService {
             return .failure(RuntimeError("conflict", "\(clientId) changed while the user was asked; ask again", phase: .handler, notSent: true,
                                          details: .obj([("reason", .string("target_changed"))])))
         }
+        // Expired while the user decided (Codex on a6a9088): nothing is
+        // attached to a grant that no longer works.
+        guard g2.expiresAt > nowString else {
+            return .failure(RuntimeError("conflict", "the grant of \(clientId) expired while the user was asked; renew it first", phase: .handler,
+                                         notSent: true, details: .obj([("reason", .string("grant_expired"))])))
+        }
         guard platform.displays().first(where: { $0.displayId == displayId })?.origin == .physical else {
             return .failure(RuntimeError("conflict", "display \(displayId) changed while the user was asked; ask again", phase: .handler, notSent: true,
                                          details: .obj([("reason", .string("display_changed"))])))
@@ -149,27 +155,10 @@ extension RuntimeService {
         }
         let only = p["clientId"]?.stringValue
         if let only, hub.client(only) == nil { return .failure(.notFound("no client \(only)")) }
-        var touched: [HubStore.Grant] = []
-        for client in hub.clients() where only == nil || client.clientId == only {
-            guard var g = hub.grant(client.clientId), g.desktops.contains(id) else { continue }
-            g.desktops.removeAll { $0 == id }
-            let saved: HubStore.Grant
-            let ended: [(id: String, reason: String)]
-            do {
-                (saved, ended) = try hub.setGrant(g, endingWindowGrants: { w in w.desktopId == id ? "desktop_removed" : nil })
-            } catch {
-                return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable; \(client.clientId) still holds desktop \(id)",
-                                             phase: .handler, notSent: true))
-            }
-            for e in ended { endedWindowGrants([e.id], state: hub.windowGrant(e.id)?.state ?? "ended", reason: e.reason) }
-            cutConnections(of: client.clientId, reason: "grant_narrowed")
-            for r in activeRuns(of: client.clientId) where r.desktopId == id {
-                _ = execution.stop(runId: r.runId, reason: "grant_narrowed", endAs: .cancelled)
-            }
-            sessions.closeAll(desktopId: id, caller: client.clientId, at: nowString)
-            hub.audit(connectionId: c.connectionId, clientId: client.clientId, method: "hub.displays.detach", decision: "revoked",
-                      reason: "\(id) revision \(saved.revision)")
-            touched.append(saved)
+        let touched: [HubStore.Grant]
+        switch takeDesktopFromGrants(id, only: only, by: c) {
+        case let .failure(e): return .failure(e)
+        case let .success(g): touched = g
         }
         var destroyed = false
         if only == nil {
@@ -192,5 +181,40 @@ extension RuntimeService {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.displays.detach", decision: "ended", reason: "\(id) display_detached")
         }
         return .success(.obj([("desktopId", .string(id)), ("destroyed", .bool(destroyed)), ("grants", .array(touched.map(\.json)))]))
+    }
+
+    /// Remove a Desktop from the grants of one client (`only`) or of every
+    /// client: each one's window grants on it end in the same transaction,
+    /// its connections are cut, its Runs and sessions there stop. Shared by
+    /// hub.displays.detach and the owner's desktop.destroy of a physical
+    /// Desktop (Codex on a6a9088: no grant keeps a dropped Desktop's id).
+    /// With `endingWindowGrants` false the window grants were already ended
+    /// by the caller (desktop.destroy, reason desktop_destroyed) and keep
+    /// that reason.
+    func takeDesktopFromGrants(_ id: String, only: String?, by c: ConnectionState, endingWindowGrants: Bool = true)
+        -> Result<[HubStore.Grant], RuntimeError> {
+        var touched: [HubStore.Grant] = []
+        for client in hub.clients() where only == nil || client.clientId == only {
+            guard var g = hub.grant(client.clientId), g.desktops.contains(id) else { continue }
+            g.desktops.removeAll { $0 == id }
+            let saved: HubStore.Grant
+            let ended: [(id: String, reason: String)]
+            do {
+                (saved, ended) = try hub.setGrant(g, endingWindowGrants: endingWindowGrants ? { w in w.desktopId == id ? "desktop_removed" : nil } : nil)
+            } catch {
+                return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable; \(client.clientId) still holds desktop \(id)",
+                                             phase: .handler, notSent: true))
+            }
+            for e in ended { endedWindowGrants([e.id], state: hub.windowGrant(e.id)?.state ?? "ended", reason: e.reason) }
+            cutConnections(of: client.clientId, reason: "grant_narrowed")
+            for r in activeRuns(of: client.clientId) where r.desktopId == id {
+                _ = execution.stop(runId: r.runId, reason: "grant_narrowed", endAs: .cancelled)
+            }
+            sessions.closeAll(desktopId: id, caller: client.clientId, at: nowString)
+            hub.audit(connectionId: c.connectionId, clientId: client.clientId, method: "hub.displays.detach", decision: "revoked",
+                      reason: "\(id) revision \(saved.revision)")
+            touched.append(saved)
+        }
+        return .success(touched)
     }
 }
