@@ -114,24 +114,27 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         }
         // 14. Every predicate is one the backend can verify (combinators
         // are the verifier's own); a value_equals_parameter takes its value
-        // from goal.params here, so a missing one ends before any Run.
-        var verifications: [GuiVerification] = []
-        for predicate in p["verification"]?["all"]?.arrayValue ?? [] {
-            let v: GuiVerification
-            do {
-                v = try GuiVerification(json: predicate, params: p["goal"]?["params"])
-            } catch let e as ContractError where e.code == .capabilityMismatch {
-                return .failure(Self.refusal("capability_mismatch", "this backend cannot verify that predicate", "predicate_unsupported"))
-            } catch let e as ContractError {
-                return .failure(RuntimeError("schema_invalid", e.message, phase: .handler, notSent: true,
-                                             details: .obj([("reason", .string("verification_invalid"))])))
-            } catch {
-                return .failure(RuntimeError("schema_invalid", "the verification could not be read", phase: .handler, notSent: true))
-            }
+        // from goal.params here, so a missing one ends before any Run. The
+        // run's predicates are one conjunction: its bounds count them all
+        // together (Codex on b39c9b4). A kind the contract does not know
+        // never gets here: the wire check refuses it as schema_invalid
+        // first (F40-06 row 2); predicate_unsupported is for contract kinds
+        // this backend cannot verify (row 14).
+        let verifications: [GuiVerification]
+        do {
+            verifications = try GuiVerification.conjunction(p["verification"]?["all"]?.arrayValue ?? [], params: p["goal"]?["params"])
+        } catch let e as ContractError where e.code == .capabilityMismatch {
+            return .failure(Self.refusal("capability_mismatch", "this backend cannot verify that predicate", "predicate_unsupported"))
+        } catch let e as ContractError {
+            return .failure(RuntimeError("schema_invalid", e.message, phase: .handler, notSent: true,
+                                         details: .obj([("reason", .string("verification_invalid"))])))
+        } catch {
+            return .failure(RuntimeError("schema_invalid", "the verification could not be read", phase: .handler, notSent: true))
+        }
+        for v in verifications {
             if let kind = v.leafKinds.sorted().first(where: { !features.verificationPredicates.contains($0) }) {
                 return .failure(Self.refusal("capability_mismatch", "this backend cannot verify \(kind)", "predicate_unsupported"))
             }
-            verifications.append(v)
         }
         guard !verifications.isEmpty else {
             return .failure(Self.refusal("capability_mismatch", "unit.run needs a predicate this backend verifies", "predicate_unsupported"))

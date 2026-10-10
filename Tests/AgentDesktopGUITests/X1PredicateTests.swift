@@ -199,6 +199,21 @@ struct X1AdmissionTests {
         #expect(throws: ContractError.self) { try parse(many) }   // 19 predicates
     }
 
+    // The run's predicates are one conjunction: 16 predicates in all, not
+    // 16 per member (Codex on b39c9b4).
+    @Test func boundsCoverTheWholeConjunction() async throws {
+        let pair = #"{"kind":"any","of":[{"kind":"element_exists","role":"button","label":"a"},{"kind":"element_exists","role":"button","label":"b"}]}"#
+        let three = try StrictJSON.parse(pair)   // 3 predicates each
+        #expect(try GuiVerification.conjunction(Array(repeating: three, count: 5)).count == 5)   // 15
+        #expect(throws: ContractError.self) { try GuiVerification.conjunction(Array(repeating: three, count: 6)) }   // 18
+        let h = try GuiHarness([])
+        try await h.setUpProfile()
+        let params = h.startParams().setting("verification", .obj([("all", .array(Array(repeating: three, count: 6)))]))
+        guard case let .failure(e) = await h.admit(params) else { Issue.record("admitted 18 predicates"); return }
+        #expect(e.code == "schema_invalid")
+        #expect(e.details?["reason"]?.stringValue == "verification_invalid")
+    }
+
     @Test func admissionRefusesBeforeAnyRun() async throws {
         // A backend that verifies only static text: a nested element_exists is unsupported.
         let h = try GuiHarness([], predicates: ["element_text_equals"])
