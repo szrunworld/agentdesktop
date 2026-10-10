@@ -324,3 +324,34 @@ private final class Box: @unchecked Sendable { var response: RuntimeResponse? }
     let shown = try #require(box.response.flatMap(data))
     #expect(shown["control"]?["state"]?.stringValue == "stopped", "not the stopping seen before the wait")
 }
+
+// Codex P1 on 6d39332: a stop between the takeover's check and its Run's start.
+
+@Test func aStopThatSlipsInBeforeTheTakeoversRunStandsAndStaysClosed() throws {
+    let sc = try scene()
+    let x = sc.s.execution
+    let (_, previous, serial) = x.closeForTakeover(sc.desktop)
+    #expect(previous == nil)
+    // The owner stops the Desktop right then (desktop.stop takes no Desktop lock).
+    _ = call(sc.s, sc.c, "desktop.stop", params: #"{"desktopId":"\#(sc.desktop)"}"#)
+    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: "local:\(getuid())", at: Timestamp.string(Date()))
+    // The takeover's Run is refused as superseded, in the same step as the check…
+    guard case let .failure(e) = x.startTakeover(session: session, serial: serial) else {
+        Issue.record("the takeover's Run started after the stop"); return
+    }
+    #expect(e.code == "conflict" && e.details?["reason"]?.stringValue == "superseded")
+    // …and its failure path does not reopen what the stop closed.
+    x.restoreGate(sc.desktop, previous, ifSerial: serial)
+    #expect(x.controlFacts(sc.desktop).gate == .stopped)
+    #expect(code(act(sc, clickContinue)) == "input_disabled", "agents stay out after the owner's stop")
+}
+
+@Test func aTakeoverThatCannotStartItsRunPutsItsOwnGateBack() throws {
+    // Nothing changed meanwhile: the gate the takeover closed is undone.
+    let sc = try scene()
+    let x = sc.s.execution
+    let (_, previous, serial) = x.closeForTakeover(sc.desktop)
+    x.restoreGate(sc.desktop, previous, ifSerial: serial)
+    #expect(x.controlFacts(sc.desktop).gate == nil)
+    #expect(data(act(sc, clickContinue))?["delivery"]?.stringValue == "dispatched")
+}

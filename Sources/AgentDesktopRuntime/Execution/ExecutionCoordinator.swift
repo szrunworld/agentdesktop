@@ -118,13 +118,20 @@ public final class ExecutionCoordinator: @unchecked Sendable {
 
     private func begin(kind: String, session: RuntimeSession, origin: RunRecord.Origin, ownership: RunRecord.Ownership,
                        lifetime: RunRecord.Lifetime, clientId: String?, connectionId: String?, owner: ObjectIdentifier?,
-                       withToken: Bool, unit: RunUnit? = nil) -> Result<(RunRecord, token: String?), RuntimeError> {
+                       withToken: Bool, unit: RunUnit? = nil, takeoverSerial: Int? = nil) -> Result<(RunRecord, token: String?), RuntimeError> {
         let runId = DesktopRegistry.newId(prefix: "run")
         var token: String?
         let result: Result<RunRecord, RuntimeError> = lock.withLock {
             guard !auditFailed else { return .failure(Self.auditError(notSent: true)) }
             do { try runs.checkWritable() } catch { return .failure(Self.auditError(notSent: true)) }
             guard admission == .enabled else { return .failure(inputDisabled()) }
+            // A takeover's Run starts only if the manual gate it closed still
+            // stands, checked with the start under this one lock: a stop or
+            // handback cannot slip in between (Codex P1 on 6d39332).
+            if let serial = takeoverSerial,
+               gates[session.desktopId] != .manual || gateSerial[session.desktopId, default: 0] != serial {
+                return .failure(Self.superseded(session.desktopId))
+            }
             switch gates[session.desktopId] {
             case .stopped?:
                 return .failure(RuntimeError(
@@ -458,16 +465,26 @@ public final class ExecutionCoordinator: @unchecked Sendable {
         }
     }
 
-    /// Whether the manual gate a takeover closed (its `serial`) is still in
-    /// place: no handback reopened the Desktop and no stop closed it anew.
-    func takeoverStands(_ desktopId: String, serial: Int) -> Bool {
-        lock.withLock { gates[desktopId] == .manual && gateSerial[desktopId, default: 0] == serial }
+    static func superseded(_ desktopId: String) -> RuntimeError {
+        RuntimeError("conflict", "desktop \(desktopId) was handed back or stopped while this takeover waited; nothing was taken over",
+                     phase: .handler, notSent: true,
+                     details: .obj([("desktopId", .string(desktopId)), ("reason", .string("superseded"))]))
+    }
+
+    /// desktop.takeover, last step: the user's Run, started only while the
+    /// manual gate the takeover closed (its `serial`) still stands.
+    func startTakeover(session: RuntimeSession, serial: Int) -> Result<RunRecord, RuntimeError> {
+        begin(kind: "exec", session: session, origin: .user, ownership: .platform, lifetime: .platformDurable,
+              clientId: nil, connectionId: nil, owner: nil, withToken: false, takeoverSerial: serial).map(\.0)
     }
 
     /// Put a gate back as it was (a takeover that could not start the
     /// user's Run).
-    func restoreGate(_ desktopId: String, _ gate: DesktopGate?) {
+    /// Only while the gate is still the takeover's own (`serial`): a stop or
+    /// handback made meanwhile stands (Codex P1 on 6d39332).
+    func restoreGate(_ desktopId: String, _ gate: DesktopGate?, ifSerial serial: Int) {
         lock.withLock {
+            guard gates[desktopId] == .manual, gateSerial[desktopId, default: 0] == serial else { return }
             if gates[desktopId] != gate { gateSerial[desktopId, default: 0] += 1 }
             gates[desktopId] = gate
             if gate == nil { gatedAt.removeValue(forKey: desktopId) }
