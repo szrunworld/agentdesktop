@@ -80,7 +80,7 @@ struct MockRuntimeTests {
     @Test func reservedAndFrozenMethodsAreMissing() async {
         let m = MockRuntime.sample()
         for method in ["hub.clients.show", "inbox.list", "run.reconcile", "unit.run", "desktop.stop",
-                       "desktop.takeover", "request.list", "ai.connections.list", "no.such.method"] {
+                       "desktop.takeover", "desktop.closePlan", "ai.connections.list", "no.such.method"] {
             #expect(await code { _ = try await m.call(method) } == "capability_missing", "\(method)")
         }
         #expect(Set(MockRuntime.modeled).isSubset(of: RuntimeCatalog.implemented))

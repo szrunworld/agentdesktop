@@ -1407,6 +1407,14 @@
         },
         "outcome": {
           "type": "object"
+        },
+        "clientId": {
+          "type": "string",
+          "description": "the principal that made the request"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id",
+          "description": "the Desktop the request named (absent for records older than A5 or naming none)"
         }
       }
     },
@@ -4487,6 +4495,117 @@
         },
         "windowGrant": {
           "$ref": "#/$defs/HubWindowGrant"
+        }
+      }
+    },
+    "request_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "completed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner only: one caller's records; ignored for a paired client, which sees only its own"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "RequestList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requests",
+        "next"
+      ],
+      "properties": {
+        "requests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RequestRecord"
+          }
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "request_export_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "completed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner only: one caller's records; ignored for a paired client, which sees only its own"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "RequestExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "count",
+        "truncated"
+      ],
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "more records matched than one export holds (10000): narrow the filter"
         }
       }
     }

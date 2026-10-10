@@ -365,7 +365,7 @@ public final class RuntimeService: @unchecked Sendable {
     private func ledgered(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let begin: RequestLedger.Begin
         do {
-            begin = try ledger.begin(caller: connection.clientId, request)
+            begin = try ledger.begin(caller: connection.clientId, request, desktopId: namedDesktop(request, connection))
         } catch {
             execution.auditStorageFailed()
             return .failure(ExecutionCoordinator.auditError(notSent: true))
@@ -541,6 +541,8 @@ public final class RuntimeService: @unchecked Sendable {
         case .displaysList: return listDisplays(connection)
         case .displaysAttach: return attachDisplay(p, connection)
         case .displaysDetach: return detachDisplay(p, connection)
+        case .requestList: return listRequests(p, connection)
+        case .requestExport: return exportRequests(p, connection)
         }
     }
 }

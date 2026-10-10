@@ -20,7 +20,7 @@ extension RuntimeService {
     static let capabilityOf: [String: String] = {
         var m: [String: String] = [:]
         for x in ["desktop.list", "desktop.show", "desktop.bindingStatus", "app.list", "window.list", "observe", "observe.region", "observe.subscribe", "observe.unsubscribe", "wait", "artifact.show",
-                  "artifact.read", "session.show", "request.show"] { m[x] = "observe" }
+                  "artifact.read", "session.show", "request.show", "request.list", "request.export"] { m[x] = "observe" }
         for x in ["act", "session.open", "session.close"] { m[x] = "act" }
         for x in ["desktop.create", "desktop.destroy", "desktop.recoverBinding", "app.launch", "window.bind", "window.unbind"] { m[x] = "desktop.manage" }
         for x in ["run.start", "run.attach", "run.finish", "run.show", "run.events", "run.wait", "run.cancel", "run.list",

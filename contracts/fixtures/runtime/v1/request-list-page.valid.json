@@ -1,0 +1,1 @@
+{"def":"RequestList","instance":{"requests":[{"requestId":"req_1","method":"act","state":"completed","acceptedAt":"2026-10-10T10:00:00.000Z","finishedAt":"2026-10-10T10:00:00.200Z","outcome":{"data":{}},"clientId":"local:501","desktopId":"d_0123456789ab"}],"next":null}}

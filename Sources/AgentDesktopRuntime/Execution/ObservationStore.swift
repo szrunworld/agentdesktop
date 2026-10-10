@@ -466,7 +466,7 @@ public final class ArtifactStore: @unchecked Sendable {
         for id in ids { remove(id) }
     }
 
-    static let extensions = ["image/png": "png"]
+    static let extensions = ["image/png": "png", "application/json": "json"]
 
     /// Records who owns a file already written at `path(for:ext:)`. The
     /// facts live in a 0600 sidecar so they outlive a restart as long as

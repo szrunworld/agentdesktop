@@ -232,7 +232,8 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 | GUI 参数 | ai.profiles.list / get / create / update / disable / delete / default.get / setDefault | ✅ PR2b-1 | PR2b |
 | 能力检测 | ai.tests.start；ai.operations.get / cancel | ✅ PR2b-1 | PR2b |
 | 用量 | ai.usage.summary | ✅ PR2b-1 | PR2b |
-| Desktop 控制面 | desktop.stop / takeover / handback / closePlan / resize；app.quit；request.list / export | 🔖 | A5 |
+| Desktop 控制面 | request.list / export（见下文「动作记录（A5）」） | ✅ | A5 PR③ |
+| Desktop 控制面 | desktop.stop / takeover / handback / closePlan / resize；app.quit | 🔖 | A5 |
 | 身份 | hub.pairing.start / status / approve / deny；hub.clients.list / show / revoke；hub.grants.list / set / revoke；hub.connections.list | 🔖 | PR3 |
 | 窗口授权 | hub.windows.request / list / revoke（按窗口的 observe / act / persist，见 docs/security/window-grants.md） | ✅ | 窗口授权前置 PR |
 | 显示器开放 | hub.displays.list / attach / detach（owner 在主窗口把自己的显示器作为物理 Desktop 开放给已配对程序，Touch ID 确认；见 docs/security/owner-display-attach.md） | ✅ | owner 挂接入口 PR |
@@ -277,6 +278,13 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 | AUDIT_UNAVAILABLE | audit_unavailable（docs/plan/03 §3.5 起独立；同时暂停新输入） |
 | EVENTS_CURSOR_EXPIRED | 新码 `events_cursor_expired` |
 | INTERNAL_ERROR | internal_error |
+
+### 动作记录（A5）
+
+- 记录就是请求账本（7 天）里 Runtime 受理过的每个写请求。每条与 `request.show` 给出的一致，另加可选字段 `clientId`（谁发的）和 `desktopId`（它指向的 Desktop：params.desktopId，否则取它的 session 或 Run 所在的 Desktop；A5 之前的记录和不指向 Desktop 的请求没有这个字段）。`request.show` 同样带这两个字段。
+- `request.list`（`observe`）：按 method、state、desktopId、since 筛选，owner 还可以按 clientId 筛选；owner 看到所有调用者的记录，配对程序只看到自己的，desktopId 也必须在它的授权内。按受理时间倒序，limit 1–100（默认 50），用 `next` 翻页；单页超过 768 KiB 时提前结束这一页。
+- `request.export`（`observe`）：筛选条件与 request.list 相同，最多 10000 条，写成一个 JSON 文档（apiVersion、exportedAt、filter、count、truncated、requests），存为调用者的 `application/json` 产物，用 `artifact.read` 分块读取。和其他产物一样保留 24 小时，计入产物存储限额（`limit_exceeded`）。
+- 读操作不进账本，所以请求列表里只有写请求；observe 等读请求不在其中。
 
 ## 6.1 已登记的后续增量（docs/plan/03 §3.2–3.5，2026-10-08 纳入）
 
