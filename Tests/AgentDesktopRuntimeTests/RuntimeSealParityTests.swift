@@ -68,7 +68,24 @@ private func send(_ c: SocketRuntimeClient, _ method: String, _ params: String =
 /// A refusal names no app, window, title or pid.
 private func namesNothing(_ e: RuntimeError?) -> Bool {
     let text = (e?.message ?? "") + (e?.details?.encoded() ?? "")
-    return !["Calculator", "calculator", "微信", "xinWeChat", "文件传输助手", "最小化", "101", "202"].contains { text.contains($0) }
+    let names = ["Calculator", "calculator", "微信", "xinWeChat", "文件传输助手", "最小化"]
+    // Client IDs contain random hexadecimal digits; a PID substring there
+    // is not a disclosed process ID. Still reject standalone PIDs in either
+    // the message or structured details.
+    let pid = text.range(of: #"(?<![0-9a-fA-F])(101|202)(?![0-9a-fA-F])"#, options: .regularExpression)
+    return !names.contains { text.contains($0) } && pid == nil
+}
+
+@Test func parityPrivacyCheckDistinguishesPIDsFromClientIDs() {
+    for id in ["app:abc101def202", "app:101abcdef202", "app:ABC101DEF202"] {
+        #expect(namesNothing(RuntimeError("permission_denied", "client \(id) lacks observe", phase: .handler)))
+    }
+    for message in ["pid 101", "process (202)", "101", "202", "Calculator", "文件传输助手"] {
+        #expect(!namesNothing(RuntimeError("permission_denied", message, phase: .handler)), "\(message)")
+    }
+    for pid in [101, 202] {
+        #expect(!namesNothing(RuntimeError("permission_denied", "refused", phase: .handler, details: .obj([("pid", .int(pid))]))))
+    }
 }
 
 @Test func parityUnpairedSocketClientsLaunchAndListNothingAndLeaveNoTrace() async throws {
