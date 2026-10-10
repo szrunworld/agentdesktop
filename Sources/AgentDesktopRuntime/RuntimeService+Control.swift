@@ -103,18 +103,21 @@ extension RuntimeService {
         // An action of the stopped Run holds the Desktop's lock until it
         // ends (and ends that Run): waiting for the lock waits for it.
         let limit = request.deadline.flatMap(Timestamp.date) ?? now().addingTimeInterval(desktopLockWait)
-        guard d.lock.lock(before: limit) else { return .failure(pending(stopped?.runId ?? "?")) }
+        // Superseded before any other answer (Codex P2s on 557a0d0 and
+        // 1681037): a stop or handback made while this waited stands, whether
+        // the wait timed out, an agent's new Run holds the Desktop, or a
+        // later takeover started its own user Run.
+        func superseded() -> RuntimeError? {
+            execution.takeoverStands(d.desktopId, serial: serial) ? nil : ExecutionCoordinator.superseded(d.desktopId)
+        }
+        guard d.lock.lock(before: limit) else { return .failure(superseded() ?? pending(stopped?.runId ?? "?")) }
         defer { d.lock.unlock() }
         guard d.state != "destroyed" else { return .failure(.notFound("no desktop \(d.desktopId)")) }
-        // Another takeover got here first: this one answers its Run.
+        if let e = superseded() { return .failure(e) }
+        // Another takeover closing the same gate got here first: this one
+        // answers its Run.
         if let h = execution.controlFacts(d.desktopId).holder, h.origin == .user, h.phase == .running {
             return .success(takeoverJSON(d, run: h, stopped: stopped, c))
-        }
-        // Superseded first (Codex P2 on 557a0d0): after a handback an agent's
-        // new Run may hold the Desktop, and stop_pending would wrongly say
-        // admission stays closed.
-        guard execution.takeoverStands(d.desktopId, serial: serial) else {
-            return .failure(ExecutionCoordinator.superseded(d.desktopId))
         }
         if let holder = execution.holder(of: d.desktopId) { return .failure(pending(holder)) }
         let session = sessions.open(desktopId: d.desktopId, caller: c.clientId, at: nowString)
