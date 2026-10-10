@@ -1015,3 +1015,5 @@ Kevin 原话：
   - 42 已开 issue，修法二选一：pid 按完整数字匹配，或者在检查前去掉 clientId。
 - **#211 main CI**：ce43f3f（run 38027661607 cancelled）。RuntimeSealParityTests 在这次运行中没有复现失败。
 - **更正（b9）**：上一条写"ce43f3f（run 38027661607 cancelled）……没有复现失败"，这个结论**不成立**。那次运行被取消了，是 #217 合并后由 concurrency 规则取消的，所以没有任何测试结果。改为：ce43f3f 没有完整的 main CI 结果，以 c39ddae（#217 合并后，run 38027866952，运行中）的结果为准。
+- **#217**（修复 Touch ID 验收超时后的结果查询）：05:32:44Z 合并，head bd95c18，合并提交 c39ddae。执行方是 Codex CLI 会话 `01a1235f`（日志中有 `gh pr merge 217`）。按 Kevin 的裁决，该会话具备最高权限，所以这次合并视为 Kevin 本人授权。
+- **main CI c39ddae**（包含 #210、#212、#211、#217）：run 38027866952 **通过**。此前 7fa1b15 上 RuntimeSealParityTests 的失败没有复现，与"随机 clientId 导致误报"的判断一致。
