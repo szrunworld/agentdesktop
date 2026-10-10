@@ -93,7 +93,7 @@ extension RuntimeService {
         if let h = execution.controlFacts(d.desktopId).holder, h.origin == .user, h.phase == .running {
             return .success(takeoverJSON(d, run: h, stopped: nil, c))
         }
-        let (stopped, previous) = execution.closeForTakeover(d.desktopId)
+        let (stopped, previous, serial) = execution.closeForTakeover(d.desktopId)
         func pending(_ holder: String) -> RuntimeError {
             RuntimeError("stop_pending",
                          "takeover accepted: run \(holder) is still finishing an action; agents' input on desktop \(d.desktopId) stays closed. Ask again with a new requestId once it is quiescent",
@@ -106,6 +106,18 @@ extension RuntimeService {
         guard d.lock.lock(before: limit) else { return .failure(pending(stopped?.runId ?? "?")) }
         defer { d.lock.unlock() }
         guard d.state != "destroyed" else { return .failure(.notFound("no desktop \(d.desktopId)")) }
+        // Another takeover got here first: this one answers its Run.
+        if let h = execution.controlFacts(d.desktopId).holder, h.origin == .user, h.phase == .running {
+            return .success(takeoverJSON(d, run: h, stopped: stopped, c))
+        }
+        // While this one waited, the owner handed the Desktop back or stopped
+        // it: that later decision stands (Codex on 2aaf935).
+        guard execution.takeoverStands(d.desktopId, serial: serial) else {
+            return .failure(RuntimeError("conflict",
+                                         "desktop \(d.desktopId) was handed back or stopped while this takeover waited; nothing was taken over",
+                                         phase: .handler, notSent: true,
+                                         details: .obj([("desktopId", .string(d.desktopId)), ("reason", .string("superseded"))])))
+        }
         if let holder = execution.holder(of: d.desktopId) { return .failure(pending(holder)) }
         let session = sessions.open(desktopId: d.desktopId, caller: c.clientId, at: nowString)
         // The user's Run takes no input through the Runtime: its session
@@ -133,8 +145,15 @@ extension RuntimeService {
         guard isOwner(c) else { return .failure(Self.ownerOnly("desktop.handback")) }
         return withDesktop(p["desktopId"]) { d in
             let facts = execution.controlFacts(d.desktopId)
-            guard facts.gate != nil else {
-                // Neither stopped nor taken over: nothing to hand back, and
+            // Stopped or taken over, or left stopped, disconnected or unknown
+            // by its last Run: the owner's handback clears it (Codex on
+            // 2aaf935: those states need no stop first).
+            let state = controlJSON(d, for: c)["state"]?.stringValue ?? ""
+            // A global stop is runtime.enableInput's to lift, not this.
+            let settled = facts.holder == nil && facts.admission == .enabled
+                && ["stopped", "disconnected", "unknown"].contains(state)
+            guard facts.gate != nil || settled else {
+                // Ready, or an agent's Run holds it: nothing to hand back, and
                 // a running agent keeps its observations.
                 return .obj([("desktopId", .string(d.desktopId)), ("handedBack", .bool(false)), ("endedRunId", .null),
                              ("observationsCleared", .bool(false)), ("control", controlJSON(d, for: c))])

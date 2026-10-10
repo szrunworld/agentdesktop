@@ -260,3 +260,67 @@ private final class Box: @unchecked Sendable { var response: RuntimeResponse? }
     let runs = try #require(data(call(sc.s, sc.c, "run.list"))?["runs"]?.arrayValue)
     #expect(runs.contains { $0["outcome"]?.stringValue == "unknown" })
 }
+
+// Codex on 2aaf935 (#241, follow-up).
+
+@Test func aTakeoverThatWaitedDoesNotUndoAHandbackMadeMeanwhile() throws {
+    let sc = try scene()
+    let desk = try #require(sc.s.desktops.find(sc.desktop))
+    desk.lock.lock()   // an action in flight holds the Desktop
+    let box = Box()
+    let taking = onThread { box.response = call(sc.s, sc.c, "desktop.takeover", params: #"{"desktopId":"\#(sc.desktop)"}"#) }
+    // The takeover closed the gate and waits for the lock…
+    let deadline = Date().addingTimeInterval(5)
+    while sc.s.execution.controlFacts(sc.desktop).gate != .manual, Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+    #expect(sc.s.execution.controlFacts(sc.desktop).gate == .manual)
+    // …and a handback reopens the Desktop before it gets it.
+    sc.s.execution.openDesktop(sc.desktop)
+    desk.lock.unlock()
+    taking.wait()
+    let r = try #require(box.response)
+    #expect(code(r) == "conflict" && reason(r) == "superseded", "\(r)")
+    #expect(sc.s.execution.controlFacts(sc.desktop).holder == nil, "no manual Run was started")
+    #expect(control(sc, sc.desktop)?["state"]?.stringValue == "ready")
+}
+
+@Test func handbackClearsADisconnectedOrUnknownDesktopWithoutAStopFirst() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    let agent = handshaken(sc.s)
+    _ = try #require(data(call(sc.s, agent, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#)))
+    sc.s.connectionClosed(agent)
+    #expect(control(sc, sc.desktop)?["state"]?.stringValue == "disconnected")
+    let back = try #require(data(call(sc.s, sc.c, "desktop.handback", params: #"{"desktopId":"\#(sc.desktop)"}"#)))
+    #expect(back["handedBack"] == .bool(true) && back["control"]?["state"]?.stringValue == "ready")
+
+    let fresh = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["snapshotId"]?.stringValue)
+    platform.failNext = PlatformError(.refused, "the app stopped answering", beforeDispatch: false)
+    _ = act(sc, clickContinue, snapshot: fresh)
+    #expect(control(sc, sc.desktop)?["state"]?.stringValue == "unknown")
+    #expect(data(call(sc.s, sc.c, "desktop.handback", params: #"{"desktopId":"\#(sc.desktop)"}"#))?["control"]?["state"]?.stringValue == "ready")
+    // The unknown Run itself stays unknown.
+    #expect(data(call(sc.s, sc.c, "run.list"))?["runs"]?.arrayValue?.contains { $0["outcome"]?.stringValue == "unknown" } == true)
+    // A global stop is not lifted by a handback.
+    _ = call(sc.s, sc.c, "runtime.stopAll", params: #"{"scope":"all_platform_runs"}"#)
+    let still = try #require(data(call(sc.s, sc.c, "desktop.handback", params: #"{"desktopId":"\#(sc.desktop)"}"#)))
+    #expect(still["handedBack"] == .bool(false) && still["control"]?["state"]?.stringValue == "stopped")
+}
+
+@Test func desktopShowReadsControlAfterTheActionInFlightEnded() throws {
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    let agent = handshaken(sc.s)
+    let runId = try #require(data(call(sc.s, agent, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
+    platform.gate = DispatchSemaphore(value: 0)
+    let inFlight = onThread { _ = act(sc, clickContinue, runId: runId, on: agent) }
+    platform.entered.wait()
+    _ = call(sc.s, sc.c, "desktop.stop", params: #"{"desktopId":"\#(sc.desktop)"}"#)
+    let box = Box()
+    let showing = onThread { box.response = call(sc.s, sc.c, "desktop.show", params: #"{"desktopId":"\#(sc.desktop)"}"#) }
+    Thread.sleep(forTimeInterval: 0.1)   // desktop.show is waiting for the lock
+    platform.gate?.signal()
+    inFlight.wait()
+    showing.wait()
+    let shown = try #require(box.response.flatMap(data))
+    #expect(shown["control"]?["state"]?.stringValue == "stopped", "not the stopping seen before the wait")
+}
