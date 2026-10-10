@@ -1007,3 +1007,9 @@ Kevin 原话：
 - **#212**（#205 后续：Touch ID 验收脚本、拒绝文案）：05:21:14Z 合并，head 4057dad，合并提交 7fa1b15。执行方应为 Codex CLI 会话（Kevin 05:19:46Z 在该会话里发了 "…/pull/212"），待核。
   - **7fa1b15 的 main CI 失败**：真实失败，不是预算问题。失败项为 `RuntimeSealParityTests.swift:100`，即封堵一致性测试中"已配对但无授权的客户端调用 app.list / window.list，拒绝理由须为 window_discovery_requires_grant，且不得透露任何应用或窗口名"这一断言，记录为 «unknown» 测试。
   - #212 的源码改动只涉及两处拒绝文案（physical_desktop_requires_grant、bind_requires_grant），不直接触及该路径。原因待查：可能是 #212 引入的回归，也可能是不稳定测试。
+- **7fa1b15 main CI 失败的原因（42 分析，b9 核实了代码依据）**：判断为**测试误报，不是封堵回归**。
+  - 失败的那条拒绝来自 `RuntimeService+Auth.swift:117`，消息内容是"…which \(c.clientId) was not granted"。clientId 由 `"app:"` 加 12 位随机十六进制组成（`HubStore.swift:496`）。
+  - `namesNothing` 把 "101"、"202" 当作子串禁止出现。随机 ID 恰好包含其中之一的概率约为 0.5%，同一个客户端连续调了两个方法，所以两处同时失败。
+  - 拒绝原因（window_discovery_requires_grant）本身是对的；拒绝发生在读取平台之前，没有泄露任何应用名或窗口名。
+  - 42 本地跑了 5 次，这个测试全部通过。CI 日志里没有打印 message 原文，所以"clientId 含 101 或 202"属于推断。
+  - 42 已开 issue，修法二选一：pid 按完整数字匹配，或者在检查前去掉 clientId。
