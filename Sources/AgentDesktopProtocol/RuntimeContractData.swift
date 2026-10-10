@@ -5686,6 +5686,160 @@ enum RuntimeContractData {
           "description": "more records matched than one export holds (10000): narrow the filter"
         }
       }
+    },
+    "diagnostics_export_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "runtime",
+              "capabilities",
+              "connections",
+              "clients",
+              "desktops",
+              "runs",
+              "requests",
+              "authorization"
+            ]
+          },
+          "description": "default all; authorization is the owner's (a paired client gets its own refusals only)"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "runs, requests and refusals from this time on; default 24 h ago, never more than 7 days"
+        },
+        "preview": {
+          "type": "boolean",
+          "description": "true: say what an export would hold (the manifest), write nothing"
+        }
+      }
+    },
+    "DiagnosticsManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "since",
+        "sections",
+        "excluded"
+      ],
+      "properties": {
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "clientId"
+          ],
+          "properties": {
+            "role": {
+              "enum": [
+                "owner",
+                "paired"
+              ]
+            },
+            "clientId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "items"
+            ],
+            "properties": {
+              "name": {
+                "enum": [
+                  "runtime",
+                  "capabilities",
+                  "connections",
+                  "clients",
+                  "desktops",
+                  "runs",
+                  "requests",
+                  "authorization"
+                ]
+              },
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "excluded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "what an export never holds"
+        }
+      }
+    },
+    "DiagnosticsExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preview",
+        "manifest"
+      ],
+      "properties": {
+        "preview": {
+          "type": "boolean"
+        },
+        "manifest": {
+          "$ref": "#/$defs/DiagnosticsManifest"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "preview": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "artifact"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "preview": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "artifact"
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }
@@ -10606,6 +10760,15 @@ enum RuntimeContractData {
       "result": "RequestExport",
       "status": "implemented",
       "note": "observe; the same records and filters as request.list, at most 10000, newest first, written as one JSON document (apiVersion, exportedAt, filter, count, truncated, requests) into an application/json artifact of the caller: read it with artifact.read; kept like any artifact (24 h) and counted against the store's limits (limit_exceeded)"
+    },
+    {
+      "method": "diagnostics.export",
+      "stage": "P0",
+      "mutation": false,
+      "params": "diagnostics_export_params",
+      "result": "DiagnosticsExport",
+      "status": "implemented",
+      "note": "observe; read-only: repairs nothing, removes no socket, restarts nothing, changes no grant and creates no Run. Writes the chosen sections (runtime identity, admission and permissions; method names; open connections; clients and grant summaries; Desktops; Runs with their stop evidence; request counts by method and state; authorization refusals counted by reason) as one JSON document into an application/json artifact of the caller (read with artifact.read, kept like any artifact), or with preview only says what it would hold. Never in it: credentials or tokens (any adt1_ value is redacted), screenshots or other artifacts, typed text or action parameters, request outcomes, window titles or app content, peer process facts, free-text notes, the endpoint path. The owner sees every client; a paired client only itself, its own connections, Runs (with the run capability), requests and refusals, and Desktops in its grant"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -10630,12 +10793,6 @@ enum RuntimeContractData {
     },
     {
       "method": "run.reconcile",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "diagnostics.export",
       "status": "reserved",
       "pr": "PR4",
       "stage": "P0"

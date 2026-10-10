@@ -590,6 +590,7 @@ public final class RuntimeService: @unchecked Sendable {
         case .desktopStop: return stopDesktop(p, connection)
         case .desktopTakeover: return takeover(request, connection)
         case .desktopHandback: return handback(p, connection)
+        case .diagnosticsExport: return exportDiagnostics(p, connection)
         }
     }
 }

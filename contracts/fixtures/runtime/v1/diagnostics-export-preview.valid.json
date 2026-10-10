@@ -1,0 +1,1 @@
+{"def":"DiagnosticsExport","instance":{"preview":true,"manifest":{"scope":{"role":"owner","clientId":"local:501"},"since":"2026-10-10T10:00:00.000Z","sections":[{"name":"runtime","items":1},{"name":"runs","items":3}],"excluded":["credentials and tokens"]}}}

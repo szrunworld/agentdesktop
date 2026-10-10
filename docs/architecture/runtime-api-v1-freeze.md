@@ -252,7 +252,7 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 | 窗口授权 | hub.windows.request / list / revoke（按窗口的 observe / act / persist，见 docs/security/window-grants.md） | ✅ | 窗口授权前置 PR |
 | 显示器开放 | hub.displays.list / attach / detach（owner 在主窗口把自己的显示器作为物理 Desktop 开放给已配对程序，Touch ID 确认；见 docs/security/owner-display-attach.md） | ✅ | owner 挂接入口 PR |
 | Inbox | inbox.list / show / resolve；run.reconcile（unknown 核对） | 🔖 | PR4 |
-| 诊断 | diagnostics.export | 🔖 | PR4 |
+| 诊断 | diagnostics.export（只读；只导出元数据，凭据一律脱敏，不含截图、输入文字、窗口标题；按调用方范围） | ✅ | PR4② |
 | 学习 | gui.knowledge.get / events；gui.procedures.list / get / propose / revise / lifecycle；gui.validations.start / get / cancel | 🔖 | PR7 |
 | 示范与策略 | gui.demonstrations.start / get / stop；gui.learning.settings.get / update | 🔖 P1 | PR7 之后 |
 

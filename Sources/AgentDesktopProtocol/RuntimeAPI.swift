@@ -84,6 +84,7 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case desktopStop = "desktop.stop"
     case desktopTakeover = "desktop.takeover"
     case desktopHandback = "desktop.handback"
+    case diagnosticsExport = "diagnostics.export"
 }
 
 /// The machine-readable contract: schema, method catalog and error table.

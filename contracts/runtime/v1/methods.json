@@ -890,6 +890,15 @@
       "result": "RequestExport",
       "status": "implemented",
       "note": "observe; the same records and filters as request.list, at most 10000, newest first, written as one JSON document (apiVersion, exportedAt, filter, count, truncated, requests) into an application/json artifact of the caller: read it with artifact.read; kept like any artifact (24 h) and counted against the store's limits (limit_exceeded)"
+    },
+    {
+      "method": "diagnostics.export",
+      "stage": "P0",
+      "mutation": false,
+      "params": "diagnostics_export_params",
+      "result": "DiagnosticsExport",
+      "status": "implemented",
+      "note": "observe; read-only: repairs nothing, removes no socket, restarts nothing, changes no grant and creates no Run. Writes the chosen sections (runtime identity, admission and permissions; method names; open connections; clients and grant summaries; Desktops; Runs with their stop evidence; request counts by method and state; authorization refusals counted by reason) as one JSON document into an application/json artifact of the caller (read with artifact.read, kept like any artifact), or with preview only says what it would hold. Never in it: credentials or tokens (any adt1_ value is redacted), screenshots or other artifacts, typed text or action parameters, request outcomes, window titles or app content, peer process facts, free-text notes, the endpoint path. The owner sees every client; a paired client only itself, its own connections, Runs (with the run capability), requests and refusals, and Desktops in its grant"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -914,12 +923,6 @@
     },
     {
       "method": "run.reconcile",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "diagnostics.export",
       "status": "reserved",
       "pr": "PR4",
       "stage": "P0"
