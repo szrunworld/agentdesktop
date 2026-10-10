@@ -278,6 +278,11 @@ extension RuntimeService {
             } catch {
                 return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable", phase: .handler, notSent: true))
             }
+            // Observe taken away: what was kept briefly under its window
+            // grants goes at once (Codex on e5142e9).
+            if !saved.capabilities.contains("observe") {
+                for w in hub.windowGrants(clientId: id) { artifacts.removeTransients(windowGrantId: w.windowGrantId) }
+            }
             // Audited as what each became: an ended grant swept here is revoked.
             for e in endedWindows { endedWindowGrants([e.id], state: hub.windowGrant(e.id)?.state ?? "ended", reason: e.reason) }
             // Narrowed: its connections are cut, it reconnects under the new grant.

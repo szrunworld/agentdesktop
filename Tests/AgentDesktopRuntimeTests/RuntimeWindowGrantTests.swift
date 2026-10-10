@@ -970,3 +970,13 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     let id = try #require(image["artifactId"]?.stringValue)
     #expect(sc.s.artifacts.info(id)?.windowGrantId == g.windowGrantId)
 }
+
+@Test func takingObserveAwayDeletesTransientsAtOnce() throws {
+    let (sc, owner, _, _) = try calculatorScene(["observe"])
+    let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+    let png = sc.s.artifacts.path(for: id, ext: "png")
+    #expect(FileManager.default.fileExists(atPath: png))
+    let p = #"{"clientId":"\#(sc.c.clientId)","capabilities":["act","desktop.manage","run"],"desktops":["created"],"apps":["com.apple.calculator"]}"#
+    #expect(data(call(sc.s, owner, "hub.grants.set", params: p)) != nil)
+    #expect(!FileManager.default.fileExists(atPath: png))
+}

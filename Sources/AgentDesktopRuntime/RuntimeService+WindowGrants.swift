@@ -244,7 +244,8 @@ extension RuntimeService {
             artifacts.removeTransients(windowGrantId: id)
             return true
         }
-        if c.role == .paired, !effectivePermissions(g).contains("observe") { return true }
+        // Observe no longer backed: a transient taken under it goes now (Codex on e5142e9).
+        if c.role == .paired, !effectivePermissions(g).contains("observe") { artifacts.remove(info.artifactId); return true }
         return false
     }
 
