@@ -115,3 +115,25 @@ private func events(_ sc: Scene, _ runId: String) -> [JSONValue] {
                                ("data", .obj([("receipt", failed)]))])
     #expect(contract.validate(event, "RunEvent").isEmpty)
 }
+
+// The outer type of a terminal action event cannot contradict its receipt:
+// it is `action.<receipt.execution>` (RuntimeService+Act).
+@Test func terminalActionTypeAgreesWithReceiptExecution() throws {
+    let sc = try scene()
+    let receipt = try #require(data(act(sc, clickContinue)))
+    let event = { (type: String, data: JSONValue) in
+        JSONValue.obj([("runId", receipt["runId"] ?? .string("run_test")), ("sequence", .int(1)),
+                       ("at", .string("2026-10-10T00:00:00Z")), ("type", .string(type)), ("data", data)])
+    }
+    let frame = { (e: JSONValue) in JSONValue.obj([("apiVersion", .string(RuntimeAPI.version)), ("event", e)]) }
+    let outcomes = ["completed", "failed", "unknown"]
+    for type in outcomes {
+        for execution in outcomes {
+            let e = event("action.\(type)", .obj([("receipt", receipt.setting("execution", .string(execution)))]))
+            for (v, def) in [(e, "RunEvent"), (frame(e), "EventFrame"), (e, "PlatformRunEvent")] {
+                let ok = contract.validate(v, def).isEmpty
+                #expect(ok == (type == execution), "action.\(type) with execution \(execution) as \(def): valid=\(ok)")
+            }
+        }
+    }
+}
