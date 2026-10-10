@@ -113,7 +113,7 @@
 
 按 Kevin 的裁决，这次运行使用了一个临时虚拟显示器，只允许用于本次验收。脚本中出现的 `bind_requires_grant` 只能证明 #145 的封堵仍然有效。
 
-**第二阶段：未完成。** 已授权窗口上的观察、绑定和实际输入，还没有在真实 Desktop 上做过端到端验证。#143 已合并（`e771e3b`），但 `physicalDesktopsEnabled` 仍为关，`bindsOnlyLaunchedProcesses` 仍为开。阻断原因和进展见 #168。第一阶段通过，不代表第二阶段完成。
+**第二阶段：未完成。** 已授权窗口上的观察、绑定和实际输入，还没有在真实 Desktop 上做过端到端验证。#143 已合并（`e771e3b`）；owner 显示器挂载 #216 合并（`e101037`）后，`physicalDesktopsEnabled` 已为开（owner 可用，已配对客户端仍是 `owner_only`，见 `docs/security/owner-display-attach.md`），`bindsOnlyLaunchedProcesses` 仍为开。物理 Desktop 门已不是阻断原因；第二阶段尚未运行，进展见 #168。第一阶段通过，不代表第二阶段完成。
 
 ## 审核
 
