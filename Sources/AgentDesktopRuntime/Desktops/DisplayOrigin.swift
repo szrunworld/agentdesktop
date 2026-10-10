@@ -30,16 +30,20 @@ public enum DisplayOrigin: Equatable, Sendable {
 
     /// One hardware display framebuffer in the I/O registry, with the EDID
     /// identity it reports (a virtual display has no framebuffer). A
-    /// framebuffer that reports no serial matches any serial.
+    /// framebuffer that reports no serial matches any serial. `external`
+    /// is what the registry says about the port (Apple silicon marks
+    /// external ones); a built-in panel's framebuffer never vouches for an
+    /// external display, even one copying the panel's identity.
     public struct Framebuffer: Equatable, Sendable {
         public var vendor: UInt32
         public var model: UInt64?
         public var serial: UInt64?
-        public init(vendor: UInt32, model: UInt64?, serial: UInt64?) {
-            self.vendor = vendor; self.model = model; self.serial = serial
+        public var external: Bool?
+        public init(vendor: UInt32, model: UInt64?, serial: UInt64?, external: Bool? = nil) {
+            self.vendor = vendor; self.model = model; self.serial = serial; self.external = external
         }
         func vouches(for d: Display) -> Bool {
-            vendor == d.vendor && model == UInt64(d.model) && (serial == nil || serial == UInt64(d.serial))
+            external != false && vendor == d.vendor && model == UInt64(d.model) && (serial == nil || serial == UInt64(d.serial))
         }
     }
 
@@ -52,11 +56,15 @@ public enum DisplayOrigin: Equatable, Sendable {
     /// makes one claimant too many: then every display claiming it is
     /// unconfirmed, the real one included (fail closed), rather than the
     /// first in display order winning (Codex on e0be427). Built-in panels
-    /// are physical; any engine virtual display, even one claiming to be
-    /// built in, is virtual.
+    /// are physical and count as claimants of their own identity, and a
+    /// framebuffer the registry marks as built in vouches for no external
+    /// display (Codex on cb64fce). Any engine virtual display, even one
+    /// claiming to be built in, is virtual.
     public static func classify(_ displays: [Display], framebuffers: [Framebuffer]) -> [UInt32: DisplayOrigin] {
         func isEngineVirtual(_ d: Display) -> Bool { d.vendor == engineVirtualVendor && d.model == engineVirtualModel }
-        let external = displays.filter { !$0.builtin && !isEngineVirtual($0) && $0.vendor != 0 }
+        // Everyone who claims an identity, the built-in panels included: a
+        // clone of the panel then makes one claimant too many.
+        let claimants = displays.filter { !isEngineVirtual($0) && $0.vendor != 0 }
         var result: [UInt32: DisplayOrigin] = [:]
         for d in displays {
             if isEngineVirtual(d) {
@@ -66,10 +74,10 @@ public enum DisplayOrigin: Equatable, Sendable {
             } else if d.vendor == 0 {
                 result[d.id] = .unconfirmed("the display reports no vendor")
             } else {
-                let sameIdentity = external.filter { $0.vendor == d.vendor && $0.model == d.model && $0.serial == d.serial }.count
-                let sameModel = external.filter { $0.vendor == d.vendor && $0.model == d.model }.count
+                let sameIdentity = claimants.filter { $0.vendor == d.vendor && $0.model == d.model && $0.serial == d.serial }.count
+                let sameModel = claimants.filter { $0.vendor == d.vendor && $0.model == d.model }.count
                 let vouching = framebuffers.filter { $0.vouches(for: d) }.count
-                let ofModel = framebuffers.filter { $0.vendor == d.vendor && $0.model == UInt64(d.model) }.count
+                let ofModel = framebuffers.filter { $0.external != false && $0.vendor == d.vendor && $0.model == UInt64(d.model) }.count
                 if vouching > 0 && sameIdentity <= vouching && sameModel <= ofModel {
                     result[d.id] = .physical
                 } else {

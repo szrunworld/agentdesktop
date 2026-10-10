@@ -60,7 +60,7 @@ AgentDesktop Runtime（唯一）
 
 ### 4.2 显示器来源识别
 
-`DisplayOrigin.classify` 一次判定全部显示器，结果与显示器顺序无关：内置屏可信；引擎虚拟屏（厂商 0x3256 / 型号 2，无论谁建、即使自称内置）判为虚拟；外接屏必须有硬件帧缓冲（Apple 芯片 IOMobileFramebuffer 的 `LegacyManufacturerID` / `ProductID` / `SerialNumber`，Intel IODisplayConnect 的 `DisplayVendorID` / `DisplayProductID` / `DisplaySerialNumber`）报告**相同的厂商、型号和序列号**，而且声称这个身份的显示器不多于这样的帧缓冲（按厂商 + 型号再查一遍，覆盖不报序列号的帧缓冲）。虚拟屏抄用真实显示器的完整身份时多出一个声称者，**所有**声称这个身份的显示器都判为来源未确认——真实的那块也一起拒绝（fail closed），而不是按枚举顺序先到先得（Codex 在 e0be427 上的意见）。其余判为来源未确认。只有可信显示器登记为宿主屏，其余 `desktop.create {physical}` 返回 `not_found`。真机：另一会话的虚拟屏 9 被拒，内置屏 1 可挂接（run4）；本机外接屏（厂商 25001、型号 49155、序列号 1）与其帧缓冲三项一致（2026-10-10 只读探测）。剩余局限：若虚拟屏抄用了真实显示器的身份，那块真实显示器也无法挂接，直到虚拟屏移除。
+`DisplayOrigin.classify` 一次判定全部显示器，结果与显示器顺序无关：内置屏可信；引擎虚拟屏（厂商 0x3256 / 型号 2，无论谁建、即使自称内置）判为虚拟；外接屏必须有硬件帧缓冲（Apple 芯片 IOMobileFramebuffer 的 `LegacyManufacturerID` / `ProductID` / `SerialNumber`，Intel IODisplayConnect 的 `DisplayVendorID` / `DisplayProductID` / `DisplaySerialNumber`）报告**相同的厂商、型号和序列号**，而且声称这个身份的显示器不多于这样的帧缓冲（按厂商 + 型号再查一遍，覆盖不报序列号的帧缓冲）。虚拟屏抄用真实显示器的完整身份时多出一个声称者，**所有**声称这个身份的显示器都判为来源未确认——真实的那块也一起拒绝（fail closed），而不是按枚举顺序先到先得（Codex 在 e0be427 上的意见）。内置屏也计为它自己身份的声称者；注册表标为非外接的帧缓冲（Apple 芯片上只有外接端口带 `external = Yes`）不为任何外接屏担保，所以抄用内置屏身份的虚拟屏也不可信（Codex 在 cb64fce 上的意见）。Intel 机型的 IODisplayConnect 不标内外，此时只靠声称者计数：合盖使内置屏不在活动列表时，抄用内置屏身份的虚拟屏可能通过，这是已知残余。其余判为来源未确认。只有可信显示器登记为宿主屏，其余 `desktop.create {physical}` 返回 `not_found`。真机：另一会话的虚拟屏 9 被拒，内置屏 1 可挂接（run4）；本机外接屏（厂商 25001、型号 49155、序列号 1）与其帧缓冲三项一致（2026-10-10 只读探测）。剩余局限：若虚拟屏抄用了真实显示器的身份，那块真实显示器也无法挂接，直到虚拟屏移除。
 
 ### 4.3 "一块显示器一个物理 Desktop"不阻碍多窗口
 

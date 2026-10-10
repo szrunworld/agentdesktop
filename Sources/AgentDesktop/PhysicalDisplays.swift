@@ -53,7 +53,11 @@ enum PhysicalDisplays {
                     .takeRetainedValue() as? [String: Any],
                    let product = attrs["ProductAttributes"] as? [String: Any],
                    let v = (product["LegacyManufacturerID"] as? NSNumber)?.uint32Value {
-                    found.append(.init(vendor: v, model: number(product["ProductID"]), serial: number(product["SerialNumber"])))
+                    let external = IORegistryEntryCreateCFProperty(service, "external" as CFString, kCFAllocatorDefault, 0)?
+                        .takeRetainedValue() as? Bool
+                    // Apple silicon marks external ports; an unmarked one is the built-in panel's.
+                    found.append(.init(vendor: v, model: number(product["ProductID"]), serial: number(product["SerialNumber"]),
+                                       external: external ?? false))
                 } else if let info = IODisplayCreateInfoDictionary(service, IOOptionBits(kIODisplayOnlyPreferredName))?
                     .takeRetainedValue() as? [String: Any],
                    let v = (info[kDisplayVendorID] as? NSNumber)?.uint32Value {

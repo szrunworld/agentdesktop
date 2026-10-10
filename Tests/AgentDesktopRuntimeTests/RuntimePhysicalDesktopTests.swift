@@ -155,7 +155,7 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     typealias D = DisplayOrigin.Display
     typealias F = DisplayOrigin.Framebuffer
     let builtin = D(id: 1, builtin: true, vendor: 0x610, model: 0xa05e)
-    let builtinFB = F(vendor: 0x610, model: 57_403_046_442_049, serial: nil)   // as Apple silicon reports it
+    let builtinFB = F(vendor: 0x610, model: 57_403_046_442_049, serial: nil, external: false)   // as Apple silicon reports it
     // An external display copying Apple's vendor: no framebuffer of its model vouches for it.
     let copycat = D(id: 7, builtin: false, vendor: 0x610, model: 0x1234)
     var o = DisplayOrigin.classify([builtin, copycat], framebuffers: [builtinFB])
@@ -163,7 +163,7 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     if case .unconfirmed = o[7] {} else { Issue.record("a vendor copied from the built-in panel was trusted") }
     // A real external display: its framebuffer reports the same vendor, model and serial (as on this Mac).
     let external = D(id: 3, builtin: false, vendor: 25001, model: 49155, serial: 1)
-    let externalFB = F(vendor: 25001, model: 49155, serial: 1)
+    let externalFB = F(vendor: 25001, model: 49155, serial: 1, external: true)
     o = DisplayOrigin.classify([builtin, external], framebuffers: [builtinFB, externalFB])
     #expect(o[3] == .physical)
     // Same vendor and model, another serial: not vouched for.
@@ -185,6 +185,17 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     let noSerial = F(vendor: 25001, model: 49155, serial: nil)
     o = DisplayOrigin.classify([external, D(id: 6, builtin: false, vendor: 25001, model: 49155, serial: 7)], framebuffers: [noSerial])
     if case .unconfirmed = o[3] {} else { Issue.record("one serial-less framebuffer vouched for two displays") }
+    // A clone of the built-in panel's exact identity (Codex on cb64fce): the
+    // panel's framebuffer never vouches for an external display...
+    let panel = D(id: 20, builtin: true, vendor: 0x610, model: 0xa05e, serial: 9)
+    let panelClone = D(id: 21, builtin: false, vendor: 0x610, model: 0xa05e, serial: 9)
+    o = DisplayOrigin.classify([panel, panelClone], framebuffers: [F(vendor: 0x610, model: 0xa05e, serial: 9, external: false)])
+    #expect(o[20] == .physical)
+    if case .unconfirmed = o[21] {} else { Issue.record("the built-in panel's framebuffer vouched for its clone") }
+    // ...and where the registry does not say (Intel), the panel itself is a claimant: one framebuffer, two claimants.
+    o = DisplayOrigin.classify([panelClone, panel], framebuffers: [F(vendor: 0x610, model: 0xa05e, serial: 9)])
+    #expect(o[20] == .physical)
+    if case .unconfirmed = o[21] {} else { Issue.record("an unmarked framebuffer vouched for the panel and its clone") }
     // Any engine virtual display, even one claiming to be built in, and a vendorless display.
     o = DisplayOrigin.classify([D(id: 10, builtin: true, vendor: 0x3256, model: 2), D(id: 11, builtin: false, vendor: 0, model: 0)],
                                framebuffers: [F(vendor: 0x3256, model: 2, serial: nil), F(vendor: 0, model: 0, serial: nil)])
