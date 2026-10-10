@@ -1014,3 +1014,4 @@ Kevin 原话：
   - 42 本地跑了 5 次，这个测试全部通过。CI 日志里没有打印 message 原文，所以"clientId 含 101 或 202"属于推断。
   - 42 已开 issue，修法二选一：pid 按完整数字匹配，或者在检查前去掉 clientId。
 - **#211 main CI**：ce43f3f（run 38027661607 cancelled）。RuntimeSealParityTests 在这次运行中没有复现失败。
+- **更正（b9）**：上一条写"ce43f3f（run 38027661607 cancelled）……没有复现失败"，这个结论**不成立**。那次运行被取消了，是 #217 合并后由 concurrency 规则取消的，所以没有任何测试结果。改为：ce43f3f 没有完整的 main CI 结果，以 c39ddae（#217 合并后，run 38027866952，运行中）的结果为准。
