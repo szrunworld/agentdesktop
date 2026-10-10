@@ -127,7 +127,7 @@ AgentDesktop Runtime（唯一）
 | 修复 | 失败时 |
 | --- | --- |
 | 显示器来源按厂商 + 型号 + 序列号匹配硬件帧缓冲，与顺序无关（4.2） | `desktop.create {physical}` → `not_found`，报错不列出有哪些显示器 |
-| 高层覆盖物（通知横幅、他应用菜单、绑定应用自己的浮层、未知全屏层）盖住绑定窗口 | `stale_observation / occluded`，只给覆盖窗口编号，不给应用名、标题、pid |
+| 高层覆盖物（通知横幅、他应用菜单、绑定应用自己的浮层、未知全屏层，透明的也算——输入路由不看透明度）盖住绑定窗口 | `stale_observation / occluded`，只给覆盖窗口编号，不给应用名、标题、pid |
 | 显示器几何变化或拔出 | `stale_observation / display_changed` |
 | 绑定进程退出或重启 | `stale_observation / process_exited`，act `notSent=true` |
 | `pid` / `windowId` 超出 Int32 / UInt32 | `invalid_argument`，不崩溃，不截断成别的窗口 |

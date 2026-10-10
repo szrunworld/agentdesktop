@@ -219,8 +219,9 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] ?? []
         return list.compactMap { entry in
+            // Transparent windows count too: input routing does not look at
+            // alpha, so an invisible panel can still take a click (Codex on 23ea538).
             guard let layer = entry[kCGWindowLayer as String] as? Int, layer > 0,
-                  (entry[kCGWindowAlpha as String] as? Double ?? 1) > 0,
                   let pid = entry[kCGWindowOwnerPID as String] as? Int32,
                   let number = entry[kCGWindowNumber as String] as? UInt32,
                   let b = entry[kCGWindowBounds as String] as? NSDictionary,

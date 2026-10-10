@@ -5,6 +5,8 @@
 - 命令：`scripts/physical-desktop-acceptance.sh`（测试副本 `/tmp/adt-pd-acc`，证据留在 `/tmp/adt-pd-acc.evidence/`）
 - 前提：物理 Desktop 的封印按 Kevin 裁决已打开，且 owner 已在测试副本主窗口挂接主显示器、得到 `d_…`；运行时 `PD_DESKTOP=d_… scripts/physical-desktop-acceptance.sh`。不满足时脚本在第 2 步确认"已配对 App 不能挂接显示器"后报 `PENDING`（退出码 3），本记录其余各行不适用
 
+- 注意：覆盖物检查是 fail closed 的。2026-10-10 只读探测本机主显示器：有一个第三方工具在 layer 1500 铺满整块显示器（不透明度 1.0），按规则它会让物理 Desktop 上的每次观察和操作都返回 `occluded`。验收前请先退出这类全屏覆盖工具，或把结果记为"按设计拒绝"。
+
 ## 自动步骤（脚本输出 PASS / FAIL）
 
 | # | 步骤 | 期望 | 结果 |
