@@ -1,0 +1,106 @@
+import AgentDesktopProtocol
+import Foundation
+import Security
+
+/// Where a client keeps the credential it was issued at pairing (A4, S3).
+/// One credential per Runtime endpoint and profile (a client may pair under
+/// several names, e.g. the CLI and an MCP host it serves).
+public protocol CredentialStore: Sendable {
+    func load(endpoint: String, profile: String) throws -> ClientCredential?
+    func save(_ credential: ClientCredential, endpoint: String, profile: String) throws
+    func delete(endpoint: String, profile: String) throws
+}
+
+/// In memory only: tests, and a host that must not persist anything.
+public final class MemoryCredentialStore: CredentialStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String: ClientCredential] = [:]
+
+    public init() {}
+
+    public func load(endpoint: String, profile: String) throws -> ClientCredential? {
+        lock.withLock { items[endpoint + "\n" + profile] }
+    }
+
+    public func save(_ credential: ClientCredential, endpoint: String, profile: String) throws {
+        lock.withLock { items[endpoint + "\n" + profile] = credential }
+    }
+
+    public func delete(endpoint: String, profile: String) throws {
+        _ = lock.withLock { items.removeValue(forKey: endpoint + "\n" + profile) }
+    }
+}
+
+/// The macOS keychain: a generic password per endpoint and profile.
+///
+/// What this protects (docs/security/a4-credential-assessment.md): the
+/// item's access list trusts only the program that created it; another
+/// program reading it makes macOS ask the user, it is never handed over
+/// silently. It does NOT separate two scripts of one interpreter, and a
+/// user who answers "Always Allow" widens it. The token never touches a
+/// plain file, an environment variable or a command line.
+public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable {
+    public static let service = "com.agentdesktop.client-credential"
+    private let keychain: SecKeychain?
+
+    /// `keychainPath`: a keychain file other than the login keychain (test
+    /// copies use one under their /tmp directory); nil means the default.
+    public init(keychainPath: String? = nil) throws {
+        if let keychainPath {
+            var k: SecKeychain?
+            let status = SecKeychainOpen(keychainPath, &k)
+            guard status == errSecSuccess, let k else {
+                throw RuntimeError("invalid_argument", "cannot open the keychain \(keychainPath) (\(status))", phase: .local, notSent: true)
+            }
+            keychain = k
+        } else {
+            keychain = nil
+        }
+    }
+
+    private func query(_ endpoint: String, _ profile: String) -> [String: Any] {
+        var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrService as String: Self.service,
+                                kSecAttrAccount as String: endpoint + "|" + profile]
+        if let keychain {
+            q[kSecUseKeychain as String] = keychain
+            q[kSecMatchSearchList as String] = [keychain]
+        }
+        return q
+    }
+
+    public func load(endpoint: String, profile: String) throws -> ClientCredential? {
+        var q = query(endpoint, profile)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = out as? Data else {
+            throw RuntimeError("permission_denied", "the keychain refused the AgentDesktop credential (\(status))", phase: .local, notSent: true)
+        }
+        guard let v = try? StrictJSON.parse(data), let id = v["clientId"]?.stringValue, let token = v["token"]?.stringValue else {
+            throw RuntimeError("invalid_argument", "the keychain item holds no credential", phase: .local, notSent: true)
+        }
+        return ClientCredential(clientId: id, token: token)
+    }
+
+    public func save(_ credential: ClientCredential, endpoint: String, profile: String) throws {
+        try delete(endpoint: endpoint, profile: profile)
+        var q = query(endpoint, profile)
+        q.removeValue(forKey: kSecMatchSearchList as String)
+        q[kSecValueData as String] = Data(credential.json.encoded().utf8)
+        q[kSecAttrLabel as String] = "AgentDesktop credential (\(profile))"
+        let status = SecItemAdd(q as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw RuntimeError("permission_denied", "cannot store the credential in the keychain (\(status))", phase: .local, notSent: true)
+        }
+    }
+
+    public func delete(endpoint: String, profile: String) throws {
+        let status = SecItemDelete(query(endpoint, profile) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw RuntimeError("permission_denied", "cannot remove the credential from the keychain (\(status))", phase: .local, notSent: true)
+        }
+    }
+}

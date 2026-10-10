@@ -94,6 +94,9 @@ public protocol PhonePasteDriver {
     /// A tap at a point normalised to the window, origin top left.
     func tap(_ point: CGPoint) throws -> ControlResponse
     func pause(_ seconds: TimeInterval)
+    /// Stop all further input to the phone, from any process, until it is
+    /// looked at again: what the field holds is unknown.
+    func blockInput(_ reason: String)
 }
 
 /// What the phone shows of a paste from the Mac.
@@ -119,6 +122,9 @@ public enum PastePrompt: Equatable {
     /// Where the system alert sits: the middle of the screen. Normal content
     /// up in a navigation bar or down on a keyboard is not it.
     static let alertRegion = CGRect(x: 0.1, y: 0.2, width: 0.8, height: 0.65)
+    /// How close (in window widths and heights) a label must be to one on
+    /// the screen before ⌘V to count as that same page text.
+    static let baselineTolerance: CGFloat = 0.02
     /// How far apart (in window heights) the alert's parts can be.
     static let alertSpan: CGFloat = 0.3
 
@@ -145,16 +151,43 @@ public enum PastePrompt: Equatable {
             let text = clean(line.text)
             return promptPhrases.contains { text.range(of: $0, options: .caseInsensitive) != nil } && centred(line)
         }
-        for allow in allows where centred(allow) {
+        // The same label at the same place before ⌘V is page content (a page,
+        // a picture of one): never pressed. Matched one candidate at a time,
+        // so page text elsewhere does not hide a real alert (F9, Codex on
+        // #127: a note holding "Allow Paste" kept the system's own prompt
+        // from ever being accepted).
+        let fresh = allows.filter { !wasThere($0, in: baseline) }
+        for allow in fresh where centred(allow) {
             func near(_ part: PhoneText) -> Bool { abs(part.center.y - allow.center.y) <= alertSpan }
             if denies.contains(where: near), messages.contains(where: near) { return .allow(allow.center) }
         }
-        if seen.contains(where: { line in pastingLabels.contains { clean(line.text).hasPrefix($0) } }) {
+        if seen.contains(where: { line in isProgress(line, before: baseline) }) {
             return .pasting
         }
-        let allowBefore = (baseline ?? []).contains { allowPasteLabels.contains(clean($0.text)) }
-        if !allows.isEmpty && !allowBefore { return .unverifiedAllow }
+        if !fresh.isEmpty { return .unverifiedAllow }
         return .none
+    }
+
+    /// Whether the same label sat at the same place on `baseline`, the
+    /// screen before ⌘V: then it is page content.
+    static func wasThere(_ line: PhoneText, in baseline: [PhoneText]?) -> Bool {
+        (baseline ?? []).contains { old in
+            clean(old.text) == clean(line.text)
+                && abs(old.center.x - line.center.x) <= baselineTolerance
+                && abs(old.center.y - line.center.y) <= baselineTolerance
+        }
+    }
+
+    /// A "Pasting from …" / "正在从…" line that was not on screen before
+    /// ⌘V. Chat text such as "正在从公司出发" begins the same way; already
+    /// there, it is page content, not this paste's progress. Matched by
+    /// place as well as text (Codex on #127): the same words elsewhere on
+    /// the page, such as a picture of an earlier sheet, do not hide a real
+    /// sheet.
+    static func isProgress(_ line: PhoneText, before baseline: [PhoneText]?) -> Bool {
+        let text = clean(line.text)
+        guard pastingLabels.contains(where: { text.hasPrefix($0) }) else { return false }
+        return !wasThere(line, in: baseline)
     }
 
     static func clean(_ text: String) -> String {
@@ -171,13 +204,15 @@ public struct PasteWatcher {
     /// twenty seconds, enough for a slow transfer.
     public var maxLooks = 25
     /// Looks in a row with no prompt or progress before the paste is over.
-    public var quietLooks = 2
+    public var quietLooks = 3
     /// Presses of Allow Paste before its coming back counts as a failure.
     public var maxAllowPresses = 2
     /// Whether something else has written the Mac's clipboard since the
     /// text was put there (the user copied). Checked at every look: the
     /// phone would paste that instead, so the paste is stopped on the phone.
     public var othersWrote: (() -> Bool)?
+    /// Told what was on screen before ⌘V.
+    public var onBaseline: (([PhoneText]?) -> Void)?
 
     public init() {}
 
@@ -192,18 +227,47 @@ public struct PasteWatcher {
 
     static let cancelLabels: Set<String> = ["Cancel", "取消"]
 
+    /// The button that stops the phone's paste, only where it is the
+    /// system's: Don't Allow inside the whole alert `read` recognised, or
+    /// Cancel under a centred "Pasting from" line. A page's own centred
+    /// "Cancel" or "Don't Allow Paste" is never pressed, nor any line on
+    /// `baseline` (the screen before ⌘V): Codex on #127, a page's own
+    /// progress line and Cancel must not pass for the phone's sheet.
+    static func systemStopButton(_ seen: [PhoneText], prompt: PastePrompt, baseline: [PhoneText]?) -> CGPoint? {
+        func centred(_ line: PhoneText) -> Bool {
+            PastePrompt.alertRegion.contains(line.center) && abs(line.box.midX - 0.5) <= PastePrompt.centreTolerance
+                && !PastePrompt.wasThere(line, in: baseline)
+        }
+        switch prompt {
+        case .allow(let allow):
+            return seen.first { line in
+                PastePrompt.denyPasteLabels.contains(PastePrompt.clean(line.text)) && centred(line)
+                    && abs(line.center.y - allow.y) <= PastePrompt.alertSpan
+            }?.center
+        case .pasting:
+            let sheets = seen.filter { line in PastePrompt.isProgress(line, before: baseline) && centred(line) }
+            return seen.first { line in
+                cancelLabels.contains(PastePrompt.clean(line.text)) && centred(line)
+                    && sheets.contains { sheet in
+                        line.center.y > sheet.center.y && line.center.y - sheet.center.y <= PastePrompt.alertSpan
+                    }
+            }?.center
+        case .unverifiedAllow, .none:
+            return nil
+        }
+    }
+
     /// The clipboard changed under a paste in progress: stop the phone from
     /// fetching it (Cancel on its "Pasting from" sheet, Don't Allow on its
     /// prompt) and say whether that was done. Seen on a device: Cancel kept
     /// the user's copy out of the field.
-    private func stopForeignPaste(_ seen: [PhoneText], driver: PhonePasteDriver) -> PasteOutcome {
+    private func stopForeignPaste(_ seen: [PhoneText], prompt: PastePrompt, baseline: [PhoneText]?,
+                                  driver: PhonePasteDriver) -> PasteOutcome {
         let why = "user_copied_during_paste: something else was copied to the Mac's clipboard while the phone was "
             + "fetching it"
-        let button = Self.centredButton(Self.cancelLabels, in: seen)
-            ?? Self.centredButton(PastePrompt.denyPasteLabels, in: seen)
-        guard let button else {
-            return .unknown(why + "; no Cancel or Don't Allow Paste was on screen to stop it, so the phone may have "
-                + "pasted that, possibly the user's data")
+        guard let button = Self.systemStopButton(seen, prompt: prompt, baseline: baseline) else {
+            return .unknown(why + "; no system Cancel or Don't Allow Paste was on screen to stop it, so the phone may "
+                + "have pasted that, possibly the user's data")
         }
         guard let tapped = try? driver.tap(button), tapped.ok else {
             return .unknown(why + "; stopping the phone's paste failed, so it may have pasted that, possibly the "
@@ -212,10 +276,22 @@ public struct PasteWatcher {
         return .unknown(why + "; the phone's paste was cancelled")
     }
 
+    /// Whether a failed ⌘V may still have reached the phone, as the screen
+    /// says of input whose delivery failed after it went out.
+    /// Not a refusal before sending: the input barrier's "stale_observation
+    /// (delivery_unknown)" names an earlier input's unknown result, and this
+    /// ⌘V was never sent (#180).
+    static func mayHaveReached(_ response: ControlResponse) -> Bool {
+        if response.route?.hasSuffix(".unknown") == true { return true }
+        guard let error = response.error else { return false }
+        return error.hasPrefix("action_delivery_unknown")
+    }
+
     /// `verify`: whether the text may be read back off the screen to
     /// confirm it. Without that the best outcome is `.delivered`.
     public func paste(_ text: String, verify: Bool, driver: PhonePasteDriver) -> PasteOutcome {
         let baseline = try? driver.look()
+        onBaseline?(baseline)
         let pressed: ControlResponse
         do {
             pressed = try driver.pressPaste()
@@ -223,13 +299,22 @@ public struct PasteWatcher {
             // The request may have gone out before it failed.
             return .unknown("⌘V: \(error.localizedDescription)")
         }
-        guard pressed.ok else { return .notDelivered(pressed.error ?? "⌘V failed") }
+        guard pressed.ok else {
+            // A send that failed midway (the transport broke, the window
+            // changed under it) may have reached the phone: unknown, so the
+            // clipboard is not handed back while the phone may fetch it.
+            if Self.mayHaveReached(pressed) { return .unknown("⌘V: \(pressed.error ?? "delivery unknown")") }
+            return .notDelivered(pressed.error ?? "⌘V failed")
+        }
 
         var quiet = 0
         var presses = 0
         var blind = 0
         var last: PastePrompt?
         var settled: [PhoneText]?
+        // Whether the phone was seen fetching ("Pasting from"). Quiet screens
+        // after ⌘V without that may be a fetch not yet begun.
+        var sawTransfer = false
         for _ in 0..<maxLooks {
             driver.pause(interval)
             guard let seen = try? driver.look(), !seen.isEmpty else {
@@ -240,9 +325,10 @@ public struct PasteWatcher {
             }
             let prompt = PastePrompt.read(seen, baseline: baseline)
             last = prompt
+            if case .pasting = prompt { sawTransfer = true }
             if othersWrote?() == true {
                 switch prompt {
-                case .allow, .pasting, .unverifiedAllow: return stopForeignPaste(seen, driver: driver)
+                case .allow, .pasting, .unverifiedAllow: return stopForeignPaste(seen, prompt: prompt, baseline: baseline, driver: driver)
                 case .none: break  // done or not begun; the transaction reports it
                 }
             }
@@ -282,19 +368,34 @@ public struct PasteWatcher {
             }
             return .unknown("timed_out: \(state)")
         }
-        guard verify else { return .delivered(nil) }
-        return Self.check(text, before: baseline, after: settled)
+        // The text on screen proves the paste is over. Without it, only a
+        // fetch seen to start and end does: quiet alone may come before a
+        // slow fetch, which would then get the user's restored clipboard.
+        let checked = verify ? Self.check(text, before: baseline, after: settled) : .delivered(nil)
+        // The text seen exactly shows the fetch is over as well as a seen
+        // transfer does. Text seen only up to OCR's confusions does not:
+        // other text may read alike (Codex on #127: a new "RO" for "R0"),
+        // and handing back the clipboard then may give a late fetch the
+        // user's data.
+        if checked == .confirmed || sawTransfer { return checked }
+        if checked == .delivered(Self.ocrSimilar) {
+            return .unknown("no_transfer_seen: the phone was never seen fetching the clipboard and the text was "
+                + "seen only up to characters OCR confuses, so the fetch may still come")
+        }
+        return .unknown("no_transfer_seen: the phone was never seen fetching the clipboard and the text is not on "
+            + "screen, so the fetch may still come")
     }
 
     /// After a paste that did not settle: watch up to `looks` more times for
-    /// the phone to be seen busy with it (a paste prompt or a paste in
-    /// progress) and then to stop, on screens that could be read. Nothing is
-    /// pressed. True only when the phone is seen to be done with the
-    /// clipboard, so the user's contents can go back without the phone
-    /// fetching them. Quiet screens alone prove nothing: a ⌘V that failed
-    /// on its way out, or a fetch not yet begun, looks just as quiet.
-    public func settles(looks: Int, driver: PhonePasteDriver) -> Bool {
-        var busy = false
+    /// the phone to be seen transferring it ("Pasting from") and then to
+    /// stop, on screens that could be read. Nothing is pressed. True only
+    /// when the phone is seen to be done with the clipboard, so the user's
+    /// contents can go back without the phone fetching them. Quiet screens
+    /// alone prove nothing: a ⌘V that failed on its way out, or a fetch not
+    /// yet begun, looks just as quiet; and an Allow Paste prompt that went
+    /// away is not a finished transfer, which may start only after it.
+    public func settles(looks: Int, driver: PhonePasteDriver, baseline: [PhoneText]? = nil) -> Bool {
+        var transferred = false
         var quiet = 0
         for _ in 0..<looks {
             driver.pause(interval)
@@ -303,15 +404,19 @@ public struct PasteWatcher {
                 continue
             }
             let prompting = seen.contains { line in
+                // Page text that was there before ⌘V, at the same place, is
+                // not the phone's prompt, as `PastePrompt.read` has it (#174).
+                if PastePrompt.wasThere(line, in: baseline) { return false }
                 let text = PastePrompt.clean(line.text)
                 return PastePrompt.allowPasteLabels.contains(text) || PastePrompt.denyPasteLabels.contains(text)
-                    || PastePrompt.pastingLabels.contains { text.hasPrefix($0) }
+                    || PastePrompt.isProgress(line, before: baseline)
                     || PastePrompt.promptPhrases.contains { text.range(of: $0, options: .caseInsensitive) != nil }
             }
+            let transferring = seen.contains { PastePrompt.isProgress($0, before: baseline) }
+            if transferring { transferred = true }
             if prompting {
-                busy = true
                 quiet = 0
-            } else if busy {
+            } else if transferred {
                 quiet += 1
             }
             if quiet >= quietLooks { return true }
@@ -328,7 +433,38 @@ public struct PasteWatcher {
         guard let before else { return .delivered("the screen before the paste could not be read") }
         let was = occurrences(of: needle, in: before)
         let now = occurrences(of: needle, in: after)
-        return now > was ? .confirmed : .delivered("the text was not seen on screen")
+        if now > was { return .confirmed }
+        // F10 (device, 2026-10-09): Vision read "R0" as "RO", so a paste on
+        // screen failed the exact check. Reading it again with the characters
+        // OCR confuses folded together is evidence the text landed, not that
+        // it is right: it may as well be "PAY1OO" for "PAY100". So it is
+        // `.delivered` (no Return, never `.confirmed`), not `.unknown`.
+        // A field's own value would settle it, but iPhone Mirroring exposes no
+        // accessibility tree of the phone, so there is no exact source here.
+        let loose = fold(needle)
+        if occurrences(of: loose, in: before, folded: true) < occurrences(of: loose, in: after, folded: true) {
+            return .delivered(Self.ocrSimilar)
+        }
+        return .delivered("the text was not seen on screen")
+    }
+
+    /// The reason `check` gives for text seen only with OCR-confusable
+    /// characters folded together.
+    static let ocrSimilar = "ocr_similar: text matching the pasted text up to characters OCR confuses "
+        + "(0/O, 1/l/I, 5/S, 8/B, 2/Z) appeared on screen; not confirmed"
+
+    /// The characters OCR mixes up, folded to one of each kind.
+    static func fold(_ text: String) -> String {
+        String(text.map { character -> Character in
+            switch character {
+            case "0", "o": return "o"
+            case "1", "l", "i", "|": return "l"
+            case "5", "s": return "s"
+            case "8", "b": return "b"
+            case "2", "z": return "z"
+            default: return character
+            }
+        })
     }
 
     static func normalize(_ text: String) -> String {
@@ -337,11 +473,11 @@ public struct PasteWatcher {
 
     /// Non-overlapping occurrences of `needle` in the screen's text read top
     /// to bottom, left to right.
-    static func occurrences(of needle: String, in seen: [PhoneText]) -> Int {
+    static func occurrences(of needle: String, in seen: [PhoneText], folded: Bool = false) -> Int {
         let lines = seen.sorted { a, b in
             abs(a.box.midY - b.box.midY) > 0.01 ? a.box.midY < b.box.midY : a.box.minX < b.box.minX
         }
-        var haystack = Substring(lines.map { normalize($0.text) }.joined())
+        var haystack = Substring(lines.map { folded ? fold(normalize($0.text)) : normalize($0.text) }.joined())
         var count = 0
         while let range = haystack.range(of: needle) {
             count += 1
@@ -393,12 +529,21 @@ public struct PasteTransaction {
                                   clipboardRestored: true)
                 }
                 var watcher = self.watcher
+                final class Seen { var baseline: [PhoneText]? }
+                let seen = Seen()
+                watcher.onBaseline = { seen.baseline = $0 }
+                final class Blocked { var done = false }
+                let blocked = Blocked()
                 let loan = try PasteboardLoan.with(text, on: pasteboard, restoreAfter: { (outcome: PasteOutcome) -> Bool in
                     // A paste that settled is done with the clipboard. One that
                     // did not may still be fetched (a prompt left up, a slow
                     // transfer): restore only once the phone is seen done.
                     guard case .unknown = outcome else { return true }
-                    return watcher.settles(looks: settleLooks, driver: driver)
+                    // Before the wait below, not after it: meanwhile another
+                    // process must not type into a field in an unknown state.
+                    driver.blockInput("may hold a half-finished paste")
+                    blocked.done = true
+                    return watcher.settles(looks: settleLooks, driver: driver, baseline: seen.baseline)
                 }) { () -> PasteOutcome in
                     let ours = pasteboard.changeCount
                     watcher.othersWrote = { pasteboard.changeCount != ours }
@@ -418,6 +563,13 @@ public struct PasteTransaction {
                     outcome = .unknown("user_copied_during_paste: something else was copied to the Mac's clipboard "
                         + "while the phone was fetching it, so the phone may have pasted that, possibly the "
                         + "user's data, instead of the text")
+                }
+                if case .unknown = outcome, !blocked.done {
+                    // Unknown only now (the user copied): block while the
+                    // lease is still held, so no other process types into
+                    // the field before the screen raises its own barrier
+                    // (Codex on #127).
+                    driver.blockInput("may hold what the user copied during a paste")
                 }
                 return Result(outcome: outcome, clipboardRestored: restored)
             }
