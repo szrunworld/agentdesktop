@@ -118,15 +118,16 @@ final class BridgeStallWatch: @unchecked Sendable {
         /// Exited non-zero, or left no output; `reason` says which (and the
         /// first line it wrote to stderr).
         case failed(reason: String)
-        /// Still running at the limit; it was ended only once known to be the
-        /// process this watch started.
+        /// Still running at the limit. `ended`: it was known to be the
+        /// process this watch started, was asked to terminate and was seen to
+        /// exit within two seconds (b9 on bb8c248: asking is not ending).
         case timedOut(ended: Bool)
 
         var description: String {
             switch self {
             case .captured: return "captured"
             case let .failed(reason): return "failed: \(reason)"
-            case let .timedOut(ended): return "timed out (\(ended ? "ended" : "left running: not provably ours"))"
+            case let .timedOut(ended): return "timed out (\(ended ? "terminated and exited" : "still running: not provably ours, or did not exit"))"
             }
         }
     }
@@ -150,9 +151,11 @@ final class BridgeStallWatch: @unchecked Sendable {
         if p.isRunning {
             // Only the process this watch started: its parent is this process
             // and its executable is the one launched.
-            let ours = isChild(p.processIdentifier, running: executable)
-            if ours { p.terminate() }
-            return .timedOut(ended: ours)
+            guard isChild(p.processIdentifier, running: executable) else { return .timedOut(ended: false) }
+            p.terminate()
+            let exitBy = Date().addingTimeInterval(2)
+            while p.isRunning && Date() < exitBy { Thread.sleep(forTimeInterval: 0.05) }
+            return .timedOut(ended: !p.isRunning)
         }
         let firstLine = (try? String(contentsOfFile: stderrFile, encoding: .utf8))?
             .split(separator: "\n").first.map(String.init) ?? ""
