@@ -97,9 +97,52 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
     _ = call(sc.s, sc.c, "window.bind", params: #"{"desktopId":"\#(sc.desktop)","pid":101}"#)
     #expect(code(act(sc, #"{"kind":"key","key":"return"}"#, snapshot: newer)) == "stale_observation")
     #expect(sc.platform.performed.count == 1)
-    // Without a session: refused outright.
+    // Naming only the Desktop (A7 implicit session) passes the same
+    // snapshot checks: still stale, still no input.
     let bare = answer(sc.s, #"{"apiVersion":"agentdesktop.runtime/1","requestId":"x1","method":"act","context":{"desktopId":"\#(sc.desktop)"},"params":{"snapshotId":"\#(newer)","action":{"kind":"key","key":"a"}}}"#, sc.c)
-    #expect(code(bare) == "schema_invalid")
+    #expect(code(bare) == "stale_observation")
+    #expect(sc.platform.performed.count == 1)
+    // Naming nothing: refused outright.
+    let none = answer(sc.s, #"{"apiVersion":"agentdesktop.runtime/1","requestId":"x2","method":"act","params":{"snapshotId":"\#(newer)","action":{"kind":"key","key":"a"}}}"#, sc.c)
+    #expect(code(none) == "schema_invalid")
+}
+
+/// A7 (plannedFields "observe/act context", A5): observe and act with
+/// context.desktopId alone. act reuses the caller's open session there, or
+/// opens one; it is recorded with its Desktop; a retry acts once.
+@Test func actWithTheDesktopAloneRunsInAnImplicitSession() throws {
+    let sc = try scene()
+    func line(_ id: String, _ snap: String, desktop: String) -> String {
+        #"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(id)","method":"act","context":{"desktopId":"\#(desktop)"},"params":{"snapshotId":"\#(snap)","action":\#(clickContinue)}}"#
+    }
+    let obs = try #require(data(call(sc.s, sc.c, "observe", context: #"{"desktopId":"\#(sc.desktop)"}"#))?["snapshotId"]?.stringValue)
+    let r = try #require(data(answer(sc.s, line("implicit-1", obs, desktop: sc.desktop), sc.c)))
+    #expect(contract.validate(r, "ActionReceipt").isEmpty, "\(r.encoded())")
+    #expect(r["delivery"]?.stringValue == "dispatched")
+    // It ran in the caller's existing session: no second one was opened.
+    #expect(sc.s.sessions.openCount(desktopId: sc.desktop) == 1)
+    let runId = try #require(r["runId"]?.stringValue)
+    #expect(data(call(sc.s, sc.c, "run.show", params: #"{"runId":"\#(runId)"}"#))?["sessionId"]?.stringValue == sc.session)
+    // Recorded with its Desktop; the same requestId acts only once.
+    #expect(data(call(sc.s, sc.c, "request.show", params: #"{"requestId":"implicit-1"}"#))?["desktopId"]?.stringValue == sc.desktop)
+    #expect(data(answer(sc.s, line("implicit-1", obs, desktop: sc.desktop), sc.c)) == r)
+    #expect(sc.platform.performed.count == 1)
+
+    // With no open session of the caller there, one is opened.
+    _ = call(sc.s, sc.c, "session.close", params: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(sc.s.sessions.openCount(desktopId: sc.desktop) == 0)
+    let obs2 = try #require(data(call(sc.s, sc.c, "observe", context: #"{"desktopId":"\#(sc.desktop)"}"#))?["snapshotId"]?.stringValue)
+    #expect(data(answer(sc.s, line("implicit-2", obs2, desktop: sc.desktop), sc.c))?["delivery"]?.stringValue == "dispatched")
+    #expect(sc.s.sessions.openCount(desktopId: sc.desktop) == 1)
+    // ...and reused next time.
+    let obs3 = try #require(data(call(sc.s, sc.c, "observe", context: #"{"desktopId":"\#(sc.desktop)"}"#))?["snapshotId"]?.stringValue)
+    #expect(data(answer(sc.s, line("implicit-3", obs3, desktop: sc.desktop), sc.c)) != nil)
+    #expect(sc.s.sessions.openCount(desktopId: sc.desktop) == 1)
+    #expect(sc.platform.performed.count == 3)
+
+    // An unknown Desktop is not found, and nothing is opened or sent.
+    #expect(code(answer(sc.s, line("implicit-4", obs3, desktop: "d_nope"), sc.c)) == "not_found")
+    #expect(sc.platform.performed.count == 3)
 }
 
 @Test func anExecRunHoldsTheDesktopAndItsOwnerLossStopsIt() throws {
@@ -287,4 +330,32 @@ func testRun(_ id: String, lifetime: RunRecord.Lifetime) -> RunRecord {
     #expect(code(refused) == "permission_denied")
     #expect(failure(refused)?.notSent == true)
     #expect(platform.performed.count == before)
+}
+
+/// A7: an act naming only its Desktop is checked like session.open + act.
+/// A paired app reaches only Desktops of its grant, needs the act
+/// capability, and never gets a session on another Desktop.
+@Test func anImplicitSessionIsBoundByThePairedAppsGrant() throws {
+    let platform = FakePlatform()
+    let s = platformService(platform)
+    let owner = handshaken(s)
+    let (sc, _, _) = try pairedScene(s, platform)
+    let other = try created(s, owner)
+    let (reader, _) = try pairedConnection(s, capabilities: ["observe"], desktops: [sc.desktop], name: "reader")
+    func act(_ c: ConnectionState, _ id: String, desktop: String) -> RuntimeResponse {
+        answer(s, #"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(id)","method":"act","context":{"desktopId":"\#(desktop)"},"params":{"snapshotId":"\#(sc.snapshot)","action":\#(clickContinue)}}"#, c)
+    }
+    // Another Desktop does not exist for this app; no session is opened there.
+    #expect(code(act(sc.c, "g-1", desktop: other)) == "not_found")
+    #expect(s.sessions.openCount(desktopId: other) == 0)
+    // Without the act capability: grant_missing, no session, no input.
+    _ = call(s, sc.c, "session.close", params: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(code(act(reader, "g-2", desktop: sc.desktop)) == "grant_missing")
+    #expect(s.sessions.openCount(desktopId: sc.desktop) == 0)
+    #expect(sc.platform.performed.isEmpty)
+    // Within the grant: a session of the app's own is opened, and used.
+    let r = act(sc.c, "g-3", desktop: sc.desktop)
+    #expect(data(r)?["delivery"]?.stringValue == "dispatched", "\(r.json.encoded())")
+    #expect(s.sessions.openCount(desktopId: sc.desktop) == 1)
+    #expect(sc.platform.performed.count == 1)
 }

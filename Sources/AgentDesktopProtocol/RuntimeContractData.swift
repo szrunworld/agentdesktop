@@ -9925,6 +9925,7 @@ enum RuntimeContractData {
       "mutation": true,
       "params": "act_params",
       "result": "ActionReceipt",
+      "note": "context.sessionId, or context.desktopId alone (A7, planned as A5's implicit session): the caller's oldest open session on that Desktop, else one opened as session.open would (act capability, same checks); input never goes out without a session. observe and wait already take context.desktopId alone",
       "status": "implemented"
     },
     {
@@ -10759,10 +10760,6 @@ enum RuntimeContractData {
   ],
   "plannedFields": {
     "note": "optional additions agreed in docs/plan/03 §3.2–3.3; each lands with its schema, fixtures and goldens in the named PR (freeze rule 1: optional fields only)",
-    "observe/act context": {
-      "add": "desktopId alone opens an implicit session",
-      "pr": "A5"
-    },
     "ActionReceipt": {
       "add": [
         "elapsedMs",

@@ -64,6 +64,14 @@ public final class SessionManager: @unchecked Sendable {
         }
     }
 
+    /// `caller`'s oldest open session on a Desktop (act's implicit session).
+    func firstOpen(desktopId: String, caller: String) -> RuntimeSession? {
+        lock.withLock {
+            sessions.values.filter { $0.desktopId == desktopId && $0.caller == caller && $0.state == "open" }
+                .min { ($0.createdAt, $0.sessionId) < ($1.createdAt, $1.sessionId) }
+        }
+    }
+
     /// Whether a session of this id exists at all, whoever's.
     func exists(_ id: String) -> Bool { lock.withLock { sessions[id] != nil } }
 

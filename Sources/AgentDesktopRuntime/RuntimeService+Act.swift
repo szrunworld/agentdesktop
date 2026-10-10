@@ -9,8 +9,19 @@ extension RuntimeService {
     /// platform → ActionReceipt.
     func act(_ request: RuntimeRequest, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
+        var request = request
+        // A5/A7: context.desktopId alone opens an implicit session: the
+        // caller's open session on that Desktop, else a new one, opened as
+        // session.open would (same capability, same checks under the lock).
+        // Input still never goes out without a session.
+        if request.context.sessionId == nil, let desktopId = request.context.desktopId {
+            switch implicitSession(desktopId: desktopId, c) {
+            case let .failure(e): return .failure(e)
+            case let .success(sid): request.context.sessionId = sid
+            }
+        }
         guard request.context.sessionId != nil else {
-            return .failure(.schemaInvalid("act needs context.sessionId: input without a session is refused"))
+            return .failure(.schemaInvalid("act needs context.sessionId or context.desktopId: input without a session is refused"))
         }
         let acceptedAt = nowString
         let session: RuntimeSession
@@ -390,6 +401,19 @@ extension RuntimeService {
             pa.point = (gx, gy)
         }
         return pa
+    }
+
+    /// The session an act naming only its Desktop runs in: the caller's
+    /// open session there (the oldest, so repeated calls agree), else one
+    /// opened now through `openSession`.
+    func implicitSession(desktopId: String, _ c: ConnectionState) -> Result<String, RuntimeError> {
+        if let s = sessions.firstOpen(desktopId: desktopId, caller: c.clientId) { return .success(s.sessionId) }
+        return openSession(.obj([("desktopId", .string(desktopId))]), c).flatMap { opened in
+            guard let sid = opened["sessionId"]?.stringValue else {
+                return .failure(RuntimeError("internal_error", "session.open returned no sessionId", phase: .handler))
+            }
+            return .success(sid)
+        }
     }
 
     /// Wait, on the Runtime, for an element condition in the bound window.
