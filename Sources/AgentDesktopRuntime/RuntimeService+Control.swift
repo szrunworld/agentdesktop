@@ -110,22 +110,17 @@ extension RuntimeService {
         if let h = execution.controlFacts(d.desktopId).holder, h.origin == .user, h.phase == .running {
             return .success(takeoverJSON(d, run: h, stopped: stopped, c))
         }
-        // While this one waited, the owner handed the Desktop back or stopped
-        // it: that later decision stands (Codex on 2aaf935).
-        guard execution.takeoverStands(d.desktopId, serial: serial) else {
-            return .failure(RuntimeError("conflict",
-                                         "desktop \(d.desktopId) was handed back or stopped while this takeover waited; nothing was taken over",
-                                         phase: .handler, notSent: true,
-                                         details: .obj([("desktopId", .string(d.desktopId)), ("reason", .string("superseded"))])))
-        }
         if let holder = execution.holder(of: d.desktopId) { return .failure(pending(holder)) }
         let session = sessions.open(desktopId: d.desktopId, caller: c.clientId, at: nowString)
         // The user's Run takes no input through the Runtime: its session
         // only names the Desktop.
         defer { _ = sessions.close(session.sessionId, at: nowString) }
-        switch execution.startDurable(kind: "exec", session: session, origin: .user) {
+        // While this one waited, the owner may have handed the Desktop back
+        // or stopped it: that later decision stands. Checked and started in
+        // one step of the coordinator (Codex on 2aaf935 and 6d39332).
+        switch execution.startTakeover(session: session, serial: serial) {
         case let .failure(e):
-            execution.restoreGate(d.desktopId, stopped != nil ? .stopped : previous)
+            execution.restoreGate(d.desktopId, stopped != nil ? .stopped : previous, ifSerial: serial)
             return .failure(e)
         case let .success(run):
             return .success(takeoverJSON(d, run: run, stopped: stopped, c))
