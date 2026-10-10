@@ -35,6 +35,11 @@ public final class AXSnapshot {
     /// Why the walk stopped before the whole tree: "deadline" (out of time)
     /// or "limits" (too deep or too many nodes). Nil for a complete walk.
     public let truncated: String?
+    /// The filter this snapshot was taken with (`state`'s query), nil for
+    /// the whole tree. A recapture that checks the snapshot is still current
+    /// walks with the same filter, or a filtered tree never equals a fresh
+    /// full one (#249).
+    let query: String?
 
     /// Deep apps (Electron, web views) have thousands of nodes; these bound
     /// the walk so a snapshot stays fast and the tree readable.
@@ -44,9 +49,10 @@ public final class AXSnapshot {
     /// One AX query waits at most this long for a busy app.
     static let queryTimeout: Float = 1
 
-    private init(windowID: CGWindowID, elements: [AXElementInfo], tree: String, handles: [Int: AXUIElement],
-                 web: Set<Int>, truncated: String?) {
+    init(windowID: CGWindowID, elements: [AXElementInfo], tree: String, handles: [Int: AXUIElement],
+         web: Set<Int>, truncated: String?, query: String? = nil) {
         self.truncated = truncated
+        self.query = query
         self.windowID = windowID
         self.elements = elements
         self.tree = tree
@@ -84,7 +90,7 @@ public final class AXSnapshot {
         }
         return AXSnapshot(windowID: window.windowID, elements: walker.elements,
                           tree: walker.lines.joined(separator: "\n"), handles: walker.handles, web: walker.web,
-                          truncated: walker.truncated)
+                          truncated: walker.truncated, query: query)
     }
 
     /// Chromium and Electron expose a page's tree only once a client asks for it; until then
@@ -154,10 +160,12 @@ public final class AXSnapshot {
     /// Coordinate delivery must still name the observed web element. A
     /// moved element requires a new observation, rather than silently aiming
     /// at a new position. Strict hit identity may refuse child hit targets.
-    func validateWebTarget(_ index: Int, in window: WindowInfo) throws {
+    func validateWebTarget(_ index: Int, in window: WindowInfo,
+                           capture: (WindowInfo, String?, Date?) throws -> AXSnapshot = { try AXSnapshot.capture($0, query: $1, deadline: $2) }) throws {
         guard truncated == nil, let old = handle(index), let info = element(index: index),
               let point = info.center else { throw AccessibilityError("web target cannot be verified; observe again") }
-        let fresh = try Self.capture(window, deadline: Date().addingTimeInterval(2))
+        // With this snapshot's own filter (#249).
+        let fresh = try capture(window, query, Date().addingTimeInterval(2))
         guard let current = fresh.handle(index), let currentInfo = fresh.element(index: index) else {
             throw AccessibilityError("web target disappeared; observe again")
         }
