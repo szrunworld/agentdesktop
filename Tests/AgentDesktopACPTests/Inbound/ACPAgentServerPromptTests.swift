@@ -6,10 +6,10 @@ import Testing
 /// Prompt, submission, cancel, approvals and questions on fakes.
 @Suite struct ACPAgentServerPromptTests {
     private func harness(_ tasks: [ACPExposedTask], version: ACPVersion = .v1,
-                         holdTime: Duration = .seconds(5)) -> STestHarness {
+                         holdTime: Duration = .seconds(5), monotonicNow: (@Sendable () -> ContinuousClock.Instant)? = nil) -> STestHarness {
         let rt = STestRuntime()
         rt.taskList.with { $0 = tasks }
-        return STestHarness(version: version, runtime: rt, holdTime: holdTime)
+        return STestHarness(version: version, runtime: rt, holdTime: holdTime, monotonicNow: monotonicNow)
     }
 
     private func stop(_ r: ACPReply?) -> ACPStopReason? {
@@ -167,7 +167,8 @@ import Testing
     // MARK: Cancel
 
     @Test func cancelEndsOnlyAfterQuiescenceConfirmed() async {
-        let h = harness([STestHarness.task("work", freeText: true)])
+        let now = ContinuousClock().now
+        let h = harness([STestHarness.task("work", freeText: true)], monotonicNow: { now })
         defer { h.cleanup() }
         let sid = await h.newSession()
         let p = h.prompt(sid, "go")
@@ -176,7 +177,8 @@ import Testing
         #expect(await sEventually { h.runtime.cancels.get().count == 1 })
         #expect(h.runtime.cancels.get()[0] == ("run-1", "acp-cancel-\(sid)-run-1"))
         #expect(await sEventually { h.connection.allText(sid).contains("正在停止") })
-        try? await Task.sleep(for: .milliseconds(60))
+        let reads = h.runtime.snapshotReads.get()
+        #expect(await sEventually { h.runtime.snapshotReads.get() >= reads + 2 })
         #expect(h.connection.replyFor(p) == nil) // stopping, quiescence pending
         h.runtime.setPhase("run-1", "stopping", quiescence: "confirmed")
         #expect(stop(await h.connection.waitReply(p)) == .cancelled)
@@ -204,8 +206,8 @@ import Testing
     // MARK: Approvals
 
     private func approvalRun(_ answer: @escaping @Sendable (ACPPermissionRequest) async -> ACPPermissionOutcome,
-                             mode: String = "ask") async -> (STestHarness, String, Int) {
-        let h = harness([STestHarness.task("work", freeText: true)])
+                             mode: String = "ask", monotonicNow: (@Sendable () -> ContinuousClock.Instant)? = nil) async -> (STestHarness, String, Int) {
+        let h = harness([STestHarness.task("work", freeText: true)], monotonicNow: monotonicNow)
         h.connection.permissionAnswer.with { $0 = answer }
         let sid = await h.newSession()
         if mode != "ask" {
@@ -270,16 +272,18 @@ import Testing
 
     @Test func cancelDeniesAnOpenPermissionRequest() async {
         let gate = STestLocked(false)
-        let (h, sid, p) = await approvalRun { _ in
+        let now = ContinuousClock().now
+        let (h, sid, p) = await approvalRun({ _ in
             while !gate.get() { try? await Task.sleep(for: .milliseconds(5)) }
             return .selected(.allowOnce) // the editor answers allow after the cancel
-        }
+        }, monotonicNow: { now })
         defer { h.cleanup() }
         #expect(await sEventually { h.connection.permissionRequests.get().count == 1 })
         h.connection.notify(.cancel(sessionId: sid))
         #expect(await sEventually { h.runtime.decisions.get().count == 1 })
+        let reads = h.runtime.snapshotReads.get()
         gate.with { $0 = true }
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await sEventually { h.runtime.snapshotReads.get() >= reads + 2 })
         #expect(h.runtime.decisions.get().map(\.1) == [false])
         h.runtime.end("run-1", outcome: "cancelled")
         #expect(stop(await h.connection.waitReply(p)) == .cancelled)
@@ -357,4 +361,18 @@ import Testing
         #expect(h.connection.allText(sid).contains("结果未知 · 需要核实"))
         #expect(h.runtime.submitCount == 1)
     }
+    @Test func holdBudgetUsesTheInjectedMonotonicClock() async {
+        let start = ContinuousClock().now
+        let now = STestLocked(start)
+        let h = harness([STestHarness.task("work", freeText: true)], monotonicNow: { now.get() })
+        defer { h.cleanup() }
+        let sid = await h.newSession()
+        let p = h.prompt(sid, "go")
+        #expect(await sEventually { h.runtime.snapshotReads.get() >= 2 })
+        #expect(h.connection.replyFor(p) == nil)
+        now.with { $0 = start.advanced(by: .seconds(5)) }
+        #expect(stop(await h.connection.waitReply(p)) == .endTurn)
+        #expect(h.connection.allText(sid).contains("本轮已等待较长时间"))
+    }
+
 }
