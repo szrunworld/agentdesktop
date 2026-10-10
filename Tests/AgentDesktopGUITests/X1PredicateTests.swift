@@ -65,9 +65,18 @@ struct X1PredicateTests {
         // all: undecided unless some operand is contradicted; any: matched wins.
         #expect(judge(.all([present, missing]), window, coverage) == .inconclusive(reason))
         #expect(judge(.any([missing, present]), window, coverage) == .matched)
-        // A decided contradiction still decides (a wrong value that was read).
+        // value_equals_parameter needs a unique target: one candidate in a
+        // read that is not complete may have a twin in the unread part, so
+        // neither the right nor a wrong value decides (Codex on 3f59d7c).
+        let right = GuiVerification.valueEqualsParameter(role: "text_field", label: "姓名", param: "name", value: "Ada")
         let wrong = GuiVerification.valueEqualsParameter(role: "text_field", label: "姓名", param: "name", value: "Bob")
-        #expect(judge(.all([missing, wrong]), window, coverage) == .contradicted)
+        #expect(judge(right, window, coverage) == .inconclusive(reason))
+        #expect(judge(wrong, window, coverage) == .inconclusive(reason))
+        #expect(judge(.not(wrong), window, coverage) == .inconclusive(reason))
+        // Two candidates are ambiguous however much was read.
+        #expect(judge(right, [nameField, el("text_field", label: "姓名", value: "Ada")], coverage) == .inconclusive(.ambiguous))
+        // A decided contradiction still decides (text that was read and differs is not one).
+        #expect(judge(.all([present, .not(present)]), window, coverage) == .contradicted)
     }
 
     // GX-15: two elements answer the same label: the verifier does not
