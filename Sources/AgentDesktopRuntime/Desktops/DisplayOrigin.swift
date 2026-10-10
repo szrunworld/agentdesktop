@@ -49,23 +49,26 @@ public enum DisplayOrigin: Equatable, Sendable {
 
     /// Classify every active display at once, independent of display order.
     ///
-    /// An external display is physical only when hardware framebuffers
-    /// reporting its vendor, model and serial are at least as many as the
-    /// displays claiming that identity (and likewise for vendor and model
-    /// alone). A virtual display that copies a real monitor's identity
-    /// makes one claimant too many: then every display claiming it is
-    /// unconfirmed, the real one included (fail closed), rather than the
-    /// first in display order winning (Codex on e0be427). Built-in panels
-    /// are physical and count as claimants of their own identity, and a
+    /// Each hardware framebuffer backs one display at most. For every vendor
+    /// and model, the displays claiming it (external ones, and built-in
+    /// panels some framebuffer vouches for) must be matchable one-to-one to
+    /// distinct framebuffers that vouch for them (same vendor, model and
+    /// serial; a framebuffer without a serial matches any serial). If no
+    /// such assignment exists, every external display of that vendor and
+    /// model is unconfirmed, the real one included (fail closed), rather
+    /// than counts or display order deciding (Codex on e0be427, 3d85886). A
     /// framebuffer the registry marks as built in vouches for no external
-    /// display (Codex on cb64fce). Any engine virtual display, even one
-    /// claiming to be built in, is virtual.
+    /// display (Codex on cb64fce). Built-in panels are physical; any engine
+    /// virtual display, even one claiming to be built in, is virtual.
     public static func classify(_ displays: [Display], framebuffers: [Framebuffer]) -> [UInt32: DisplayOrigin] {
         func isEngineVirtual(_ d: Display) -> Bool { d.vendor == engineVirtualVendor && d.model == engineVirtualModel }
-        // Everyone who claims an identity, the built-in panels included: a
-        // clone of the panel then makes one claimant too many.
-        let claimants = displays.filter { !isEngineVirtual($0) && $0.vendor != 0 }
+        func vouches(_ f: Framebuffer, _ d: Display) -> Bool {
+            d.builtin ? (f.external != true && f.vendor == d.vendor && f.model == UInt64(d.model)
+                         && (f.serial == nil || f.serial == UInt64(d.serial)))
+                      : f.vouches(for: d)
+        }
         var result: [UInt32: DisplayOrigin] = [:]
+        var external: [Display] = []
         for d in displays {
             if isEngineVirtual(d) {
                 result[d.id] = .virtual("an engine virtual display (vendor 0x3256, model 2)")
@@ -74,17 +77,40 @@ public enum DisplayOrigin: Equatable, Sendable {
             } else if d.vendor == 0 {
                 result[d.id] = .unconfirmed("the display reports no vendor")
             } else {
-                let sameIdentity = claimants.filter { $0.vendor == d.vendor && $0.model == d.model && $0.serial == d.serial }.count
-                let sameModel = claimants.filter { $0.vendor == d.vendor && $0.model == d.model }.count
-                let vouching = framebuffers.filter { $0.vouches(for: d) }.count
-                let ofModel = framebuffers.filter { $0.external != false && $0.vendor == d.vendor && $0.model == UInt64(d.model) }.count
-                if vouching > 0 && sameIdentity <= vouching && sameModel <= ofModel {
-                    result[d.id] = .physical
-                } else {
-                    result[d.id] = .unconfirmed("no hardware framebuffer of its own vouches for this display; it may be a virtual display")
-                }
+                external.append(d)
+            }
+        }
+        let builtins = displays.filter { $0.builtin && !isEngineVirtual($0) }
+        for key in Set(external.map { "\($0.vendor)/\($0.model)" }) {
+            let group = external.filter { "\($0.vendor)/\($0.model)" == key }
+            // Built-in panels of the same identity take a framebuffer too, when one vouches for them.
+            let panels = builtins.filter { b in "\(b.vendor)/\(b.model)" == key && framebuffers.contains { vouches($0, b) } }
+            let claimants = group + panels
+            let matched = perfectMatching(claimants, framebuffers, vouches)
+            for d in group {
+                result[d.id] = matched ? .physical
+                    : .unconfirmed("no hardware framebuffer of its own vouches for this display; it may be a virtual display")
             }
         }
         return result
+    }
+
+    /// Whether every claimant can be given a distinct framebuffer that
+    /// vouches for it (bipartite matching by augmenting paths).
+    static func perfectMatching(_ claimants: [Display], _ framebuffers: [Framebuffer],
+                                _ vouches: (Framebuffer, Display) -> Bool) -> Bool {
+        var owner = [Int?](repeating: nil, count: framebuffers.count)
+        func assign(_ c: Int, _ seen: inout [Bool]) -> Bool {
+            for f in framebuffers.indices where !seen[f] && vouches(framebuffers[f], claimants[c]) {
+                seen[f] = true
+                if owner[f] == nil || assign(owner[f]!, &seen) { owner[f] = c; return true }
+            }
+            return false
+        }
+        for c in claimants.indices {
+            var seen = [Bool](repeating: false, count: framebuffers.count)
+            if !assign(c, &seen) { return false }
+        }
+        return true
     }
 }

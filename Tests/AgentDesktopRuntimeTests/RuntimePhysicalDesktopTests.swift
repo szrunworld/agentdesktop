@@ -196,6 +196,15 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     o = DisplayOrigin.classify([panelClone, panel], framebuffers: [F(vendor: 0x610, model: 0xa05e, serial: 9)])
     #expect(o[20] == .physical)
     if case .unconfirmed = o[21] {} else { Issue.record("an unmarked framebuffer vouched for the panel and its clone") }
+    // Overlapping counts are not a matching (Codex on 3d85886): serials [1,1,2,2]
+    // against framebuffers [1,2,nil,3] cannot all be backed, so none is trusted.
+    let four = [UInt32(1), 1, 2, 2].enumerated().map { D(id: UInt32(30 + $0.offset), builtin: false, vendor: 25001, model: 49155, serial: $0.element) }
+    let fbs = [UInt64(1), 2, nil, 3].map { F(vendor: 25001, model: 49155, serial: $0, external: true) }
+    o = DisplayOrigin.classify(four, framebuffers: fbs)
+    for d in four { if case .unconfirmed = o[d.id] {} else { Issue.record("display \(d.id) trusted without a framebuffer of its own") } }
+    // With one more serial-less framebuffer an assignment exists: all trusted.
+    o = DisplayOrigin.classify(four, framebuffers: fbs + [F(vendor: 25001, model: 49155, serial: nil, external: true)])
+    #expect(four.allSatisfy { o[$0.id] == .physical })
     // Any engine virtual display, even one claiming to be built in, and a vendorless display.
     o = DisplayOrigin.classify([D(id: 10, builtin: true, vendor: 0x3256, model: 2), D(id: 11, builtin: false, vendor: 0, model: 0)],
                                framebuffers: [F(vendor: 0x3256, model: 2, serial: nil), F(vendor: 0, model: 0, serial: nil)])
