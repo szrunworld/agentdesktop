@@ -76,6 +76,46 @@ private let second: UInt64 = 1_000_000_000
     #expect(w.due() == nil)
     clock.set(t0 + 2 * second + 1)
     let d = w.due()
-    #expect(d?.stalls.map(\.label) == ["a"] || d?.stalls.count == 2)
+    // b's waiting task was created after a's, so at a's 2 s + 1 ns it has
+    // waited less: only a is due (b9 on bfbbb55: one outcome only).
+    #expect(d?.stalls.map(\.label) == ["a"])
     #expect(Set(d?.waiting.map { "\($0.label)#\($0.call)" } ?? []) == ["a#1", "b#2"])
+}
+
+// Codex and b9 on bfbbb55: a launch is not a capture. Each outcome is told
+// apart, and a process past its limit is ended only when it is ours.
+private func scratch() -> String {
+    let d = NSTemporaryDirectory() + "adt-stallwatch-\(UUID().uuidString.prefix(8))"
+    try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
+    return d
+}
+
+@Test func aSampleThatWritesItsFileIsCaptured() {
+    let d = scratch(); defer { try? FileManager.default.removeItem(atPath: d) }
+    let r = BridgeStallWatch.runSample("/bin/sh", ["-c", "echo stacks > \(d)/out"], output: d + "/out", stderrFile: d + "/err", limit: 10)
+    #expect(r == .captured)
+}
+
+@Test func aSampleThatFailsSaysWhyWithItsFirstErrorLine() {
+    let d = scratch(); defer { try? FileManager.default.removeItem(atPath: d) }
+    let r = BridgeStallWatch.runSample("/bin/sh", ["-c", "echo 'sample cannot examine process' >&2; echo more >&2; exit 3"],
+                                       output: d + "/out", stderrFile: d + "/err", limit: 10)
+    #expect(r == .failed(reason: "exit status 3: sample cannot examine process"))
+}
+
+@Test func aSampleThatExitsCleanlyButWritesNothingIsAFailure() {
+    let d = scratch(); defer { try? FileManager.default.removeItem(atPath: d) }
+    let r = BridgeStallWatch.runSample("/bin/sh", ["-c", "exit 0"], output: d + "/out", stderrFile: d + "/err", limit: 10)
+    #expect(r == .failed(reason: "no output at \(d)/out"))
+}
+
+@Test func aSamplePastItsLimitIsEndedAndSaidToHaveTimedOut() {
+    let d = scratch(); defer { try? FileManager.default.removeItem(atPath: d) }
+    let r = BridgeStallWatch.runSample("/bin/sleep", ["30"], output: d + "/out", stderrFile: d + "/err", limit: 0.5)
+    #expect(r == .timedOut(ended: true))
+}
+
+@Test func onlyThisProcesssOwnChildIsTakenAsOurs() {
+    #expect(!BridgeStallWatch.isChild(getpid(), running: "/bin/sleep"), "not a child of itself")
+    #expect(!BridgeStallWatch.isChild(1, running: "/sbin/launchd"), "launchd is nobody's child here")
 }

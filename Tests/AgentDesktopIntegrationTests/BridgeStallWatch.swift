@@ -1,5 +1,6 @@
 import AgentDesktopProtocol
 @testable import AgentDesktopService
+import Darwin
 import Foundation
 
 /// #166 (Kevin 2026-10-10): when a bridge task has waited more than two
@@ -7,11 +8,11 @@ import Foundation
 /// threads it is waiting for. Test-only: on with AGENTDESKTOP_BRIDGE_DIAG=1
 /// and AGENTDESKTOP_BRIDGE_STACKS=1; the product has nothing of it.
 ///
-/// It reads the bridge timelines (BridgeDiagnostics) from its own plain
-/// thread, decides under its lock and samples with no lock held; `sample`
-/// is a separate process. At most `maxCaptures` per process, `spacing`
-/// apart, each stalled call once, so the watch cannot pile up work or wait
-/// on what it watches.
+/// It reads the bridge timelines (BridgeDiagnostics) incrementally from its
+/// own plain thread, decides under its lock and samples with no lock held;
+/// `sample` is a separate process, waited for at most `sampleLimit`. At most
+/// `maxCaptures` per process, `spacing` apart, each stalled call once, so
+/// the watch cannot pile up work or wait on what it watches.
 final class BridgeStallWatch: @unchecked Sendable {
     struct Stall: Sendable, CustomStringConvertible {
         let label: String
@@ -31,7 +32,16 @@ final class BridgeStallWatch: @unchecked Sendable {
     private let now: @Sendable () -> UInt64
     private let capture: @Sendable (_ due: [Stall], _ waiting: [Stall], _ index: Int) -> Void
     private let lock = NSLock()
-    private var sources: [(label: String, recorder: BridgeDiagnostics)] = []
+    /// Per recorder: how many events were read, and the tasks created and
+    /// not yet started (call -> method, created at).
+    private final class Source {
+        let label: String
+        let recorder: BridgeDiagnostics
+        var read = 0
+        var pending: [UInt64: (method: String, createdAt: UInt64)] = [:]
+        init(label: String, recorder: BridgeDiagnostics) { self.label = label; self.recorder = recorder }
+    }
+    private var sources: [Source] = []
     private var captured: Set<String> = []
     private var captures = 0
     private var lastCapture: UInt64?
@@ -48,22 +58,25 @@ final class BridgeStallWatch: @unchecked Sendable {
     }
 
     func watch(_ recorder: BridgeDiagnostics, label: String) {
-        lock.withLock { sources.append((label, recorder)) }
+        lock.withLock { sources.append(Source(label: label, recorder: recorder)) }
     }
 
     /// Every task created and not yet started, with how long it has waited.
+    /// Reads only the events noted since the last look (b9 on bfbbb55).
     func waiting() -> [Stall] {
         let at = now()
-        return lock.withLock { sources }.flatMap { source -> [Stall] in
-            var created: [UInt64: (String, UInt64)] = [:]
-            var startedCalls: Set<UInt64> = []
-            for e in source.recorder.events {
-                if e.stage == .taskCreated { created[e.call] = (e.method, e.uptimeNanos) }
-                if e.stage == .taskStarted { startedCalls.insert(e.call) }
+        return lock.withLock { () -> [Stall] in
+            sources.flatMap { source -> [Stall] in
+                let new = source.recorder.events(after: source.read)
+                source.read += new.count
+                for e in new {
+                    if e.stage == .taskCreated { source.pending[e.call] = (e.method, e.uptimeNanos) }
+                    if e.stage == .taskStarted { source.pending[e.call] = nil }
+                }
+                return source.pending.map { call, v in
+                    Stall(label: source.label, call: call, method: v.method, waitedNanos: at > v.createdAt ? at - v.createdAt : 0)
+                }.sorted { $0.call < $1.call }
             }
-            return created.filter { !startedCalls.contains($0.key) }.map { call, v in
-                Stall(label: source.label, call: call, method: v.0, waitedNanos: at > v.1 ? at - v.1 : 0)
-            }.sorted { $0.call < $1.call }
         }
     }
 
@@ -98,6 +111,72 @@ final class BridgeStallWatch: @unchecked Sendable {
         thread.start()
     }
 
+    // MARK: Sampling
+
+    enum SampleOutcome: Equatable, CustomStringConvertible {
+        case captured
+        /// Exited non-zero, or left no output; `reason` says which (and the
+        /// first line it wrote to stderr).
+        case failed(reason: String)
+        /// Still running at the limit; it was ended only once known to be the
+        /// process this watch started.
+        case timedOut(ended: Bool)
+
+        var description: String {
+            switch self {
+            case .captured: return "captured"
+            case let .failed(reason): return "failed: \(reason)"
+            case let .timedOut(ended): return "timed out (\(ended ? "ended" : "left running: not provably ours"))"
+            }
+        }
+    }
+
+    /// Runs `executable` with `arguments`, waiting at most `limit`, and says
+    /// how it went; `output` must then exist and not be empty (Codex and b9
+    /// on bfbbb55: a launch is not a capture).
+    static func runSample(_ executable: String, _ arguments: [String], output: String, stderrFile: String,
+                          limit: TimeInterval) -> SampleOutcome {
+        FileManager.default.createFile(atPath: stderrFile, contents: nil)
+        guard let err = FileHandle(forWritingAtPath: stderrFile) else { return .failed(reason: "cannot write \(stderrFile)") }
+        defer { try? err.close() }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = arguments
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = err
+        do { try p.run() } catch { return .failed(reason: "could not start: \(error.localizedDescription)") }
+        let deadline = Date().addingTimeInterval(limit)
+        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        if p.isRunning {
+            // Only the process this watch started: its parent is this process
+            // and its executable is the one launched.
+            let ours = isChild(p.processIdentifier, running: executable)
+            if ours { p.terminate() }
+            return .timedOut(ended: ours)
+        }
+        let firstLine = (try? String(contentsOfFile: stderrFile, encoding: .utf8))?
+            .split(separator: "\n").first.map(String.init) ?? ""
+        guard p.terminationStatus == 0 else {
+            return .failed(reason: "exit status \(p.terminationStatus)" + (firstLine.isEmpty ? "" : ": \(firstLine)"))
+        }
+        let size = (try? FileManager.default.attributesOfItem(atPath: output)[.size] as? Int) ?? nil
+        guard let size, size > 0 else {
+            return .failed(reason: "no output at \(output)" + (firstLine.isEmpty ? "" : ": \(firstLine)"))
+        }
+        return .captured
+    }
+
+    /// Whether `pid` is a child of this process running `executable`.
+    static func isChild(_ pid: Int32, running executable: String) -> Bool {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_ppid == UInt32(getpid()) else { return false }
+        var path = [CChar](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return false }
+        let actual = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath().path
+        return actual == URL(fileURLWithPath: executable).resolvingSymlinksInPath().path
+    }
+
     /// The watch SingleEndpointTests use when asked: writes what was waiting
     /// and a one-second `sample` of this process to `directory`.
     static let shared: BridgeStallWatch? = { () -> BridgeStallWatch? in
@@ -108,18 +187,14 @@ final class BridgeStallWatch: @unchecked Sendable {
         FileHandle.standardError.write(Data("BRIDGE-STALL watching; captures go to \(directory)\n".utf8))
         return BridgeStallWatch { due, waiting, index in
             let base = directory + "/stall-\(index)"
-            let header = ["captured at \(Timestamp.string(Date())) (uptime \(DispatchTime.now().uptimeNanoseconds / 1_000_000) ms)",
+            var header = ["captured at \(Timestamp.string(Date())) (uptime \(DispatchTime.now().uptimeNanoseconds / 1_000_000) ms)",
                           "stalled past 2 s:"] + due.map { "  \($0)" } + ["all bridge tasks not yet started:"] + waiting.map { "  \($0)" }
+            let outcome = runSample("/usr/bin/sample", [String(getpid()), "1", "-file", base + ".sample.txt"],
+                                    output: base + ".sample.txt", stderrFile: base + ".sample.err", limit: 1 + 10)
+            header.append("sample: \(outcome)")
             try? header.joined(separator: "\n").appending("\n").write(toFile: base + ".txt", atomically: true, encoding: .utf8)
-            let sample = Process()
-            sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-            sample.arguments = [String(getpid()), "1", "-file", base + ".sample.txt"]
-            sample.standardOutput = FileHandle.nullDevice
-            sample.standardError = FileHandle.nullDevice
-            let ran = (try? sample.run()) != nil
-            if ran { sample.waitUntilExit() }
             FileHandle.standardError.write(Data(
-                "BRIDGE-STALL \(index): \(due.map(\.description).joined(separator: "; ")) -> \(base).txt\(ran ? ", .sample.txt" : " (sample could not run)")\n".utf8))
+                "BRIDGE-STALL \(index): \(due.map(\.description).joined(separator: "; ")) -> \(base).txt; sample \(outcome)\n".utf8))
         }
     }()
 }
