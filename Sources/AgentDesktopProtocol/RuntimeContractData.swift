@@ -521,6 +521,30 @@ enum RuntimeContractData {
               "const": 4096
             }
           }
+        },
+        "bindingRecovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "statusMethod",
+            "recoveryMethod",
+            "requiresConfirmation"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "statusMethod": {
+              "const": "desktop.bindingStatus"
+            },
+            "recoveryMethod": {
+              "const": "desktop.recoverBinding"
+            },
+            "requiresConfirmation": {
+              "const": true
+            }
+          }
         }
       }
     },
@@ -4111,6 +4135,59 @@ enum RuntimeContractData {
           ]
         }
       ]
+    },
+    "BindingStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "state",
+        "reason"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "enum": [
+            "unbound",
+            "valid",
+            "blocked",
+            "invalid",
+            "needs_authorization"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "binding": {
+          "$ref": "#/$defs/Binding"
+        }
+      }
+    },
+    "RecoveredBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "binding",
+        "windowGrant"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "binding": {
+          "$ref": "#/$defs/Binding"
+        },
+        "windowGrant": {
+          "$ref": "#/$defs/HubWindowGrant"
+        }
+      }
     }
   }
 }
@@ -8747,6 +8824,22 @@ enum RuntimeContractData {
       "mutation": false,
       "params": "desktop_show_params",
       "result": "Desktop",
+      "status": "implemented"
+    },
+    {
+      "method": "desktop.bindingStatus",
+      "stage": "P0",
+      "mutation": false,
+      "params": "desktop_show_params",
+      "result": "BindingStatus",
+      "status": "implemented"
+    },
+    {
+      "method": "desktop.recoverBinding",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_windows_request_params",
+      "result": "RecoveredBinding",
       "status": "implemented"
     },
     {

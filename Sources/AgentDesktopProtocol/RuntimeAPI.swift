@@ -25,6 +25,8 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case capabilities = "runtime.capabilities"
     case desktopList = "desktop.list"
     case desktopShow = "desktop.show"
+    case bindingStatus = "desktop.bindingStatus"
+    case recoverBinding = "desktop.recoverBinding"
     case appList = "app.list"
     case windowList = "window.list"
     case desktopCreate = "desktop.create"
