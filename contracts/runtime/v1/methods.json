@@ -1079,14 +1079,6 @@
   ],
   "plannedFields": {
     "note": "optional additions agreed in docs/plan/03 §3.2–3.3; each lands with its schema, fixtures and goldens in the named PR (freeze rule 1: optional fields only)",
-    "Action.kind": {
-      "add": [
-        "hover",
-        "drag",
-        "press"
-      ],
-      "pr": "A5"
-    },
     "observe/act context": {
       "add": "desktopId alone opens an implicit session",
       "pr": "A5"

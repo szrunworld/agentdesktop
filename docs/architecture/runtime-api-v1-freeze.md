@@ -278,12 +278,20 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 | EVENTS_CURSOR_EXPIRED | 新码 `events_cursor_expired` |
 | INTERNAL_ERROR | internal_error |
 
+### act 的 hover、press 与 drag（A5）
+
+- `hover {target}`：把指针移到元素（elementRef）或图像点（imagePoint）上，不点击（用于显示提示、悬停菜单）。在后台执行；不经过剪贴板策略的点击检查，因为什么都没有按下。
+- `press {target: {elementRef}}`：对一个元素做无障碍按下（引擎的 accessibilityPress），没有事件兜底；不能按就失败，不会改成点击。只接受 elementRef，带图像点、button、count、modifiers 等任何其他字段都是 `schema_invalid`。剪贴板策略按点击同样检查：名为粘贴、复制、剪切的控件被拒。
+- `drag {target, to}`：参数已定稿。但 macOS 引擎只有前台拖动（会把应用拉到前台、移动用户的真实指针），所以 Runtime 在派发前就拒绝：`unsupported_backend`，`notSent: true`，`details.reason: background_drag_unsupported`，dispatch=0，不会改用前台执行（RT-11）。有后台拖动能力的后端出现之后再开放。`unsupported_backend` 因此不再是预留错误码。
+- 所有回执的 `businessResult` 都是 `not_evaluated`（RT-22）。
+- 入口：CLI 新增 `act hover`、`act press`，MCP 新增 `act_hover`、`act_press`；drag 不提供入口。
+
 ## 6.1 已登记的后续增量（docs/plan/03 §3.2–3.5，2026-10-08 纳入）
 
 - 方法：上表 “Desktop 控制面” 一行，状态 🔖，归 A5。
 - 错误码（`errors.json`，`reserved`）：`pairing_required`、`client_revoked`、`grant_missing`、`grant_expired`、`permit_expired`（退出码 4）；`target_moved`（5）；`audit_unavailable`（7）；`unsupported_backend`、`capability_mismatch`（6）。
 - 可选字段（`methods.json` 的 `plannedFields`，每项随所属 PR 带 Schema、夹具和 golden 落地）：
-  - Action 新增 `hover` / `drag` / `press`；
+  - ~~Action 新增 `hover` / `drag` / `press`~~：已在 A5 PR④ 落地，见下文「act 的 hover、press 与 drag（A5）」；
   - 只给 `desktopId` 时使用隐式会话；
   - ActionReceipt 新增 `businessResult`（恒为 `not_evaluated`）、`elapsedMs`、`clientId`、`origin`、`geometryRevision`、`dispatchSequence`、`reconciliations` 等；
   - Observation 新增 `targetKind`、`geometryRevision`、`captureSequence`、`coverage`；

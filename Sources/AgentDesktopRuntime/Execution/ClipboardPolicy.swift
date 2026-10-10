@@ -27,7 +27,8 @@ import Foundation
 ///   control whose name says paste, copy or cut (in the languages macOS
 ///   ships) is refused.
 /// - Typing never uses the clipboard (accessibility value writes or unicode
-///   key events; a test keeps it so). Scrolling neither. But typed text goes
+///   key events; a test keeps it so). Scrolling and hovering neither. A
+///   press (accessibility) is checked like a click on its element. But typed text goes
 ///   to the focused element, and its target may be clicked first: both are
 ///   checked like a click.
 /// - Return and Space (by name or as a blank character) press the focused
@@ -52,7 +53,8 @@ enum ClipboardPolicy {
     static func refusal(_ action: PlatformAction, snapshotElement: PlatformElement?, pid: Int32, windowId: UInt32,
                         menu: (pid: Int32, items: [PlatformMenuItem]?)?, platform: DesktopPlatform) -> String? {
         switch action.kind {
-        case .scroll:
+        case .scroll, .hover:
+            // The pointer moves; nothing is pressed or sent to a control.
             return nil
         case .type:
             // The engine sends the text character by character: a tab in it
@@ -81,7 +83,8 @@ enum ClipboardPolicy {
                                pid: pid, windowId: windowId, platform: platform)
         case .key:
             return keyRefusal(action, pid: pid, menu: menu?.pid == pid ? menu?.items : nil, platform: platform)
-        case .click:
+        case .click, .press:
+            // A press activates its element as a click would: checked the same way.
             return clickRefusal(action, snapshotElement: snapshotElement, pid: pid, windowId: windowId, platform: platform)
         }
     }

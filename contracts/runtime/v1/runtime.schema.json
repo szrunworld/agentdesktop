@@ -1465,7 +1465,10 @@
             "click",
             "type",
             "key",
-            "scroll"
+            "scroll",
+            "hover",
+            "press",
+            "drag"
           ]
         },
         "target": {
@@ -1516,6 +1519,10 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 50
+        },
+        "to": {
+          "$ref": "#/$defs/ActionTarget",
+          "description": "drag: where to release"
         }
       },
       "allOf": [
@@ -1586,8 +1593,190 @@
               "direction"
             ]
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "hover"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "modifiers"
+                  ]
+                },
+                {
+                  "required": [
+                    "button"
+                  ]
+                },
+                {
+                  "required": [
+                    "count"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "amount"
+                  ]
+                },
+                {
+                  "required": [
+                    "to"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "press"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "required": [
+                  "elementRef"
+                ]
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "modifiers"
+                  ]
+                },
+                {
+                  "required": [
+                    "button"
+                  ]
+                },
+                {
+                  "required": [
+                    "count"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "amount"
+                  ]
+                },
+                {
+                  "required": [
+                    "to"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "drag"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target",
+              "to"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "button"
+                  ]
+                },
+                {
+                  "required": [
+                    "count"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "amount"
+                  ]
+                }
+              ]
+            }
+          }
         }
-      ]
+      ],
+      "description": "hover moves the pointer over the target without pressing; press is an accessibility press of one element (elementRef only), never an event click; drag (target to `to`) is refused with unsupported_backend where the backend cannot drag in the background (macOS today), never done in the foreground instead"
     },
     "act_params": {
       "type": "object",
