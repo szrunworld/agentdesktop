@@ -11,8 +11,16 @@
 # and sends it one Escape key, nothing else. No other app is touched.
 #
 # Physical Desktops are OFF in the product (#145 seal) and stay off until
-# Kevin rules otherwise. While they are off this script stops at step 2 and
-# reports PENDING: nothing is shown or captured. It creates no virtual display.
+# Kevin rules otherwise. Attaching a display is also reserved to the owner
+# (A4: a paired app gets permission_denied / owner_only), and the product has
+# no owner entry for it outside the host process yet. So:
+#   - without PD_DESKTOP the script asks for a physical Desktop as the paired
+#     CLI, expects one of those two refusals, reports PENDING and stops at
+#     step 2: nothing is shown, bound or captured;
+#   - with PD_DESKTOP=d_... (a physical Desktop the owner attached in the
+#     test copy, once such an entry exists) the CLI is paired for that
+#     Desktop and steps 3-8 run against it.
+# It creates no virtual display.
 #
 # Finding the probe window needs Screen Recording for the terminal you run
 # this from.
@@ -25,7 +33,8 @@
 #   6. a second window grant                      -> 拒绝
 #   7. pd-cli giving up its window grant          -> 批准, then Touch ID
 # Usage, from the repository:
-#   scripts/bundle-app.sh && scripts/physical-desktop-acceptance.sh
+#   scripts/bundle-app.sh && scripts/physical-desktop-acceptance.sh                 (today: PENDING at step 2)
+#   PD_DESKTOP=d_... scripts/physical-desktop-acceptance.sh                         (once the owner can attach one)
 set -u
 APP="${APP:-build/Agent Desktop.app}"
 DIR=/tmp/adt-pd-acc
@@ -43,7 +52,7 @@ for k in sys.argv[2].split("."):
 print("" if d is None else d)' "$1" "$2" 2>/dev/null; }
 
 cleanup() {
-    [ -n "${DESK:-}" ] && "$B" desktop destroy "$DESK" --format json > /dev/null 2>&1
+    [ -n "${DESK:-}" ] && [ -z "${OWNED:-}" ] && "$B" desktop destroy "$DESK" --format json > /dev/null 2>&1
     # Only the processes this script started, while their pid still has the
     # start time recorded at launch (a pid may be reused).
     if [ -n "${PROBE:-}" ] && [ -n "${PROBE_START:-}" ] && [ "$(ps -o lstart= -p "$PROBE" 2>/dev/null)" = "$PROBE_START" ]; then
@@ -82,24 +91,35 @@ i=0; while [ ! -S "$EP" ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
 [ -S "$EP" ] && ok "Runtime listening at $EP" || { bad "Runtime did not start"; exit 1; }
 
 echo "== 1. pair the CLI: confirm in the window, approve with Touch ID or your password"
-"$B" agents pair --name pd-cli --capabilities observe,act,desktop.manage --desktops created --apps "$CHESS" \
+"$B" agents pair --name pd-cli --capabilities observe,act,desktop.manage --desktops "${PD_DESKTOP:-created}" --apps "$CHESS" \
     --wait-timeout 180 --format json > "$DIR/pair.json"
 CLI_ID=$(field "$DIR/pair.json" data.clientId)
 [ -n "$CLI_ID" ] && ok "CLI paired as $CLI_ID" || { bad "pairing: $(cat "$DIR/pair.json")"; exit 1; }
 
-echo "== 2. attach the main display as a physical Desktop"
-"$B" desktop create --name pd-acc --physical --format json > "$DIR/desk.json"
-DESK=$(field "$DIR/desk.json" data.desktopId)
-if [ -z "$DESK" ]; then
-    if grep -q physical_desktop_requires_grant "$DIR/desk.json"; then
-        echo "PENDING  physical Desktops are still off in this build (#145 seal, physical_desktop_requires_grant)."
-        echo "         Nothing was shown, bound or captured. Steps 3-8 run once Kevin rules on opening them."
-        echo "passed $pass, failed $fail (stopped at the seal)"
-        exit 3
+echo "== 2. the physical Desktop"
+if [ -n "${PD_DESKTOP:-}" ]; then
+    "$B" desktop show "$PD_DESKTOP" --format json > "$DIR/desk.json"
+    DESK=$(field "$DIR/desk.json" data.desktopId)
+    [ -n "$DESK" ] || { bad "PD_DESKTOP $PD_DESKTOP: $(cat "$DIR/desk.json")"; exit 1; }
+    ok "physical Desktop $DESK (attached by the owner)"
+    OWNED=1   # the owner's: this script never destroys it
+else
+    # A paired app may not attach a display (A4, owner only); with the seal
+    # on, nobody may. Either refusal means nothing was attached.
+    "$B" desktop create --name pd-acc --physical --format json > "$DIR/desk.json"
+    DESK=$(field "$DIR/desk.json" data.desktopId)
+    if [ -z "$DESK" ]; then
+        if grep -q 'owner_only\|physical_desktop_requires_grant' "$DIR/desk.json"; then
+            ok "a paired app cannot attach a display ($(grep -o 'owner_only\|physical_desktop_requires_grant' "$DIR/desk.json" | head -1))"
+            echo "PENDING  steps 3-8 need a physical Desktop the owner attached (PD_DESKTOP=d_...), which needs Kevin's ruling"
+            echo "         on the seal and an owner entry for it. Nothing was shown, bound or captured."
+            echo "passed $pass, failed $fail (stopped before any window)"
+            exit 3
+        fi
+        bad "a paired app attached a display or got another answer: $(cat "$DIR/desk.json")"; exit 1
     fi
-    bad "desktop create: $(cat "$DIR/desk.json")"; exit 1
+    bad "a paired app attached display $DESK: A4 reserves this to the owner"; exit 1
 fi
-ok "physical Desktop $DESK"
 [ "$(field "$DIR/desk.json" data.kind)" = physical ] && ok "kind physical" || bad "kind: $(cat "$DIR/desk.json")"
 
 echo "== the probe window: one Chess instance of this script's own"
