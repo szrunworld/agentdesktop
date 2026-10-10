@@ -94,12 +94,14 @@ final class MCPHarness {
     let service: RuntimeService
     let platform = MCPPlatform()
     let mcp: MCPServer
+    let path: String
+    let credential: ClientCredential
     var nextId = 0
 
-    init() throws {
+    init(desktopScope: String? = nil) throws {
         var template = Array("/tmp/adt-XXXXXX".utf8CString)
         dir = String(cString: mkdtemp(&template)!)
-        let path = dir + "/runtime.sock"
+        path = dir + "/runtime.sock"
         service = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_mcp", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                                endpoint: path, buildSource: "unknown"),
                                      backend: MCPBackend(), platform: platform)
@@ -114,8 +116,27 @@ final class MCPHarness {
             clientId: "", capabilities: ["observe", "act", "desktop.manage", "run"], desktops: ["created"],
             apps: ["com.apple.Notes"], expiresAt: Timestamp.string(Date().addingTimeInterval(3600)), revision: 0, state: "active"))
         let credential = ClientCredential(clientId: client.clientId, token: service.hub.collect(pairing.pairingId) ?? "")
-        mcp = MCPServer(makeClient: { SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1"),
-                                                          credential: credential) })
+        self.credential = credential
+        let path = self.path
+        mcp = MCPServer(desktopScope: desktopScope, makeClient: {
+            SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1"),
+                                credential: credential)
+        })
+    }
+
+    /// Another MCP server of the same paired app on the same Runtime.
+    func server(desktopScope: String?) -> MCPServer {
+        let path = self.path, credential = self.credential
+        return MCPServer(desktopScope: desktopScope, makeClient: {
+            SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1"),
+                                credential: credential)
+        })
+    }
+
+    /// A direct runtime/1 connection as the same paired app.
+    func client() -> SocketRuntimeClient {
+        SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "mcp-test", version: "1"),
+                            credential: credential)
     }
 
     deinit {
@@ -210,4 +231,103 @@ final class MCPHarness {
     #expect(made == 0)
     let offline = mcp.handle(line: #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"desktop_list","arguments":{}}}"#)
     #expect(offline?["result"]?["content"]?.arrayValue?.first?["text"]?.stringValue?.hasPrefix("runtime_offline") == true)
+}
+
+/// One tool call on `server`: its JSON text, whether it is an error, and the raw text.
+func call(_ server: MCPServer, _ name: String, _ args: [(String, JSONValue)] = [], id: Int = 1) -> (JSONValue?, Bool, String) {
+    let msg = JSONValue.obj([("jsonrpc", .string("2.0")), ("id", .int(id)), ("method", .string("tools/call")),
+                             ("params", .obj([("name", .string(name)), ("arguments", .obj(args))]))])
+    let r = server.handle(line: msg.encoded())
+    let text = r?["result"]?["content"]?.arrayValue?.first?["text"]?.stringValue ?? ""
+    return (try? StrictJSON.parse(text), r?["result"]?["isError"]?.boolValue ?? true, text)
+}
+
+/// SDK-06 / A7: `agentdesktop mcp --desktop-id A` reaches only Desktop A,
+/// even though its paired app's grant covers Desktop B as well.
+@Test func aServerLimitedToOneDesktopRefusesEveryOther() async throws {
+    // Blocking socket calls stay off the cooperative pool (strict-pool CI).
+    try await onPlainThread { try serverLimitedToOneDesktop() }
+}
+
+func serverLimitedToOneDesktop() throws {
+    let h = try MCPHarness()
+    // Two Desktops of the same paired app, made without a limit.
+    let a = try #require(h.tool("desktop_create", [("name", .string("a"))]).0?["desktopId"]?.stringValue)
+    let b = try #require(h.tool("desktop_create", [("name", .string("b"))]).0?["desktopId"]?.stringValue)
+    #expect(!h.tool("app_launch", [("desktopId", .string(a)), ("bundleId", .string("com.apple.Notes"))]).1)
+    #expect(!h.tool("window_bind", [("desktopId", .string(a)), ("pid", .int(4))]).1)
+    let sessionB = try #require(h.tool("session_open", [("desktopId", .string(b))]).0?["sessionId"]?.stringValue)
+    // A Run on B, started directly.
+    let direct = h.client()
+    defer { direct.close() }
+    _ = try direct.handshake()
+    var start = RuntimeRequest(.runStart)
+    start.context = RequestContext(sessionId: sessionB)
+    let started = try direct.call(start)
+    let runB = try #require(started["run"]?["runId"]?.stringValue ?? started["runId"]?.stringValue, "\(started.encoded())")
+
+    let scoped = h.server(desktopScope: a)
+    // tools/list: no desktop_create; desktopId is optional.
+    let list = scoped.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)?["result"]?["tools"]?.arrayValue ?? []
+    #expect(!list.contains { $0["name"]?.stringValue == "desktop_create" })
+    #expect(list.count == MCPTools.all.count - 1)
+    for t in list {
+        #expect(!(t["inputSchema"]?["required"]?.arrayValue ?? []).contains(.string("desktopId")), "\(t["name"]?.stringValue ?? "")")
+    }
+    let instructions = scoped.handle(line: #"{"jsonrpc":"2.0","id":2,"method":"initialize","params":{}}"#)?["result"]?["instructions"]?.stringValue
+    #expect(instructions?.contains(a) == true)
+
+    func refused(_ r: (JSONValue?, Bool, String)) -> Bool {
+        r.1 && r.2.hasPrefix("permission_denied") && r.2.contains("desktop_out_of_scope") && r.2.contains("no input was sent")
+    }
+    let launchesBefore = h.platform.lock.withLock { h.platform.performed.count }
+
+    // Reads show only A.
+    let desktops = call(scoped, "desktop_list").0?["desktops"]?.arrayValue ?? []
+    #expect(desktops.compactMap { $0["desktopId"]?.stringValue } == [a])
+    // Any other desktopId is refused, before anything is sent.
+    #expect(refused(call(scoped, "desktop_create", [("name", .string("c"))])))
+    #expect(refused(call(scoped, "app_launch", [("desktopId", .string(b)), ("bundleId", .string("com.apple.Notes"))])))
+    #expect(refused(call(scoped, "window_bind", [("desktopId", .string(b)), ("pid", .int(4))])))
+    #expect(refused(call(scoped, "session_open", [("desktopId", .string(b))])))
+    #expect(refused(call(scoped, "desktop_destroy", [("desktopId", .string(b))])))
+    #expect(refused(call(scoped, "observe", [("sessionId", .string(sessionB)), ("desktopId", .string(b))])))
+    // A session, Run or request of B is refused too.
+    #expect(refused(call(scoped, "observe", [("sessionId", .string(sessionB))])))
+    #expect(refused(call(scoped, "act_click", [("sessionId", .string(sessionB)), ("snapshotId", .string("obs_x")), ("elementRef", .string("el_2"))])))
+    #expect(refused(call(scoped, "wait_for_element", [("sessionId", .string(sessionB)), ("present", .bool(true)), ("timeoutMs", .int(100))])))
+    #expect(refused(call(scoped, "session_close", [("sessionId", .string(sessionB))])))
+    #expect(refused(call(scoped, "run_show", [("runId", .string(runB))])))
+    #expect(refused(call(scoped, "run_cancel", [("runId", .string(runB))])))
+    _ = try direct.call(RuntimeRequest(.windowUnbind, requestId: "unbind-b", params: .obj([("desktopId", .string(b))])))
+    #expect(refused(call(scoped, "request_show", [("requestId", .string("unbind-b"))])))
+    // B's session is still open: nothing reached it.
+    #expect(try direct.call(RuntimeRequest(.sessionShow, params: .obj([("sessionId", .string(sessionB))])))["state"]?.stringValue == "open")
+    #expect(h.platform.lock.withLock { h.platform.performed.count } == launchesBefore)
+
+    // On A everything works, with desktopId omitted.
+    let session = try #require(call(scoped, "session_open").0?["sessionId"]?.stringValue)
+    let (o, oe, _) = call(scoped, "observe", [("sessionId", .string(session))])
+    #expect(!oe)
+    let snap = try #require(o?["snapshotId"]?.stringValue)
+    let (click, ce, text) = call(scoped, "act_click", [("sessionId", .string(session)), ("snapshotId", .string(snap)), ("elementRef", .string("el_2"))])
+    #expect(!ce, "\(text)")
+    #expect(click?["delivery"]?.stringValue == "dispatched")
+    // observe and wait name the Desktop alone.
+    #expect(!call(scoped, "observe", [("includeImage", .bool(false))]).1)
+    #expect(!call(scoped, "wait_for_element", [("present", .bool(true)), ("label", .string("完成")), ("timeoutMs", .int(500))]).1)
+    let rid = try #require(click?["requestId"]?.stringValue)
+    #expect(call(scoped, "request_show", [("requestId", .string(rid))]).0?["state"]?.stringValue == "completed")
+    #expect(!call(scoped, "session_close", [("sessionId", .string(session))]).1)
+}
+
+/// Without --desktop-id nothing changes: every tool, desktopId required.
+@Test func anUnlimitedServerKeepsTheFullToolList() throws {
+    let server = MCPServer(makeClient: { fatalError("no connection for tools/list") })
+    let list = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)?["result"]?["tools"]?.arrayValue ?? []
+    #expect(list.count == MCPTools.all.count)
+    let launch = list.first { $0["name"]?.stringValue == "app_launch" }
+    #expect(launch?["inputSchema"]?["required"]?.arrayValue?.contains(.string("desktopId")) == true)
+    let observe = list.first { $0["name"]?.stringValue == "observe" }
+    #expect(observe?["inputSchema"]?["required"]?.arrayValue == [.string("sessionId")])
 }

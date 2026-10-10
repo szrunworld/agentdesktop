@@ -51,6 +51,22 @@ Claude Code 配置示例：
 claude mcp add agentdesktop -- "/Applications/Agent Desktop.app/Contents/Resources/bin/agentdesktop" mcp
 ```
 
+### 只操作一个 Desktop：`--desktop-id`
+
+`agentdesktop mcp --desktop-id <id>` 把这个 MCP 服务限定在一个 Desktop 上，即使配对 App 的授权覆盖了更多 Desktop：
+
+- 不提供 `desktop_create`；调用它会被拒绝。
+- 工具参数里的 `desktopId` 可以省略，省略时用这个 Desktop；写了别的 `desktopId` 一律拒绝（`permission_denied`，reason `desktop_out_of_scope`，未发出任何请求）。
+- `sessionId`、`runId` 指向别的 Desktop 时同样拒绝（先经 Runtime 查出它属于哪个 Desktop；查不到就按查询的错误返回，不放行）。`request_show` 查到别的 Desktop 的请求时拒绝；`desktop_list` 只列这一个。
+- `observe`、`wait_for_element` 可以不带 `sessionId`，直接作用于这个 Desktop。
+- `app_list`、`window_list`、`runtime_status` 不属于某个 Desktop，照常可用（是否可见仍由授权决定）。
+
+不给 `--desktop-id` 时行为不变。
+
+```bash
+claude mcp add agentdesktop-work -- "/Applications/Agent Desktop.app/Contents/Resources/bin/agentdesktop" mcp --desktop-id d_123
+```
+
 ## Python SDK（`sdks/python`）
 
 ```python
