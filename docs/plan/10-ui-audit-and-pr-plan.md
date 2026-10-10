@@ -4,7 +4,7 @@
 
 依据（按权威顺序）：ADR v2.2；runtime/1 冻结目录（`docs/architecture/runtime-api-v1-freeze.md`、`contracts/runtime/v1/`）；本目录 02、03、06（含 PR #42 分支 `plan-ui-brief` 上的 6.4）、07、08、09；`docs/design/v2/`（P01–P32、`screen-map.json`、`ui-checks-54.json`）。
 
-审计基线：
+历史审计基线（2026-10-08）：
 
 | 分支 | 提交 | 说明 |
 | --- | --- | --- |
@@ -13,9 +13,11 @@
 | `origin/plan-ui-brief` | PR #42 | 09 文件与 06 的 6.4 |
 | `origin/a02-main-window` | PR #1 | 旧 A02 主窗口，已过时 |
 
+以下审计结论、可用方法与依赖图均保留上述基线的历史判断，不能当作最新 main 的交付状态。当前状态见 [02 实施计划 §2.2](02-implementation-plan.md#22-与-2ndscreen-f1-的-pr-编号对照)：A0、PR2b、主窗口、流式预览与 A4 已有合入记录；A6 Runtime 实现与完整 A5/A7 验收仍未完成。
+
 ---
 
-## 0 结论摘要
+## 0 历史审计结论摘要
 
 1. **现在没有主窗口。** 产品宿主是纯菜单栏 App（`.accessory`，无 Dock）。唯一的窗口是「AI 与 GUI」（`AIWindowController`），里面是 `AIGUIRootView` 自带八项侧栏的 NavigationSplitView，D32 已裁决删除这个侧栏。
 2. **现有 UI 代码只有 AI/GUI 八页（AgentDesktopAIUI 的 W01–W08）**，走的是 **ai/1 信封**（`ContractClient` → `AgentDesktopService.router`，进程内）。它们和 Hub v1 的 W01–W08 **同名不同物**，后文写成 `AIUI-W0x` 与 `Hub-W0x` 以免混淆。其中 AIUI-W05/W06/W07 调的是已撤销的 `gui.runs.*`，PR2d 之后只能重写。
