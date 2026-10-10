@@ -154,7 +154,10 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             ]
             if ended { m.append(("endedAt", .string(stamp()))) }
             runs.append(.obj(m))
-            appendEventLocked(runId, "run.started", .obj([("phase", .string(phase))]))
+            appendEventLocked(runId, "run.started", .obj([("kind", .string(kind)), ("origin", .string(origin)),
+                ("ownership", .string(platform ? "platform" : "external_client")),
+                ("lifetime", .string(platform ? "platform_durable" : "connection_scoped")),
+                ("desktopId", .string(desktopId)), ("sessionId", .string("ses_\(runId)"))]))
             return runId
         }
     }
@@ -168,7 +171,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             let requestId = "req_" + String(format: "%03d", requests.count + 1)
             guard let run = runs.first(where: { $0["runId"]?.stringValue == runId }) else { return requestId }
             let accepted = stamp()
-            appendEventLocked(runId, "action.accepted", .obj([("requestId", .string(requestId))]))
+            appendEventLocked(runId, "action.accepted", .obj([("requestId", .string(requestId)), ("kind", .string("click"))]))
             let receipt = receiptJSON(run: run, requestId: requestId, delivery: delivery, execution: execution, acceptedAt: accepted)
             if delivery != "not_dispatched" {
                 appendEventLocked(runId, "action.dispatched", .obj([("requestId", .string(requestId))]))
@@ -201,15 +204,20 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     }
 
     /// The execution side confirms a stopping Run is quiet: ended/confirmed.
+    /// As `ExecutionCoordinator.settle`: the Run keeps the closing reason its
+    /// stop recorded, and a Run with an unknown action ends unknown.
     public func confirmQuiescence(_ runId: String, outcome: String = "cancelled") {
         lock.withLock {
             updateRunLocked(runId) { r in
                 r.setting("phase", .string("ended")).setting("quiescence", .string("confirmed"))
-                    .setting("outcome", .string(outcome)).setting("closingReason", .string("cancelled"))
+                    .setting("outcome", .string((r["unknownActions"]?.intValue ?? 0) > 0 ? "unknown" : outcome))
+                    .setting("closingReason", r["closingReason"].flatMap { $0 == .null ? nil : $0 } ?? .string("stopped"))
                     .setting("endedAt", .string(stamp()))
             }
-            appendEventLocked(runId, "run.quiescent", .obj([]))
-            appendEventLocked(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", .string(outcome))]))
+            let ended = runs.first(where: { $0["runId"]?.stringValue == runId })
+            appendEventLocked(runId, "run.quiescent", .obj([("revision", ended?["revision"] ?? .int(1))]))
+            appendEventLocked(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", ended?["outcome"] ?? .string(outcome)),
+                                                       ("reason", ended?["closingReason"] ?? .string("stopped"))]))
         }
     }
 
@@ -381,8 +389,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             var pending: [JSONValue] = []
             for r in runs where r["phase"]?.stringValue != "ended" {
                 let id = r["runId"]!.stringValue!
-                updateRunLocked(id) { $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")) }
-                appendEventLocked(id, "run.finishing", .obj([("phase", .string("stopping"))]))
+                stopLocked(id, reason: "global_stop")
                 items.append(.obj([("runId", .string(id)), ("accepted", .bool(true)), ("phase", .string("stopping")),
                                    ("quiescence", .string("pending")), ("outcome", .null)]))
                 pending.append(.string(id))
@@ -583,8 +590,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             var r = try run(id)
             let terminal = r["phase"]?.stringValue == "ended"
             if !terminal {
-                updateRunLocked(id) { $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")) }
-                appendEventLocked(id, "run.finishing", .obj([("phase", .string("stopping"))]))
+                stopLocked(id, reason: "stopped")
                 r = try run(id)
             }
             var m: [(String, JSONValue)] = [
@@ -660,6 +666,26 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     private func run(_ id: String) throws -> JSONValue {
         guard let r = runs.first(where: { $0["runId"]?.stringValue == id }) else { throw RuntimeError.notFound("no Run \(id)") }
         return r
+    }
+
+    /// Mirrors `ExecutionCoordinator.stop`: the first stop moves the Run to
+    /// stopping/pending and records its closing reason (revision + 1); a
+    /// later stop of a stopping Run changes nothing but is still reported,
+    /// with its own reason at the unchanged revision. The event type follows
+    /// the reason (`run.finishing` for finished/completed/exit*).
+    private func stopLocked(_ id: String, reason: String) {
+        guard let current = runs.first(where: { $0["runId"]?.stringValue == id }) else { return }
+        if current["phase"]?.stringValue != "stopping" {
+            updateRunLocked(id) {
+                $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")).setting("closingReason", .string(reason))
+            }
+        }
+        let type = ["finished", "completed"].contains(reason) || reason.hasPrefix("exit") ? "run.finishing" : "stop.accepted"
+        appendEventLocked(id, type, .obj([("reason", .string(reason)), ("inFlight", .bool(false)), ("revision", revisionLocked(id))]))
+    }
+
+    private func revisionLocked(_ id: String) -> JSONValue {
+        runs.first(where: { $0["runId"]?.stringValue == id })?["revision"] ?? .int(1)
     }
 
     private func updateRunLocked(_ id: String, _ change: (JSONValue) -> JSONValue) {

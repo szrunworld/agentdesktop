@@ -2064,7 +2064,24 @@ enum RuntimeContractData {
         "data": {
           "type": "object"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "pattern": "^(run|action|stop)\\."
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/PlatformRunEvent"
+          }
+        }
+      ]
     },
     "RunEvents": {
       "type": "object",
