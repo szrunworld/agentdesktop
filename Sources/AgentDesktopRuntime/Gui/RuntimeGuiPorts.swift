@@ -18,6 +18,11 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         let desktopId: String
         let sessionId: String
         let bindingEpoch: UInt64
+        /// Who the Run's requests are made as: the GUI service's own owner
+        /// connection, or a unit Run's principal (A6).
+        let connection: ConnectionState
+        /// A unit Run's id: its actions go into that Run (context.runId).
+        let unitRunId: String?
     }
 
     /// The long side of the image handed to a model.
@@ -41,11 +46,11 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
 
     /// Run a runtime/1 request off the cooperative pool: the platform blocks.
     private func call(_ method: RuntimeMethod, id: String = RuntimeRequest.newId(prefix: "gui"),
-                      context: RequestContext, params: JSONValue) async -> Result<JSONValue, RuntimeError> {
+                      context: RequestContext, params: JSONValue, as connection: ConnectionState) async -> Result<JSONValue, RuntimeError> {
         var request = RuntimeRequest(method, requestId: id, params: params)
         request.context = context
         let line = request.json.encodedData()
-        let service = service, connection = connection
+        let service = service
         return await withCheckedContinuation { cont in
             DispatchQueue.global().async {
                 cont.resume(returning: service.respond(to: line, on: connection).result)
@@ -72,9 +77,28 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
             session = service.sessions.open(desktopId: desktopId, caller: connection.clientId, at: Timestamp.string(Date())).sessionId
         }
         let epoch = UInt64(b.generation)
-        lock.withLock { bindings[runId] = RunBinding(desktopId: desktopId, sessionId: session, bindingEpoch: epoch) }
+        lock.withLock {
+            bindings[runId] = RunBinding(desktopId: desktopId, sessionId: session, bindingEpoch: epoch, connection: connection, unitRunId: nil)
+        }
         return (session, epoch)
     }
+
+    /// A6: drive the unit Run `runId` as `principal`, in its session. Its
+    /// actions join the Run (the principal's connection is attached to it).
+    func bindUnitRun(runId: String, desktopId: String, sessionId: String, bindingEpoch: UInt64, principal: ConnectionState) {
+        principal.attachedRuns.insert(runId)
+        lock.withLock {
+            bindings[runId] = RunBinding(desktopId: desktopId, sessionId: sessionId, bindingEpoch: bindingEpoch,
+                                         connection: principal, unitRunId: runId)
+        }
+    }
+
+    func unbind(runId: String) {
+        _ = lock.withLock { bindings.removeValue(forKey: runId) }
+    }
+
+    /// The GUI service's own owner connection (Durable unit Runs act as it).
+    var ownerConnection: ConnectionState { connection }
 
     private func binding(_ runId: String) throws -> RunBinding {
         guard let b = lock.withLock({ bindings[runId] }) else { throw ContractError(.notFound, "no GUI run \(runId) on this Runtime") }
@@ -97,8 +121,10 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         var unused = 2
         defer { if unused > 0 { service.artifacts.release(bucket: bucket, count: unused) } }
         let observeId = RuntimeRequest.newId(prefix: "gui")
+        let connection = rb.connection
         service.setQuotaBucket(bucket, requestId: observeId, connection: connection)
-        let observed = await call(.observe, id: observeId, context: RequestContext(sessionId: rb.sessionId), params: .obj([]))
+        let observed = await call(.observe, id: observeId, context: RequestContext(sessionId: rb.sessionId), params: .obj([]),
+                                  as: connection)
         // Taken by observe when it got that far; never left behind.
         _ = service.takeQuotaBucket(requestId: observeId, connection: connection)
         // A window capture that was stored keeps its place even when the
@@ -233,14 +259,15 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         }
         let act = JSONValue.obj([("snapshotId", .string(proposal.stamp.snapshotId)), ("action", Self.actJSON(action))])
         let requestId = Self.requestId(for: actionId)
-        switch await call(.act, id: requestId, context: RequestContext(sessionId: rb.sessionId), params: act) {
+        switch await call(.act, id: requestId, context: RequestContext(sessionId: rb.sessionId, runId: rb.unitRunId), params: act,
+                          as: rb.connection) {
         case let .success(r):
             // The input went out. A fresh look at the window confirms the
             // target is still there before the explorer observes again.
             let path = r["route"]?.stringValue ?? "unknown"
             let evidence = [r["receiptId"]?.stringValue].compactMap { $0 }
             switch await call(.observe, context: RequestContext(sessionId: rb.sessionId),
-                              params: .obj([("screenshot", .bool(false)), ("elements", .bool(false))])) {
+                              params: .obj([("screenshot", .bool(false)), ("elements", .bool(false))]), as: rb.connection) {
             case let .success(o):
                 return receipt(.confirmed, target: snapTarget, path: path, reason: nil, ended: Date(),
                                confirmation: o["snapshotId"]?.stringValue, evidence: evidence)
@@ -262,13 +289,7 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
     }
 
     /// actionId as a runtime/1 requestId (same ID ⇒ same request).
-    static func requestId(for actionId: String) -> String {
-        let allowed = actionId.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "._:-".unicodeScalars.contains($0) }
-        if allowed, let first = actionId.unicodeScalars.first, CharacterSet.alphanumerics.contains(first), actionId.count <= 120 {
-            return "gui-" + actionId
-        }
-        return "gui-" + SHA256.hash(data: Data(actionId.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
-    }
+    static func requestId(for actionId: String) -> String { UnitRun.actRequestId(for: actionId) }
 
     static let keyNames: [String: String] = [
         "Enter": "return", "Tab": "tab", "Escape": "escape", "Backspace": "delete", "Delete": "forwarddelete",

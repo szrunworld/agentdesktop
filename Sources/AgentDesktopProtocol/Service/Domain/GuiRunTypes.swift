@@ -164,20 +164,30 @@ public struct GuiRunBinding: Equatable, Sendable {
     public let primary: GuiCandidate
     public let fallbackCandidates: [GuiCandidate]
     public let verification: GuiVerification
+    /// unit.run: the other predicates of `verification.all` (A6); every one
+    /// must hold on the same fresh observation.
+    public let moreVerifications: [GuiVerification]
     public let allowedActions: [GuiActionKind]
+    /// unit.run `limits`, already folded into the profile's (they only narrow).
+    public let narrowedLimits: GuiLimits?
 
     public init(runId: String, sessionId: String, desktopId: String, goal: String, bindingEpoch: UInt64,
                 runGeneration: UInt64 = 1, policyRevision: Int, boundAt: Date, primary: GuiCandidate,
-                fallbackCandidates: [GuiCandidate], verification: GuiVerification, allowedActions: [GuiActionKind]) {
+                fallbackCandidates: [GuiCandidate], verification: GuiVerification, allowedActions: [GuiActionKind],
+                moreVerifications: [GuiVerification] = [], narrowedLimits: GuiLimits? = nil) {
         precondition(fallbackCandidates.count <= 1)
         self.runId = runId; self.sessionId = sessionId; self.desktopId = desktopId; self.goal = goal
         self.bindingEpoch = bindingEpoch; self.runGeneration = runGeneration; self.policyRevision = policyRevision
         self.boundAt = boundAt; self.primary = primary; self.fallbackCandidates = fallbackCandidates
         self.verification = verification; self.allowedActions = allowedActions
+        self.moreVerifications = moreVerifications; self.narrowedLimits = narrowedLimits
     }
 
-    /// Limits of the run: the primary profile's.
-    public var limits: GuiLimits { primary.limits }
+    /// Every predicate the run must see hold.
+    public var verifications: [GuiVerification] { [verification] + moreVerifications }
+
+    /// Limits of the run: the primary profile's, narrowed by unit.run.
+    public var limits: GuiLimits { narrowedLimits ?? primary.limits }
     public var candidates: [GuiCandidate] { [primary] + fallbackCandidates }
 
     public var json: JSONValue {

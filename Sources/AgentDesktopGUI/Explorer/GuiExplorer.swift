@@ -16,6 +16,36 @@ public struct GuiExplorerPorts: Sendable {
     }
 }
 
+/// A stop the Runtime accepted, visible at once (codex on 8bcb18c): the
+/// lifecycle actor learns of it a moment later, but no model call or input
+/// may start in between. An input already handed to the Runtime is let
+/// finish; the stop then waits for its receipt.
+public final class UnitStopSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+    private var inputOut = false
+
+    public init() {}
+
+    public var isStopped: Bool { lock.withLock { stopped } }
+
+    /// Accept the stop. True when an input is out right now (the caller
+    /// must not cancel the task under it).
+    @discardableResult
+    public func stop() -> Bool { lock.withLock { stopped = true; return inputOut } }
+
+    /// Before handing an input to the Runtime: false once stopped.
+    func beginInput() -> Bool {
+        lock.withLock {
+            guard !stopped else { return false }
+            inputOut = true
+            return true
+        }
+    }
+
+    func endInput() { lock.withLock { inputOut = false } }
+}
+
 /// The bounded local loop of one run (spec §06.3, §07, §09.1):
 ///
 ///     observe → already done? → [suggest → validate → act | wait | finish | needs_user → observe → verify]*
@@ -33,7 +63,7 @@ public struct GuiExplorerPorts: Sendable {
 public final class GuiRunDriver: Sendable {
     public let binding: GuiRunBinding
     public let lifecycle: RunLifecycle
-    public let recorder: RunRecorder
+    public let recorder: any GuiRunRecording
     let ports: GuiExplorerPorts
     let provider: GuiAiProvider
     let verifier: GoalVerifier
@@ -41,10 +71,12 @@ public final class GuiRunDriver: Sendable {
     let budget: AttemptBudget
     let callerScope: String
     let deadlineNs: UInt64
+    let stopSignal: UnitStopSignal?
 
-    public init(binding: GuiRunBinding, lifecycle: RunLifecycle, recorder: RunRecorder, ports: GuiExplorerPorts,
+    public init(binding: GuiRunBinding, lifecycle: RunLifecycle, recorder: any GuiRunRecording, ports: GuiExplorerPorts,
                 provider: GuiAiProvider, budget: AttemptBudget, clock: MonotonicClock, callerScope: String,
-                startedAtNs: UInt64, verifier: GoalVerifier = GoalVerifier()) {
+                startedAtNs: UInt64, verifier: GoalVerifier = GoalVerifier(), stopSignal: UnitStopSignal? = nil) {
+        self.stopSignal = stopSignal
         self.binding = binding
         self.lifecycle = lifecycle
         self.recorder = recorder
@@ -88,6 +120,7 @@ public final class GuiRunDriver: Sendable {
 
     /// Throws when no new model call, input or timer may start.
     private func checkProceed() async throws {
+        guard stopSignal?.isStopped != true else { throw CancellationError() }
         guard await lifecycle.mayProceed(generation: generation) else { throw CancellationError() }
         guard await !recorder.writeFailed else {
             throw ContractError(.auditUnavailable, "the run's record could not be written")
@@ -153,18 +186,21 @@ public final class GuiRunDriver: Sendable {
                 throw ContractError(.limitExceeded, "the run used all \(limits.maxSteps) steps")
             }
             try await move(.inferencing, "step \(stepIndex)")
-            if recoveredStep != stepIndex { await recorder.stepStarted() }
+            if recoveredStep != stepIndex { await recorder.stepStarted(stepIndex: stepIndex) }
             let snapshotId = bundle.observation.stamp.snapshotId
             try await audited { try await ports.audit.reserveInference(runId: binding.runId, stepIndex: stepIndex, snapshotId: snapshotId) }
-            await recorder.note(.inferenceStarted, "step \(stepIndex)")
+            await recorder.inferenceStarted(stepIndex: stepIndex)
 
             let input = GuiInferenceInput(binding: binding, bundle: bundle, history: history, stepIndex: stepIndex,
                                           budget: budget, deadlineNs: deadlineNs, callerScope: callerScope)
+            // The last gate before a model call: a stop or a record that
+            // could not be written since the step began ends it here.
+            try await checkProceed()
             let output: GuiInferenceOutput
             do {
                 output = try await provider.suggest(input)
             } catch let failure as GuiSuggestionFailure {
-                await recorder.inference(failure.receipt)
+                await recorder.inference(failure.receipt, discarded: false)
                 try await audited { try await ports.audit.recordInference(failure.receipt) }
                 // An empty reply: once per step, observe the bound target
                 // again and ask again on that new observation. Nothing the
@@ -176,25 +212,36 @@ public final class GuiRunDriver: Sendable {
                     throw failure.error
                 }
                 recoveredStep = stepIndex
+                await recorder.recovered(stepIndex: stepIndex)
                 try await move(.validating, "empty model reply")
                 try await move(.observing, "observing again after an empty reply")
                 bundle = try await observe()
                 if try await verifyFresh(bundle) { return }
                 continue
+            } catch {
+                // The model calls failed without a reply to show (upstream
+                // errors through the fallback): they still count.
+                await recorder.inferenceFailed(stepIndex: stepIndex, error: error)
+                throw error
             }
             guard await lifecycle.mayProceed(generation: generation) else {
                 await recorder.inference(output.receipt, discarded: true)
                 throw CancellationError()
             }
             try await audited { try await ports.audit.recordInference(output.receipt) }
-            await recorder.inference(output.receipt)
+            await recorder.inference(output.receipt, discarded: false)
             history.append(GuiHistoryTurn(image: bundle.currentImage, reply: output.reply))
             stepIndex += 1
 
             try await move(.validating, "checking proposal")
             let proposal = output.proposal
-            try validate(proposal, against: bundle)
-            await recorder.note(.proposalValidated, proposal.body.redactedDescription)
+            do {
+                try validate(proposal, against: bundle)
+            } catch let e as ContractError {
+                await recorder.rejected(stepIndex: proposal.stepIndex, reason: e.code.rawValue.lowercased())
+                throw e
+            }
+            await recorder.proposed(proposal)
 
             switch proposal.body {
             case .action:
@@ -202,8 +249,13 @@ public final class GuiRunDriver: Sendable {
                 try await move(.executing, "executing")
                 let actionId = try await audited { try await ports.audit.reserveAction(proposal, target: bundle.observation.target) }
                 try await lifecycle.actionStarted(actionId, generation: generation)
+                guard stopSignal?.beginInput() ?? true else {
+                    try await lifecycle.actionResolved(actionId, delivery: .notSent)
+                    throw CancellationError()
+                }
                 let receipt: GuiActionReceipt
                 do {
+                    defer { stopSignal?.endInput() }
                     receipt = try await ports.execution.execute(proposal, actionId: actionId)
                 } catch {
                     // The executor could not say what happened: treat as unknown.
@@ -218,7 +270,7 @@ public final class GuiRunDriver: Sendable {
                     delivery = RunLifecycle.Delivery(rawValue: receipt.deliveryState.rawValue) ?? .unknown
                 }
                 try await lifecycle.actionResolved(actionId, delivery: delivery)
-                await recorder.action(receipt)
+                await recorder.action(receipt, stepIndex: proposal.stepIndex)
                 await recorder.sync()
                 do { try await ports.audit.recordAction(receipt) } catch {
                     if delivery == .confirmed || delivery == .notSent || delivery == .rejected {

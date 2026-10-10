@@ -152,7 +152,7 @@ iPhone 镜像（`com.apple.ScreenContinuity`）是普通 macOS 应用，但对�
 
 ### 4.1 事件类型目录（F1-01，2026-10-08 冻结）
 
-Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](../../contracts/runtime/v1/runtime.schema.json)。类型和 data 的必需字段以该契约为准，本页不维护手写副本。Swift 内嵌副本由 `scripts/generate-runtime-contract.sh` 生成。
+Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](../../contracts/runtime/v1/runtime.schema.json)。类型和 data 的必需字段以该契约为准，本页不维护手写副本。Swift 内嵌副本由 `scripts/generate-runtime-contract.sh` 生成。`unit.` 前缀是 GUI 单元自己的事件，目录是 `$defs/UnitRunEvent`，见 §4.2。
 
 `RunEvent` 对 `run.`、`action.`、`stop.` 前缀引用该目录校验，`EventFrame` 通过其 event 字段引用 `RunEvent`；目录外类型或不符合字段要求的事件被拒绝。其他前缀的既有解析行为保留，包含扩展前缀 `x.`；这不表示这些类型已加入平台冻结目录。
 
@@ -167,6 +167,12 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 
 回执（F1-03）：没有送达（not_dispatched）、执行失败或结果未知时带 `reason{code, message}`；送达时没有这个字段。经 `run.events` 和 `request.show` 回看时都能看到原因。
 
+### 4.2 GUI 单元事件目录（A6，2026-10-10）
+
+kind 为 `unit` 的 Run 上，Explorer 经 Runtime 追加 `unit.*` 事件（observation、progress、inference.attempt、step.proposed、step.rejected、action、recovery、verification、needs_input）。类型和 data 的必需字段以 [`runtime.schema.json` 的 `$defs/UnitRunEvent`](../../contracts/runtime/v1/runtime.schema.json) 为准，本页不维护手写副本；`RunEvent` 尚未对 `unit.` 前缀引用它（ACP 的 A6 夹具仍按草案写，对齐后再接上）。`data` 只放 ID、枚举、错误码和数字：不放截图、键入内容、窗口标题、目标描述或参数值、模型回复、密钥。生命周期（phase / outcome）仍只看 `run.*` 事件。`unit.inference.attempt` 的 `attempts` 是这次推理实际发出的模型调用次数（含回退），`inferenceAttemptId` 指最后一次；调用全部失败、没有回执时不带 `inferenceAttemptId`。`unit.action` 的 `requestId` 是该动作 `act` 的 requestId，回执在同一 Run 的 `action.*` 事件里；`unit.needs_input` 表示 Run 进入 waiting_input，不再接受输入，只能由停止结束。
+
+unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时为服务错误码的小写（如 `limit_exceeded`、`deadline_exceeded`、`stale_observation`、`audit_unavailable`、`action_outcome_unknown`），空回复为 `model_empty_response`；停止类沿用 `stopped`、`owner_lost`、`global_stop`、`client_stop`、`runtime_restarted`。有 unknown 动作时 outcome 恒为 `unknown`。
+
 ## 5. 产物：不透明 ID，不暴露路径
 
 - `observe` 结果里的 `image` 去掉 `path`，只留 `{artifactId, mediaType, width, height, byteSize, sha256, transform}`。
@@ -174,7 +180,7 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 - 产物按主体归属；读取他人产物返回 `not_found`。保留 24 小时（不变）。
 - CLI：`agentdesktop artifact get <id> --out <file>`。
 
-### `unit.run` 参数（frozen；A6 审核后定稿，2026-10-08）
+### `unit.run` 参数（A6 审核后定稿 2026-10-08；2026-10-10 实现）
 
 `verification` 是 `UnitVerification`：`{all: [GuiVerification…]}`，1–8 条，谓词定义在 `service.schema.json`。`lifetime` / `ownership` / `origin` 在 Schema 中放行，只是为了让处理函数能明确返回 `ownership_escalation_denied`。Run 上的 GUI 单元信息在 `Run.unit`（`RunUnit`：mode、goalHash、guiProfileId/Revision、verification.status），不改变 phase / outcome / quiescence 三轴。
 
@@ -191,6 +197,13 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 ```
 
 返回 `Run`（kind `unit`）。结果（是否通过验证、用到哪个流程、学到什么）写在 Run 的事件与 `run.show` 的 `unit` 字段里；外部业务结果由外部 App 自己验证（集成设计 §5.1）。
+
+实现要点（A6，2026-10-10）：
+
+- 准入按 F40-06 的顺序在建 Run 之前完成，拒绝不建 Run，`notSent: true`，同一 requestId 由账本重放原错误。没有注册 GUI 执行器时返回 `unsupported_backend`（reason `gui_execution_off`），`runtime.capabilities` 也不列出 `unit.run`。Desktop 没有绑定窗口时返回 `invalid_target`（reason `no_bound_window`）；配对 App 还要对绑定窗口持有 observe 与 act 的窗口授权。
+- Explorer 以 Run 的主体身份（发起连接的 clientId 与角色）经 Runtime 自己的 observe / act 执行，动作带 `context.runId` 进入这个 Run：回执记在该 Run 上，不再每步新建一次性 Run；每次 observe / act 照常检查授权与窗口授权。
+- Explorer 在 Run 里算作一个进行中的持有者：停止被接受后（`run.cancel`、断连 `owner_lost`、全局停止、撤销）通知 Explorer 不再调模型、不再输入，等它报告结束后 Run 才静止并结束，因此所有 `unit.*` 事件都在 `run.ended` 之前。
+- 主窗口经进程内的 `RuntimeService.startDurableUnitRun` 得到 Durable Run（platform / platform_durable / gui_explorer），线上没有对应入口。
 
 ### 5.1 产物的硬上限（#144，Kevin 2026-10-09）
 

@@ -122,7 +122,19 @@ struct Backend: RuntimeBackend {
 final class Upstream: HTTPTransport, @unchecked Sendable {
     let lock = NSLock()
     var runCalls = 0
+    /// Hold run calls until the caller's task is cancelled (A6 cancel test).
+    var holdRunCalls: Bool {
+        get { lock.withLock { hold } }
+        set { lock.withLock { hold = newValue } }
+    }
+    private var hold = false
+    private var held = 0
+    var heldCalls: Int { lock.withLock { held } }
     func send(_ request: URLRequest, maxResponseBytes: Int) async throws -> HTTPResult {
+        if holdRunCalls, String(decoding: request.httpBody ?? Data(), as: UTF8.self).contains("保存按钮") {
+            lock.withLock { held += 1 }
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+        }
         let body = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
         if request.url?.path.hasSuffix("/models") == true {
             return HTTPResult(status: 200, body: Data(#"{"object":"list","data":[{"id":"doubao-seed-2-1-lite-260915","object":"model"}]}"#.utf8))

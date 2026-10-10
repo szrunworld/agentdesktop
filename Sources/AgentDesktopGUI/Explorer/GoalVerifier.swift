@@ -38,8 +38,8 @@ public struct GoalVerifier: Sendable {
         guard let elements = bundle.elements else {
             throw ContractError(.capabilityMismatch, "this backend cannot read static text for element_text_equals")
         }
-        let expected = Self.normalized(binding.verification.text)
-        let passed = elements.contains { $0.role == Self.staticTextRole && Self.normalized($0.text) == expected }
+        let texts = Set(elements.filter { $0.role == Self.staticTextRole }.map { Self.normalized($0.text) })
+        let passed = binding.verifications.allSatisfy { texts.contains(Self.normalized($0.text)) }
         return GoalVerification(status: passed ? .passed : .failed, observationId: bundle.observation.observationId,
                                 verifierId: Self.verifierId, checkedAt: checkedAt)
     }

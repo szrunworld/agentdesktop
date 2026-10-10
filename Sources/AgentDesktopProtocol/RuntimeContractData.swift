@@ -2750,7 +2750,7 @@ enum RuntimeContractData {
       }
     },
     "PlatformRunEvent": {
-      "description": "the events the Runtime writes on every Run; RunEvent types with the prefix run., action. or stop. are these. The prefix unit. is the GUI unit's own (documented with the Explorer), other prefixes are reserved.",
+      "description": "the events the Runtime writes on every Run; RunEvent types with the prefix run., action. or stop. are these. The prefix unit. is the GUI unit's own (UnitRunEvent, A6); other prefixes are reserved.",
       "oneOf": [
         {
           "type": "object",
@@ -4700,6 +4700,494 @@ enum RuntimeContractData {
           "$ref": "#/$defs/HubWindowGrant"
         }
       }
+    },
+    "UnitRunEvent": {
+      "description": "the GUI unit's own events on a kind unit Run (A6, F40-03), beside the PlatformRunEvent types. data holds ids, enums, codes and numbers only: never a screenshot, typed text, a window title, a goal or parameter value, a model reply or a secret. Lifecycle (phase, outcome) stays in the run.* events.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "unit.observation"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "observationId"
+              ],
+              "properties": {
+                "observationId": {
+                  "$ref": "#/$defs/Id"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "unit.progress"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stepIndex",
+                "stepsLeft",
+                "attemptsLeft",
+                "secondsLeft"
+              ],
+              "properties": {
+                "stepIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "stepsLeft": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "attemptsLeft": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "secondsLeft": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "unit.inference.attempt"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stepIndex",
+                "attempts",
+                "state",
+                "discarded",
+                "errorCode"
+              ],
+              "properties": {
+                "stepIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "inferenceAttemptId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "state": {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                "discarded": {
+                  "type": "boolean"
+                },
+                "errorCode": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "attempts": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "model calls this inference made (a transient failure moved to the next candidate counts each); inferenceAttemptId names the last, and is absent when the calls failed with no receipt"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "unit.step.proposed"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stepIndex",
+                "proposalId",
+                "inferenceAttemptId",
+                "kind"
+              ],
+              "properties": {
+                "stepIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "proposalId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "inferenceAttemptId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "kind": {
+                  "enum": [
+                    "action",
+                    "wait",
+                    "finish",
+                    "needs_user"
+                  ]
+                },
+                "actionKind": {
+                  "enum": [
+                    "click",
+                    "type",
+                    "key",
+                    "scroll"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "unit.step.rejected"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stepIndex",
+                "reason"
+              ],
+              "properties": {
+                "stepIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "reason": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "unit.action"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stepIndex",
+                "actionId",
+                "proposalId",
+                "requestId",
+                "deliveryState"
+              ],
+              "properties": {
+                "stepIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "actionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "proposalId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "requestId": {
+                  "$ref": "#/$defs/Id"
+                },
+                "deliveryState": {
+                  "enum": [
+                    "not_sent",
+                    "submitted",
+                    "confirmed",
+                    "unknown",
+                    "rejected"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "unit.recovery"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stepIndex",
+                "kind",
+                "count"
+              ],
+              "properties": {
+                "stepIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "kind": {
+                  "enum": [
+                    "reobserve_after_empty_reply"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "unit.verification"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "verifierId",
+                "observationId",
+                "checkedAt"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "matched",
+                    "contradicted"
+                  ]
+                },
+                "verifierId": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "observationId": {
+                  "$ref": "#/$defs/Id"
+                },
+                "checkedAt": {
+                  "$ref": "#/$defs/Timestamp"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "unit.needs_input"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reason"
+              ],
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "desktop_closePlan_params": {
       "type": "object",
@@ -9746,6 +10234,15 @@ enum RuntimeContractData {
       "status": "implemented"
     },
     {
+      "method": "unit.run",
+      "stage": "P0",
+      "mutation": true,
+      "params": "unit_run_params",
+      "result": "Run",
+      "status": "implemented",
+      "note": "A6: starts a GUI unit Run (kind unit) on the RunStore. From a connection it is always a Delegated Run (external_client / connection_scoped / agent_hub); the main window starts Durable gui_explorer Runs in-process, never on the wire. origin / lifetime / ownership in params are refused with ownership_escalation_denied (details.reason ownership_from_params). Every admission check (F40-06) runs before the Run exists; a refusal creates no Run and the ledger replays it for the same requestId. Listed in runtime.capabilities only while a GUI executor is registered; without one the answer is unsupported_backend (reason gui_execution_off). Progress is in the Run's events (unit.*, UnitRunEvent) and Run.unit; read, wait, stop with run.show / run.wait / run.cancel / run.events."
+    },
+    {
       "method": "runtime.stopAll",
       "stage": "P0",
       "mutation": true,
@@ -10380,15 +10877,6 @@ enum RuntimeContractData {
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
   "catalog": [
-    {
-      "method": "unit.run",
-      "status": "frozen",
-      "pr": "PR2d",
-      "mutation": true,
-      "params": "unit_run_params",
-      "result": "Run",
-      "note": "from a connection: Delegated Run (agent_hub); the main window creates Durable gui_explorer runs in-process. Params unit_run_params (verification is UnitVerification); lifetime/ownership/origin are accepted only to be refused with ownership_escalation_denied; the Run carries unit (RunUnit). The handler arrives with A6."
-    },
     {
       "method": "inbox.list",
       "status": "reserved",

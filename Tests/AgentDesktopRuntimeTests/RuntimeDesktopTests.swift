@@ -216,7 +216,8 @@ func created(_ s: RuntimeService, _ c: ConnectionState, name: String? = nil) thr
     let s = platformService()
     let d = try #require(data(call(s, handshaken(s), "runtime.capabilities")))
     let methods = d["interface"]?["methods"]?.arrayValue?.compactMap { $0["method"]?.stringValue } ?? []
-    #expect(Set(methods) == Set(RuntimeMethod.allCases.map(\.rawValue)))
+    // unit.run only once a GUI executor is registered (A6).
+    #expect(Set(methods) == Set(RuntimeMethod.allCases.map(\.rawValue)).subtracting(["unit.run"]))
 }
 
 @Test func twoDesktopsWorkInParallel() async throws {

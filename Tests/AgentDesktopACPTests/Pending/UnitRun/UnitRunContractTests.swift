@@ -25,10 +25,11 @@ struct UnitRunContractTests {
             let problems = contract.validate(f["instance"] ?? .null, def)
             #expect(problems.isEmpty == n.hasSuffix(".valid"), "\(n): \(problems)")
         }
-        // methods.json: unit.run is a frozen mutation returning Run.
+        // methods.json: unit.run is a mutation returning Run, implemented
+        // since A6 (it left the frozen catalog with the same shape).
         let methods = try StrictJSON.parse(RuntimeContract.embedded.methods)
-        let entry = try #require(methods["catalog"]?.arrayValue?.first { $0["method"]?.stringValue == "unit.run" })
-        #expect(entry["status"]?.stringValue == "frozen")
+        let entry = try #require(methods["methods"]?.arrayValue?.first { $0["method"]?.stringValue == "unit.run" })
+        #expect(entry["status"]?.stringValue == "implemented")
         #expect(entry["mutation"]?.boolValue == true)
         #expect(entry["params"]?.stringValue == "unit_run_params")
         #expect(entry["result"]?.stringValue == "Run")
