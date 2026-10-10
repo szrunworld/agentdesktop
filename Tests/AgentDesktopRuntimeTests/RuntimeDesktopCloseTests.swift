@@ -76,7 +76,9 @@ private func reason(_ r: RuntimeResponse) -> String? { errorDetails(r)?["reason"
     sc.platform.onQuit = { pid in backend.opened.lock.withLock { _ = backend.opened.restarted.insert(pid) } }
     let gone = try #require(data(call(sc.s, sc.c, "app.quit", params: #"{"desktopId":"\#(sc.desktop)","pid":303}"#)))
     #expect(gone["exited"] == .bool(true))
-    #expect(pids(data(call(sc.s, sc.c, "desktop.closePlan", params: #"{"desktopId":"\#(sc.desktop)"}"#))?["quit"]).isEmpty)
+    // Bound first: Swift 6.1's #expect cannot expand an optional chain followed by .isEmpty.
+    let left = pids(data(call(sc.s, sc.c, "desktop.closePlan", params: #"{"desktopId":"\#(sc.desktop)"}"#))?["quit"])
+    #expect(left.isEmpty)
     #expect(sc.platform.quit == [303, 303])
 }
 
