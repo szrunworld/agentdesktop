@@ -22,21 +22,32 @@ func webTargetChangesRefuseBeforeInput(scenario: String) {
                                             sameIdentity: true, sameGeometry: true, hitMatches: true)
 }
 
-/// #249: the recapture that checks a web target walks with the filter the
-/// snapshot was taken with; without it a filtered tree never equals the
-/// fresh full one, and every input from a filtered observation is refused.
-@Test(arguments: [String?.none, "continue"])
-func theWebTargetRecaptureKeepsTheSnapshotsQuery(query: String?) throws {
-    let element = AXElementInfo(index: 1, role: "AXButton", label: "Continue",
+/// #249: a web target is checked against the whole tree, never the
+/// filtered one `state` showed: the recapture is unfiltered (the capture
+/// takes no query) and compared with the snapshot's unfiltered tree.
+/// Filtered on both sides, a change outside the filter (the item a reused
+/// Delete button acts on) would pass; a filtered tree against a full one
+/// would refuse every input.
+@Test func theWebTargetIsCheckedAgainstTheWholeTree() {
+    let element = AXElementInfo(index: 1, role: "AXButton", label: "Delete",
                                 frame: CGRect(x: 10, y: 10, width: 40, height: 20))
-    let snapshot = AXSnapshot(windowID: 7, elements: [element], tree: "[1] AXButton Continue",
-                              handles: [1: AXUIElementCreateApplication(getpid())], web: [1], truncated: nil, query: query)
-    let window = WindowInfo(pid: getpid(), windowID: 7, appName: "Test", title: "", frame: .zero)
-    var asked: [String?] = []
-    struct Stop: Error {}
-    do {
-        try snapshot.validateWebTarget(1, in: window) { _, q, _ in asked.append(q); throw Stop() }
-        Issue.record("the recapture was expected to run and stop the check")
-    } catch is Stop {}
-    #expect(asked == [query])
+    func snapshot(tree: String, fullTree: String? = nil) -> AXSnapshot {
+        AXSnapshot(windowID: 7, elements: [element], tree: tree, handles: [:], web: [1], truncated: nil, fullTree: fullTree)
+    }
+    let button = "- [1] AXButton \"Delete\""
+    // Observed with a filter: `tree` shows the button, `fullTree` also the
+    // item it deletes.
+    let observed = snapshot(tree: button, fullTree: "- AXStaticText = \"Invoice 17\"\n" + button)
+    // Unchanged page, captured unfiltered: the trees compared are equal.
+    let same = observed.webEvidenceTrees(against: snapshot(tree: "- AXStaticText = \"Invoice 17\"\n" + button))
+    #expect(same.old == same.new)
+    // The button stayed, the item changed: the trees compared differ.
+    let changed = observed.webEvidenceTrees(against: snapshot(tree: "- AXStaticText = \"Invoice 18\"\n" + button))
+    #expect(changed.old != changed.new)
+    #expect(throws: AccessibilityError.self) {
+        try AXSnapshot.requireCurrentWebEvidence(oldTree: changed.old, newTree: changed.new, complete: true,
+                                                sameIdentity: true, sameGeometry: true, hitMatches: true)
+    }
+    // Never the filtered tree.
+    #expect(changed.old != observed.tree)
 }

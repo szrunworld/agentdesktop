@@ -35,11 +35,11 @@ public final class AXSnapshot {
     /// Why the walk stopped before the whole tree: "deadline" (out of time)
     /// or "limits" (too deep or too many nodes). Nil for a complete walk.
     public let truncated: String?
-    /// The filter this snapshot was taken with (`state`'s query), nil for
-    /// the whole tree. A recapture that checks the snapshot is still current
-    /// walks with the same filter, or a filtered tree never equals a fresh
-    /// full one (#249).
-    let query: String?
+    /// The whole tree, whatever `state`'s query filtered out of `tree`: the
+    /// evidence a web target is checked against. A filtered tree alone would
+    /// miss a change outside the filter (the item a reused Delete button
+    /// acts on), and a fresh full tree never equals a filtered one (#249).
+    let fullTree: String
 
     /// Deep apps (Electron, web views) have thousands of nodes; these bound
     /// the walk so a snapshot stays fast and the tree readable.
@@ -50,9 +50,9 @@ public final class AXSnapshot {
     static let queryTimeout: Float = 1
 
     init(windowID: CGWindowID, elements: [AXElementInfo], tree: String, handles: [Int: AXUIElement],
-         web: Set<Int>, truncated: String?, query: String? = nil) {
+         web: Set<Int>, truncated: String?, fullTree: String? = nil) {
         self.truncated = truncated
-        self.query = query
+        self.fullTree = fullTree ?? tree
         self.windowID = windowID
         self.elements = elements
         self.tree = tree
@@ -90,7 +90,7 @@ public final class AXSnapshot {
         }
         return AXSnapshot(windowID: window.windowID, elements: walker.elements,
                           tree: walker.lines.joined(separator: "\n"), handles: walker.handles, web: walker.web,
-                          truncated: walker.truncated, query: query)
+                          truncated: walker.truncated, fullTree: walker.fullLines.joined(separator: "\n"))
     }
 
     /// Chromium and Electron expose a page's tree only once a client asks for it; until then
@@ -161,11 +161,11 @@ public final class AXSnapshot {
     /// moved element requires a new observation, rather than silently aiming
     /// at a new position. Strict hit identity may refuse child hit targets.
     func validateWebTarget(_ index: Int, in window: WindowInfo,
-                           capture: (WindowInfo, String?, Date?) throws -> AXSnapshot = { try AXSnapshot.capture($0, query: $1, deadline: $2) }) throws {
+                           capture: (WindowInfo, Date?) throws -> AXSnapshot = { try AXSnapshot.capture($0, deadline: $1) }) throws {
         guard truncated == nil, let old = handle(index), let info = element(index: index),
               let point = info.center else { throw AccessibilityError("web target cannot be verified; observe again") }
-        // With this snapshot's own filter (#249).
-        let fresh = try capture(window, query, Date().addingTimeInterval(2))
+        // Unfiltered, compared with this snapshot's unfiltered tree (#249).
+        let fresh = try capture(window, Date().addingTimeInterval(2))
         guard let current = fresh.handle(index), let currentInfo = fresh.element(index: index) else {
             throw AccessibilityError("web target disappeared; observe again")
         }
@@ -175,11 +175,15 @@ public final class AXSnapshot {
         let hitStatus = AXUIElementCopyElementAtPosition(root, Float(point.x), Float(point.y), &hit)
         let geometry = WindowMover.frame(of: current)
         try Self.requireCurrentWebEvidence(
-            oldTree: tree, newTree: fresh.tree, complete: fresh.truncated == nil,
+            oldTree: webEvidenceTrees(against: fresh).old, newTree: webEvidenceTrees(against: fresh).new,
+            complete: fresh.truncated == nil,
             sameIdentity: CFEqual(old, current),
             sameGeometry: Self.sameFrame(info.frame, currentInfo.frame) && Self.sameFrame(info.frame, geometry.map(Frame.init)),
             hitMatches: hitStatus == .success && hit.map { CFEqual(old, $0) } == true)
     }
+
+    /// The trees a web target's check compares: both unfiltered (#249).
+    func webEvidenceTrees(against fresh: AXSnapshot) -> (old: String, new: String) { (fullTree, fresh.fullTree) }
 
     static func sameFrame(_ a: Frame?, _ b: Frame?) -> Bool {
         guard let a, let b else { return false }
@@ -206,6 +210,8 @@ public final class AXSnapshot {
         var truncated: String?
         var elements: [AXElementInfo] = []
         var lines: [String] = []
+        /// Every line the walk would show with no query: the whole tree.
+        var fullLines: [String] = []
         var handles: [Int: AXUIElement] = [:]
         var web: Set<Int> = []
         var visited = 0
@@ -259,14 +265,18 @@ public final class AXSnapshot {
                 handles[index] = element
                 if inWeb { web.insert(index) }
             }
-            if shown, interesting || role != "AXGroup" {
+            if !hidden, interesting || role != "AXGroup" {
                 var info = AXElementInfo(index: index, role: subrole.map { "\(role)/\($0)" } ?? role)
                 info.label = label
                 info.value = value
                 info.actions = actions.isEmpty ? nil : actions
                 info.frame = frame.map(Frame.init)
-                elements.append(info)
-                lines.append(Self.line(info, depth: depth))
+                let line = Self.line(info, depth: depth)
+                fullLines.append(line)
+                if shown {
+                    elements.append(info)
+                    lines.append(line)
+                }
             }
 
             let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
