@@ -129,7 +129,9 @@ public final class CapabilityTestModel: ObservableObject {
                     phase = .finished(s)
                     return
                 }
-                if o["state"]?.stringValue == "cancelling" { phase = .cancelling }
+                // A read that left before a terminal cancel answer must not undo it.
+                if case .finished = phase {}
+                else if o["state"]?.stringValue == "cancelling" { phase = .cancelling }
                 else if phase == .unknown { phase = .running }
                 try await clock.pause(milliseconds: pollMs)
             } catch is CancellationError {
@@ -171,18 +173,28 @@ public final class CapabilityTestModel: ObservableObject {
         return phase == .running || phase == .unknown
     }
 
-    /// Accepting a cancel shows "cancelling" first; the end state comes from get.
+    /// Accepting a cancel shows "cancelling" first; the end state comes from
+    /// get. When no status loop is running (status was unknown), cancel
+    /// starts one, so "cancelling" always has a loop that can end it.
     public func cancel() async {
         guard let op = operationId else { return }
+        let r: JSONValue
         do {
-            let r = try await client.send("ai.operations.cancel", .obj([("operationId", .string(op))]),
-                                          idempotencyKey: "w04-cancel-\(op)")
-            if r["terminal"]?.boolValue == true {
-                phase = .finished(r["state"]?.stringValue ?? "cancelled")
-            } else {
-                phase = .cancelling
-            }
-        } catch { show(UIProblem(error)) }
+            r = try await client.send("ai.operations.cancel", .obj([("operationId", .string(op))]),
+                                      idempotencyKey: "w04-cancel-\(op)")
+        } catch {
+            if operationId == op { show(UIProblem(error)) }
+            return
+        }
+        // A late answer must not touch a newer test or an end already read.
+        guard operationId == op else { return }
+        if case .finished = phase { return }
+        if r["terminal"]?.boolValue == true {
+            phase = .finished(r["state"]?.stringValue ?? "cancelled")
+        } else {
+            phase = .cancelling
+            await poll()
+        }
     }
 
     public var allPassed: Bool { levels.allSatisfy { $0.status == .passed } }
@@ -206,7 +218,9 @@ public struct CapabilityTestView: View {
             }
             if let p = model.problem { ProblemBanner(problem: p) }
             switch model.phase {
-            case .cancelling: Text("取消中…未完成的层不会被标为通过。").accessibilityAddTraits(.updatesFrequently)
+            case .cancelling:
+                Text("取消中…未完成的层不会被标为通过。").accessibilityAddTraits(.updatesFrequently)
+                if !model.isPolling { Button("重新查询状态") { Task { await model.poll() } } }
             case let .finished(s): Text("测试结束：\(s == "succeeded" ? "完成" : s == "cancelled" ? "已取消" : "失败")")
             case .running, .starting: ProgressView("测试进行中")
             case .unknown:
