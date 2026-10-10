@@ -510,3 +510,17 @@ final class LockedStrings: @unchecked Sendable {
                  context: #"{"sessionId":"\#(sc.session)"}"#)
     #expect(failure(w)?.details?["reason"]?.stringValue == "changed_during_capture", "\(w.json.encoded())")
 }
+
+@Test func theBoundAppsOwnOverlayCountsOnAnyIntersection() throws {
+    // Codex on 950600b: a click can land in a 1-point sliver of the bound app's own panel.
+    let sc = try physicalScene()
+    let frame = try #require(sc.platform.window(on: sc.platform.physicalDisplays[1]!, pid: 101, windowId: 11)?.frame)
+    // Its own panel crossing the window's right edge by one point.
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 601, pid: 101, appName: "Calculator", title: "",
+                                                               frame: Rect(x: frame.x + frame.width - 1, y: frame.y + 10, width: 200, height: 100))]
+    #expect(failure(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?.details?["reason"]?.stringValue == "occluded")
+    // Another app's panel by the same sliver: a shadow, not a cover.
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 602, pid: 600, appName: "Other", title: "",
+                                                               frame: Rect(x: frame.x + frame.width - 1, y: frame.y + 10, width: 200, height: 100))]
+    #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
+}

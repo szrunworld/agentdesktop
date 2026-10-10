@@ -42,7 +42,13 @@ extension RuntimeService {
         // bound app's own sheets and popovers (the window capture does not
         // show them, yet input posted to the process may land on them).
         let above = d.kind == .physical ? platform.overlays(on: d.screen, boundPid: b.process.pid) : []
-        if let cover = above.first(where: { Self.overlap($0.frame, window.frame) })
+        // The bound process's own overlays count on any intersection at all:
+        // input routing picks one by point containment, with no sliver
+        // tolerance (Codex on 950600b). Others keep the shadow tolerance.
+        func covers(_ w: PlatformWindow) -> Bool {
+            w.pid == b.process.pid ? Self.intersects(w.frame, window.frame) : Self.overlap(w.frame, window.frame)
+        }
+        if let cover = above.first(where: covers)
             ?? front.first(where: { Self.overlap($0.frame, window.frame) }) {
             throw refuse("occluded",
                          "window \(cover.windowId) covers the bound window \(b.windowId); bind the window you mean, or move it away",
@@ -94,6 +100,11 @@ extension RuntimeService {
     struct StackEntry: Equatable {
         let windowId: UInt32
         let frame: AgentDesktopProtocol.Rect
+    }
+
+    /// Any intersection with an area at all.
+    static func intersects(_ a: AgentDesktopProtocol.Rect, _ b: AgentDesktopProtocol.Rect) -> Bool {
+        min(a.x + a.width, b.x + b.width) > max(a.x, b.x) && min(a.y + a.height, b.y + b.height) > max(a.y, b.y)
     }
 
     /// Overlap of more than a sliver: shadows and 1 pt borders do not count.
