@@ -388,7 +388,7 @@ public struct DesktopInspectorView: View {
             DesktopModal {
                 switch dialog {
                 case .takeover: TakeoverDialog(flow: control, name: name, info: info)
-                case .close: CloseDesktopDialog(flow: control, name: name, info: info)
+                case .close: CloseDesktopDialog(flow: control, name: name, info: info, methods: methods)
                 case .unknown:
                     if let review {
                         UnknownResultDialog(review: review, flow: control, name: name,

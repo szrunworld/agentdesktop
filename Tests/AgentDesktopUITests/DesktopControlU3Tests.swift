@@ -386,3 +386,74 @@ struct DesktopControlAnswerTests {
         #expect(flow.handbackText == nil)
     }
 }
+
+/// Codex findings on 4dc1360.
+@MainActor
+@Suite("Desktop control review fixes")
+struct DesktopControlReviewFixTests {
+    func idle() -> (MockRuntime, String) {
+        let m = MockRuntime()
+        let a = m.addDesktop(name: "A", app: "Safari")
+        m.enableDesktopControl()
+        return (m, a)
+    }
+
+    // P1: a failed re-read leaves no stale plan to close from.
+    @Test func failedPlanReadLeavesNothingToCloseFrom() async {
+        let (m, a) = idle()
+        let flow = DesktopControlFlow(runtime: m, desktopId: a)
+        await flow.loadClosePlan()
+        #expect(flow.closePlan?["canClose"]?.boolValue == true)
+        m.failNext("desktop.closePlan", code: "internal_error")
+        await flow.loadClosePlan()
+        #expect(flow.closePlan == nil && flow.problems[.closePlan] != nil)
+        await flow.close()
+        #expect(!m.callLog.contains("desktop.destroy"))
+    }
+
+    // P1: a plan that changed since it was shown (a new app launched here)
+    // is shown again; nothing closes.
+    @Test func changedPlanIsShownBeforeClosing() async throws {
+        let (m, a) = idle()
+        let flow = DesktopControlFlow(runtime: m, desktopId: a)
+        await flow.loadClosePlan()
+        m.addLaunchedApp(a, name: "Probe")
+        await flow.close()
+        #expect(!m.callLog.contains("desktop.destroy"))
+        #expect(flow.problems[.close]?.code == "conflict")
+        #expect(flow.closePlan?["quit"]?.arrayValue?.count == 1, "the new plan names the app destroy would quit")
+        await flow.close()
+        #expect(flow.closed?["destroyed"]?.boolValue == true)
+    }
+
+    // P1: ending an unknown result needs the new picture, not just the
+    // observation.
+    @Test func endingNeedsTheNewPicture() async throws {
+        let (m, a) = idle()
+        let run = m.addRun(desktopId: a)
+        let req = m.addAction(runId: run, delivery: "unknown", execution: "unknown")
+        let entry = ActionEntry(runId: run, requestId: req, at: nil, receipt: nil, errorCode: nil)
+        let review = UnknownResultReview(runtime: m, desktopId: a, entry: entry)
+        m.failNext("artifact.read", code: "not_found")
+        await review.reobserve()
+        #expect(!review.canEnd && review.observation == nil && review.problem?.code == "not_found")
+        await review.reobserve()
+        #expect(review.canEnd)
+    }
+
+    // P2: after stop_pending, takeover is offered again only once the
+    // stopped Run is quiescent.
+    @Test func takeoverRetryWaitsForQuiescence() async throws {
+        let (m, a) = idle()
+        let run = m.addRun(desktopId: a)
+        m.syncDesktopControls()
+        m.markActionInFlight(run)
+        let flow = DesktopControlFlow(runtime: m, desktopId: a)
+        #expect(TakeoverDialog.canSend(flow))
+        await flow.takeover()
+        #expect(!TakeoverDialog.canSend(flow))
+        m.finishInFlight(run)
+        await flow.refresh()
+        #expect(TakeoverDialog.canSend(flow))
+    }
+}

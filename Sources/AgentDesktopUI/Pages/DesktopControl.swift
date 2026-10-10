@@ -344,14 +344,26 @@ public final class DesktopControlFlow: ObservableObject {
         await loadClosePlan()
     }
 
+    /// Reads the plan again. The previous plan is dropped first, so a
+    /// failed read leaves no stale plan to close from (Codex P1 on 4dc1360).
     public func loadClosePlan() async {
+        guard working == nil else { return }
+        closePlan = nil
         await perform(.closePlan) { closePlan = try await runtime.call("desktop.closePlan", idParams) }
     }
 
-    /// desktop.destroy, only when the plan says it can close.
+    /// desktop.destroy, only when the plan shown says it can close and a
+    /// plan read just now is the same: if anything changed (a new app
+    /// launched, a Run started) the new plan is shown and nothing closes.
     public func close() async {
-        guard closePlan?["canClose"]?.boolValue == true else { return }
+        guard let shown = closePlan, shown["canClose"]?.boolValue == true else { return }
         await perform(.close) {
+            let fresh = try await runtime.call("desktop.closePlan", idParams)
+            guard fresh == shown else {
+                closePlan = fresh
+                throw RuntimeError("conflict", "the close plan changed since it was shown; read the new plan before closing",
+                                   phase: .handler, notSent: true)
+            }
             closed = try await runtime.call("desktop.destroy", idParams)
             dialog = nil
         }
@@ -436,8 +448,8 @@ public final class UnknownResultReview: ObservableObject {
         self.entry = entry
     }
 
-    /// UC29: ending is closed until a new observation exists.
-    public var canEnd: Bool { observation != nil }
+    /// UC29: ending is closed until a new observation with its picture exists.
+    public var canEnd: Bool { observation != nil && image != nil }
 
     public func reobserve() async {
         guard !observing else { return }
@@ -446,8 +458,14 @@ public final class UnknownResultReview: ObservableObject {
         do {
             let o = try await runtime.call("observe", .obj([("elements", .bool(false))]),
                                            context: RequestContext(desktopId: desktopId))
+            // Published only with a picture the owner can look at: ending
+            // stays closed when the new screen cannot be shown (Codex P1 on
+            // 4dc1360).
+            guard let img = try await Self.readImage(runtime, o["image"]) else {
+                throw RuntimeError("execution_failed", "the new observation has no picture that can be shown", phase: .handler)
+            }
             observation = o
-            image = try await Self.readImage(runtime, o["image"])
+            image = img
         } catch {
             problem = RuntimeProblem(error)
         }

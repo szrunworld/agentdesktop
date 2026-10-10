@@ -67,6 +67,8 @@
 
 ## 测试
 
+第一轮（4dc1360）：
+
 | 命令 | 退出码 | 结果 |
 | --- | --- | --- |
 | `swift build --build-tests` | 0 | — |
@@ -74,3 +76,13 @@
 | `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build`（两次） | 1、1 | 两次都是 `SingleEndpointTests` 三项（`aiMethodsAnswer…`、`aKeyReused…`、`concurrentDuplicatesMakeOneWrite`）等 Runtime 回复超时；第二次另有 `InferenceTransportTests.sec006_redirectIsNotFollowed` 一次超时。两组单独在严格模式下重跑全部通过（7/7、14/14）。都不在本 PR 改动范围（Runtime / AI 测试），已知问题是 SingleEndpoint 的两项，这次多出一项同组测试 |
 
 新测试：`DesktopControlU3Tests`（16 项：UC07–UC18、UC29–UC31、superseded、物理 Desktop、app.quit、resize、U2b 降级、缺方法置灰、ADR-02、每 Desktop 独立停止）、`DesktopControlRenderTests`（2 项，出 PNG；本目录存的是转成 JPEG 的同一批图）。`MockRuntimeTests.answersStayInsideTheContract` 补了本线 6 个方法，并把已入契约的 `control` 从 planned 名单移出（改为 `transport`、`lastActionAt`）。
+
+第二轮（Codex 在 4dc1360 上的 2 个 P1、2 个 P2 修复后）：
+
+| 命令 | 退出码 | 结果 |
+| --- | --- | --- |
+| `swift build --build-tests` | 0 | — |
+| `swift test --skip-build` | 0 | 1393 项通过（7 个原有 known issue） |
+| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 1 | 只有已知的 `SingleEndpointTests` 两项超时（`aiMethodsAnswer…`、`aKeyReused…`） |
+
+修复：关闭计划重读前先清空，读失败就不能关闭；关闭前再读一次计划，与所显示的不同就显示新计划、不关闭；P17 必须拿到可显示的新画面才开放结束；stop_pending 之后要等被停运行静止才能再次接管；关闭对话框的「先停止输入」「关闭 Desktop」按 `runtime.capabilities` 置灰。新增 `DesktopControlReviewFixTests`（4 项）与 `DesktopControlAnswerTests`（1 项，旧回答在状态变化后撤下）。渲染图已按修复后的代码重出。

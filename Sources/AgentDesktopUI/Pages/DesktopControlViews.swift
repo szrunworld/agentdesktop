@@ -88,7 +88,8 @@ struct DesktopControlAnswers: View {
                 let pending: Bool = { if case .stopPending = a { return true }; return false }()
                 ControlNotice(title: t.title, detail: t.detail + (pending && flow.holderQuiescent ? " 运行已静止，可以再次接管。" : ""),
                               tone: .attention, code: t.code,
-                              actionTitle: pending ? "再次接管" : nil, action: pending ? takeoverAgain : nil)
+                              actionTitle: pending ? "再次接管" : nil,
+                              action: pending && TakeoverDialog.canSend(flow) ? takeoverAgain : nil)
             }
             if let t = flow.handbackText { ControlNotice(title: t.title, detail: t.detail, tone: .idle) }
             if let r = flow.resized {
@@ -146,12 +147,21 @@ struct TakeoverDialog: View {
                 Button("保留 Agent 控制") { flow.dialog = nil }.buttonStyle(ADButtonStyle(.secondary))
                     .keyboardShortcut(.cancelAction)
                 Button { Task { await flow.takeover() } } label: { Label(takeoverTitle, systemImage: "computermouse") }
-                    .buttonStyle(ADButtonStyle(.primary)).disabled(flow.working != nil)
+                    .buttonStyle(ADButtonStyle(.primary)).disabled(!Self.canSend(flow))
+                    .help(Self.canSend(flow) ? "" : "Agent 的运行还没有静止，静止后才能再次接管")
             }
             .padding(ADSpace.xl)
             .overlay(alignment: .top) { Rectangle().fill(ADColor.line).frame(height: 1) }
         }
         .frame(width: 520)
+    }
+
+    /// After stop_pending a new takeover waits for the holder to be quiet
+    /// (Codex P2 on 4dc1360).
+    static func canSend(_ flow: DesktopControlFlow) -> Bool {
+        guard flow.working == nil else { return false }
+        if case .stopPending = flow.takeoverAnswer { return flow.holderQuiescent }
+        return true
     }
 
     var takeoverTitle: String {
@@ -167,6 +177,7 @@ struct CloseDesktopDialog: View {
     @ObservedObject var flow: DesktopControlFlow
     let name: String
     let info: DesktopControlInfo
+    var methods: DesktopControlMethods = .all
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -193,11 +204,15 @@ struct CloseDesktopDialog: View {
                 Button("取消") { flow.dialog = nil }.buttonStyle(ADButtonStyle(.secondary)).keyboardShortcut(.cancelAction)
                 if Self.runBlocks(flow.closePlan) {
                     Button { Task { await flow.stopBeforeClose() } } label: { Label("先停止输入", systemImage: "stop.fill") }
-                        .buttonStyle(ADButtonStyle(.danger)).disabled(flow.working != nil || stopWaiting)
+                        .buttonStyle(ADButtonStyle(.danger))
+                        .disabled(!methods.has("desktop.stop") || flow.working != nil || stopWaiting)
+                        .help(methods.has("desktop.stop") ? "只停止这个 Desktop 的输入，静止后重新读取关闭计划"
+                              : DesktopControlMethods.missing("desktop.stop"))
                 }
                 Button { Task { await flow.close() } } label: { Label("关闭 Desktop", systemImage: "xmark") }
                     .buttonStyle(ADButtonStyle(.danger))
-                    .disabled(flow.closePlan?["canClose"]?.boolValue != true || flow.working != nil)
+                    .disabled(!methods.has("desktop.destroy") || flow.closePlan?["canClose"]?.boolValue != true || flow.working != nil)
+                    .help(methods.has("desktop.destroy") ? "" : DesktopControlMethods.missing("desktop.destroy"))
             }
             .padding(ADSpace.xl)
             .overlay(alignment: .top) { Rectangle().fill(ADColor.line).frame(height: 1) }
