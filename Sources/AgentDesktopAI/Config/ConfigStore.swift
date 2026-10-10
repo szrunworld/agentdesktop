@@ -88,7 +88,7 @@ public enum CapabilityLayer: String, Sendable, CaseIterable {
 /// default GUI profile, with immutable revisions, CAS updates, tombstones,
 /// idempotent mutations and the credential create/rotate outbox (§04,
 /// §05.4, §10). Secrets live only in `CredentialStore`.
-public actor ConfigStore {
+public actor ConfigStore: GuiContractEvidence {
     public static let schemaVersion = 3
 
     let db: SQLiteDatabase
@@ -863,6 +863,23 @@ public actor ConfigStore {
         }
         try db.run("INSERT OR REPLACE INTO capability_evidence VALUES(?,?,?,?)",
                    [.text(modelProfileId), .int(Int64(revision)), .text(layer.rawValue), .text(evidence.encoded())])
+    }
+
+    /// F40-06 row 12: verified guiContract evidence for exactly this
+    /// candidate (model profile revision, connection revision, adapter,
+    /// prompt and parser versions). Anything else is not passed.
+    public func guiContractPassed(_ c: GuiCandidate) throws -> Bool {
+        let model = c.resolvedModel.model
+        guard let row = try db.row("SELECT body FROM capability_evidence WHERE model_profile_id=? AND model_profile_revision=? AND layer=?",
+                                   [.text(model.modelProfileId), .int(Int64(model.revision)), .text(CapabilityLayer.guiContract.rawValue)]),
+              let text = row[0].text else { return false }
+        let e = try StrictJSON.parse(text)
+        let scope = e["scope"]
+        return e["status"]?.stringValue == "verified"
+            && scope?["connectionRevision"]?.intValue == Int(c.resolvedModel.connection.revision)
+            && scope?["adapterVersion"]?.stringValue == c.guiProfile["adapterVersion"]?.stringValue
+            && scope?["promptVersion"]?.stringValue == c.guiProfile["promptVersion"]?.stringValue
+            && scope?["parserVersion"]?.stringValue == c.guiProfile["parserVersion"]?.stringValue
     }
 
     // MARK: GUI profiles

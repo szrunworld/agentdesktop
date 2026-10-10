@@ -88,3 +88,10 @@ public protocol GuiBindingResolver: Sendable {
     func resolve(guiProfileId: String?, expectedProfileRevision: Int?, callerScope: String) async throws
         -> (primary: GuiCandidate, fallback: [GuiCandidate], policyRevision: Int)
 }
+
+/// Whether a candidate passed the GUI contract test (F40-06 row 12): its
+/// model profile revision holds verified guiContract evidence for this
+/// adapter, prompt and parser version and this connection revision.
+public protocol GuiContractEvidence: Sendable {
+    func guiContractPassed(_ candidate: GuiCandidate) async throws -> Bool
+}

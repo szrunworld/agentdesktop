@@ -398,10 +398,25 @@ struct UnitRunAdmissionTests {
         #expect(h.ai.callCount == 0)
     }
 
+    // F40-06 row 12: a profile that has not passed the GUI contract test is
+    // refused after the profile checks and before the action checks.
+    @Test func row12_guiContractNotPassedIsRefused() async throws {
+        let h = try GuiHarness([])
+        let gui = try await h.setUpProfile()
+        h.evidence.passed = false
+        let r = await h.admit(h.startParams().setting("allowedActions", .array([.string("click")])))
+        #expect(refusal(r)! == ("capability_mismatch", "gui_contract_not_passed"))
+        if case let .failure(e) = r { #expect(e.details?["guiProfileId"] == gui["guiProfileId"]) }
+        #expect(refusal(await h.admit(h.startParams().setting("mode", .string("replay_only"))))?.1 == "gui_contract_not_passed",
+                "row 12 comes before row 15")
+        h.evidence.passed = true
+        #expect(refusal(await h.admit()) == nil)
+    }
+
     @Test func anActionTheBackendCannotExecuteIsRefused() async throws {
         let h = try GuiHarness([])
         try await h.setUpProfile()
-        let clicksOnly = UnitRunService(resolver: ConfigBindingResolver(store: h.store, codecs: h.codecs),
+        let clicksOnly = UnitRunService(resolver: ConfigBindingResolver(store: h.store, codecs: h.codecs), evidence: h.evidence,
                                         ports: GuiExplorerPorts(observation: h.observation, execution: h.executor, audit: h.audit),
                                         features: GuiBackendFeatures(actions: [.click], verificationPredicates: ["element_text_equals"]),
                                         aiService: h.ai, codecs: h.codecs, clock: h.clock)

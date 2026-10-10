@@ -40,6 +40,7 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     }
 
     let resolver: GuiBindingResolver
+    let evidence: GuiContractEvidence
     let ports: GuiExplorerPorts
     let features: GuiBackendFeatures
     let aiService: AiService
@@ -52,9 +53,13 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     /// them until it is stopped.
     private var pinned: [String: [(ConfigResourceKind, String)]] = [:]
 
-    public init(resolver: GuiBindingResolver, ports: GuiExplorerPorts, features: GuiBackendFeatures, aiService: AiService,
+    /// `evidence` decides F40-06 row 12 (GUI contract test passed); there
+    /// is deliberately no default that lets everything through.
+    public init(resolver: GuiBindingResolver, evidence: GuiContractEvidence, ports: GuiExplorerPorts, features: GuiBackendFeatures,
+                aiService: AiService,
                 codecs: GuiCodecRegistry = GuiCodecRegistry(), clock: MonotonicClock = SystemMonotonicClock()) {
         self.resolver = resolver
+        self.evidence = evidence
         self.ports = ports
         self.features = features
         self.aiService = aiService
@@ -67,7 +72,7 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     }
 
     public func admit(params p: JSONValue, callerScope: String) async -> Result<any UnitRunPlan, RuntimeError> {
-        // 7–12 first (F40-06 order): the GUI profile, its model and credential.
+        // 7–11 first (F40-06 order): the GUI profile, its model and credential.
         let profileId = p["guiProfileId"]?.stringValue
         let resolved: (primary: GuiCandidate, fallback: [GuiCandidate], policyRevision: Int)
         do {
@@ -77,6 +82,20 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
             return .failure(Self.admissionError(e, explicitProfile: profileId != nil))
         } catch {
             return .failure(RuntimeError("internal_error", "the GUI profile could not be read", phase: .handler, notSent: true))
+        }
+        // 12. The GUI contract test passed for every candidate as bound.
+        for candidate in [resolved.primary] + resolved.fallback {
+            let passed: Bool
+            do { passed = try await evidence.guiContractPassed(candidate) } catch {
+                return .failure(RuntimeError("internal_error", "the GUI contract evidence could not be read", phase: .handler, notSent: true))
+            }
+            guard passed else {
+                return .failure(Self.refusal("capability_mismatch",
+                                             "GUI profile \(candidate.guiProfileId) r\(candidate.guiProfileRevision) has not passed the GUI contract test with this model profile revision; run ai.tests.start",
+                                             "gui_contract_not_passed",
+                                             details: [("guiProfileId", .string(candidate.guiProfileId)),
+                                                       ("guiProfileRevision", .int(candidate.guiProfileRevision))]))
+            }
         }
         // 13. Every allowed action is one the backend executes ("wait" is
         // the explorer's own and always available).

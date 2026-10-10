@@ -53,7 +53,7 @@ func unitParams() -> JSONValue {
 
 func stopTestService(_ h: GuiHarness, observation: GuiObservationPort) -> UnitRunService {
     let codecs = GuiCodecRegistry()
-    return UnitRunService(resolver: ConfigBindingResolver(store: h.store, codecs: codecs),
+    return UnitRunService(resolver: ConfigBindingResolver(store: h.store, codecs: codecs), evidence: h.evidence,
                           ports: GuiExplorerPorts(observation: observation, execution: h.executor, audit: h.audit),
                           features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]),
                           aiService: h.ai, codecs: codecs, clock: h.clock)

@@ -73,7 +73,7 @@ public final class AgentDesktopService: Sendable {
         // unit.run keeps no run table here: the Runtime's RunStore, request
         // ledger and the AI call ledger are the records (A6 principle 3).
         let units = o.executionBackend.map { be in
-            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs),
+            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs), evidence: store,
                            ports: GuiExplorerPorts(observation: be.ports.observation, execution: be.ports.execution,
                                                    audit: UnitRunAudit()),
                            features: be.features, aiService: ai, codecs: codecs, clock: o.clock)

@@ -200,7 +200,7 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 
 实现要点（A6，2026-10-10）：
 
-- 准入按 F40-06 的顺序在建 Run 之前完成，拒绝不建 Run，`notSent: true`，同一 requestId 由账本重放原错误。没有注册 GUI 执行器时返回 `unsupported_backend`（reason `gui_execution_off`），`runtime.capabilities` 也不列出 `unit.run`。Desktop 没有绑定窗口时返回 `invalid_target`（reason `no_bound_window`）；配对 App 还要对绑定窗口持有 observe 与 act 的窗口授权。
+- 准入按 F40-06 的顺序在建 Run 之前完成，拒绝不建 Run，`notSent: true`，同一 requestId 由账本重放原错误。没有注册 GUI 执行器时返回 `unsupported_backend`（reason `gui_execution_off`），`runtime.capabilities` 也不列出 `unit.run`。Desktop 没有绑定窗口时返回 `invalid_target`（reason `no_bound_window`）；配对 App 还要对绑定窗口持有 observe 与 act 的窗口授权。 第 12 行（GUI 契约测试）：候选配置所用模型配置的那个修订须有 `guiContract` 层 verified 的能力证据，且证据的 adapter / prompt / parser 版本与连接修订都与绑定一致，否则返回 `capability_mismatch`（reason `gui_contract_not_passed`），不建 Run。
 - Explorer 以 Run 的主体身份（发起连接的 clientId 与角色）经 Runtime 自己的 observe / act 执行，动作带 `context.runId` 进入这个 Run：回执记在该 Run 上，不再每步新建一次性 Run；每次 observe / act 照常检查授权与窗口授权。
 - Explorer 在 Run 里算作一个进行中的持有者：停止被接受后（`run.cancel`、断连 `owner_lost`、全局停止、撤销）通知 Explorer 不再调模型、不再输入，等它报告结束后 Run 才静止并结束，因此所有 `unit.*` 事件都在 `run.ended` 之前。
 - 主窗口经进程内的 `RuntimeService.startDurableUnitRun` 得到 Durable Run（platform / platform_durable / gui_explorer），线上没有对应入口。
