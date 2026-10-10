@@ -137,3 +137,17 @@ private func scratch() -> String {
     clock.set(last + 60 * second)
     #expect(w.waiting().isEmpty && w.due() == nil)
 }
+
+// Codex on d4ff0b6: an earlier run's files in a reused directory are not
+// this run's capture, nor its error.
+@Test func anEarlierRunsFilesAreNotTakenForThisCapture() {
+    let d = scratch(); defer { try? FileManager.default.removeItem(atPath: d) }
+    try? "old stacks".write(toFile: d + "/out", atomically: true, encoding: .utf8)
+    try? "old error line".write(toFile: d + "/err", atomically: true, encoding: .utf8)
+    let silent = BridgeStallWatch.runSample("/bin/sh", ["-c", "exit 0"], output: d + "/out", stderrFile: d + "/err", limit: 10)
+    #expect(silent == .failed(reason: "no output at \(d)/out"))
+    try? "old stacks".write(toFile: d + "/out", atomically: true, encoding: .utf8)
+    try? "old error line".write(toFile: d + "/err", atomically: true, encoding: .utf8)
+    let failing = BridgeStallWatch.runSample("/bin/sh", ["-c", "exit 4"], output: d + "/out", stderrFile: d + "/err", limit: 10)
+    #expect(failing == .failed(reason: "exit status 4"))
+}

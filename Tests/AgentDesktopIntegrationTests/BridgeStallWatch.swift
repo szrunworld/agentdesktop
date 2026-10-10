@@ -145,6 +145,11 @@ final class BridgeStallWatch: @unchecked Sendable {
     /// on bfbbb55: a launch is not a capture).
     static func runSample(_ executable: String, _ arguments: [String], output: String, stderrFile: String,
                           limit: TimeInterval) -> SampleOutcome {
+        // A reused directory may hold an earlier run's files: neither may
+        // pass for this run's capture or its error (Codex on d4ff0b6).
+        for stale in [output, stderrFile] where FileManager.default.fileExists(atPath: stale) {
+            do { try FileManager.default.removeItem(atPath: stale) } catch { return .failed(reason: "cannot clear \(stale)") }
+        }
         FileManager.default.createFile(atPath: stderrFile, contents: nil)
         guard let err = FileHandle(forWritingAtPath: stderrFile) else { return .failed(reason: "cannot write \(stderrFile)") }
         defer { try? err.close() }
