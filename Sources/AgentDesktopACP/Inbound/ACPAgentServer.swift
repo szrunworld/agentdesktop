@@ -232,6 +232,10 @@ public actor ACPAgentServer {
         await sendCommands(sid)
         await sayIdentity(sid)
         let lines = (try? history?.history(sessionId: sid)) ?? []
+        if lines.contains(where: { $0.kind == .user }) {
+            // Kevin's S4 ruling: say plainly that the user's words were not kept.
+            await notice(sid, Self.notSavedNotice)
+        }
         var replayed = Set<String>()
         var open: [(String, ACPRunSnapshot?)] = []
         for line in lines {
@@ -460,8 +464,11 @@ public actor ACPAgentServer {
 
     /// An agent message. Inside a prompt turn it is also part of the
     /// conversation and is recorded (redacted) for `session/load` replay.
-    func say(_ sid: String, _ text: String, runId: String? = nil) async {
-        if live[sid]?.turn != nil { record(sid, .agent, text, runId: runId) }
+    /// A line that echoes the user's input or a Runtime question passes
+    /// `stored`: the text without that echo, which is all that is persisted
+    /// (#141 independent review: echoes must not reach the history file).
+    func say(_ sid: String, _ text: String, runId: String? = nil, stored: String? = nil) async {
+        if live[sid]?.turn != nil { record(sid, .agent, stored ?? text, runId: runId) }
         await send(sid, .agentMessage(text))
     }
 
@@ -472,11 +479,19 @@ public actor ACPAgentServer {
         await send(sid, .agentMessage(text))
     }
 
+    /// What is persisted for a user's words: never the text. Pattern-based
+    /// redaction cannot recognise every secret (e.g. "passphrase hunter2xyz"),
+    /// so user input stays in memory only (#141 independent review, F-1).
+    static let userInputPlaceholder = ACPSessionManagerHistoryEntry.userInputPlaceholder
+    /// Shown (never stored) when a reopened session has user lines.
+    static let notSavedNotice = "说明：为保护隐私，你在本会话中输入的原文没有保存，重新打开后以占位显示；任务状态、动作结果和时间线照常保留。"
+
     func record(_ sid: String, _ kind: ACPSessionManagerHistoryEntry.Kind, _ text: String, runId: String? = nil) {
         guard let history, !text.isEmpty else { return }
+        let stored = kind == .user ? Self.userInputPlaceholder : redact(sid, text)
         // Best effort: a lost history line must not fail a turn.
         try? history.appendHistory(sessionId: sid, [ACPSessionManagerHistoryEntry(
-            kind: kind, text: redact(sid, text), runId: runId, at: timestamp())])
+            kind: kind, text: stored, runId: runId, at: timestamp())])
     }
 
     /// How a stored line is shown again: the user's words as

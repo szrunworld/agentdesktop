@@ -30,11 +30,6 @@ extension ACPAgentServer {
         record(sid, .user, text)
         if ignored > 0 { await say(sid, "已忽略 \(ignored) 个附件：目前只接受文字。") }
 
-        if live[sid]?.binding.title == Self.defaultTitle, !text.isEmpty {
-            let title = String(redact(sid, text).prefix(80))
-            try? persist(sid) { $0.title = title }
-        }
-
         // A question the editor could not show is answered by this prompt.
         if let q = live[sid]?.pendingQuestion, !text.isEmpty, !text.hasPrefix("/") {
             do {
@@ -55,7 +50,20 @@ extension ACPAgentServer {
             await say(sid, "暂时无法读取可用任务，只能使用 /status、/runs、/cancel。")
         }
         let catalog = ACPCommandCatalog(tasks: tasksList)
-        switch catalog.parse(text) {
+        let parsed = catalog.parse(text)
+        if live[sid]?.binding.title == Self.defaultTitle, !text.isEmpty {
+            // The persisted title never carries user text: only a command the
+            // catalog recognised keeps its canonical name; anything else,
+            // including an unknown "/word", is "对话" (#141 review, b9).
+            let title: String
+            switch parsed {
+            case let .fixed(cmd, _): title = "/" + cmd.rawValue
+            case let .task(task, _): title = catalog.commandName(for: task).map { "/" + $0 } ?? "对话"
+            default: title = "对话"
+            }
+            try? persist(sid) { $0.title = title }
+        }
+        switch parsed {
         case .empty:
             await say(sid, guidance(catalog))
             return .endTurn
@@ -63,7 +71,8 @@ extension ACPAgentServer {
             await runFixed(sid, cmd, argument, catalog)
             return .endTurn
         case let .unknownCommand(name):
-            await say(sid, "没有 /\(redact(sid, name)) 这个命令。\n" + guidance(catalog))
+            await say(sid, "没有 /\(redact(sid, name)) 这个命令。\n" + guidance(catalog),
+                      stored: "没有这个命令。\n" + guidance(catalog))
             return .endTurn
         case .freeTextNotAllowed:
             await say(sid, "当前没有接受自由文本的任务，未创建任何任务。\n" + guidance(catalog))
@@ -102,7 +111,9 @@ extension ACPAgentServer {
         }
         let problems = ACPCommandInputValidator.validate(input, schema: task.inputSchema)
         guard problems.isEmpty else {
-            await say(sid, "/\(name) 的输入不符合要求，未创建任务：\n" + problems.joined(separator: "\n"))
+            // Problems can name fields the user typed; only the summary is kept.
+            await say(sid, "/\(name) 的输入不符合要求，未创建任务：\n" + problems.joined(separator: "\n"),
+                      stored: "/\(name) 的输入不符合要求，未创建任务。")
             return .endTurn
         }
         guard let options = live[sid]?.binding.options else { return .endTurn }
@@ -177,7 +188,10 @@ extension ACPAgentServer {
         case let .refused(code, message):
             live[sid]?.lastSubmission = nil
             try? persist(sid) { b in if b.pendingSubmissionKey == key { b.pendingSubmissionKey = nil } }
-            await say(sid, "Runtime 拒绝了这个任务（\(redact(sid, code))）：\(redact(sid, message))")
+            // Only the allowlisted code is shown or stored; the refusal message
+            // is free text and may echo secrets (#141 review, F-1).
+            _ = message
+            await say(sid, "Runtime 拒绝了这个任务（错误码：\(ACPRedactor.errorCode(code))）。")
             return .refusal
         case .unconfirmed:
             // Never resent from here. Repeating the same prompt carries the
@@ -319,7 +333,8 @@ extension ACPAgentServer {
                     break
                 }
                 live[sid]?.pendingQuestion = (id, runId)
-                await say(sid, "任务 \(runId) 需要你的回答：\(shown)\n请在下一条 prompt 里直接回答。")
+                await say(sid, "任务 \(runId) 需要你的回答：\(shown)\n请在下一条 prompt 里直接回答。",
+                          stored: "任务 \(runId) 需要你的回答（问题内容不保存）。请在下一条 prompt 里直接回答。")
                 return true
             }
         }
@@ -358,7 +373,9 @@ extension ACPAgentServer {
     private func runFixed(_ sid: String, _ cmd: ACPCommandFixed, _ argument: String, _ catalog: ACPCommandCatalog) async {
         let runIds = live[sid]?.binding.runIds ?? []
         let arg = argument.trimmingCharacters(in: .whitespaces)
-        if !arg.isEmpty, cmd == .status || cmd == .cancel, !runIds.contains(arg) {
+        // An argument is only ever a Run of this session; anything else is
+        // refused without echoing it (it may be pasted text).
+        if !arg.isEmpty, cmd != .help, !runIds.contains(arg) {
             await say(sid, "本会话没有这个任务。")
             return
         }

@@ -51,7 +51,7 @@ enum MCPTools {
         Tool(name: "window_list", description: "Normal windows, front to back.",
              schema: object([("pid", int("Only this process.")), ("bundleId", str("Only this app.")),
                              ("includeOffscreen", bool("Also minimized and hidden windows."))]), method: .windowList, mutation: false),
-        Tool(name: "window_bind", description: "Move a window onto the Desktop and make it the target that observe reads and act sends input to.",
+        Tool(name: "window_bind", description: "Make a window of an app launched on this Desktop with app_launch the target that observe reads and act sends input to. Windows of apps the user opened are refused (permission_denied, bind_requires_grant) until per-window grants exist.",
              schema: object([("desktopId", str("Desktop id.")), ("pid", int("Process of the window.")),
                              ("windowId", int("Optional window id; default its frontmost window.")), requestId], required: ["desktopId", "pid"]),
              method: .windowBind, mutation: true),

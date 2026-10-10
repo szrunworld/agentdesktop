@@ -69,7 +69,7 @@ func created(_ s: RuntimeService, _ c: ConnectionState, name: String? = nil) thr
     do {
         let ledger = try RequestLedger(path: path)
         let r = RuntimeRequest(requestId: "act-9", method: "desktop.create", params: .obj([]))
-        #expect(try ledger.begin(caller: getuid(), r) == .fresh)
+        #expect(try ledger.begin(caller: "local:\(getuid())", r) == .fresh)
         // The host dies here: no finish.
     }
     var st = stat()
@@ -177,8 +177,8 @@ func created(_ s: RuntimeService, _ c: ConnectionState, name: String? = nil) thr
     let id2 = try created(s2, c2)
     _ = call(s2, c2, "window.bind", params: #"{"desktopId":"\#(id2)","pid":101}"#)
     // Same service, but the process behind pid 101 is now another launch.
-    let restartedService = RuntimeService(identity: s2.identity, backend: {
-        var b = backend; b.restarted = [101]; return b }(), platform: platform2, desktops: s2.desktops)
+    let restartedService = { let s = RuntimeService(identity: s2.identity, backend: {
+        var b = backend; b.restarted = [101]; return b }(), platform: platform2, desktops: s2.desktops); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let c3 = handshaken(restartedService)
     #expect(code(call(restartedService, c3, "observe", context: #"{"desktopId":"\#(id2)"}"#)) == "stale_observation")
 }

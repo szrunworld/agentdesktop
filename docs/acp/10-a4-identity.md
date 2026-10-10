@@ -64,7 +64,7 @@
 | Mock | 18 | 43 | 全部通过；其中 1 个按 known issue F-1 记录（期望失败、已记录） |
 | Real · not run | 6 | 6 | 全部 `.disabled("waiting for A4: …")`，编译但不运行 |
 
-Mock 测试带标签 `.a4Mock`、名字以 `[Mock]` 开头；Real 测试带 `.a4Real`、名字以 `[Real·not run]` 开头。Real 测试只连 `AGENTDESKTOP_A4_TEST_ENDPOINT` 指向的 `/tmp/adt-*` 测试副本，不碰产品端点。
+Mock 测试带标签 `.a4Mock`、名字以 `[Mock]` 开头；Real 测试带 `.a4Real`、名字以 `[Real·not run]` 开头。Real 测试只连测试自己启动的 Runtime 子进程（`ACP_TEST_RUNTIME_BINARY`，见 [12-test-runtime-isolation.md](12-test-runtime-isolation.md)），不接受外部给的端点或 PID，不碰产品端点。
 
 ## 三、ACP 侧必须保持的规则（Mock 测试守护）
 

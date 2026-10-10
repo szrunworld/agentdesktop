@@ -1,0 +1,185 @@
+{
+  "name": "ur-normal",
+  "e2eClass": "normal",
+  "gates": [
+    "G1-06",
+    "G1-07",
+    "G1-08",
+    "G1-11"
+  ],
+  "description": "正常完成：受理 → 发出 → 已执行（未验证）→ Runtime 的 unit 验证 matched → Run success。ACP 只显示「已执行，未验证」与「业务结果：未评估」，不显示「已验证」。",
+  "layer": "fixture: Mock today (URTestRuntime); Real after A6 (lane Q, test copy under /tmp/adt-*)",
+  "desktopId": "desk_A",
+  "input": {
+    "mode": "explore",
+    "goal": {
+      "description": "打开计算器的「关于计算器」窗口"
+    },
+    "verification": {
+      "all": [
+        {
+          "kind": "element_text_equals",
+          "role": "static_text",
+          "text": "关于计算器"
+        }
+      ]
+    },
+    "allowedActions": [
+      "click",
+      "wait"
+    ],
+    "limits": {
+      "maxSteps": 10,
+      "maxSeconds": 120
+    }
+  },
+  "runtime": {
+    "answer": "accept",
+    "phaseAfterAccept": "running",
+    "onAccept": [
+      {
+        "type": "run.started",
+        "data": {
+          "kind": "unit",
+          "origin": "agent_hub",
+          "ownership": "external_client",
+          "lifetime": "connection_scoped",
+          "desktopId": "desk_A",
+          "sessionId": "sess_A"
+        }
+      },
+      {
+        "type": "unit.progress",
+        "frozen": false,
+        "data": {
+          "stepIndex": 1,
+          "stepsLeft": 9,
+          "attemptsLeft": 3,
+          "secondsLeft": 120
+        }
+      },
+      {
+        "type": "unit.observation",
+        "frozen": false,
+        "data": {
+          "observationId": "obs_ac0000b1",
+          "captureSequence": 1,
+          "coverage": {
+            "ax": "full",
+            "screenshot": "window"
+          },
+          "partial": false
+        }
+      },
+      {
+        "type": "action.accepted",
+        "data": {
+          "requestId": "req_ac0000a1",
+          "kind": "click"
+        }
+      },
+      {
+        "type": "action.dispatched",
+        "data": {
+          "requestId": "req_ac0000a1"
+        }
+      },
+      {
+        "type": "action.completed",
+        "data": {
+          "receipt": {
+            "receiptId": "rcpt_ac0000a1",
+            "requestId": "req_ac0000a1",
+            "runId": "$RUN",
+            "desktopId": "desk_A",
+            "sessionId": "sess_A",
+            "snapshotId": "snap_ac0000a1",
+            "delivery": "dispatched",
+            "execution": "completed",
+            "verification": "not_requested",
+            "businessResult": "not_evaluated",
+            "route": "ax",
+            "target": {
+              "generation": 1,
+              "process": {
+                "pid": 4242,
+                "startedAt": "2026-10-08T12:00:00.000Z"
+              },
+              "windowId": 101,
+              "elementRef": "el_about",
+              "point": null
+            },
+            "timing": {
+              "acceptedAt": "2026-10-08T12:00:03.000Z",
+              "dispatchedAt": "2026-10-08T12:00:04.000Z",
+              "completedAt": "2026-10-08T12:00:05.000Z"
+            }
+          }
+        }
+      },
+      {
+        "type": "unit.verification",
+        "frozen": false,
+        "data": {
+          "status": "matched",
+          "verifierId": "element_text_equals",
+          "observationId": "obs_ac0000b2",
+          "checkedAt": "2026-10-08T12:00:06.000Z"
+        }
+      },
+      {
+        "type": "run.finishing",
+        "data": {
+          "reason": "completed",
+          "inFlight": false,
+          "revision": 3
+        }
+      },
+      {
+        "type": "run.quiescent",
+        "data": {
+          "revision": 4
+        }
+      },
+      {
+        "type": "run.ended",
+        "data": {
+          "phase": "ended",
+          "outcome": "success",
+          "reason": "completed"
+        }
+      }
+    ],
+    "trigger": "none",
+    "onTrigger": [],
+    "final": {
+      "outcome": "success",
+      "closingReason": "completed",
+      "unknownActions": 0,
+      "verification": "matched"
+    }
+  },
+  "expect": {
+    "submit": "accepted",
+    "actionLevels": [
+      "accepted",
+      "dispatched",
+      "executed"
+    ],
+    "finalToolStatus": "completed",
+    "planResult": "结果：已结束（业务结果未评估）",
+    "textContains": [
+      "任务结束：已执行（业务结果：未评估）",
+      "已执行，未验证"
+    ],
+    "textExcludes": [
+      "已验证",
+      "\"actionLevel\":\"verified\""
+    ],
+    "runtimeFinal": {
+      "outcome": "success",
+      "closingReason": "completed"
+    },
+    "unitRunCalls": 1
+  }
+}

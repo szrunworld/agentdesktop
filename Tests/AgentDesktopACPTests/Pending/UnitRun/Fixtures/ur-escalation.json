@@ -1,0 +1,88 @@
+{
+  "name": "ur-escalation",
+  "layer": "fixture: Mock today (URTestRuntime); Real after A6 (lane Q, test copy under /tmp/adt-*)",
+  "description": "越权参数：任务输入里带 origin / lifetime / ownership（含要求 Durable 的取值）或身份字段。ACP 在本地拒绝，不发 unit.run；本地错误码取冻结契约（methods.json unit.run 注释、冻结文档 §5、A6 草案 F40-06 第 1 行）的 ownership_escalation_denied。07 §〇 f1 的记录写的是 schema_invalid，与 #102 冻结的 Schema 不一致（unit-run-escalation-fields-reach-the-handler.valid.json 在 Schema 层是合法的），见 12-unit-run.md 待决问题 Q1。",
+  "desktopId": "desk_A",
+  "base": {
+    "mode": "explore",
+    "goal": {
+      "description": "打开计算器的「关于计算器」窗口"
+    },
+    "verification": {
+      "all": [
+        {
+          "kind": "element_text_equals",
+          "role": "static_text",
+          "text": "关于计算器"
+        }
+      ]
+    },
+    "allowedActions": [
+      "click",
+      "wait"
+    ],
+    "limits": {
+      "maxSteps": 10,
+      "maxSeconds": 120
+    }
+  },
+  "cases": [
+    {
+      "field": "lifetime",
+      "value": "platform_durable",
+      "localCode": "ownership_escalation_denied",
+      "runtimeCodeByContract": "ownership_escalation_denied"
+    },
+    {
+      "field": "lifetime",
+      "value": "connection_scoped",
+      "localCode": "ownership_escalation_denied",
+      "runtimeCodeByContract": "ownership_escalation_denied"
+    },
+    {
+      "field": "ownership",
+      "value": "platform",
+      "localCode": "ownership_escalation_denied",
+      "runtimeCodeByContract": "ownership_escalation_denied"
+    },
+    {
+      "field": "origin",
+      "value": "gui_explorer",
+      "localCode": "ownership_escalation_denied",
+      "runtimeCodeByContract": "ownership_escalation_denied"
+    },
+    {
+      "field": "origin",
+      "value": "workflow_replay",
+      "localCode": "ownership_escalation_denied",
+      "runtimeCodeByContract": "ownership_escalation_denied"
+    },
+    {
+      "field": "clientId",
+      "value": "app:someone",
+      "localCode": "ownership_escalation_denied",
+      "runtimeCodeByContract": "schema_invalid"
+    },
+    {
+      "field": "agentId",
+      "value": "agent_x",
+      "localCode": "ownership_escalation_denied",
+      "runtimeCodeByContract": "schema_invalid"
+    },
+    {
+      "field": "trusted",
+      "value": true,
+      "localCode": "ownership_escalation_denied",
+      "runtimeCodeByContract": "schema_invalid"
+    },
+    {
+      "field": "principal",
+      "value": {
+        "clientId": "app:x",
+        "role": "owner"
+      },
+      "localCode": "ownership_escalation_denied",
+      "runtimeCodeByContract": "schema_invalid"
+    }
+  ]
+}

@@ -13,11 +13,18 @@ public enum RuntimeBridge {
 
     public static func handlers(_ service: AgentDesktopService, methods: [String],
                                 contract: ContractBundle = .shared) -> [String: ExtensionMethod] {
+        handlers(service, methods: methods, contract: contract, diagnostics: nil)
+    }
+
+    /// With a test-only timeline of each call (#166); internal, so only a
+    /// `@testable` test can pass one.
+    static func handlers(_ service: AgentDesktopService, methods: [String], contract: ContractBundle = .shared,
+                         diagnostics: BridgeDiagnostics?) -> [String: ExtensionMethod] {
         var out: [String: ExtensionMethod] = [:]
         for name in methods {
             guard let op = contract.operation(name) else { continue }
             let needsKey = op.requiresIdempotencyKey
-            out[name] = { call in answer(call, service: service, idempotent: needsKey) }
+            out[name] = { call in answer(call, service: service, idempotent: needsKey, diagnostics: diagnostics) }
         }
         return out
     }
@@ -28,7 +35,11 @@ public enum RuntimeBridge {
         service.runs.capabilities()
     }
 
-    static func answer(_ call: ExtensionCall, service: AgentDesktopService, idempotent: Bool) -> Result<JSONValue, RuntimeError> {
+    static func answer(_ call: ExtensionCall, service: AgentDesktopService, idempotent: Bool,
+                       diagnostics: BridgeDiagnostics? = nil) -> Result<JSONValue, RuntimeError> {
+        // Test-only timeline (#166); with none, every `diagnostics?` below is
+        // skipped and nothing else changes.
+        let traced = diagnostics?.begin(method: call.method)
         // The service scopes configuration by caller; the local owner keeps
         // the scope it has always had.
         let scope = call.clientId.hasPrefix("local:") ? "uid:" + call.clientId.dropFirst("local:".count) : call.clientId
@@ -38,12 +49,18 @@ public enum RuntimeBridge {
         let done = DispatchSemaphore(value: 0)
         let deadline = call.deadline.map(Timestamp.string)
         Task.detached {
+            traced?.noteInTask(.taskStarted, taskPriority: Task.currentPriority.rawValue)
             box.outcome = await router.answer(method: call.method, params: call.params, deadline: deadline,
                                               idempotencyKey: idempotent ? call.requestId : nil)
+            traced?.noteInTask(.resultReady)
             done.signal()
         }
+        traced?.note(.taskCreated)
         let until = call.deadline ?? Date().addingTimeInterval(defaultWait)
-        guard done.wait(timeout: .now() + max(0, until.timeIntervalSinceNow)) == .success, let outcome = box.outcome else {
+        traced?.note(.waitStarted)
+        let waited = done.wait(timeout: .now() + max(0, until.timeIntervalSinceNow))
+        traced?.note(waited == .success ? .answered : .timedOut)
+        guard waited == .success, let outcome = box.outcome else {
             // Handed to the service; whether a write took effect is unknown.
             return .failure(idempotent
                 ? RuntimeError("request_acceptance_unknown", "the AI service did not answer in time; look the request up again with the same requestId",

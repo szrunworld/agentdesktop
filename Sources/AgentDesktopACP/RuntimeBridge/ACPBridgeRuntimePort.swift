@@ -140,7 +140,9 @@ public final class ACPBridgeRuntimePort: ACPRuntimePort, @unchecked Sendable {
             run = try c.call(RuntimeRequest(requestId: requestId, method: entry.method, params: params))
         } catch let e as RuntimeError {
             if e.notSent == true {
-                // Certainly never reached the Runtime: nothing to protect.
+                // Not performed (#170): certainly no input and no write went
+                // out, so there is no outcome to protect. The editor may submit
+                // again; that is judged again like any request.
                 try? log.remove(s.submissionKey)
                 return .refused(code: e.code, message: e.message)
             }

@@ -15,4 +15,13 @@ public protocol RuntimeBackend: Sendable {
     func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [WindowSummary]
     /// pid plus start time; nil start time when the process is gone.
     func processIdentity(_ pid: Int32) -> ProcessIdentity
+    /// The file the process runs, as the kernel has it; nil when it cannot
+    /// be read (gone, or not allowed). Used to identify an app that the
+    /// running-app list does not show (#139).
+    func executablePath(_ pid: Int32) -> String?
+}
+
+public extension RuntimeBackend {
+    /// No path known: an app the list does not show is then unidentified.
+    func executablePath(_ pid: Int32) -> String? { nil }
 }

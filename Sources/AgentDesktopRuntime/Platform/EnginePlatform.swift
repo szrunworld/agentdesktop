@@ -15,6 +15,49 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
 
     public init(engine: AgentRuntime) {
         self.engine = engine
+        ClipboardProbe.prepareKeyboardLayout()
+    }
+
+    // G2 probes: accessibility and keyboard-layout reads only.
+
+    public func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
+        ClipboardProbe.hit(at: CGPoint(x: point.x, y: point.y), pid: pid).map {
+            PlatformHit(role: $0.role, texts: $0.texts, shortcut: $0.shortcut, windowId: $0.windowID, inMenu: $0.inMenu,
+                        ancestorTexts: $0.ancestorTexts, focused: $0.focused, editable: $0.editable)
+        }
+    }
+
+    /// A menu bar, read again at most every few seconds per app: every
+    /// modified key asks for it.
+    private let menuCache = NSLock()
+    private var menus: [Int32: (items: [PlatformMenuItem], at: Date)] = [:]
+
+    public func menuItems(pid: Int32) -> [PlatformMenuItem]? {
+        if let cached = menuCache.withLock({ menus[pid] }), Date().timeIntervalSince(cached.at) < ClipboardProbe.menuCacheSeconds {
+            return cached.items
+        }
+        guard let items = ClipboardProbe.menuItems(pid: pid)?.map({ PlatformMenuItem(texts: $0.texts, shortcut: $0.shortcut) })
+        else { return nil }
+        menuCache.withLock { menus[pid] = (items, Date()) }
+        return items
+    }
+
+    public func menuOpen(pid: Int32) -> Bool? { ClipboardProbe.menuOpen(pid: pid) }
+
+    public func focusedControl(pid: Int32) -> PlatformHit? {
+        ClipboardProbe.focused(pid: pid).map {
+            PlatformHit(role: $0.role, texts: $0.texts, shortcut: $0.shortcut, windowId: $0.windowID, inMenu: $0.inMenu,
+                        ancestorTexts: $0.ancestorTexts, focused: true, editable: $0.editable,
+                        defaultButtonTexts: $0.defaultButtonTexts)
+        }
+    }
+
+    public func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter {
+        switch ClipboardProbe.character(forKey: key, modifiers: modifiers) {
+        case .named: return .named
+        case let .character(c): return .character(c)
+        case .unknown: return .unknown
+        }
     }
 
     private func handle(_ request: ControlRequest) -> ControlResponse {
@@ -91,8 +134,30 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         r.bundleID = bundleId
         r.path = path
         r.newInstance = newInstance
-        let response = try check(handle(r))
+        let answer = handle(r)
+        // Refused before anything was opened: say so, with the reason, so a
+        // client can tell "not allowed" from a launch that failed.
+        if !answer.ok, let reason = answer.reason {
+            switch reason {
+            case "no_launch_apps_configured", "launch_not_verified", "launch_unprovable", "app_already_running":
+                throw RuntimeError("permission_denied", answer.error ?? "the app was not opened", phase: .handler, notSent: true,
+                                   details: .obj([("reason", .string(reason))]))
+            case "launch_failed":
+                // The open call failed: the app may or may not have started.
+                throw RuntimeError("execution_failed", answer.error ?? "the launch call failed", phase: .handler,
+                                   details: .obj([("reason", .string(reason))]))
+            case "launch_refused_after_open":
+                // Opened, then refused: nothing moved or bound, but not "not sent".
+                throw RuntimeError("execution_failed", answer.error ?? "the app was opened, then refused", phase: .handler,
+                                   details: .obj([("reason", .string(reason))]))
+            default:
+                break
+            }
+        }
+        let response = try check(answer)
         guard let pid = response.pid else { throw PlatformError(.refused, "the engine reported no process") }
+        // The engine refuses a launch that returns an already-running
+        // process before it moves or binds anything (AgentScreens.launch).
         return (pid, (response.windows ?? []).map(Self.window))
     }
 
@@ -126,24 +191,19 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         return (w, h)
     }
 
-    public func screenshot(_ screen: ScreenHandle, cropTo frame: Rect, to path: String) throws -> (width: Int, height: Int) {
-        let full = path + ".screen.png"
-        defer { try? FileManager.default.removeItem(atPath: full) }
-        let size = try screenshot(screen, to: full)
-        let scale = Double(size.width) / max(1, screen.frame.width)
-        let x0 = max(0, ((frame.x - screen.frame.x) * scale).rounded(.down))
-        let y0 = max(0, ((frame.y - screen.frame.y) * scale).rounded(.down))
-        let x1 = min(Double(size.width), ((frame.x + frame.width - screen.frame.x) * scale).rounded(.up))
-        let y1 = min(Double(size.height), ((frame.y + frame.height - screen.frame.y) * scale).rounded(.up))
-        guard x1 > x0, y1 > y0,
-              let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: full) as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(src, 0, nil),
-              let cropped = image.cropping(to: CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)),
-              let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, "public.png" as CFString, 1, nil)
-        else { throw PlatformError(.refused, "cannot cut the window out of the screenshot") }
-        CGImageDestinationAddImage(dest, cropped, nil)
-        guard CGImageDestinationFinalize(dest) else { throw PlatformError(.refused, "cannot write \(path)") }
-        return (cropped.width, cropped.height)
+    public func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
+        var r = ControlRequest(command: .screenshot)
+        r.screen = screen.name
+        r.output = path
+        r.windowsOnly = true
+        r.windowID = windowId
+        r.pid = pid
+        _ = try check(handle(r))
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int
+        else { throw PlatformError(.refused, "the window capture at \(path) is unreadable") }
+        return (w, h)
     }
 
     public func stack(on screen: ScreenHandle) -> [PlatformWindow] {
@@ -194,7 +254,26 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         "has no window", "has no on-screen window", "is not on screen", "is outside the window",
         "no element", "give --index", "needs --value", "needs the field named", "permission",
         "has no frame to click", "does not take its text", "unknown key", "no screen named",
+        // A one-character key with no key code is typed (#171 §1.1): stopped
+        // before its character, nothing was submitted (#163). Typing itself is
+        // never judged by text (notPerformed), until #173.
+        "no character was submitted",
     ]
+
+    /// Whether an engine failure proves the action performed nothing (#170
+    /// not_performed). The engine says so only in its message text, which is
+    /// weak evidence (#173). A click may already have pressed through
+    /// accessibility before falling back to events, and typing may already
+    /// have clicked a web field or submitted characters, so for those two a
+    /// failure is never taken as not performed until the engine reports it
+    /// structurally (#173): the delivery is unknown. Keys and scrolls fail
+    /// before any input, and keep the text match.
+    static func notPerformed(_ message: String, kind: PlatformAction.Kind) -> Bool {
+        switch kind {
+        case .click, .type: return false
+        case .key, .scroll: return preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
+        }
+    }
 
     public func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
         var input = InputAction(InputAction.Kind(rawValue: action.kind.rawValue)!)
@@ -216,7 +295,7 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         let response = handle(r)
         guard response.ok else {
             let message = response.error ?? "the engine refused the action"
-            let before = Self.preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
+            let before = Self.notPerformed(message, kind: action.kind)
             var e = Self.classify(message)
             e.beforeDispatch = before
             throw e

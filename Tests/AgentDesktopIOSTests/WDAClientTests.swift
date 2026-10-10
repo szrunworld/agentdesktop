@@ -211,13 +211,24 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         let fake = FakeWDA()
         fake.override("POST", "/actions", .hang)
         let client = fake.client(timeout: .milliseconds(200))
-        let started = ContinuousClock.now
+        try await client.ensureSession()
+        let before = fake.requests.count
         let error = await expectWDAError { try await client.tap(WDAPoint(x: 1, y: 1)) }
+        // The call ends in the timeout state, never in success...
         #expect(error?.kind == .timeout)
         #expect(error?.delivery == .unknown)  // may have run: never replay
-        // The 200 ms timeout applied, not the 30 s default; generous, since a
-        // loaded machine stretched a 3 s bound to 3.3 s.
-        #expect(ContinuousClock.now - started < .seconds(10))
+        // ...after exactly one attempt: no retry of the tap, no session
+        // rebuilt behind it, nothing else sent.
+        let during = Array(fake.requests.dropFirst(before))
+        #expect(during.count == 1)
+        #expect(during.first.map { $0.method == "POST" && $0.path.hasSuffix("/actions") } == true)
+        // The 200 ms timeout applied, not the 30 s default. Read off the
+        // request, not the wall clock: with one cooperative thread shared by
+        // the whole suite (LIBDISPATCH_COOPERATIVE_POOL_STRICT=1) the timeout
+        // can be reported seconds late, which a time bound mistook for a bug.
+        let sent = fake.requests("POST", suffix: "/actions")
+        #expect(sent.count == 1)
+        #expect(sent.allSatisfy { abs($0.timeout - 0.2) < 0.001 })
     }
 
     @Test func deadlineShortensTheRequestTimeout() async throws {
@@ -225,13 +236,16 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         fake.override("GET", "/screenshot", .hang)
         let client = fake.client(timeout: .seconds(30))
         try await client.ensureSession()
-        let started = ContinuousClock.now
         let error = await expectWDAError {
             try await client.screenshot(deadline: .now + .milliseconds(200))
         }
         #expect(error?.kind == .timeout)
         #expect(error?.delivery == .rejected)  // a read has no effect to be unsure about
-        #expect(ContinuousClock.now - started < .seconds(3))
+        // What is left of the 200 ms deadline applied, not the 30 s default;
+        // read off the request, not the wall clock (see above).
+        let sent = fake.requests("GET", suffix: "/screenshot")
+        #expect(sent.count == 1)
+        #expect(sent.allSatisfy { $0.timeout > 0 && $0.timeout <= 0.201 })
     }
 
     @Test func passedDeadlineSendsNothing() async throws {
@@ -585,18 +599,54 @@ private func shape(_ items: [[String: Any]]) -> [String] {
         #expect(fake.requests("POST", suffix: "/session").count == 1)
     }
 
+    @Test func starterDeadlineDoesNotBoundTheSharedCreation() async throws {
+        let fake = FakeWDA()
+        let gate = WDAReplyGate()
+        defer { gate.release() }
+        fake.override("POST", "/session", .held(gate, .json(200, ["value": ["sessionId": "S1"], "sessionId": "S1"])))
+        fake.addSession("S1")
+        let client = fake.client(timeout: .seconds(30))
+        // The short caller starts the creation; a caller with no deadline joins it.
+        let short = Task { try await client.screenshot(deadline: .now + .milliseconds(100)) }
+        for _ in 0..<200 where fake.requests("POST", suffix: "/session").isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+        let patient = Task { try await client.screenshot() }
+        defer { patient.cancel() }
+        let shortError = await expectWDAError { _ = try await short.value }
+        #expect(shortError?.kind == .timeout)
+        // The creation must outlive its starter's deadline and serve the patient caller.
+        gate.release()
+        let shot = try await patient.value
+        #expect(shot.sessionId == "S1")
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+    }
+
     @Test func waiterIsBoundedByItsOwnDeadline() async throws {
         let fake = FakeWDA()
-        fake.override("POST", "/session", .hang)
-        let client = fake.client(timeout: .seconds(2))
-        let first = Task { try await client.ensureSession() }  // no deadline; bounded by the config
-        try await Task.sleep(for: .milliseconds(50))
-        let started = ContinuousClock.now
+        let gate = WDAReplyGate()
+        defer { gate.release() }
+        fake.override("POST", "/session", .held(gate, .json(200, ["value": ["sessionId": "S1"], "sessionId": "S1"])))
+        fake.addSession("S1")
+        let client = fake.client(timeout: .seconds(30))
+        let first = Task { try await client.ensureSession() }  // no deadline
+        defer { first.cancel() }
+        for _ in 0..<200 where fake.requests("POST", suffix: "/session").isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(fake.requests("POST", suffix: "/session").count == 1)
+        // A waiter that ignored its deadline would sit on the held creation;
+        // open the gate eventually so that shows up as a session, not a hang.
+        let watchdog = Task {
+            try? await Task.sleep(for: .seconds(10))
+            gate.release()
+        }
+        defer { watchdog.cancel() }
         let error = await expectWDAError { try await client.ensureSession(deadline: .now + .milliseconds(150)) }
         #expect(error?.kind == .timeout)
-        #expect(ContinuousClock.now - started < .seconds(1))
+        #expect(await client.currentSessionId == nil, "the waiter gave up while the creation was still held")
         #expect(fake.requests("POST", suffix: "/session").count == 1)
-        first.cancel()
     }
 
     // 4. An observation never mixes two sessions.
@@ -649,15 +699,30 @@ private func shape(_ items: [[String: Any]]) -> [String] {
     @Test func geometryTimeoutKeepsTheDecodedScreenshot() async throws {
         let fake = FakeWDA()
         let geometry = ["value": ["width": 390, "height": 844], "sessionId": "S1"] as [String: Any]
-        fake.override("GET", "/window/size", .delayed(5, .json(200, geometry)))
+        // The geometry never answers; the deadline is generous so that the
+        // screenshot, which answers at once, is in hand well before it even
+        // when the suite shares one cooperative thread.
+        _ = geometry
+        fake.override("GET", "/window/size", .hang)
         let client = fake.client()
         try await client.ensureSession()
-        let report = await client.probe(deadline: .now + .milliseconds(800))
+        let before = fake.requests.count
+        let report = await client.probe(deadline: .now + .seconds(5))
+        let during = Array(fake.requests.dropFirst(before))
+        // The geometry was asked once, within the probe's deadline, and timed
+        // out rather than being retried; the probe sent no input and opened
+        // no session (it only reads).
+        let sizes = during.filter { $0.path.hasSuffix("/window/size") }
+        #expect(sizes.count == 1)
+        #expect(sizes.allSatisfy { $0.timeout > 0 && $0.timeout <= 5 })
+        #expect(during.allSatisfy { $0.method == "GET" })
         #expect(report.capability(.screenshot)?.state == .supported)
         #expect(report.capability(.screenshot)?.evidence.contains { $0.contains("decoded PNG 1170x2532") } == true)
         #expect(report.observation == nil)
         #expect(report.observationState == .unverified)
-        #expect(report.observationEvidence.contains { $0.contains("window/size") })
+        // Classified as a timeout of the geometry request, not as any other
+        // failure (Codex on #146): "<kind> at <endpoint>: …".
+        #expect(report.observationEvidence.contains { $0.contains("timeout at") && $0.contains("window/size") })
         // The screenshot is not fetched again with the spent deadline.
         #expect(fake.requests("GET", suffix: "/screenshot").count == 1)
     }

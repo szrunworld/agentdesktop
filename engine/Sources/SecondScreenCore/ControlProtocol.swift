@@ -287,6 +287,10 @@ public struct ControlResponse: Codable {
     public var route: String?
     public var element: AXElementInfo?
     public var android: [AndroidDeviceInfo]?
+    /// A refusal's machine-readable reason, when it has one: `app.launch`
+    /// refused before opening anything ("no_launch_apps_configured",
+    /// "launch_not_verified").
+    public var reason: String?
 
     public init(ok: Bool = true) {
         self.ok = ok

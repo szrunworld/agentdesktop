@@ -240,6 +240,13 @@ public final class TarsAgent {
             store.save(known, app: options.app)
             result.learned = "replayed"
             return result
+        case .stopped(let why):
+            onEvent(.error(why))
+            known[position].failures += 1
+            store.save(known, app: options.app)
+            var result = Result(outcome: .user, reason: "stopped: \(why)", steps: trace.count)
+            result.replayed = trace.count
+            return result
         case .handOver(let why, let failed):
             onEvent(.note("\(why); the model takes over"))
             let replayed = trace.count
@@ -426,6 +433,13 @@ public final class TarsAgent {
                 if response.ok {
                     // Only what worked is worth repeating.
                     if let learned { trace.append(learned) }
+                } else if Self.isIndeterminate(response) {
+                    // Nobody knows what this input did (a paste that may or
+                    // may not have landed): the model, seeing a screenshot,
+                    // would type or submit again. A person decides.
+                    let reason = response.error ?? "\(action.kind) ended with an unknown result"
+                    onEvent(.error(reason))
+                    return (.user, "stopped: \(reason)", nil)
                 } else {
                     onEvent(.error(response.error ?? "\(action.kind) failed"))
                 }
@@ -435,6 +449,19 @@ public final class TarsAgent {
             }
             return nil
         }
+    }
+
+    /// Whether an input's effect is unknown rather than failed: a paste that
+    /// did not settle, or input whose window changed while it was sent.
+    static func isIndeterminate(_ response: ControlResponse) -> Bool {
+        if response.route?.hasSuffix(".unknown") == true { return true }
+        // A paste that went in (or may have) and then failed, such as its
+        // Return refused: the model, seeing the text, would type it again.
+        if !response.ok, let route = response.route, route.hasPrefix("paste."), route != "paste.not_delivered" {
+            return true
+        }
+        guard let error = response.error else { return false }
+        return error.hasPrefix("action_delivery_unknown") || error.contains("(delivery_unknown)")
     }
 
     /// The app's elements, read again only after an action ran, so the
