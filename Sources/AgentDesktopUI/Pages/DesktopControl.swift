@@ -398,6 +398,17 @@ public final class DesktopControlFlow: ObservableObject {
         }
     }
 
+    /// Drops answers the Desktop has moved past, so an old "已停止" or
+    /// "已交还" never sits over a newer state (called each update round
+    /// with the Desktop's current Desktop.control.state).
+    public func settle(state: String?) {
+        guard let state, working == nil else { return }
+        if case .quiescent = stopProgress, state != "stopped" { stopReceipt = nil; stoppedRun = nil }
+        if case .done = takeoverAnswer, state != "manual" { takeoverAnswer = nil }
+        if handbackAnswer != nil, !["ready", "running"].contains(state) { handbackAnswer = nil }
+        if resized != nil, state != "ready", state != "running", state != "manual" { resized = nil }
+    }
+
     /// After stop_pending: the holder is quiescent, a new takeover may go.
     public var holderQuiescent: Bool { pendingHolder?["quiescence"]?.stringValue == "confirmed" }
 }

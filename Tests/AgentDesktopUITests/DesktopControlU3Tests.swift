@@ -364,3 +364,25 @@ struct DesktopControlU3Tests {
         #expect(!stops.canStop(a, info: infoA, methods: .all))
     }
 }
+
+@MainActor
+@Suite("Desktop control answers")
+struct DesktopControlAnswerTests {
+    // An old "已停止" goes once a new Run holds the Desktop again.
+    @Test func oldAnswersGoWhenTheStateMovesOn() async throws {
+        let m = MockRuntime()
+        let a = m.addDesktop(name: "A")
+        _ = m.addRun(desktopId: a)
+        m.enableDesktopControl()
+        let flow = DesktopControlFlow(runtime: m, desktopId: a)
+        await flow.stop()
+        flow.settle(state: "stopped")
+        #expect(flow.stopText?.title == "已停止")
+        await flow.handback()
+        #expect(flow.stopText == nil && flow.handbackText?.title == "已交还")
+        flow.settle(state: "running")
+        #expect(flow.handbackText != nil)
+        flow.settle(state: "stopping")
+        #expect(flow.handbackText == nil)
+    }
+}
