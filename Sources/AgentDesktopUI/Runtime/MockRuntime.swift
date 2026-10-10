@@ -154,7 +154,10 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             ]
             if ended { m.append(("endedAt", .string(stamp()))) }
             runs.append(.obj(m))
-            appendEventLocked(runId, "run.started", .obj([("phase", .string(phase))]))
+            appendEventLocked(runId, "run.started", .obj([("kind", .string(kind)), ("origin", .string(origin)),
+                ("ownership", .string(platform ? "platform" : "external_client")),
+                ("lifetime", .string(platform ? "platform_durable" : "connection_scoped")),
+                ("desktopId", .string(desktopId)), ("sessionId", .string("ses_\(runId)"))]))
             return runId
         }
     }
@@ -168,7 +171,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             let requestId = "req_" + String(format: "%03d", requests.count + 1)
             guard let run = runs.first(where: { $0["runId"]?.stringValue == runId }) else { return requestId }
             let accepted = stamp()
-            appendEventLocked(runId, "action.accepted", .obj([("requestId", .string(requestId))]))
+            appendEventLocked(runId, "action.accepted", .obj([("requestId", .string(requestId)), ("kind", .string("click"))]))
             let receipt = receiptJSON(run: run, requestId: requestId, delivery: delivery, execution: execution, acceptedAt: accepted)
             if delivery != "not_dispatched" {
                 appendEventLocked(runId, "action.dispatched", .obj([("requestId", .string(requestId))]))
@@ -208,8 +211,8 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
                     .setting("outcome", .string(outcome)).setting("closingReason", .string("cancelled"))
                     .setting("endedAt", .string(stamp()))
             }
-            appendEventLocked(runId, "run.quiescent", .obj([]))
-            appendEventLocked(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", .string(outcome))]))
+            appendEventLocked(runId, "run.quiescent", .obj([("revision", .int(1))]))
+            appendEventLocked(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", .string(outcome)), ("reason", .string("finished"))]))
         }
     }
 
@@ -382,7 +385,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             for r in runs where r["phase"]?.stringValue != "ended" {
                 let id = r["runId"]!.stringValue!
                 updateRunLocked(id) { $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")) }
-                appendEventLocked(id, "run.finishing", .obj([("phase", .string("stopping"))]))
+                appendEventLocked(id, "run.finishing", .obj([("reason", .string("cancelled")), ("inFlight", .bool(false)), ("revision", .int(1))]))
                 items.append(.obj([("runId", .string(id)), ("accepted", .bool(true)), ("phase", .string("stopping")),
                                    ("quiescence", .string("pending")), ("outcome", .null)]))
                 pending.append(.string(id))
@@ -584,7 +587,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             let terminal = r["phase"]?.stringValue == "ended"
             if !terminal {
                 updateRunLocked(id) { $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")) }
-                appendEventLocked(id, "run.finishing", .obj([("phase", .string("stopping"))]))
+                appendEventLocked(id, "run.finishing", .obj([("reason", .string("cancelled")), ("inFlight", .bool(false)), ("revision", .int(1))]))
                 r = try run(id)
             }
             var m: [(String, JSONValue)] = [
