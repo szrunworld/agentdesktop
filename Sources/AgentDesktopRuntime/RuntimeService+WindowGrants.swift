@@ -376,8 +376,8 @@ extension RuntimeService {
         // window of the process that appeared while the user decided makes
         // the target ambiguous again, whatever was approved.
         if let old = expectedRecovery {
-            let now = eligible().filter { $0.process == old.process && $0.windowId != old.windowId }
-            guard now.count == 1, now[0].windowId == w.windowId else {
+            let stillEligible = eligible().filter { $0.process == old.process && $0.windowId != old.windowId }
+            guard stillEligible.count == 1, stillEligible[0].windowId == w.windowId else {
                 return refuse("recovery_ambiguous", "another window of the app appeared while approval was pending; request recovery again", code: "conflict")
             }
         }

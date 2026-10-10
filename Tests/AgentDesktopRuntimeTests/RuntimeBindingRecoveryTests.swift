@@ -130,8 +130,24 @@ private final class RecoveryStage {
 @Test func bindingRecoveryEndsTheClosedWindowsGrant() throws {
     let st = try RecoveryStage()
     let oldGrantId = try #require(st.service.desktops.find(st.desktop)?.binding?.windowGrantId)
+    // A transient screenshot kept only under the old grant (69 on 61d2dec).
+    let artifacts = st.service.artifacts
+    let artifactId = "art_recovery261"
+    let file = artifacts.path(for: artifactId, ext: "png")
+    try Data([0x89, 0x50, 0x4E, 0x47]).write(to: URL(fileURLWithPath: file))
+    try artifacts.register(artifactId, mediaType: "image/png", clientId: st.client.clientId, runId: nil,
+                           createdAt: Timestamp.string(Date()), transientUntil: Date().addingTimeInterval(600),
+                           windowGrantId: oldGrantId)
+    #expect(FileManager.default.fileExists(atPath: file))
     st.replace()
     #expect(data(st.request()) != nil)
     let old = try #require(st.service.hub.windowGrant(oldGrantId))
     #expect(old.state == "ended" && old.endedReason == "window_closed", "\(old.state) \(old.endedReason ?? "-")")
+    // Its transient went with it, and the ending was audited.
+    #expect(!FileManager.default.fileExists(atPath: file))
+    #expect(artifacts.info(artifactId) == nil)
+    #expect(st.service.hub.auditEvents().contains {
+        $0["method"]?.stringValue == "hub.windows" && $0["decision"]?.stringValue == "ended"
+            && $0["reason"]?.stringValue == "\(oldGrantId) window_closed"
+    })
 }
