@@ -13,7 +13,7 @@
 | 2 | 挂接主显示器为物理 Desktop | `kind = physical`，系统显示器数不变 | |
 | — | 授权前 | `window list` 为空；绑定 Chess 窗口被拒 `bind_requires_grant` | |
 | 3 | 申请 Chess 窗口（查看 + 操作，无保存）；核对确认窗口：Chess、"这是你自己屏幕上的真实窗口"、权限两项、期限 10 分钟；批准 + Touch ID | 授权的正是该窗口 | |
-| 4 | 原地绑定并观察 | 目标为该窗口；`image.transient = true`；测试副本内无 `*.screen.png` | |
+| 4 | 原地绑定并观察 | 目标为该窗口；`image.transient = true`；图像尺寸 = 窗口 frame × 缩放、原点 = 窗口原点且小于整块显示器（Chess 窗口不要最大化）；测试副本内无 `*.screen.png` | |
 | 5 | 发一次 Escape | `delivery = dispatched` | |
 | 6 | 再次申请（含保存），点"拒绝" | `user_denied` | |
 | 7 | CLI 放弃窗口授权（批准 + Touch ID） | 授权 `revoked`；之后观察被拒 `window_grant_missing` | |

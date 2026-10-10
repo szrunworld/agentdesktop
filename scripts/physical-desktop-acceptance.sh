@@ -151,7 +151,19 @@ SID=$(field "$("$B" session open --desktop "$DESK" --format json > "$DIR/session
 "$B" observe --session "$SID" --format json > "$DIR/observe.json"
 [ "$(field "$DIR/observe.json" data.target.windowId)" = "$WIN" ] && ok "observed the granted window" || bad "observe: $(cat "$DIR/observe.json")"
 [ "$(field "$DIR/observe.json" data.image.transient)" = True ] && ok "image is transient (no persist)" || bad "image: $(field "$DIR/observe.json" data.image)"
-if find "$DIR" -name '*.screen.png' | grep -q .; then bad "a whole-screen image was written"; else ok "no whole-screen image anywhere in the test copy"; fi
+# The image itself must be the window: its size is the window frame at the
+# display's scale and its origin is the window's (a whole-display capture
+# would have the display's size and origin), and no leftover screen crop.
+python3 -c 'import json,sys
+o=json.load(open(sys.argv[1]))["data"]; d=json.load(open(sys.argv[2]))["data"]
+img, f = o["image"], o["target"]["windowFrame"]; scale = 2 if d["screen"]["hiDPI"] else 1
+same = (img["width"], img["height"]) == (int(f["width"]*scale), int(f["height"]*scale)) \
+   and (img["transform"]["originX"], img["transform"]["originY"]) == (f["x"], f["y"])
+small = img["width"] < d["screen"]["width"]*scale or img["height"] < d["screen"]["height"]*scale
+sys.exit(0 if same and small else 1)' "$DIR/observe.json" "$DIR/desk.json" \
+    && ! find "$DIR" -name '*.screen.png' | grep -q . \
+    && ok "the image is the window alone (size = window frame x scale, origin = window origin), not the display" \
+    || bad "image is not the window alone: $(field "$DIR/observe.json" data.image) frame $(field "$DIR/observe.json" data.target.windowFrame)"
 
 echo "== 5. one Escape key to the granted window"
 SNAP=$(field "$DIR/observe.json" data.snapshotId)
