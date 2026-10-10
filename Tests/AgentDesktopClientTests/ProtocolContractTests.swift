@@ -46,7 +46,7 @@ let contract = RuntimeContract.shared
         let holds = !(contract.validate(.obj([]), m.params).contains { $0.contains("$ref") })
         #expect(holds, "\(m.params) missing")
         let writes: Set<String> = ["desktop.create", "desktop.destroy", "app.launch", "window.bind", "window.unbind",
-                                   "session.open", "session.close", "act", "run.finish", "run.cancel",
+                                   "session.open", "session.close", "act", "run.finish", "run.cancel", "unit.run",
                                    "runtime.stopAll", "runtime.enableInput", "hub.pairing.start", "hub.pairing.approve",
                                    "hub.pairing.deny", "hub.clients.revoke", "hub.grants.set", "hub.grants.revoke",
                                    "hub.windows.request", "hub.windows.revoke", "hub.displays.attach", "hub.displays.detach"]

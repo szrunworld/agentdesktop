@@ -52,6 +52,9 @@ public final class AgentDesktopService: Sendable {
     public let store: ConfigStore
     public let ai: DefaultAiService
     public let runs: GuiRunService
+    /// A6: the executor of unit.run, when a GUI execution backend is on.
+    /// The host registers it with the Runtime, which owns its Runs.
+    public let units: UnitRunService?
     /// What restart recovery found when the service opened.
     public let recovery: RunRecoveryReport
     let aiHandlers: AiApplicationHandlers
@@ -71,6 +74,14 @@ public final class AgentDesktopService: Sendable {
         let codecs = GuiCodecRegistry(fixtureAdapterEnabled: o.config.allowFixtureAdapter)
         let runner = AiOperationRunner()
         var backend = o.executionBackend
+        // unit.run keeps no run table here: the Runtime's RunStore, request
+        // ledger and the AI call ledger are the records (A6 principle 3).
+        let units = o.executionBackend.map { be in
+            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs),
+                           ports: GuiExplorerPorts(observation: be.ports.observation, execution: be.ports.execution,
+                                                   audit: UnitRunAudit()),
+                           features: be.features, aiService: ai, codecs: codecs, clock: o.clock)
+        }
         if let be = backend, o.durableAudit {
             backend = GuiExecutionBackend(
                 ports: GuiExplorerPorts(observation: be.ports.observation, execution: be.ports.execution,
@@ -81,17 +92,18 @@ public final class AgentDesktopService: Sendable {
                                  resolver: ConfigBindingResolver(store: store, codecs: codecs),
                                  backend: backend, aiService: ai, codecs: codecs, clock: o.clock)
         return AgentDesktopService(
-            store: store, ai: ai, runs: runs, recovery: recovery,
+            store: store, ai: ai, runs: runs, units: units, recovery: recovery,
             aiHandlers: AiApplicationHandlers(store: store, http: o.http, runner: runner, credentials: credentials),
             capabilityTests: CapabilityTestService(store: store, ai: ai, http: o.http, runner: runner,
                                                    codecs: codecs, clock: o.clock))
     }
 
-    init(store: ConfigStore, ai: DefaultAiService, runs: GuiRunService, recovery: RunRecoveryReport,
+    init(store: ConfigStore, ai: DefaultAiService, runs: GuiRunService, units: UnitRunService?, recovery: RunRecoveryReport,
          aiHandlers: AiApplicationHandlers, capabilityTests: CapabilityTestService) {
         self.store = store
         self.ai = ai
         self.runs = runs
+        self.units = units
         self.recovery = recovery
         self.aiHandlers = aiHandlers
         self.capabilityTests = capabilityTests
@@ -116,4 +128,14 @@ public final class AgentDesktopService: Sendable {
         ServiceRouter(handlers: handlers(callerScope: callerScope, trustedOwner: trustedOwner),
                       onInternalFault: onInternalFault)
     }
+}
+
+/// A unit Run's audit port: the Runtime records the Run, each act in its
+/// request ledger before dispatch, and the AI service each model call; the
+/// explorer only needs an actionId per input.
+struct UnitRunAudit: GuiAuditPort {
+    func reserveInference(runId: String, stepIndex: Int, snapshotId: String) {}
+    func recordInference(_ receipt: GuiInferenceReceipt) {}
+    func reserveAction(_ proposal: GuiProposal) -> String { "act_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "") }
+    func recordAction(_ receipt: GuiActionReceipt) {}
 }

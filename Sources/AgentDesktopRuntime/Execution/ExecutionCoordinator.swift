@@ -54,6 +54,11 @@ public final class ExecutionCoordinator: @unchecked Sendable {
         if first { _ = stopAll() }
     }
     private let now: @Sendable () -> Date
+    /// Called once a stop of a live Run is accepted (outside the lock): a
+    /// unit Run's executor must stop starting model calls and input.
+    var onStopAccepted: (@Sendable (String) -> Void)?
+    /// Called once a Run ended (outside the lock).
+    var onEnded: (@Sendable (RunRecord) -> Void)?
 
     init(runs: RunStore, now: @escaping @Sendable () -> Date) {
         self.runs = runs
@@ -80,16 +85,31 @@ public final class ExecutionCoordinator: @unchecked Sendable {
     /// A Durable Run owned by the platform. Not reachable from the wire:
     /// only Runtime components (GUI Explorer, replay, the app) call it.
     public func startDurable(kind: String, session: RuntimeSession, origin: RunRecord.Origin) -> Result<RunRecord, RuntimeError> {
+        startDurable(kind: kind, session: session, origin: origin, unit: nil)
+    }
+
+    func startDurable(kind: String, session: RuntimeSession, origin: RunRecord.Origin, unit: RunUnit?) -> Result<RunRecord, RuntimeError> {
         guard origin != .agentHub else {
             return .failure(RuntimeError("ownership_escalation_denied", "an AgentHub client cannot own a durable Run", phase: .handler))
         }
         return begin(kind: kind, session: session, origin: origin, ownership: .platform, lifetime: .platformDurable,
-                     clientId: nil, connectionId: nil, owner: nil, withToken: false).map(\.0)
+                     clientId: nil, connectionId: nil, owner: nil, withToken: false, unit: unit).map(\.0)
+    }
+
+    /// A Delegated unit Run (A6) for a client connection. Its executor holds
+    /// the Run like an action in flight: a stop makes it quiescent only once
+    /// the executor reported back, so every unit event precedes run.ended.
+    func startUnit(session: RuntimeSession, owner: ConnectionState, unit: RunUnit) -> Result<RunRecord, RuntimeError> {
+        let result = begin(kind: "unit", session: session, origin: .agentHub, ownership: .externalClient,
+                           lifetime: .connectionScoped, clientId: owner.clientId, connectionId: owner.connectionId,
+                           owner: ObjectIdentifier(owner), withToken: false, unit: unit)
+        if case let .success((r, _)) = result { owner.ownedRuns.insert(r.runId) }
+        return result.map(\.0)
     }
 
     private func begin(kind: String, session: RuntimeSession, origin: RunRecord.Origin, ownership: RunRecord.Ownership,
                        lifetime: RunRecord.Lifetime, clientId: String?, connectionId: String?, owner: ObjectIdentifier?,
-                       withToken: Bool) -> Result<(RunRecord, token: String?), RuntimeError> {
+                       withToken: Bool, unit: RunUnit? = nil) -> Result<(RunRecord, token: String?), RuntimeError> {
         let runId = DesktopRegistry.newId(prefix: "run")
         var token: String?
         let result: Result<RunRecord, RuntimeError> = lock.withLock {
@@ -106,8 +126,9 @@ public final class ExecutionCoordinator: @unchecked Sendable {
                                    clientId: clientId, connectionId: connectionId, sessionId: session.sessionId,
                                    desktopId: session.desktopId, phase: .running, outcome: nil, quiescence: .notConfirmed,
                                    closingReason: nil, revision: 1, createdAt: Timestamp.string(now()), endedAt: nil,
-                                   receipts: [], unknownActions: 0)
-            var l = Live(record: record, owner: owner)
+                                   receipts: [], unknownActions: 0, unit: unit)
+            // A unit Run's executor counts as in flight until it reports back.
+            var l = Live(record: record, inFlight: unit == nil ? 0 : 1, owner: owner)
             if withToken {
                 let t = (0..<32).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
                 token = t
@@ -201,12 +222,13 @@ public final class ExecutionCoordinator: @unchecked Sendable {
     /// outcome then (success for finish, cancelled for stop), unless an
     /// action of it is unknown — unknown is never overwritten.
     @discardableResult
-    func stop(runId: String, reason: String, endAs: RunRecord.Outcome) -> StopOutcome {
-        let outcome: (StopOutcome, quiesceNow: Bool) = lock.withLock {
+    func stop(runId: String, reason: String, endAs: RunRecord.Outcome, finishing: Bool? = nil) -> StopOutcome {
+        let outcome: (StopOutcome, quiesceNow: Bool, first: Bool) = lock.withLock {
             guard var l = live[runId] else {
-                return (runs.find(runId).map { .alreadyTerminal($0) } ?? .notFound, false)
+                return (runs.find(runId).map { .alreadyTerminal($0) } ?? .notFound, false, false)
             }
-            if l.record.phase != .stopping {
+            let first = l.record.phase != .stopping
+            if first {
                 l.record.phase = .stopping
                 l.record.quiescence = .pending
                 l.record.closingReason = reason
@@ -214,16 +236,69 @@ public final class ExecutionCoordinator: @unchecked Sendable {
                 l.endAs = endAs
                 live[runId] = l
             }
-            return (.accepted(l.record), l.inFlight == 0)
+            return (.accepted(l.record), l.inFlight == 0, first)
         }
         if case let .accepted(r) = outcome.0 {
             runs.update(r)
-            runs.appendEvent(runId, ["finished", "completed"].contains(reason) || reason.hasPrefix("exit") ? "run.finishing" : "stop.accepted",
+            let finish = finishing ?? (["finished", "completed"].contains(reason) || reason.hasPrefix("exit"))
+            runs.appendEvent(runId, finish ? "run.finishing" : "stop.accepted",
                              .obj([("reason", .string(reason)), ("inFlight", .bool(!outcome.quiesceNow)), ("revision", .int(r.revision))]))
+            if outcome.first, !finish { onStopAccepted?(runId) }
             if outcome.quiesceNow { settle(runId) }
         }
         return outcome.0
     }
+
+    /// A unit executor's own ending: the Run finishes with it unless a stop
+    /// was accepted first (that stop's reason and outcome stand), then the
+    /// executor lets go of it.
+    func finishUnit(runId: String, reason: String, endAs: RunRecord.Outcome) {
+        let running = lock.withLock { live[runId].map { $0.record.phase != .stopping } ?? false }
+        if running { stop(runId: runId, reason: reason, endAs: endAs, finishing: true) }
+        releaseExecutor(runId: runId)
+    }
+
+    /// The unit executor reported back: it no longer holds the Run. A Run
+    /// already stopping becomes quiescent now if nothing else is in flight.
+    func releaseExecutor(runId: String) {
+        let quiesce: Bool = lock.withLock {
+            guard var l = live[runId], l.record.kind == "unit", l.inFlight > 0 else { return false }
+            l.inFlight -= 1
+            live[runId] = l
+            return l.record.phase == .stopping && l.inFlight == 0
+        }
+        if quiesce { settle(runId) }
+    }
+
+    /// A unit Run waits for a person (needs_user): no input is admitted
+    /// (beginAction needs running); only a stop ends it.
+    func waitForInput(runId: String) {
+        let r: RunRecord? = lock.withLock {
+            guard var l = live[runId], l.record.phase == .running else { return nil }
+            l.record.phase = .waitingInput
+            l.record.revision += 1
+            live[runId] = l
+            return l.record
+        }
+        if let r { runs.update(r) }
+    }
+
+    /// The latest verification of a live unit Run (Run.unit.verification).
+    func unitVerified(runId: String, _ status: RunUnit.Verification, observationId: String?, checkedAt: String) {
+        let r: RunRecord? = lock.withLock {
+            guard var l = live[runId], l.record.unit != nil else { return nil }
+            l.record.unit?.verification = status
+            l.record.unit?.observationId = observationId
+            l.record.unit?.checkedAt = checkedAt
+            l.record.revision += 1
+            live[runId] = l
+            return l.record
+        }
+        if let r { runs.update(r) }
+    }
+
+    /// Whether the Run is live (not ended).
+    func isLive(_ runId: String) -> Bool { lock.withLock { live[runId] != nil } }
 
     /// No input of the Run can follow: free the Desktop and end the Run.
     private func settle(_ runId: String) {
@@ -244,6 +319,7 @@ public final class ExecutionCoordinator: @unchecked Sendable {
         runs.appendEvent(runId, "run.quiescent", .obj([("revision", .int(ended.revision))]))
         runs.appendEvent(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", .string(ended.outcome?.rawValue ?? "")),
                                                    ("reason", .string(ended.closingReason ?? ""))]))
+        onEnded?(ended)
     }
 
     /// The control connection is gone: its connection_scoped Runs take no

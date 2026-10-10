@@ -47,6 +47,8 @@ public struct RunRecord: Equatable, Sendable {
     public var receipts: [String]
     /// Actions of this Run whose delivery is unknown: they make the outcome unknown.
     public var unknownActions: Int
+    /// The GUI unit's own facts, on kind unit only (A6, RunUnit).
+    public var unit: RunUnit? = nil
 
     public var isEnded: Bool { phase == .ended }
 
@@ -63,7 +65,45 @@ public struct RunRecord: Equatable, Sendable {
         if let endedAt { m.append(("endedAt", .string(endedAt))) }
         m.append(("receipts", .array(receipts.map(JSONValue.string))))
         m.append(("unknownActions", .int(unknownActions)))
+        if let unit { m.append(("unit", unit.json)) }
         return .obj(m)
+    }
+}
+
+/// Run.unit (RunUnit): what a GUI unit Run is about and whether its goal
+/// was seen to hold, beside phase / outcome / quiescence (never instead).
+public struct RunUnit: Equatable, Sendable {
+    public enum Verification: String, Sendable { case matched, contradicted, inconclusive, notRun = "not_run" }
+    public var mode: String
+    public var goalHash: String
+    public var guiProfileId: String?
+    public var guiProfileRevision: Int?
+    public var verification: Verification = .notRun
+    public var observationId: String?
+    public var checkedAt: String?
+
+    public init(mode: String, goalHash: String, guiProfileId: String?, guiProfileRevision: Int?) {
+        self.mode = mode; self.goalHash = goalHash
+        self.guiProfileId = guiProfileId; self.guiProfileRevision = guiProfileRevision
+    }
+
+    public var json: JSONValue {
+        var v: [(String, JSONValue)] = [("status", .string(verification.rawValue))]
+        if let observationId { v.append(("observationId", .string(observationId))) }
+        if let checkedAt { v.append(("checkedAt", .string(checkedAt))) }
+        return .obj([("mode", .string(mode)), ("goalHash", .string(goalHash)),
+                     ("guiProfileId", guiProfileId.map(JSONValue.string) ?? .null),
+                     ("guiProfileRevision", guiProfileRevision.map(JSONValue.int) ?? .null),
+                     ("verification", .obj(v))])
+    }
+
+    init?(json: JSONValue) {
+        guard let mode = json["mode"]?.stringValue, let hash = json["goalHash"]?.stringValue else { return nil }
+        self.init(mode: mode, goalHash: hash, guiProfileId: json["guiProfileId"]?.stringValue,
+                  guiProfileRevision: json["guiProfileRevision"]?.intValue)
+        verification = json["verification"]?["status"]?.stringValue.flatMap(Verification.init(rawValue:)) ?? .notRun
+        observationId = json["verification"]?["observationId"]?.stringValue
+        checkedAt = json["verification"]?["checkedAt"]?.stringValue
     }
 }
 
@@ -94,7 +134,7 @@ public final class RunStore: @unchecked Sendable {
     }
     private static let columns = """
         run_id, kind, origin, ownership, lifetime, client_id, connection_id, session_id, desktop_id, phase, outcome,
-        quiescence, closing_reason, revision, created_at, ended_at, receipts, unknown_actions
+        quiescence, closing_reason, revision, created_at, ended_at, receipts, unknown_actions, unit
         """
 
     public init(path: String?, now: @escaping @Sendable () -> Date = { Date() }) throws {
@@ -110,8 +150,12 @@ public final class RunStore: @unchecked Sendable {
               session_id TEXT NOT NULL, desktop_id TEXT NOT NULL, phase TEXT NOT NULL, outcome TEXT,
               quiescence TEXT NOT NULL, closing_reason TEXT, revision INTEGER NOT NULL, created_at TEXT NOT NULL,
               ended_at TEXT, receipts TEXT NOT NULL, unknown_actions INTEGER NOT NULL DEFAULT 0,
-              CHECK (phase != 'ended' OR quiescence = 'confirmed'))
+              unit TEXT, CHECK (phase != 'ended' OR quiescence = 'confirmed'))
             """)
+        // A6: a store written before unit Runs gets the column (nullable).
+        if (try? db.query("SELECT unit FROM runs LIMIT 0")) == nil {
+            try db.execute("ALTER TABLE runs ADD COLUMN unit TEXT")
+        }
         try db.execute("CREATE INDEX IF NOT EXISTS runs_by_created ON runs (created_at, run_id)")
         try db.execute("""
             CREATE TABLE IF NOT EXISTS events (run_id TEXT NOT NULL, seq INTEGER NOT NULL, at TEXT NOT NULL,
@@ -164,11 +208,11 @@ public final class RunStore: @unchecked Sendable {
                 opt(r.clientId), opt(r.connectionId), .text(r.sessionId), .text(r.desktopId), .text(r.phase.rawValue),
                 opt(r.outcome?.rawValue), .text(r.quiescence.rawValue), opt(r.closingReason), .int(Int64(r.revision)),
                 .text(r.createdAt), opt(r.endedAt), .text(JSONValue.array(r.receipts.map(JSONValue.string)).encoded()),
-                .int(Int64(r.unknownActions))]
+                .int(Int64(r.unknownActions)), opt(r.unit.map { $0.json.encoded() })]
     }
 
     func create(_ r: RunRecord) {
-        _ = write { try db.execute("INSERT INTO runs (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(r)) }
+        _ = write { try db.execute("INSERT INTO runs (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(r)) }
         appendEvent(r.runId, "run.started", .obj([
             ("kind", .string(r.kind)), ("origin", .string(r.origin.rawValue)), ("ownership", .string(r.ownership.rawValue)),
             ("lifetime", .string(r.lifetime.rawValue)), ("desktopId", .string(r.desktopId)), ("sessionId", .string(r.sessionId)),
@@ -176,7 +220,7 @@ public final class RunStore: @unchecked Sendable {
     }
 
     func update(_ r: RunRecord) {
-        _ = write { try db.execute("INSERT OR REPLACE INTO runs (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(r)) }
+        _ = write { try db.execute("INSERT OR REPLACE INTO runs (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values(r)) }
         changed.lock(); changed.broadcast(); changed.unlock()
     }
 
@@ -193,7 +237,8 @@ public final class RunStore: @unchecked Sendable {
                   closingReason: row[12] as? String, revision: Int(row[13] as! Int64), createdAt: row[14] as! String,
                   endedAt: row[15] as? String,
                   receipts: (try? StrictJSON.parse(row[16] as! String))?.arrayValue?.compactMap(\.stringValue) ?? [],
-                  unknownActions: Int(row[17] as! Int64))
+                  unknownActions: Int(row[17] as! Int64),
+                  unit: (row[18] as? String).flatMap { try? StrictJSON.parse($0) }.flatMap(RunUnit.init(json:)))
     }
 
     public func find(_ runId: String) -> RunRecord? {

@@ -28,7 +28,8 @@ final class RTestRuntime: @unchecked Sendable {
 
     let lock = NSLock()
     let instanceId = "inst_test"
-    var methods: [String] = RuntimeMethod.allCases.map(\.rawValue)
+    /// A Runtime without a GUI executor: unit.run is not offered.
+    var methods: [String] = RuntimeMethod.allCases.map(\.rawValue).filter { $0 != "unit.run" }
     var profiles: [JSONValue]?
     var unitRun: UnitRunBehavior = .accept
     var requestShowFails = false

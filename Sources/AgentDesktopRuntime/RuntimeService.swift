@@ -95,6 +95,22 @@ public final class ConnectionState: @unchecked Sendable {
         role = .owner
     }
 
+    /// The principal of a unit Run, for the Runtime's own GUI executor acting
+    /// in it (A6): the clientId and role of the connection that started the
+    /// Run, so each observe and act of the Run passes that principal's
+    /// checks (grant, Desktop, window grant) as its own requests would.
+    /// Never on the wire; owns no Run, so its end stops nothing.
+    init(actingFor c: ConnectionState) {
+        peerUID = c.peerUID
+        origin = .host
+        connectionId = "conn_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(16)
+        clientId = c.clientId
+        role = c.role
+        codeIdentity = c.codeIdentity
+        clientName = c.clientName
+        apiVersion = RuntimeAPI.version
+    }
+
     /// A socket connection: unpaired until its handshake shows a credential.
     public init(socketPeer uid: uid_t, pid: pid_t? = nil, executable: String? = nil) {
         peerUID = uid
@@ -138,6 +154,8 @@ public final class RuntimeService: @unchecked Sendable {
     public let axReader = AXReader()
     /// Methods other in-process services answer on this endpoint (ai.*).
     let extensions = ExtensionRegistry()
+    /// A6: the GUI executor of unit.run and its live Runs.
+    let units = UnitRunRegistry()
     /// Paired clients, grants, pairing requests and the authorization audit (A4).
     public let hub: HubStore
     /// Tests only. The owner is the host's own window (in-process
@@ -199,7 +217,7 @@ public final class RuntimeService: @unchecked Sendable {
     static let platformMethods: Set<RuntimeMethod> = [
         .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind,
         .sessionOpen, .sessionShow, .sessionClose, .observe,
-        .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
+        .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList, .unitRun,
         .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
     ]
 
@@ -245,6 +263,13 @@ public final class RuntimeService: @unchecked Sendable {
             if let runId, let run = self.runs.find(runId), run.phase != .ended { return true }
             return false
         }
+        // A6: a stop of a unit Run reaches its executor; its end closes
+        // the Run's session.
+        execution.onStopAccepted = { [weak self] runId in
+            guard let self, self.runs.find(runId)?.kind == "unit" else { return }
+            self.units.stopRequested(runId)
+        }
+        execution.onEnded = { [weak self] record in self?.unitRunEnded(record) }
     }
 
     func implemented(_ m: RuntimeMethod) -> Bool { platform != nil || !Self.platformMethods.contains(m) }
@@ -445,6 +470,8 @@ public final class RuntimeService: @unchecked Sendable {
             let served = extensions.names
             let methods = contract.methods
                 .filter { RuntimeMethod(rawValue: $0.method).map(implemented) ?? served.contains($0.method) }
+                // unit.run only while a GUI executor is there to run it (A6).
+                .filter { $0.method != RuntimeMethod.unitRun.rawValue || unitRunAvailable }
                 .map { JSONValue.obj([("method", .string($0.method)), ("mutation", .bool($0.mutation)),
                                       ("stage", .string($0.stage))]) }
             let perms = backend.permissions()
@@ -503,6 +530,7 @@ public final class RuntimeService: @unchecked Sendable {
         case .runWait: return waitRun(p, connection)
         case .runCancel: return cancelRun(p, connection)
         case .runList: return listRuns(p, connection)
+        case .unitRun: return unitRun(request, connection)
         case .stopAll: return stopAll(connection)
         case .enableInput: return enableInput(connection)
         case .artifactShow: return showArtifact(p, connection)

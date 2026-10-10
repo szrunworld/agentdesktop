@@ -47,6 +47,7 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case runWait = "run.wait"
     case runCancel = "run.cancel"
     case runList = "run.list"
+    case unitRun = "unit.run"
     case stopAll = "runtime.stopAll"
     case enableInput = "runtime.enableInput"
     case artifactShow = "artifact.show"

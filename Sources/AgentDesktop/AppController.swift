@@ -199,6 +199,8 @@ final class AppController: NSObject, NSApplicationDelegate {
                 let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
                 runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
                 runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
+                // A6: unit.run, only while real GUI input is switched on.
+                if let units = service.units { runtime.registerUnitExecutor(units, ports: ports) }
                 // A4 R4: a revoked client's AI operations stop.
                 runtime.onAccessWithdrawn { clientId in Task { await service.accessWithdrawn(clientId: clientId) } }
                 await MainActor.run {

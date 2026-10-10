@@ -2,11 +2,30 @@ import AgentDesktopAI
 import AgentDesktopProtocol
 import Foundation
 
+/// Where the explorer writes what a run did. The gui.runs record
+/// (RunRecorder) and, with A6, the Runtime's unit Run (UnitRunRecorder).
+/// Nothing written may carry screenshot bytes, typed text or secrets.
+public protocol GuiRunRecording: Actor {
+    /// Set once a record could not be written: no further model call or input.
+    var writeFailed: Bool { get }
+    /// Mirror the lifecycle's new events.
+    func sync() async
+    func stepStarted(stepIndex: Int) async
+    func observation(_ o: Observation) async
+    func inferenceStarted(stepIndex: Int) async
+    func inference(_ r: GuiInferenceReceipt, discarded: Bool) async
+    func proposed(_ p: GuiProposal) async
+    func rejected(stepIndex: Int, reason: String) async
+    func recovered(stepIndex: Int) async
+    func action(_ r: GuiActionReceipt, stepIndex: Int) async
+    func verified(_ v: GoalVerification) async
+}
+
 /// Keeps a run's public record in step with its lifecycle: every lifecycle
 /// event becomes a RunEvent, and the GuiRun snapshot is saved after each
 /// change. Events carry controlled fields only: no screenshot bytes, no
 /// typed text, no secrets.
-public actor RunRecorder {
+public actor RunRecorder: GuiRunRecording {
     public let binding: GuiRunBinding
     let lifecycle: RunLifecycle
     let repository: GuiRunRepository
@@ -42,25 +61,33 @@ public actor RunRecorder {
         case actionReceipt = "action_receipt", verificationFinished = "verification_finished"
     }
 
-    func stepStarted() { stepCount += 1 }
+    public func stepStarted(stepIndex: Int) { stepCount += 1 }
 
-    func observation(_ o: Observation) async {
+    public func inferenceStarted(stepIndex: Int) async { await note(.inferenceStarted, "step \(stepIndex)") }
+
+    public func proposed(_ p: GuiProposal) async { await note(.proposalValidated, p.body.redactedDescription) }
+
+    public func rejected(stepIndex: Int, reason: String) async {}
+
+    public func recovered(stepIndex: Int) async {}
+
+    public func observation(_ o: Observation) async {
         latestObservationId = o.observationId
         await append(.observationReady, "observation \(o.observationId)", extra: [("observationId", .string(o.observationId))])
     }
 
-    func inference(_ r: GuiInferenceReceipt, discarded: Bool = false) async {
+    public func inference(_ r: GuiInferenceReceipt, discarded: Bool) async {
         latestInference = r.json
         let summary = "step \(r.stepIndex) \(r.record.state.rawValue)\(discarded ? " (discarded)" : "")"
         await append(.inferenceFinished, summary, extra: [("inferenceReceipt", r.json)])
     }
 
-    func action(_ r: GuiActionReceipt) async {
+    public func action(_ r: GuiActionReceipt, stepIndex: Int) async {
         latestAction = r.json
         await append(.actionReceipt, "\(r.actionType.rawValue) \(r.deliveryState.rawValue)", extra: [("actionReceipt", r.json)])
     }
 
-    func verified(_ v: GoalVerification) async {
+    public func verified(_ v: GoalVerification) async {
         verification = v
         var extra: [(String, JSONValue)] = []
         if let id = v.observationId { extra.append(("observationId", .string(id))) }

@@ -33,7 +33,7 @@ public struct GuiExplorerPorts: Sendable {
 public final class GuiRunDriver: Sendable {
     public let binding: GuiRunBinding
     public let lifecycle: RunLifecycle
-    public let recorder: RunRecorder
+    public let recorder: any GuiRunRecording
     let ports: GuiExplorerPorts
     let provider: GuiAiProvider
     let verifier: GoalVerifier
@@ -42,7 +42,7 @@ public final class GuiRunDriver: Sendable {
     let callerScope: String
     let deadlineNs: UInt64
 
-    public init(binding: GuiRunBinding, lifecycle: RunLifecycle, recorder: RunRecorder, ports: GuiExplorerPorts,
+    public init(binding: GuiRunBinding, lifecycle: RunLifecycle, recorder: any GuiRunRecording, ports: GuiExplorerPorts,
                 provider: GuiAiProvider, budget: AttemptBudget, clock: MonotonicClock, callerScope: String,
                 startedAtNs: UInt64, verifier: GoalVerifier = GoalVerifier()) {
         self.binding = binding
@@ -153,10 +153,10 @@ public final class GuiRunDriver: Sendable {
                 throw ContractError(.limitExceeded, "the run used all \(limits.maxSteps) steps")
             }
             try await move(.inferencing, "step \(stepIndex)")
-            if recoveredStep != stepIndex { await recorder.stepStarted() }
+            if recoveredStep != stepIndex { await recorder.stepStarted(stepIndex: stepIndex) }
             let snapshotId = bundle.observation.stamp.snapshotId
             try await audited { try await ports.audit.reserveInference(runId: binding.runId, stepIndex: stepIndex, snapshotId: snapshotId) }
-            await recorder.note(.inferenceStarted, "step \(stepIndex)")
+            await recorder.inferenceStarted(stepIndex: stepIndex)
 
             let input = GuiInferenceInput(binding: binding, bundle: bundle, history: history, stepIndex: stepIndex,
                                           budget: budget, deadlineNs: deadlineNs, callerScope: callerScope)
@@ -164,7 +164,7 @@ public final class GuiRunDriver: Sendable {
             do {
                 output = try await provider.suggest(input)
             } catch let failure as GuiSuggestionFailure {
-                await recorder.inference(failure.receipt)
+                await recorder.inference(failure.receipt, discarded: false)
                 try await audited { try await ports.audit.recordInference(failure.receipt) }
                 // An empty reply: once per step, observe the bound target
                 // again and ask again on that new observation. Nothing the
@@ -176,6 +176,7 @@ public final class GuiRunDriver: Sendable {
                     throw failure.error
                 }
                 recoveredStep = stepIndex
+                await recorder.recovered(stepIndex: stepIndex)
                 try await move(.validating, "empty model reply")
                 try await move(.observing, "observing again after an empty reply")
                 bundle = try await observe()
@@ -187,14 +188,19 @@ public final class GuiRunDriver: Sendable {
                 throw CancellationError()
             }
             try await audited { try await ports.audit.recordInference(output.receipt) }
-            await recorder.inference(output.receipt)
+            await recorder.inference(output.receipt, discarded: false)
             history.append(GuiHistoryTurn(image: bundle.currentImage, reply: output.reply))
             stepIndex += 1
 
             try await move(.validating, "checking proposal")
             let proposal = output.proposal
-            try validate(proposal, against: bundle)
-            await recorder.note(.proposalValidated, proposal.body.redactedDescription)
+            do {
+                try validate(proposal, against: bundle)
+            } catch let e as ContractError {
+                await recorder.rejected(stepIndex: proposal.stepIndex, reason: e.code.rawValue.lowercased())
+                throw e
+            }
+            await recorder.proposed(proposal)
 
             switch proposal.body {
             case .action:
@@ -218,7 +224,7 @@ public final class GuiRunDriver: Sendable {
                     delivery = RunLifecycle.Delivery(rawValue: receipt.deliveryState.rawValue) ?? .unknown
                 }
                 try await lifecycle.actionResolved(actionId, delivery: delivery)
-                await recorder.action(receipt)
+                await recorder.action(receipt, stepIndex: proposal.stepIndex)
                 await recorder.sync()
                 do { try await ports.audit.recordAction(receipt) } catch {
                     if delivery == .confirmed || delivery == .notSent || delivery == .rejected {
