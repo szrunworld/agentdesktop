@@ -79,53 +79,6 @@ extension GuiAuditPort {
     }
 }
 
-/// A run as stored: who owns it, its binding, its latest snapshot.
-public struct StoredGuiRun: Sendable {
-    public let runId: String
-    public let callerScope: String
-    public let binding: JSONValue
-    /// The `gui.runs.start` result, returned again for a repeated key.
-    public let startResult: JSONValue
-    public var snapshot: JSONValue
-
-    public init(runId: String, callerScope: String, binding: JSONValue, startResult: JSONValue, snapshot: JSONValue) {
-        self.runId = runId; self.callerScope = callerScope; self.binding = binding
-        self.startResult = startResult; self.snapshot = snapshot
-    }
-}
-
-public struct StoredEvents: Sendable {
-    public let events: [JSONValue]
-    /// The lowest sequence still kept, or nil when none were ever pruned.
-    public let oldestRetained: Int?
-    public let lastSequence: Int
-
-    public init(events: [JSONValue], oldestRetained: Int?, lastSequence: Int) {
-        self.events = events; self.oldestRetained = oldestRetained; self.lastSequence = lastSequence
-    }
-}
-
-public enum GuiRunCreateOutcome: Sendable {
-    case created(StoredGuiRun)
-    /// Same caller, same key, same request: the run created before.
-    case existing(StoredGuiRun)
-}
-
-/// Persistence of runs and their events. Every read is scoped to the
-/// caller; another caller's run is NOT_FOUND.
-public protocol GuiRunRepository: Sendable {
-    /// Create atomically, deduplicated by (callerScope, idempotencyKey):
-    /// the same digest returns the existing run, another digest throws
-    /// IDEMPOTENCY_CONFLICT.
-    func create(_ run: StoredGuiRun, idempotencyKey: String, digest: String) async throws -> GuiRunCreateOutcome
-    func load(runId: String, callerScope: String) async throws -> StoredGuiRun?
-    func saveSnapshot(runId: String, snapshot: JSONValue) async throws
-    /// Append an event; `build` receives the assigned sequence (strictly
-    /// increasing per run, starting at 1).
-    func appendEvent(runId: String, _ build: @Sendable (Int) -> JSONValue) async throws -> Int
-    func events(runId: String, afterSequence: Int, limit: Int) async throws -> StoredEvents
-}
-
 /// Resolves the candidates a new run binds to (spec §04.1, §18.2): the GUI
 /// profile (explicit with its revision, or the current default), its model
 /// profile and connection revisions, the credential identity, and at most
@@ -134,12 +87,4 @@ public protocol GuiRunRepository: Sendable {
 public protocol GuiBindingResolver: Sendable {
     func resolve(guiProfileId: String?, expectedProfileRevision: Int?, callerScope: String) async throws
         -> (primary: GuiCandidate, fallback: [GuiCandidate], policyRevision: Int)
-}
-
-/// Grants the session a run executes in (spec §05.1). An explicit session
-/// is checked against its owner and desktop; an omitted one is created for
-/// the run only, and only for a trusted owner caller.
-public protocol GuiSessionAuthority: Sendable {
-    func authorize(sessionId: String?, desktopId: String, callerScope: String, trustedOwner: Bool,
-                   runId: String) async throws -> (sessionId: String, bindingEpoch: UInt64)
 }

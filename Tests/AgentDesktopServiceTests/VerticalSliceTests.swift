@@ -116,14 +116,44 @@ actor CountingAudit: GuiAuditPort {
     func recordAction(_ receipt: GuiActionReceipt) {}
 }
 
-struct OwnerSessions: GuiSessionAuthority {
-    func authorize(sessionId: String?, desktopId: String, callerScope: String, trustedOwner: Bool,
-                   runId: String) throws -> (sessionId: String, bindingEpoch: UInt64) {
-        guard desktopId == "desk-a", sessionId == nil ? trustedOwner : sessionId == "sess-a" else {
-            throw ContractError(.forbidden, "not authorized for this desktop")
-        }
-        return ("sess-a", 1)
+/// The Runtime's side of the unit Runs the slice starts (A6): it keeps
+/// what the explorer wrote and answers the usage hook from it the way the
+/// host answers from the Runtime's RunStore.
+final class SliceRuns: UnitRunSink, @unchecked Sendable {
+    let runId: String
+    private let lock = NSLock()
+    private var recorded: [JSONValue] = []
+    private var ended: UnitRunEnding?
+    private var verification: (String, String?)?
+
+    init(runId: String) { self.runId = runId }
+    func record(_ type: String, _ data: JSONValue) -> Bool {
+        lock.withLock { guard ended == nil else { return false }; recorded.append(.obj([("type", .string(type)), ("data", data)])); return true }
     }
+    func verified(status: String, observationId: String?, checkedAt: Date) { lock.withLock { verification = (status, observationId) } }
+    func finished(_ ending: UnitRunEnding) { lock.withLock { ended = ending } }
+    var events: [JSONValue] { lock.withLock { recorded } }
+    var ending: UnitRunEnding? { lock.withLock { ended } }
+    var verifiedAs: (String, String?)? { lock.withLock { verification } }
+    func deliveries(_ state: String) -> Int {
+        events.filter { $0["type"]?.stringValue == "unit.action" && $0["data"]?["deliveryState"]?.stringValue == state }.count
+    }
+}
+
+/// Every unit Run the slice started, for the usage hook.
+final class SliceLedger: @unchecked Sendable {
+    private let lock = NSLock()
+    private var runs: [String: SliceRuns] = [:]
+    private(set) var asked: [[String]] = []
+    func add(_ r: SliceRuns) { lock.withLock { runs[r.runId] = r } }
+    func outcomes(_ ids: [String]) -> (confirmed: Int, unknown: Int) {
+        lock.withLock {
+            asked.append(ids)
+            let rs = ids.compactMap { runs[$0] }
+            return (rs.map { $0.deliveries("confirmed") }.reduce(0, +), rs.map { $0.deliveries("unknown") }.reduce(0, +))
+        }
+    }
+    var questions: [[String]] { lock.withLock { asked } }
 }
 
 /// A scripted OpenAI-compatible upstream. It answers the capability-test
@@ -200,6 +230,7 @@ final class Slice: @unchecked Sendable {
     let credentials: InMemoryCredentialStore
     let service: AgentDesktopService
     let router: ServiceRouter
+    let ledger = SliceLedger()
 
     init(backend: Bool = true, reopening dir: URL? = nil, credentials: InMemoryCredentialStore? = nil) async throws {
         self.dir = dir ?? URL(fileURLWithPath: "/tmp/ads-\(UUID().uuidString.prefix(8))")
@@ -209,12 +240,13 @@ final class Slice: @unchecked Sendable {
         executor = FormExecutor(form: form)
         let be = GuiExecutionBackend(
             ports: GuiExplorerPorts(observation: observation, execution: executor, audit: audit),
-            sessions: OwnerSessions(),
             features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]))
+        let ledger = ledger
         service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
             databasePath: self.dir.appendingPathComponent("config.sqlite").path,
-            credentials: self.credentials, http: upstream, executionBackend: backend ? be : nil))
-        router = service.router(callerScope: "owner", trustedOwner: true)
+            credentials: self.credentials, http: upstream, executionBackend: backend ? be : nil,
+            actionOutcomes: { ids, _, _ in ledger.outcomes(ids) }))
+        router = service.router(callerScope: "owner")
     }
 
     /// One call through the router, as `{ok, result | error}` (test shape).
@@ -288,13 +320,26 @@ final class Slice: @unchecked Sendable {
         return (gui, test)
     }
 
-    static func startParams() -> JSONValue {
+    static func startParams(text: String = expected) -> JSONValue {
         .obj([
-            ("desktopId", .string("desk-a")), ("goal", .string(goal)),
-            ("verification", .obj([("kind", .string("element_text_equals")), ("role", .string("static_text")),
-                                   ("text", .string(expected))])),
+            ("desktopId", .string("desk-a")), ("mode", .string("explore")), ("goal", .obj([("description", .string(goal))])),
+            ("verification", .obj([("all", .array([.obj([("kind", .string("element_text_equals")), ("role", .string("static_text")),
+                                                         ("text", .string(text))])]))])),
             ("allowedActions", .array([.string("click"), .string("type"), .string("key")])),
         ])
+    }
+
+    /// A unit Run as the Runtime would start it for `scope` (A6): admitted,
+    /// then driven to its end on desk-a / sess-a.
+    func runUnit(_ params: JSONValue = Slice.startParams(), scope: String = "owner") async throws -> (SliceRuns, any UnitRunPlan) {
+        let units = try #require(service.units)
+        let plan = try await units.admit(params: params, callerScope: scope).get()
+        let run = SliceRuns(runId: "run-\(UUID().uuidString.prefix(8).lowercased())")
+        ledger.add(run)
+        _ = units.start(plan, context: UnitRunContext(runId: run.runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
+                                                      callerScope: scope, params: params), sink: run)
+        await units.task(for: run.runId)?.value
+        return (run, plan)
     }
 }
 
@@ -302,8 +347,9 @@ final class Slice: @unchecked Sendable {
 struct VerticalSliceTests {
     @Test func everyCommandOfTheContractHasAHandler() async throws {
         let s = try await Slice()
-        let handlers = s.service.handlers(callerScope: "owner", trustedOwner: true)
+        let handlers = s.service.handlers(callerScope: "owner")
         #expect(Set(handlers.keys) == Set(ContractBundle.shared.operations.map(\.command)))
+        #expect(!handlers.keys.contains { $0.hasPrefix("gui.runs.") }, "withdrawn with A6")
     }
 
     // E01–E12 with a scripted model and a stand-in desktop.
@@ -316,25 +362,18 @@ struct VerticalSliceTests {
         #expect(s.form.inputCount == 0, "capability tests never touch the desktop")
         let capabilityCalls = s.upstream.chatRequests
 
-        // E07: start against the default profile.
-        let start = try await s.ok("gui.runs.start", Slice.startParams(), key: "neutral-MAC-001-A")
-        let runId = try #require(start["runId"]?.stringValue)
-        var run: JSONValue = .null
-        try await s.waitFor {
-            run = try await s.ok("gui.runs.get", .obj([("runId", .string(runId))]))
-            return ["succeeded", "failed", "cancelled", "waiting_user"].contains(run["state"]?.stringValue ?? "")
-        }
+        // E07: a unit Run against the default profile.
+        let (run, plan) = try await s.runUnit()
 
-        // E10: succeeded only through the bound verification on a newer observation.
-        #expect(run["state"]?.stringValue == "succeeded", "\(run.encoded())")
-        #expect(run["goalVerification"]?["status"]?.stringValue == "passed")
-        let verifiedOn = try #require(run["goalVerification"]?["observationId"]?.stringValue)
+        // E10: verified only through the bound predicate on a newer observation.
+        #expect(run.ending == .verified, "\(String(describing: run.ending))")
+        #expect(run.verifiedAs?.0 == "matched")
+        let verifiedOn = try #require(run.verifiedAs?.1)
         #expect(Int(verifiedOn.split(separator: "-").last ?? "") ?? 0 > 1)
         #expect(s.form.status == expected)
         #expect(s.form.submissions == 1)
         #expect(await s.executor.executed.count == 3, "click, type, click")
-        #expect(run["binding"]?["primary"]?["guiProfile"]?["guiProfileId"] == gui["guiProfileId"])
-        #expect(try ContractBundle.shared.validate(run, "gui_runs_get_result").isEmpty)
+        #expect(plan.guiProfileId == gui["guiProfileId"]?.stringValue)
 
         // The run used the shared model service. The check after Apply
         // already sees the saved state, so no finish turn is needed (§06.3):
@@ -343,23 +382,15 @@ struct VerticalSliceTests {
         #expect(s.upstream.chatRequests == capabilityCalls + 3)
         #expect(s.upstream.chatAuthorizations.allSatisfy { $0 == "Bearer \(canary)" })
 
-        // E12: usage covers capability tests and the run; known tokens add up.
+        // E12: usage covers capability tests and the run; known tokens add
+        // up; the inputs are the Runtime's, asked for by this Run's id.
         let usage = try await s.ok("ai.usage.summary", .obj([("from", .string("2026-01-01T00:00:00Z")),
                                                              ("to", .string("2099-01-01T00:00:00Z"))]))
         #expect(usage["inferenceAttempts"]?.intValue == s.upstream.chatRequests)
         #expect(usage["attemptsMissingUsage"]?.intValue == 0)
         #expect(usage["confirmedActions"]?.intValue == 3)
         #expect(usage["unknownActionOutcomes"]?.intValue == 0)
-
-        // Events are strictly increasing and replayable from a cursor.
-        let events = try await s.ok("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(0))]))
-        let seq = events["events"]?.arrayValue?.compactMap { $0["sequence"]?.intValue } ?? []
-        #expect(!seq.isEmpty && seq == seq.sorted() && Set(seq).count == seq.count)
-
-        // The same start key returns the same run and starts nothing new.
-        let again = try await s.ok("gui.runs.start", Slice.startParams(), key: "neutral-MAC-001-A")
-        #expect(again["runId"]?.stringValue == runId)
-        #expect(await s.executor.executed.count == 3)
+        #expect(s.ledger.questions.last == [run.runId])
     }
 
     // GUI-003 at the service: the same steps against a verification the form
@@ -367,57 +398,19 @@ struct VerticalSliceTests {
     @Test func wrongVerificationNeverSucceeds() async throws {
         let s = try await Slice()
         _ = try await s.configure()
-        let params = Slice.startParams().setting("verification", .obj([
-            ("kind", .string("element_text_equals")), ("role", .string("static_text")),
-            ("text", .string("已保存：Bob / MAC-001-A / 提交次数 1"))]))
-        let start = try await s.ok("gui.runs.start", params, key: "neutral-wrong-text")
-        let runId = start["runId"]!.stringValue!
-        var run: JSONValue = .null
-        try await s.waitFor {
-            run = try await s.ok("gui.runs.get", .obj([("runId", .string(runId))]))
-            return ["succeeded", "failed", "cancelled", "waiting_user"].contains(run["state"]?.stringValue ?? "")
-        }
-        #expect(run["state"]?.stringValue != "succeeded", "\(run.encoded())")
-        #expect(run["goalVerification"]?["status"]?.stringValue != "passed")
+        let (run, _) = try await s.runUnit(Slice.startParams(text: "已保存：Bob / MAC-001-A / 提交次数 1"))
+        #expect(run.ending != .verified, "\(String(describing: run.ending))")
+        #expect(run.verifiedAs?.0 != "matched")
     }
 
-    // §07.4 at the service: a reopened service still answers for the run,
-    // with the same events, and the same start key starts nothing new.
-    @Test func runsSurviveAServiceRestart() async throws {
-        let s = try await Slice()
-        _ = try await s.configure()
-        let start = try await s.ok("gui.runs.start", Slice.startParams(), key: "restart-run-0001")
-        let runId = start["runId"]!.stringValue!
-        try await s.waitFor {
-            try await s.ok("gui.runs.get", .obj([("runId", .string(runId))]))["state"]?.stringValue == "succeeded"
-        }
-        let events = try await s.ok("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(0))]))
-        let reopened = try await Slice(reopening: s.dir, credentials: s.credentials)
-        #expect(reopened.service.recovery.quarantinedRuns.isEmpty)
-        let run = try await reopened.ok("gui.runs.get", .obj([("runId", .string(runId))]))
-        #expect(run["state"]?.stringValue == "succeeded")
-        let again = try await reopened.ok("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(0))]))
-        #expect(again["events"] == events["events"])
-        let dup = try await reopened.ok("gui.runs.start", Slice.startParams(), key: "restart-run-0001")
-        #expect(dup["runId"]?.stringValue == runId)
-        #expect(await reopened.executor.executed.isEmpty)
-    }
-
-    // RET-004 / USG at the service: an input with an unknown outcome stops
-    // the run for a person, is never resent, and shows up in usage.
-    @Test func unknownOutcomeWaitsAndIsCounted() async throws {
+    // RET-004 / USG at the service: an input with an unknown outcome ends
+    // the unit, is never resent, and shows up in usage.
+    @Test func unknownOutcomeEndsAndIsCounted() async throws {
         let s = try await Slice()
         _ = try await s.configure()
         await s.executor.set(unknownAt: 2)
-        let start = try await s.ok("gui.runs.start", Slice.startParams(), key: "unknown-run-0001")
-        let runId = start["runId"]!.stringValue!
-        var run: JSONValue = .null
-        try await s.waitFor {
-            run = try await s.ok("gui.runs.get", .obj([("runId", .string(runId))]))
-            return ["succeeded", "failed", "cancelled", "waiting_user"].contains(run["state"]?.stringValue ?? "")
-        }
-        #expect(run["state"]?.stringValue == "waiting_user")
-        #expect(run["waitingReasonCode"]?.stringValue == "ACTION_OUTCOME_UNKNOWN")
+        let (run, _) = try await s.runUnit()
+        #expect(run.ending == .failed(reason: "action_outcome_unknown"))
         try await Task.sleep(nanoseconds: 200_000_000)
         #expect(await s.executor.executed.count == 2, "nothing after the unknown input, and it is not resent")
         let usage = try await s.ok("ai.usage.summary", .obj([("from", .string("2026-01-01T00:00:00Z")),
@@ -425,33 +418,29 @@ struct VerticalSliceTests {
         #expect(usage["confirmedActions"]?.intValue == 1)
         #expect(usage["unknownActionOutcomes"]?.intValue == 1)
         // Another caller sees none of it.
-        let stranger = s.service.router(callerScope: "stranger", trustedOwner: false)
-        let other: JSONValue = .obj([("result", try await stranger.answer(method: "ai.usage.summary", params: .obj([
-            ("from", .string("2026-01-01T00:00:00Z")), ("to", .string("2099-01-01T00:00:00Z"))])).get())])
-        #expect(other["result"]?["confirmedActions"]?.intValue == 0)
-        #expect(other["result"]?["unknownActionOutcomes"]?.intValue == 0)
+        let stranger = s.service.router(callerScope: "stranger")
+        let other = try await stranger.answer(method: "ai.usage.summary", params: .obj([
+            ("from", .string("2026-01-01T00:00:00Z")), ("to", .string("2099-01-01T00:00:00Z"))])).get()
+        #expect(other["confirmedActions"]?.intValue == 0)
+        #expect(other["unknownActionOutcomes"]?.intValue == 0)
+        #expect(s.ledger.questions.last == [], "the stranger's scope has no unit Runs")
     }
 
-    // SEC-001 (service part): the key never appears in any response or in
-    // the database files.
+    // SEC-001 (service part): the key never appears in any response, in the
+    // unit Run's events or in the database files.
     @Test func theKeyStaysInTheCredentialStore() async throws {
         let s = try await Slice()
         _ = try await s.configure()
-        let start = try await s.ok("gui.runs.start", Slice.startParams(), key: "neutral-run-sec")
-        let runId = start["runId"]!.stringValue!
-        try await s.waitFor {
-            let r = try await s.ok("gui.runs.get", .obj([("runId", .string(runId))]))
-            return r["state"]?.stringValue == "succeeded"
-        }
+        let (run, _) = try await s.runUnit()
+        #expect(run.ending == .verified)
         var seen: [String] = []
         for cmd in ["ai.connections.list", "ai.modelProfiles.list", "ai.profiles.list"] {
             seen.append(try await s.call(cmd).encoded())
         }
-        seen.append(s.service.runs.capabilities().encoded())
+        seen.append(s.service.guiCapabilities().encoded())
         seen.append(try await s.call("ai.usage.summary", .obj([("from", .string("2026-01-01T00:00:00Z")),
                                                                ("to", .string("2099-01-01T00:00:00Z"))])).encoded())
-        seen.append(try await s.call("gui.runs.get", .obj([("runId", .string(runId))])).encoded())
-        seen.append(try await s.call("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(0))])).encoded())
+        seen += run.events.map { $0.encoded() }
         #expect(!seen.contains { $0.contains(canary) })
         for file in try FileManager.default.contentsOfDirectory(atPath: s.dir.path) {
             let bytes = try Data(contentsOf: s.dir.appendingPathComponent(file))
@@ -460,15 +449,15 @@ struct VerticalSliceTests {
     }
 
     // MAC-007 (service part) / G0 gate: without an execution backend the
-    // AI side still works and GUI input stays closed.
+    // AI side still works and there is no unit.run executor.
     @Test func withoutABackendRealInputStaysClosed() async throws {
         let s = try await Slice(backend: false)
         let (_, test) = try await s.configure()
         #expect(test["state"]?.stringValue == "succeeded")
-        let caps = s.service.runs.capabilities()
+        #expect(s.service.units == nil)
+        let caps = s.service.guiCapabilities()
         #expect(caps["features"]?["nativeIsolationEvidence"]?.stringValue == "NOT_RUN")
-        let r = try await s.call("gui.runs.start", Slice.startParams(), key: "no-backend-1")
-        #expect(r["error"]?["code"]?.stringValue == "CAPABILITY_MISMATCH")
+        #expect(caps["verificationPredicates"]?.arrayValue?.isEmpty == true)
         #expect(s.form.inputCount == 0)
     }
 

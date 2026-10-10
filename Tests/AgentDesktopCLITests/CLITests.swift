@@ -261,7 +261,7 @@ final class Harness {
 }
 
 @Test func contractGroupsGoToTheContractCLIUnchanged() {
-    for args in [["ai", "connections", "list"], ["--json", "gui", "status", "--run-id", "r"],
+    for args in [["ai", "connections", "list"], ["--json", "ai", "operations", "get", "--id", "op"],
                  ["--socket", "/tmp/s", "rpc", "--request-file", "f"], ["ai", "capabilities"]] {
         let h = Harness()
         var seen: [String]?

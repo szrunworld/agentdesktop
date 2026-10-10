@@ -12,9 +12,15 @@ public struct AiApplicationHandlers: Sendable {
     public let runner: AiOperationRunner
     public let catalog: ModelCatalogFetcher
     public let credentials: CredentialResolver
+    /// Inputs of these unit Runs in [from, to): confirmed, and outcomes still
+    /// unknown. The Runtime holds them (A6); the host answers from its
+    /// RunStore. Without a Runtime there are no unit Runs to count.
+    public let actionOutcomes: @Sendable (_ runIds: [String], _ from: Date, _ to: Date) -> (confirmed: Int, unknown: Int)
 
     public init(store: ConfigStore, http: HTTPTransport, runner: AiOperationRunner = AiOperationRunner(),
-                credentials: CredentialResolver? = nil) {
+                credentials: CredentialResolver? = nil,
+                actionOutcomes: @escaping @Sendable ([String], Date, Date) -> (confirmed: Int, unknown: Int) = { _, _, _ in (0, 0) }) {
+        self.actionOutcomes = actionOutcomes
         self.store = store
         self.config = ConfigApplicationService(store: store)
         self.runner = runner
@@ -94,7 +100,8 @@ public struct AiApplicationHandlers: Sendable {
             guard from < to else { throw ContractError(.validationError, "from must be before to") }
             let rows = try await s.usageRows(callerScope: callerScope)
             let connection = p["connectionId"]?.stringValue
-            let actions = try await s.actionOutcomeCounts(callerScope: callerScope, from: from, to: to, connectionId: connection)
+            let runIds = try await s.unitRunIds(callerScope: callerScope, connectionId: connection)
+            let actions = actionOutcomes(runIds, from, to)
             return UsageSummaryBuilder.summarize(rows: rows, from: from, to: to, connectionId: connection,
                                                  confirmedActions: actions.confirmed, unknownActionOutcomes: actions.unknown)
         default:

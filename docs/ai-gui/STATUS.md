@@ -1,3 +1,5 @@
+> 2026-10-10（A6）：`gui.runs.*` 已撤销，GUI 运行改为 Runtime 的 `unit.run`（kind unit）；下表中关于 gui.runs 的行是 A6 之前的历史记录，现行说明见 `docs/architecture/runtime-api-v1-freeze.md` §3、§4.2、§9。
+
 # 实施进度
 
 状态词：DONE（有测试证据）、PARTIAL（部分完成，缺口写明）、NOT_STARTED。产品用例状态以 tests/cases.csv 的 ID 记录；只有实际执行断言的测试才算 PASS，契约层测试不代表对应用例的服务端或真机部分已通过。

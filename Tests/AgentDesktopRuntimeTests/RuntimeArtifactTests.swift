@@ -364,11 +364,11 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
 @Test func aGuiRunIsHeldToItsLimitAndHearsWhy() async throws {
     let (platform, s, ports, d) = try guiScene()
     s.artifacts.limits.perRunArtifacts = 3
-    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
-    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)  // window capture + model copy: 2 of 3
+    let r1 = try await guiRun(s, ports, d)
+    _ = try await ports.observe(runId: r1, expectedGeneration: 1)  // window capture + model copy: 2 of 3
     do {
         // Both of a step's screenshots must fit: refused before the window capture.
-        _ = try await ports.observe(runId: "r1", expectedGeneration: 1)
+        _ = try await ports.observe(runId: r1, expectedGeneration: 1)
         Issue.record("the GUI run went past its limit")
     } catch let e as ContractError {
         #expect(e.code == .limitExceeded)
@@ -385,10 +385,12 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
 @Test func eachGuiRunHasItsOwnQuota() async throws {
     let (_, s, ports, d) = try guiScene()
     s.artifacts.limits.perRunArtifacts = 2
-    let first = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
-    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)
-    _ = try await ports.authorize(sessionId: first.sessionId, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r2")
-    _ = try await ports.observe(runId: "r2", expectedGeneration: 1)
+    let r1 = try await guiRun(s, ports, d)
+    _ = try await ports.observe(runId: r1, expectedGeneration: 1)
+    s.unitExecutorFinished(r1, .cancelled)
+    _ = call(s, handshaken(s), "run.cancel", params: #"{"runId":"\#(r1)"}"#)
+    let r2 = try await guiRun(s, ports, d)
+    _ = try await ports.observe(runId: r2, expectedGeneration: 1)
 }
 
 // A free-space answer that is too old, or a query that hangs, refuses.
@@ -489,19 +491,19 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
 // A failed capture leaves no half-written image behind.
 @Test func aFailedCaptureLeavesNoFile() async throws {
     let (platform, s, ports, d) = try guiScene()
-    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    let r1 = try await guiRun(s, ports, d)
     platform.failScreenshot = true
-    await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: "r1", expectedGeneration: 1) }
+    await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: r1, expectedGeneration: 1) }
     let files = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".png") }
     #expect(files.isEmpty, "\(files)")
     // A GUI step's window capture is recorded under its Run.
     platform.failScreenshot = false
-    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)
+    _ = try await ports.observe(runId: r1, expectedGeneration: 1)
     let metas = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".meta.json") }
     #expect(metas.count == 2)
     for m in metas {
         let v = try StrictJSON.parse(try Data(contentsOf: URL(fileURLWithPath: s.artifacts.directory + "/" + m)))
-        #expect(v["runId"]?.stringValue == "r1", "\(m)")
+        #expect(v["runId"]?.stringValue == r1, "\(m)")
     }
 }
 
@@ -511,13 +513,13 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
 @Test(arguments: ["store", "disk", "unknown"])
 func aGuiStepIsRefusedWholeByAnyLimit(_ which: String) async throws {
     let (_, s, ports, d) = try guiScene()
-    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    let r1 = try await guiRun(s, ports, d)
     switch which {
     case "store": s.artifacts.limits.totalBytes = 0
     case "disk": s.artifacts.freeBytes = { 100 }; s.artifacts.refreshFreeSpace()
     default: s.artifacts.freeBytes = { nil }; s.artifacts.refreshFreeSpace()
     }
-    await #expect(throws: ContractError.self) { _ = try await ports.observe(runId: "r1", expectedGeneration: 1) }
+    await #expect(throws: ContractError.self) { _ = try await ports.observe(runId: r1, expectedGeneration: 1) }
     let pngs = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".png") }
     #expect(pngs.isEmpty, "\(pngs)")
 }
@@ -525,14 +527,14 @@ func aGuiStepIsRefusedWholeByAnyLimit(_ which: String) async throws {
 @Test func aFailedGuiStepGivesItsPlacesBack() async throws {
     let (platform, s, ports, d) = try guiScene()
     s.artifacts.limits.perRunArtifacts = 2
-    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    let r1 = try await guiRun(s, ports, d)
     platform.failScreenshot = true
-    await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: "r1", expectedGeneration: 1) }
+    await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: r1, expectedGeneration: 1) }
     platform.failScreenshot = false
     // Both places came back: the next step fits whole.
-    #expect(s.artifacts.count(bucket: "gui:r1") == 0)
-    _ = try await ports.observe(runId: "r1", expectedGeneration: 1)
-    #expect(s.artifacts.count(bucket: "gui:r1") == 2)
+    #expect(s.artifacts.count(bucket: "gui:" + r1) == 0)
+    _ = try await ports.observe(runId: r1, expectedGeneration: 1)
+    #expect(s.artifacts.count(bucket: "gui:" + r1) == 2)
     #expect(s.quotaBuckets.isEmpty && s.quotaBucketsUsed.isEmpty, "no per-request bucket left behind")
 }
 
@@ -542,17 +544,17 @@ func aGuiStepIsRefusedWholeByAnyLimit(_ which: String) async throws {
 @Test func aStoredCaptureKeepsItsPlaceWhenTheStepFailsAfterIt() async throws {
     let (platform, s, ports, d) = try guiScene()
     let screen = try #require(s.desktops.find(d)?.screen)
-    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
+    let r1 = try await guiRun(s, ports, d)
     platform.onCapture = {
         platform.inFront[screen.name] = [PlatformWindow(windowId: 77, pid: 555, appName: "Notes", title: "盖住", frame: screen.frame)]
     }
     let before = platform.calls.filter { $0.contains("creenshot") || $0.hasSuffix("window") }.count
-    await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: "r1", expectedGeneration: 1) }
+    await #expect(throws: (any Error).self) { _ = try await ports.observe(runId: r1, expectedGeneration: 1) }
     let shots = platform.calls.filter { $0.contains("creenshot") || $0.hasSuffix("window") }.count - before
     let pngs = try FileManager.default.contentsOfDirectory(atPath: s.artifacts.directory).filter { $0.hasSuffix(".png") }
     #expect(shots == 1)
     #expect(pngs.count == 1, "\(pngs)")
-    #expect(s.artifacts.count(bucket: "gui:r1") == pngs.count, "the count matches what is stored")
+    #expect(s.artifacts.count(bucket: "gui:" + r1) == pngs.count, "the count matches what is stored")
     #expect(s.quotaBuckets.isEmpty && s.quotaBucketsUsed.isEmpty, "no per-request state left behind")
 }
 

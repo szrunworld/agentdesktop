@@ -1,6 +1,6 @@
 # A6（PR2d）unit.run 接入草案：契约增量与测试清单
 
-状态：2026-10-10 起 `unit.run` 已按本草案落到 RunStore（A6-1），实现与冻结文档 §3、§4.2、§5 为准；`gui.runs.*` 的调用方迁移与删除在 A6-2。L-AIGUI（2ndscreen-40）起草，2026-10-08。
+状态：2026-10-10 起 `unit.run` 已按本草案落到 RunStore（A6-1），实现与冻结文档 §3、§4.2、§5 为准；A6-2 迁移了调用方（CLI `unit run`、主窗口 W05–W07 经进程内 Durable Run），删除了 `gui.runs.*`、GuiRunService 与 AI 服务的运行表读写。L-AIGUI（2ndscreen-40）起草，2026-10-08。
 
 - 契约部分（第 3 节）只是提议。按 plan 2.1 和冻结规则第 3 条，由集成负责人（2ndscreen-5c）改 `runtime.schema.json` / `methods.json` / 冻结文档之后才算数。
 - 本草案不改任何代码，也不改冻结目录。

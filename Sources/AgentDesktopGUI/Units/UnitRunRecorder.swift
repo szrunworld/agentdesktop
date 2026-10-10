@@ -13,6 +13,8 @@ public actor UnitRunRecorder: GuiRunRecording {
     let maxSteps: Int
     let deadlineNs: UInt64
     public private(set) var writeFailed = false
+    /// Model calls of each step already reported.
+    private var reportedAttempts: [Int: Int] = [:]
 
     public init(sink: UnitRunSink, budget: AttemptBudget, clock: MonotonicClock, maxSteps: Int, deadlineNs: UInt64) {
         self.sink = sink
@@ -44,8 +46,13 @@ public actor UnitRunRecorder: GuiRunRecording {
     public func inferenceStarted(stepIndex: Int) async {}
 
     public func inference(_ r: GuiInferenceReceipt, discarded: Bool) async {
+        // A step's inference may make more than one call (a transient
+        // failure moves to the fallback); the budget counts them all.
+        let total = await budget.attempts(step: r.stepIndex)
+        let attempts = max(1, total - reportedAttempts[r.stepIndex, default: 0])
+        reportedAttempts[r.stepIndex] = max(total, reportedAttempts[r.stepIndex, default: 0] + 1)
         record("unit.inference.attempt", [
-            ("stepIndex", .int(r.stepIndex)), ("inferenceAttemptId", .string(r.inferenceAttemptId)),
+            ("stepIndex", .int(r.stepIndex)), ("inferenceAttemptId", .string(r.inferenceAttemptId)), ("attempts", .int(attempts)),
             ("state", .string(r.record.state.rawValue)), ("discarded", .bool(discarded)),
             ("errorCode", r.record.error.map { .string(Self.code($0.code.rawValue)) } ?? .null),
         ])

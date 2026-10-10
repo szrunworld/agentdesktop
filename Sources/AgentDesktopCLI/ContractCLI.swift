@@ -78,10 +78,8 @@ public struct ContractCLI {
       ai tests start --profile-id ID --expected-revision N [--wait]
       ai operations get|cancel --id ID
       ai usage --from TIME --to TIME [--connection-id ID]
-      gui run --desktop ID [--session ID] [--profile-id ID --expected-profile-revision N]
-              --goal-file F --verification-file F --allowed-actions click,type,key [--wait]
-      gui status|cancel --run-id ID
-      gui events --run-id ID --after-sequence N [--follow]
+
+    GUI unit Runs are Runtime commands: `agentdesktop unit run`, then `run show|events|wait|cancel`.
 
     Every command that changes state needs --idempotency-key K (8 to 128 characters; it is the requestId); reuse K when retrying.
     Common: --dry-run (validate only, nothing sent), --wait-timeout-ms N, --deadline-at TIME.

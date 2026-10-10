@@ -220,6 +220,31 @@ extension RuntimeService {
         units.current?.ports.unbind(runId: r.runId)
     }
 
+    /// Inputs of these Runs in [from, to): delivered and executed
+    /// (action.completed), and those whose outcome is unknown
+    /// (action.unknown). For ai.usage.summary (A6: the AI service no longer
+    /// keeps action receipts of its own).
+    public func actionOutcomes(runIds: [String], from: Date, to: Date) -> (confirmed: Int, unknown: Int) {
+        var confirmed = 0, unknown = 0
+        for id in Set(runIds) {
+            var after = 0
+            while true {
+                let page = runs.events(id, after: after, limit: 500)
+                for e in page {
+                    guard let at = e["at"]?.stringValue.flatMap(Timestamp.date), at >= from, at < to else { continue }
+                    switch e["type"]?.stringValue {
+                    case "action.completed": confirmed += 1
+                    case "action.unknown": unknown += 1
+                    default: break
+                    }
+                }
+                guard page.count == 500, let last = page.last?["sequence"]?.intValue else { break }
+                after = last
+            }
+        }
+        return (confirmed, unknown)
+    }
+
     /// Wait for async work from a synchronous handler, off the cooperative
     /// pool (the server answers on its own threads).
     static func blocking<T: Sendable>(_ body: @escaping @Sendable () async -> T) -> T {

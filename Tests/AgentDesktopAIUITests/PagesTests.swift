@@ -230,7 +230,8 @@ struct PagesTests {
     }
 
     // UI-005: validate-only does nothing; double start is one run; the
-    // default moving later does not change the run's binding.
+    // default moving later does not change the run's binding (A6: a
+    // Durable unit Run started in-process).
     @Test func ui005_startRun() async throws {
         let h = try await Harness()
         let spy = SpyClient(h.client)
@@ -243,7 +244,7 @@ struct PagesTests {
         s.desktopId = "desk-a"
         await s.validateOnly()
         #expect(s.summary?.contains("GUI 配置 r\(first.revision)") == true)
-        #expect(spy.count("gui.runs.start") == 0)
+        #expect(spy.count("unit.run") == 0)
         #expect(await h.executor.executed == 0)
 
         s.allowedActions = []
@@ -255,11 +256,11 @@ struct PagesTests {
         async let two: Void = s.start()
         _ = await (one, two)
         let runId = try #require(s.startedRunId)
-        #expect(spy.count("gui.runs.start") == 1, "a second click while starting sends nothing")
-        // A retry of the same submission (e.g. after a lost answer) reuses the key.
+        #expect(spy.count("unit.run") == 1, "a second click while starting sends nothing")
+        // A started page starts no second Run until prepareNew.
         await s.start()
-        #expect(spy.count("gui.runs.start") == 2)
-        #expect(s.startedRunId == runId, "same key, same run")
+        #expect(spy.count("unit.run") == 1)
+        #expect(s.startedRunId == runId)
 
         p.newProfile()
         p.name = "Later default"
@@ -268,9 +269,10 @@ struct PagesTests {
         await p.setDefault(try #require(p.profiles.first { $0.name == "Later default" }))
         let d = RunDetailModel(client: spy, runId: runId, clock: FastClock(), pollMs: 5)
         await d.follow()
-        #expect(d.bindingSummary.first { $0.0 == "GUI 配置" }?.1 == "UI-TARS r\(first.revision)")
-        let runs = try await h.client.send("gui.runs.get", .obj([("runId", .string(runId))]))
-        #expect(runs["binding"]?["primary"]?["guiProfile"]?["guiProfileId"]?.stringValue == first.id)
+        #expect(d.bindingSummary.first { $0.0 == "GUI 配置" }?.1 == "\(first.id) r\(first.revision)")
+        let run = try await h.client.runtime("run.show", .obj([("runId", .string(runId))]), requestId: nil)
+        #expect(run["unit"]?["guiProfileId"]?.stringValue == first.id)
+        #expect(run["origin"]?.stringValue == "gui_explorer" && run["lifetime"]?.stringValue == "platform_durable")
         #expect(h.form.submissions == 1, "one start, one run")
     }
 
@@ -286,10 +288,12 @@ struct PagesTests {
         await d.follow()
         #expect(d.state == "succeeded")
         #expect(d.stateText.hasPrefix("成功"))
-        #expect(d.verification.status == "passed")
+        #expect(d.verification.status == "matched")
         #expect(d.verification.observationId != nil)
         #expect(d.confirmedActions == 3)
+        #expect(d.modelAttempts == 3 && d.stepCount == 3)
         #expect(d.latestReceipt?.deliveryText.contains("不代表任务成功") == true)
+        #expect(d.events.contains { $0.type == "unit.verification" } && d.events.last?.type == "run.ended")
         let count = d.events.count
         await d.refresh()
         await d.refresh()
@@ -325,7 +329,8 @@ struct PagesTests {
         #expect(await h.executor.executed == 1, "no input after the stop")
     }
 
-    // UI-006 (W07): an unknown outcome waits, is never resent, has no resume.
+    // UI-006 (W07): an unknown outcome ends the Run as unknown; the input
+    // is never resent and nothing resumes it.
     @Test func ui006_unknownOutcomeAttention() async throws {
         let h = try await Harness()
         _ = try await configure(h.client)
@@ -337,24 +342,45 @@ struct PagesTests {
         let runId = try #require(s.startedRunId)
         let d = RunDetailModel(client: h.client, runId: runId, clock: FastClock(), pollMs: 5)
         await d.follow()
+        // It needs attention as soon as an input's outcome is unknown, even
+        // before the Runtime ended the Run.
+        #expect(d.needsAttention)
+        try await waitUntil("the Run to end") { await d.refresh(); return d.isTerminal }
+        #expect(d.state == "unknown")
         #expect(d.needsAttention)
         #expect(d.stateText.contains("有一项输入结果尚未确认"))
+        #expect(!d.canStop)
 
         let a = AttentionModel(client: h.client, runId: runId, clock: FastClock())
         await a.refreshEvidence()
         #expect(a.branch == .unknownAction)
         #expect(a.headline == "有一项输入结果尚未确认")
         #expect(a.explanation.contains("不会自动重发"))
-        #expect(a.evidenceFreshness == "动作前 / 旧证据")
-        #expect(!a.canCreateNewRun)
+        #expect(a.canCreateNewRun, "the Runtime ended the Run; a new one may start")
         await a.refreshEvidence()
         #expect(await h.executor.executed == 1, "reading evidence never resends the input")
+    }
 
+    // W07 while the Run is still running with an unknown input in it:
+    // stopping is the only control.
+    @Test func ui006_needsUserWaitsUntilStopped() async throws {
+        let h = try await Harness()
+        _ = try await configure(h.client)
+        h.upstream.callUser = true
+        let s = RunStartModel(client: h.client)
+        await s.load()
+        s.desktopId = "desk-a"
+        await s.start()
+        let runId = try #require(s.startedRunId)
+        let a = AttentionModel(client: h.client, runId: runId, clock: FastClock())
+        await a.detail.follow()
+        await a.refreshEvidence()
+        #expect(a.branch == .needsUser("model_requested_user"))
+        #expect(a.detail.canStop)
         await a.requestStop()
-        #expect(a.branch == .cancelPending)
-        #expect(a.headline.contains("停止请求已收到"))
-        #expect(a.detail.state == "cancelling")
-        #expect(await h.executor.executed == 1)
+        #expect(a.detail.state == "cancelled")
+        #expect(a.branch == .resolved("cancelled"))
+        #expect(await h.executor.executed == 0)
     }
 
     // USG-004: attempts vs inputs; unreported usage is unknown, not 0;
@@ -375,9 +401,9 @@ struct PagesTests {
         #expect(u.problem == nil)
         #expect(u.attempts == 3)
         #expect(u.missingUsage == 3)
-        // Real inputs are a separate count from model attempts. (The service's
-        // summary does not count action receipts yet; the page shows its value.)
-        #expect(u.confirmedActions == u.summary?["confirmedActions"]?.intValue)
+        // Real inputs are a separate count from model attempts: the
+        // Runtime's receipts of this caller's unit Runs.
+        #expect(u.confirmedActions == 3)
         #expect(u.coverageText == "0/3 次尝试报告了用量")
         #expect(u.tokenText.total == "未知 / 未报告")
         #expect(u.costText.contains("总额未知"))

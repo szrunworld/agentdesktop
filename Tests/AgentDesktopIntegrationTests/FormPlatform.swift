@@ -9,9 +9,9 @@ import Testing
 import UniformTypeIdentifiers
 @testable import AgentDesktopRuntime
 
-// A GUI run of the AI service executed by the Runtime: the explorer asks
-// the Runtime's ports to observe and act; every input goes through the
-// Runtime's act (checks, lease, ledger) to the platform.
+// The stand-ins a GUI unit Run executed by the Runtime uses (A6): a form
+// window platform, a backend, a scripted Ark upstream. The tests are in
+// UnitRunOnRuntimeTests.
 
 let integrationGoal = "点击保存按钮，把表单保存"
 let saved = "已保存"
@@ -157,90 +157,4 @@ final class Upstream: HTTPTransport, @unchecked Sendable {
         ])
         return HTTPResult(status: 200, headers: ["Content-Type": "application/json"], body: response.encodedData())
     }
-}
-
-@Test func aGuiRunOfTheServiceIsExecutedByTheRuntime() async throws {
-    let platform = FormPlatform()
-    let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_int", pid: getpid(), startedAt: Timestamp.string(Date()),
-                                                           endpoint: "/tmp/int.sock", buildSource: "unknown"),
-                                 backend: Backend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
-    let c = ConnectionState(peerUID: getuid())
-    func rt(_ method: String, _ params: String = "{}") -> JSONValue? {
-        let r = runtime.respond(to: Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(RuntimeRequest.newId())","method":"\#(method)","params":\#(params)}"#.utf8), on: c)
-        if case let .success(d) = r.result { return d }
-        return nil
-    }
-    _ = rt("runtime.handshake", #"{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"t","version":"1"}}"#)
-    let desktop = try #require(rt("desktop.create")?["desktopId"]?.stringValue)
-    #expect(rt("window.bind", #"{"desktopId":"\#(desktop)","pid":101}"#) != nil)
-
-    let ports = RuntimeGuiPorts(service: runtime)
-    struct NoAudit: GuiAuditPort {
-        func reserveInference(runId: String, stepIndex: Int, snapshotId: String) {}
-        func recordInference(_ receipt: GuiInferenceReceipt) {}
-        func reserveAction(_ proposal: GuiProposal) -> String { "act-" + UUID().uuidString.prefix(8).lowercased() }
-        func recordAction(_ receipt: GuiActionReceipt) {}
-    }
-    let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("adt-int-\(UUID().uuidString.prefix(8))")
-    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: dir) }
-    let upstream = Upstream()
-    let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
-        databasePath: dir.appendingPathComponent("config.sqlite").path, credentials: InMemoryCredentialStore(), http: upstream,
-        executionBackend: GuiExecutionBackend(
-            ports: GuiExplorerPorts(observation: ports, execution: ports, audit: NoAudit()), sessions: ports,
-            features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]))))
-    let router = service.router(callerScope: "owner", trustedOwner: true)
-    func ai(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil) async throws -> JSONValue {
-        switch await router.answer(method: command, params: params, idempotencyKey: key) {
-        case let .success(v): return v
-        case let .failure(e): throw ContractError(.internalError, "\(command): \(e.json.encoded())")
-        }
-    }
-    func until(_ check: () async throws -> Bool) async throws {
-        for _ in 0..<500 { if try await check() { return }; try await Task.sleep(nanoseconds: 10_000_000) }
-        throw ContractError(.deadlineExceeded, "condition not reached")
-    }
-
-    // Model configuration as an owner would do it.
-    let conn = try await ai("ai.connections.create", .obj([
-        ("name", .string("Ark")), ("protocol", .string("openai_chat")), ("baseUrl", .string("https://ark.cn-beijing.volces.com/api/v3")),
-        ("timeoutMs", .int(30000)), ("credential", .obj([("apiKey", .string(integrationKey))]))]), key: "integration-c1")
-    let refresh = try await ai("ai.models.refresh", .obj([("connectionId", conn["connectionId"]!), ("expectedRevision", conn["revision"]!)]), key: "integration-r1")
-    try await until { ["succeeded", "failed"].contains(try await ai("ai.operations.get", .obj([("operationId", refresh["operationId"]!)]))["state"]?.stringValue ?? "") }
-    let model = try await ai("ai.modelProfiles.create", .obj([
-        ("name", .string("Seed lite")), ("connectionId", conn["connectionId"]!), ("connectionRevision", conn["revision"]!),
-        ("modelId", .string("doubao-seed-2-1-lite-260915")), ("requestOptions", .obj([("temperature", .int(0))])), ("maxOutputTokens", .int(1024))]), key: "integration-m1")
-    let gui = try await ai("ai.profiles.create", .obj([
-        ("name", .string("UI-TARS")), ("modelProfileId", model["modelProfileId"]!), ("modelProfileRevision", model["revision"]!),
-        ("adapterId", .string("uitars_v1")), ("adapterVersion", .string("1.0.0")), ("promptVersion", .string("uitars-prompt-1")),
-        ("parserVersion", .string("uitars-parser-1")), ("coordinateProtocol", .string("normalized_1000")), ("limits", GuiLimits.ceiling.json),
-        ("allowedFallbackProfileRefs", .array([]))]), key: "integration-g1")
-    let test = try await ai("ai.tests.start", .obj([("guiProfileId", gui["guiProfileId"]!), ("expectedRevision", gui["revision"]!),
-                                                    ("fixtureId", .string("synthetic_gui_v1"))]), key: "integration-t1")
-    try await until { ["succeeded", "failed", "cancelled"].contains(try await ai("ai.operations.get", .obj([("operationId", test["operationId"]!)]))["state"]?.stringValue ?? "") }
-    #expect(platform.inputs.isEmpty, "capability tests never touch the desktop")
-    let def = try await ai("ai.profiles.default.get")
-    _ = try await ai("ai.profiles.setDefault", .obj([("guiProfileId", gui["guiProfileId"]!), ("expectedDefaultRevision", def["default"]!["revision"]!),
-                                                    ("expectedProfileRevision", gui["revision"]!)]), key: "integration-d1")
-
-    // The run, against the Runtime's Desktop.
-    let start = try await ai("gui.runs.start", .obj([
-        ("desktopId", .string(desktop)), ("goal", .string(integrationGoal)),
-        ("verification", .obj([("kind", .string("element_text_equals")), ("role", .string("static_text")), ("text", .string(saved))])),
-        ("allowedActions", .array([.string("click")]))]), key: "integration-run-1")
-    let runId = try #require(start["runId"]?.stringValue)
-    var run: JSONValue = .null
-    try await until {
-        run = try await ai("gui.runs.get", .obj([("runId", .string(runId))]))
-        return ["succeeded", "failed", "cancelled", "waiting_user"].contains(run["state"]?.stringValue ?? "")
-    }
-    #expect(run["state"]?.stringValue == "succeeded", "\(run.encoded())")
-    #expect(run["goalVerification"]?["status"]?.stringValue == "passed")
-    #expect(platform.status == saved)
-    #expect(platform.inputs.count == 1)
-    // normalized_1000 rounds: within half a source pixel of the button centre.
-    let hit = try #require(platform.inputs.first?.point)
-    #expect(abs(hit.x - 2350) < 0.5 && abs(hit.y - 320) < 0.5, "\(hit)")
-    #expect(upstream.runCalls == 1)
 }

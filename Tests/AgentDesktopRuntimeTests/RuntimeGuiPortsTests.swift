@@ -25,32 +25,10 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
                 body: body)
 }
 
-@Test func authorizeChecksDesktopBindingAndSession() async throws {
-    let (_, s, ports, d) = try guiScene()
-    await #expect(throws: ContractError.self) { _ = try await ports.authorize(sessionId: nil, desktopId: "d_none", callerScope: "u", trustedOwner: true, runId: "r0") }
-    let c = handshaken(s)
-    let bare = try created(s, c)
-    do {
-        _ = try await ports.authorize(sessionId: nil, desktopId: bare, callerScope: "u", trustedOwner: true, runId: "r0")
-        Issue.record("a desktop without a bound window must be refused")
-    } catch let e as ContractError { #expect(e.code == .capabilityMismatch) }
-    do {
-        _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: false, runId: "r0")
-        Issue.record("an untrusted caller without a session must be refused")
-    } catch let e as ContractError { #expect(e.code == .forbidden) }
-    do {
-        _ = try await ports.authorize(sessionId: "s_other", desktopId: d, callerScope: "u", trustedOwner: true, runId: "r0")
-        Issue.record("an unknown session must be refused")
-    } catch let e as ContractError { #expect(e.code == .forbidden) }
-    let (sid, epoch) = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
-    #expect(s.sessions.find(sid, caller: "local:\(getuid())")?.desktopId == d)
-    #expect(epoch == 1)
-}
-
 @Test func observeHandsTheModelTheBoundWindowWithExactTransforms() async throws {
     let (_, s, ports, d) = try guiScene()
-    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
-    let bundle = try await ports.observe(runId: "r1", expectedGeneration: 7)
+    let r1 = try await guiRun(s, ports, d)
+    let bundle = try await ports.observe(runId: r1, expectedGeneration: 7)
     let o = bundle.observation
     #expect(o.stamp.desktopId == d && o.stamp.runGeneration == 7 && o.stamp.bindingEpoch == 1)
     #expect(o.target.windowId == "11" && o.target.processId == 101 && o.target.backendId == "2ndscreen-engine")
@@ -70,11 +48,11 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
 
 @Test func executeRunsThroughTheRuntimeExecutorOncePerActionId() async throws {
     let (platform, s, ports, d) = try guiScene()
-    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
-    let bundle = try await ports.observe(runId: "r1", expectedGeneration: 1)
+    let r1 = try await guiRun(s, ports, d)
+    let bundle = try await ports.observe(runId: r1, expectedGeneration: 1)
     let shot = bundle.observation.screenshots[0].screenshotId
     // Source pixel (100,100) → (2150,150) in points, inside the window.
-    let p = proposal(.action(.click(sourcePixel: Point(x: 100, y: 100))), run: "r1", stamp: bundle.observation.stamp, shot: shot)
+    let p = proposal(.action(.click(sourcePixel: Point(x: 100, y: 100))), run: r1, stamp: bundle.observation.stamp, shot: shot)
     let r = try await ports.execute(p, actionId: "act-1")
     #expect(r.deliveryState == .confirmed)
     #expect(r.executionTarget?.windowId == "11")
@@ -88,37 +66,37 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
     #expect(try s.ledger.record(caller: "local:\(getuid())", requestId: "gui-act-1")?.method == "act")
 
     // Keys: Meta+A → cmd-a.
-    let k = proposal(.action(.key(keys: ["Meta", "A"])), run: "r1", stamp: bundle.observation.stamp, shot: shot)
+    let k = proposal(.action(.key(keys: ["Meta", "A"])), run: r1, stamp: bundle.observation.stamp, shot: shot)
     _ = try await ports.execute(k, actionId: "act-2")
     #expect(platform.performed.last?.key == "a" && platform.performed.last?.modifiers == ["cmd"])
 }
 
 @Test func staleAndUnknownOutcomesAreReportedNotRetried() async throws {
     let (platform, s, ports, d) = try guiScene()
-    _ = try await ports.authorize(sessionId: nil, desktopId: d, callerScope: "u", trustedOwner: true, runId: "r1")
-    let bundle = try await ports.observe(runId: "r1", expectedGeneration: 1)
+    let r1 = try await guiRun(s, ports, d)
+    let bundle = try await ports.observe(runId: r1, expectedGeneration: 1)
     let stamp = bundle.observation.stamp
     let shot = bundle.observation.screenshots[0].screenshotId
 
     platform.failNext = PlatformError(.refused, "the app stopped answering", beforeDispatch: false)
-    let unknown = try await ports.execute(proposal(.action(.type(text: "秘密")), run: "r1", stamp: stamp, shot: shot), actionId: "act-u")
+    let unknown = try await ports.execute(proposal(.action(.type(text: "秘密")), run: r1, stamp: stamp, shot: shot), actionId: "act-u")
     #expect(unknown.deliveryState == .unknown)
     #expect(unknown.executionTarget?.processId == 101)
     #expect(unknown.reasonCode == "ACTION_OUTCOME_UNKNOWN")
 
     // Outside the window: refused before any input.
-    let outside = try await ports.execute(proposal(.action(.click(sourcePixel: Point(x: 900, y: 5))), run: "r1", stamp: stamp, shot: shot), actionId: "act-o")
+    let outside = try await ports.execute(proposal(.action(.click(sourcePixel: Point(x: 900, y: 5))), run: r1, stamp: stamp, shot: shot), actionId: "act-o")
     #expect(outside.deliveryState == .rejected && outside.reasonCode == "COORDINATE_OUT_OF_BOUNDS")
 
     // Rebinding makes the proposal's snapshot stale.
     let c = handshaken(s)
     _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
-    let stale = try await ports.execute(proposal(.action(.click(sourcePixel: Point(x: 300, y: 300))), run: "r1", stamp: stamp, shot: shot), actionId: "act-s")
+    let stale = try await ports.execute(proposal(.action(.click(sourcePixel: Point(x: 300, y: 300))), run: r1, stamp: stamp, shot: shot), actionId: "act-s")
     #expect(stale.deliveryState == .rejected && stale.reasonCode == "STALE_OBSERVATION")
     #expect(platform.performed.isEmpty)
 
     // Another session's stamp is refused outright.
     let foreign = ObservationStamp(sessionId: "s_other", desktopId: d, snapshotId: stamp.snapshotId, bindingEpoch: 1, runGeneration: 1)
-    let forbidden = try await ports.execute(proposal(.action(.click(sourcePixel: Point(x: 300, y: 300))), run: "r1", stamp: foreign, shot: shot), actionId: "act-f")
+    let forbidden = try await ports.execute(proposal(.action(.click(sourcePixel: Point(x: 300, y: 300))), run: r1, stamp: foreign, shot: shot), actionId: "act-f")
     #expect(forbidden.deliveryState == .rejected && forbidden.reasonCode == "FORBIDDEN")
 }

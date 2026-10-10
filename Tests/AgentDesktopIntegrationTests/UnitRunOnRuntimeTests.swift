@@ -53,7 +53,7 @@ func unitStack(configure: Bool = true) async throws -> UnitStack {
     let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
         databasePath: dir.appendingPathComponent("config.sqlite").path, credentials: InMemoryCredentialStore(), http: upstream,
         executionBackend: GuiExecutionBackend(
-            ports: GuiExplorerPorts(observation: ports, execution: ports, audit: UnitTestNoAudit()), sessions: ports,
+            ports: GuiExplorerPorts(observation: ports, execution: ports, audit: UnitTestNoAudit()),
             features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]))))
     runtime.registerUnitExecutor(try #require(service.units), ports: ports)
     if configure { try await configureArk(service) }
@@ -70,7 +70,7 @@ struct UnitTestNoAudit: GuiAuditPort {
 /// The owner's model configuration: Ark connection, model, UI-TARS GUI
 /// profile set as default (the local owner's scope is uid:<n>).
 func configureArk(_ service: AgentDesktopService) async throws {
-    let router = service.router(callerScope: "uid:\(getuid())", trustedOwner: true)
+    let router = service.router(callerScope: "uid:\(getuid())")
     func ai(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil) async throws -> JSONValue {
         switch await router.answer(method: command, params: params, idempotencyKey: key) {
         case let .success(v): return v

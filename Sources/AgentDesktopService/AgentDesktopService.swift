@@ -12,15 +12,13 @@ public struct AgentDesktopServiceOptions: Sendable {
     public var clock: MonotonicClock
     public var config: ConfigOptions
     /// The Runtime's observation/execution ports. Nil keeps real GUI input
-    /// closed: `gui.runs.start` answers CAPABILITY_MISMATCH (spec §15, G0).
+    /// closed: there is no unit.run executor, and the Runtime answers
+    /// unsupported_backend (spec §15, G0). Its audit port is not used: a
+    /// unit Run's records are the Runtime's (A6).
     public var executionBackend: GuiExecutionBackend?
-    /// Runs, events and receipts. Nil keeps them in the configuration
-    /// database, which is what restart recovery reads (spec §07.4).
-    public var runRepository: GuiRunRepository?
-    /// Replace the backend's audit port with the durable one in the
-    /// configuration database, so a pending input survives a crash as
-    /// unknown (spec §09.3). Only tests that count audit calls turn it off.
-    public var durableAudit: Bool
+    /// The inputs of these unit Runs in [from, to), for ai.usage.summary:
+    /// the host reads them from the Runtime's RunStore.
+    public var actionOutcomes: @Sendable ([String], Date, Date) -> (confirmed: Int, unknown: Int)
     public var prices: AiPriceTable?
 
     public init(databasePath: String,
@@ -29,8 +27,7 @@ public struct AgentDesktopServiceOptions: Sendable {
                 clock: MonotonicClock = SystemMonotonicClock(),
                 config: ConfigOptions = ConfigOptions(),
                 executionBackend: GuiExecutionBackend? = nil,
-                runRepository: GuiRunRepository? = nil,
-                durableAudit: Bool = true,
+                actionOutcomes: @escaping @Sendable ([String], Date, Date) -> (confirmed: Int, unknown: Int) = { _, _, _ in (0, 0) },
                 prices: AiPriceTable? = nil) {
         self.databasePath = databasePath
         self.credentials = credentials
@@ -38,34 +35,29 @@ public struct AgentDesktopServiceOptions: Sendable {
         self.clock = clock
         self.config = config
         self.executionBackend = executionBackend
-        self.runRepository = runRepository
-        self.durableAudit = durableAudit
+        self.actionOutcomes = actionOutcomes
         self.prices = prices
     }
 }
 
-/// The composition of contract v1: one configuration store, one model
-/// service (shared by capability tests and GUI runs, spec §18.1), one run
-/// service, and the handlers of its runtime/1 methods on top of them. Nothing here takes
-/// input; GUI runs reach a desktop only through the injected backend.
+/// The composition of the AI service: one configuration store, one model
+/// service (shared by capability tests and GUI unit Runs, spec §18.1), the
+/// unit.run executor, and the handlers of its runtime/1 methods. Nothing
+/// here takes input; unit Runs reach a desktop only through the Runtime.
 public final class AgentDesktopService: Sendable {
     public let store: ConfigStore
     public let ai: DefaultAiService
-    public let runs: GuiRunService
     /// A6: the executor of unit.run, when a GUI execution backend is on.
     /// The host registers it with the Runtime, which owns its Runs.
     public let units: UnitRunService?
-    /// What restart recovery found when the service opened.
-    public let recovery: RunRecoveryReport
+    let features: GuiBackendFeatures?
+    let codecs: GuiCodecRegistry
     let aiHandlers: AiApplicationHandlers
     let capabilityTests: CapabilityTestService
 
     public static func open(_ o: AgentDesktopServiceOptions) async throws -> AgentDesktopService {
         let digestKey = try ConfigStore.loadOrCreateDigestKey(in: o.credentials)
         let store = try ConfigStore(path: o.databasePath, credentials: o.credentials, digestKey: digestKey, options: o.config)
-        // Before anything can start: unresolved inputs of the last process
-        // become unknown and quarantined; nothing is resent.
-        let recovery = try await RunRecovery(store: store).recover()
         let admission = CredentialRevocationAdmission(store: store)
         await admission.register()
         let credentials = StoreCredentialResolver(store: store)
@@ -73,7 +65,6 @@ public final class AgentDesktopService: Sendable {
                                   admission: admission, clock: o.clock, prices: o.prices)
         let codecs = GuiCodecRegistry(fixtureAdapterEnabled: o.config.allowFixtureAdapter)
         let runner = AiOperationRunner()
-        var backend = o.executionBackend
         // unit.run keeps no run table here: the Runtime's RunStore, request
         // ledger and the AI call ledger are the records (A6 principle 3).
         let units = o.executionBackend.map { be in
@@ -82,31 +73,30 @@ public final class AgentDesktopService: Sendable {
                                                    audit: UnitRunAudit()),
                            features: be.features, aiService: ai, codecs: codecs, clock: o.clock)
         }
-        if let be = backend, o.durableAudit {
-            backend = GuiExecutionBackend(
-                ports: GuiExplorerPorts(observation: be.ports.observation, execution: be.ports.execution,
-                                        audit: SQLiteGuiAuditPort(store: store)),
-                sessions: be.sessions, features: be.features)
-        }
-        let runs = GuiRunService(repository: o.runRepository ?? SQLiteGuiRunRepository(store: store),
-                                 resolver: ConfigBindingResolver(store: store, codecs: codecs),
-                                 backend: backend, aiService: ai, codecs: codecs, clock: o.clock)
+        // What a live unit Run pinned cannot be deleted under it (§04.1).
+        if let units { await store.setActiveRunCheck { kind, id in units.pins(kind, id) } }
         return AgentDesktopService(
-            store: store, ai: ai, runs: runs, units: units, recovery: recovery,
-            aiHandlers: AiApplicationHandlers(store: store, http: o.http, runner: runner, credentials: credentials),
+            store: store, ai: ai, units: units, features: o.executionBackend?.features, codecs: codecs,
+            aiHandlers: AiApplicationHandlers(store: store, http: o.http, runner: runner, credentials: credentials,
+                                              actionOutcomes: o.actionOutcomes),
             capabilityTests: CapabilityTestService(store: store, ai: ai, http: o.http, runner: runner,
                                                    codecs: codecs, clock: o.clock))
     }
 
-    init(store: ConfigStore, ai: DefaultAiService, runs: GuiRunService, units: UnitRunService?, recovery: RunRecoveryReport,
-         aiHandlers: AiApplicationHandlers, capabilityTests: CapabilityTestService) {
+    init(store: ConfigStore, ai: DefaultAiService, units: UnitRunService?, features: GuiBackendFeatures?,
+         codecs: GuiCodecRegistry, aiHandlers: AiApplicationHandlers, capabilityTests: CapabilityTestService) {
         self.store = store
         self.ai = ai
-        self.runs = runs
         self.units = units
-        self.recovery = recovery
+        self.features = features
+        self.codecs = codecs
         self.aiHandlers = aiHandlers
         self.capabilityTests = capabilityTests
+    }
+
+    /// The `gui` section of runtime.capabilities.
+    public func guiCapabilities() -> JSONValue {
+        GuiCapabilities.capabilities(features: features, codecs: codecs)
     }
 
     /// A4 R4: a paired client lost its access; what it started here stops.
@@ -115,18 +105,13 @@ public final class AgentDesktopService: Sendable {
         await aiHandlers.cancelOperations(callerScope: clientId)
     }
 
-    /// Every command of the contract for one caller. `trustedOwner` is the
-    /// owner UI/CLI, the only caller that may start a run without a session.
-    public func handlers(callerScope: String, trustedOwner: Bool) -> [String: ServiceHandler] {
-        var out = aiHandlers.handlers(callerScope: callerScope, extra: capabilityTests.handlers(callerScope: callerScope))
-        out.merge(runs.handlers(callerScope: callerScope, trustedOwner: trustedOwner)) { _, run in run }
-        return out
+    /// Every command of the service for one caller.
+    public func handlers(callerScope: String) -> [String: ServiceHandler] {
+        aiHandlers.handlers(callerScope: callerScope, extra: capabilityTests.handlers(callerScope: callerScope))
     }
 
-    public func router(callerScope: String, trustedOwner: Bool,
-                       onInternalFault: (@Sendable (String, String) -> Void)? = nil) -> ServiceRouter {
-        ServiceRouter(handlers: handlers(callerScope: callerScope, trustedOwner: trustedOwner),
-                      onInternalFault: onInternalFault)
+    public func router(callerScope: String, onInternalFault: (@Sendable (String, String) -> Void)? = nil) -> ServiceRouter {
+        ServiceRouter(handlers: handlers(callerScope: callerScope), onInternalFault: onInternalFault)
     }
 }
 

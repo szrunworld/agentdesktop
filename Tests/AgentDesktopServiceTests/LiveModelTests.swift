@@ -30,7 +30,7 @@ struct LiveModelTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
             databasePath: dir.appendingPathComponent("config.sqlite").path, credentials: InMemoryCredentialStore()))
-        let router = service.router(callerScope: "owner", trustedOwner: true)
+        let router = service.router(callerScope: "owner")
         func ok(_ command: String, _ params: JSONValue, key: String? = nil) async throws -> JSONValue {
             switch await router.answer(method: command, params: params, idempotencyKey: key) {
             case let .success(r): return r

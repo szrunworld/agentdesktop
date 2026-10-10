@@ -627,58 +627,6 @@
       "requiresIdempotencyKey": false
     },
     {
-      "method": "gui.runs.start",
-      "stage": "P0",
-      "mutation": true,
-      "params": "service.schema.json#/$defs/gui_runs_start_params",
-      "result": "service.schema.json#/$defs/gui_runs_start_result",
-      "status": "transitional",
-      "servedBy": "ai-service",
-      "removedBy": "A6 (unit.run + run.*)",
-      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
-      "asynchronous": true,
-      "requiresIdempotencyKey": true
-    },
-    {
-      "method": "gui.runs.get",
-      "stage": "P0",
-      "mutation": false,
-      "params": "service.schema.json#/$defs/gui_runs_get_params",
-      "result": "service.schema.json#/$defs/gui_runs_get_result",
-      "status": "transitional",
-      "servedBy": "ai-service",
-      "removedBy": "A6 (unit.run + run.*)",
-      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
-      "asynchronous": false,
-      "requiresIdempotencyKey": false
-    },
-    {
-      "method": "gui.runs.cancel",
-      "stage": "P0",
-      "mutation": true,
-      "params": "service.schema.json#/$defs/gui_runs_cancel_params",
-      "result": "service.schema.json#/$defs/gui_runs_cancel_result",
-      "status": "transitional",
-      "servedBy": "ai-service",
-      "removedBy": "A6 (unit.run + run.*)",
-      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
-      "asynchronous": false,
-      "requiresIdempotencyKey": true
-    },
-    {
-      "method": "gui.runs.events",
-      "stage": "P0",
-      "mutation": false,
-      "params": "service.schema.json#/$defs/gui_runs_events_params",
-      "result": "service.schema.json#/$defs/gui_runs_events_result",
-      "status": "transitional",
-      "servedBy": "ai-service",
-      "removedBy": "A6 (unit.run + run.*)",
-      "note": "kept on the single endpoint only until A6 lands unit.run; not a permanent alias",
-      "asynchronous": false,
-      "requiresIdempotencyKey": false
-    },
-    {
       "method": "hub.pairing.start",
       "stage": "P0",
       "mutation": true,
@@ -1015,22 +963,22 @@
     {
       "method": "gui.runs.start",
       "replacedBy": "unit.run + run.*",
-      "until": "A6: served as transitional on the single endpoint until unit.run lands"
+      "until": "A6 (2026-10-10): removed; start with unit.run, then read, wait, stop and page events with run.show / run.wait / run.cancel / run.events"
     },
     {
       "method": "gui.runs.get",
       "replacedBy": "unit.run + run.*",
-      "until": "A6: served as transitional on the single endpoint until unit.run lands"
+      "until": "A6 (2026-10-10): removed; start with unit.run, then read, wait, stop and page events with run.show / run.wait / run.cancel / run.events"
     },
     {
       "method": "gui.runs.cancel",
       "replacedBy": "unit.run + run.*",
-      "until": "A6: served as transitional on the single endpoint until unit.run lands"
+      "until": "A6 (2026-10-10): removed; start with unit.run, then read, wait, stop and page events with run.show / run.wait / run.cancel / run.events"
     },
     {
       "method": "gui.runs.events",
       "replacedBy": "unit.run + run.*",
-      "until": "A6: served as transitional on the single endpoint until unit.run lands"
+      "until": "A6 (2026-10-10): removed; start with unit.run, then read, wait, stop and page events with run.show / run.wait / run.cancel / run.events"
     },
     {
       "method": "ai/1 runtime.capabilities",

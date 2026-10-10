@@ -33,7 +33,7 @@ help_text = help_run.stdout + help_run.stderr
 assert help_text.startswith('usage: agentdesktop'), help_text[:200]
 current = ['version', 'runtime status', 'runtime capabilities', 'doctor', 'desktop create', 'desktop destroy',
            'app launch', 'window bind', 'session open', 'observe', 'act click', 'act type', 'wait',
-           'run cancel', 'runtime stop-all', 'artifact get', 'mcp']
+           'run cancel', 'unit run', 'runtime stop-all', 'artifact get', 'mcp']
 missing = [c for c in current if f'  {c}' not in help_text]
 assert not missing, f'help lacks current commands: {missing}'
 old = ['screen', 'screenshot', 'task', 'agent-bridge', 'agent']

@@ -115,7 +115,7 @@ public struct OperationSpec: Equatable, Sendable {
     public let asynchronous: Bool
     public let requiresIdempotencyKey: Bool
 
-    /// The service.schema.json $defs prefix: "gui.runs.start" → "gui_runs_start".
+    /// The service.schema.json $defs prefix: "ai.profiles.get" → "ai_profiles_get".
     public var defPrefix: String { command.replacingOccurrences(of: ".", with: "_") }
 }
 
@@ -143,7 +143,7 @@ public final class ContractBundle: Sendable {
     public func operation(_ command: String) -> OperationSpec? { byCommand[command] }
 
     /// Validate against a service.schema.json definition, e.g. "AiConnection"
-    /// or "gui_runs_start_result".
+    /// or "ai_profiles_get_result".
     public func validate(_ instance: JSONValue, _ def: String) throws -> [SchemaViolation] {
         try registry.validate(instance, documentId: RuntimeContract.serviceSchemaId, pointer: "/$defs/\(def)")
     }

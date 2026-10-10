@@ -82,7 +82,9 @@ func errorDetails(_ r: RuntimeResponse) -> JSONValue? {
     // (and a client whose code is not verified does not even get that far)
     #expect(errorDetails(call(s, paired, "hub.clients.list"))?["reason"]?.stringValue == "unverified_identity")
     // Default deny for the rest of what the owner keeps.
-    #expect(errorDetails(call(s, paired, "gui.runs.get", params: #"{"runId":"run_x"}"#))?["reason"]?.stringValue == "gui_run_requires_grant")
+    // A GUI unit needs the unit.run capability (A6; gui.runs.* is withdrawn).
+    #expect(errorDetails(call(s, paired, "unit.run"))?["capability"]?.stringValue == "unit.run")
+    #expect(code(call(s, paired, "gui.runs.get", params: #"{"runId":"run_x"}"#)) == "capability_missing")
     #expect(code(call(s, paired, "hub.pairing.approve", params: #"{"pairingId":"\#(pairingId)","grant":{}}"#)) == "permission_denied")
     // Only the hash is stored.
     let stored = try #require(s.hub.client(clientId))

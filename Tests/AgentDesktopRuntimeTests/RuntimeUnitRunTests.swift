@@ -64,6 +64,17 @@ func unitScene(executor: FakeUnitExecutor? = FakeUnitExecutor()) throws -> (Fake
     return (platform, s, c, d, ports)
 }
 
+/// A Durable unit Run on `d` for the GUI ports to observe and act in (A6),
+/// driven by a scripted executor that does nothing on its own.
+func guiRun(_ s: RuntimeService, _ ports: RuntimeGuiPorts, _ d: String) async throws -> String {
+    s.registerUnitExecutor(FakeUnitExecutor(), ports: ports)
+    let params = try StrictJSON.parse(unitParams(d))
+    let r: Result<JSONValue, RuntimeError> = await withCheckedContinuation { cont in
+        DispatchQueue.global().async { cont.resume(returning: s.startDurableUnitRun(params: params)) }
+    }
+    return try #require(try r.get()["runId"]?.stringValue)
+}
+
 func runCount(_ s: RuntimeService, _ c: ConnectionState) -> Int {
     data(call(s, c, "run.list"))?["runs"]?.arrayValue?.count ?? -1
 }

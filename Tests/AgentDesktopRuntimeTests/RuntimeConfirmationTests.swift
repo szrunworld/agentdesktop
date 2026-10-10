@@ -250,7 +250,7 @@ func secAnythingButAnApprovalGrantsNothing(_ answer: String) async throws {
     #expect(s.hub.grant(other)?.capabilities == ["observe"])
     // The approval did not stay with the connection.
     #expect(app.elevatedFor == nil)
-    #expect(errorDetails(call(s, app, "gui.runs.get", params: #"{"runId":"run_x"}"#))?["reason"]?.stringValue == "gui_run_requires_grant")
+    #expect(errorDetails(call(s, app, "unit.run"))?["capability"]?.stringValue == "unit.run")
     #expect(code(call(s, app, "run.list")) == "grant_missing")
     // The user says no: nothing happens.
     window.decide = { _ in .denied }

@@ -271,25 +271,66 @@ actor SpyAudit: GuiAuditPort {
     func recordAction(_ receipt: GuiActionReceipt) { actions.append(receipt) }
 }
 
-struct SpySessions: GuiSessionAuthority {
-    func authorize(sessionId: String?, desktopId: String, callerScope: String, trustedOwner: Bool,
-                   runId: String) throws -> (sessionId: String, bindingEpoch: UInt64) {
-        if let sessionId {
-            guard sessionId == "sess-a", desktopId == "desk-a" else { throw ContractError(.forbidden, "unknown session") }
-            return (sessionId, 1)
-        }
-        guard trustedOwner else { throw ContractError(.forbidden, "owner only") }
-        return ("sess-a", 1)
-    }
-}
-
 final class IdCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var n = 0
     func next() -> Int { lock.withLock { n += 1; return n } }
 }
 
-/// Config store + GUI run service behind real ServiceRouters, as a caller sees them.
+/// The Runtime's side of one unit Run, recorded (A6): the events the
+/// explorer wrote, the verification it reported, how it ended.
+final class RecordingSink: UnitRunSink, @unchecked Sendable {
+    let runId: String
+    private let lock = NSLock()
+    private var recorded: [JSONValue] = []
+    private var ended: UnitRunEnding?
+    private var lastVerification: (status: String, observationId: String?)?
+    /// Make every write fail from now on (a full audit store).
+    var failWrites = false
+
+    init(runId: String) { self.runId = runId }
+
+    func record(_ type: String, _ data: JSONValue) -> Bool {
+        lock.withLock {
+            guard !failWrites, ended == nil else { return false }
+            recorded.append(.obj([("runId", .string(runId)), ("sequence", .int(recorded.count + 1)),
+                                  ("at", .string("2026-10-10T00:00:00Z")), ("type", .string(type)), ("data", data)]))
+            return true
+        }
+    }
+
+    func verified(status: String, observationId: String?, checkedAt: Date) {
+        lock.withLock { lastVerification = (status, observationId) }
+    }
+
+    func finished(_ ending: UnitRunEnding) {
+        lock.withLock {
+            if ended != nil { Issue.record("finished twice") }
+            ended = ending
+        }
+    }
+
+    var events: [JSONValue] { lock.withLock { recorded } }
+    var ending: UnitRunEnding? { lock.withLock { ended } }
+    var verification: (status: String, observationId: String?)? { lock.withLock { lastVerification } }
+}
+
+/// What a test reads of a unit Run.
+struct UnitRunView {
+    let ending: UnitRunEnding?
+    let events: [JSONValue]
+    let verification: (status: String, observationId: String?)?
+
+    func count(_ type: String) -> Int { events.filter { $0["type"]?.stringValue == type }.count }
+    var modelAttempts: Int {
+        events.filter { $0["type"]?.stringValue == "unit.inference.attempt" }.compactMap { $0["data"]?["attempts"]?.intValue }.reduce(0, +)
+    }
+    var steps: Int { count("unit.progress") }
+    var lastDelivery: String? { events.last { $0["type"]?.stringValue == "unit.action" }?["data"]?["deliveryState"]?.stringValue }
+}
+
+/// Config store + the unit.run executor with spy ports, the Runtime's part
+/// played by RecordingSink (A6). Configuration goes through real routers.
 final class GuiHarness: @unchecked Sendable {
     let form = NeutralForm()
     let store: ConfigStore
@@ -298,11 +339,15 @@ final class GuiHarness: @unchecked Sendable {
     let observation: SpyObservation
     let executor: SpyExecutor
     let audit = SpyAudit()
-    let repository = InMemoryGuiRunRepository()
-    let service: GuiRunService
+    let units: UnitRunService?
+    let features: GuiBackendFeatures?
+    let codecs: GuiCodecRegistry
     let owner: ServiceRouter
-    let stranger: ServiceRouter
     var profile: JSONValue = .null
+    private let lock = NSLock()
+    private var sinks: [String: RecordingSink] = [:]
+    private var stops: [String: @Sendable () -> Void] = [:]
+    private let counter = IdCounter()
 
     init(_ replies: [StubAiService.Reply], backend: Bool = true, limits: [(String, JSONValue)] = [],
          fixture: Bool = false, clock: ManualClock = ManualClock()) throws {
@@ -315,20 +360,15 @@ final class GuiHarness: @unchecked Sendable {
         self.clock = clock
         observation = SpyObservation(form: form)
         executor = SpyExecutor(form: form)
-        let codecs = GuiCodecRegistry(fixtureAdapterEnabled: fixture)
+        codecs = GuiCodecRegistry(fixtureAdapterEnabled: fixture)
         let ports = GuiExplorerPorts(observation: observation, execution: executor, audit: audit)
-        let be = backend ? GuiExecutionBackend(ports: ports, sessions: SpySessions(),
-                                               features: GuiBackendFeatures(actions: GuiActionKind.allCases,
-                                                                            verificationPredicates: ["element_text_equals"])) : nil
-        let counter = IdCounter()
-        service = GuiRunService(repository: repository, resolver: ConfigBindingResolver(store: store, codecs: codecs),
-                                backend: be, aiService: ai, codecs: codecs, clock: clock,
-                                newId: { prefix in "\(prefix)-\(counter.next())" })
-        let config = ConfigApplicationService(store: store)
-        var ownerHandlers = config.handlers(callerScope: "owner")
-        ownerHandlers.merge(service.handlers(callerScope: "owner", trustedOwner: true)) { a, _ in a }
-        owner = ServiceRouter(handlers: ownerHandlers)
-        stranger = ServiceRouter(handlers: service.handlers(callerScope: "stranger", trustedOwner: false))
+        features = backend ? GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]) : nil
+        let (store, ai, codecs) = (store, ai, codecs)
+        units = features.map { f in
+            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs), ports: ports, features: f,
+                           aiService: ai, codecs: codecs, clock: clock)
+        }
+        owner = ServiceRouter(handlers: ConfigApplicationService(store: store).handlers(callerScope: "owner"))
         self.limitOverrides = limits
         self.fixture = fixture
     }
@@ -351,10 +391,6 @@ final class GuiHarness: @unchecked Sendable {
             throw ContractError(.internalError, "call failed")
         }
         return result
-    }
-
-    func err(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil, router: ServiceRouter? = nil) async throws -> String? {
-        try await call(command, params, key: key, router: router)["error"]?["code"]?.stringValue
     }
 
     /// Connection → model profile → GUI profile (image_pixels) → default.
@@ -391,29 +427,42 @@ final class GuiHarness: @unchecked Sendable {
     static let goal = "在指定中立表单的姓名中输入 Ada，然后点击应用"
     static let expected = "已保存：Ada / MAC-001-A / 提交次数 1"
 
-    func startParams(actions: [String] = ["click", "type", "key"], text: String = GuiHarness.expected,
-                     session: String? = nil) -> JSONValue {
-        var m: [(String, JSONValue)] = [
-            ("desktopId", .string("desk-a")), ("goal", .string(Self.goal)),
-            ("verification", .obj([("kind", .string("element_text_equals")), ("role", .string("static_text")), ("text", .string(text))])),
+    /// unit_run_params for the neutral form.
+    func startParams(actions: [String] = ["click", "type", "key"], text: String = GuiHarness.expected) -> JSONValue {
+        .obj([
+            ("desktopId", .string("desk-a")), ("mode", .string("explore")), ("goal", .obj([("description", .string(Self.goal))])),
+            ("verification", .obj([("all", .array([.obj([("kind", .string("element_text_equals")), ("role", .string("static_text")),
+                                                         ("text", .string(text))])]))])),
             ("allowedActions", .array(actions.map(JSONValue.string))),
-        ]
-        if let session { m.append(("sessionId", .string(session))) }
-        return .obj(m)
+        ])
     }
 
-    func start(_ params: JSONValue? = nil, key: String = "run-key-0001", router: ServiceRouter? = nil) async throws -> String {
-        try await ok("gui.runs.start", params ?? startParams(), key: key, router: router)["runId"]!.stringValue!
+    /// Admission as the Runtime asks for it.
+    func admit(_ params: JSONValue? = nil, scope: String = "owner") async -> Result<any UnitRunPlan, RuntimeError> {
+        guard let units else { return .failure(RuntimeError("unsupported_backend", "off", phase: .handler)) }
+        return await units.admit(params: params ?? startParams(), callerScope: scope)
     }
 
-    func finished(_ runId: String) async { await service.task(for: runId)?.value }
-
-    func run(_ runId: String) async throws -> JSONValue {
-        try await ok("gui.runs.get", .obj([("runId", .string(runId))]))
+    /// Admit and start a unit Run on desk-a / sess-a; returns its runId.
+    func start(_ params: JSONValue? = nil) async throws -> String {
+        let p = params ?? startParams()
+        let plan = try await admit(p).get()
+        let runId = "run-\(counter.next())"
+        let sink = RecordingSink(runId: runId)
+        let stop = units!.start(plan, context: UnitRunContext(runId: runId, sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
+                                                              callerScope: "owner", params: p), sink: sink)
+        lock.withLock { sinks[runId] = sink; stops[runId] = stop }
+        return runId
     }
 
-    func events(_ runId: String, after: Int = 0, limit: Int = 100) async throws -> [JSONValue] {
-        try await ok("gui.runs.events", .obj([("runId", .string(runId)), ("afterSequence", .int(after)), ("limit", .int(limit))]))["events"]!.arrayValue!
+    func sink(_ runId: String) -> RecordingSink { lock.withLock { sinks[runId]! } }
+    /// The Runtime accepted a stop of the Run.
+    func cancel(_ runId: String) { lock.withLock { stops[runId] }?() }
+    func finished(_ runId: String) async { await units?.task(for: runId)?.value }
+
+    func run(_ runId: String) -> UnitRunView {
+        let s = sink(runId)
+        return UnitRunView(ending: s.ending, events: s.events, verification: s.verification)
     }
 }
 

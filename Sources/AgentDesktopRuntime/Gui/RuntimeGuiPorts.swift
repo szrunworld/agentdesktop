@@ -13,16 +13,15 @@ import UniformTypeIdentifiers
 /// the actionId as its requestId and runs it through the same checks,
 /// lease, ledger and executor as any other caller — so a repeated actionId
 /// can never input twice, and an unknown outcome stays unknown.
-public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSessionAuthority, @unchecked Sendable {
+public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, @unchecked Sendable {
     struct RunBinding {
         let desktopId: String
         let sessionId: String
         let bindingEpoch: UInt64
-        /// Who the Run's requests are made as: the GUI service's own owner
-        /// connection, or a unit Run's principal (A6).
+        /// Who the Run's requests are made as: its principal (A6).
         let connection: ConnectionState
-        /// A unit Run's id: its actions go into that Run (context.runId).
-        let unitRunId: String?
+        /// The unit Run: its actions go into it (context.runId).
+        let unitRunId: String
     }
 
     /// The long side of the image handed to a model.
@@ -58,30 +57,7 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, GuiSes
         }
     }
 
-    // MARK: GuiSessionAuthority
-
-    public func authorize(sessionId: String?, desktopId: String, callerScope: String, trustedOwner: Bool,
-                          runId: String) async throws -> (sessionId: String, bindingEpoch: UInt64) {
-        guard let d = service.desktops.find(desktopId) else { throw ContractError(.notFound, "no desktop \(desktopId)") }
-        guard let b = d.lock.withLock({ d.binding }) else {
-            throw ContractError(.capabilityMismatch, "desktop \(desktopId) has no bound window; bind one before a GUI run")
-        }
-        let session: String
-        if let sessionId {
-            guard let s = service.sessions.find(sessionId, caller: connection.clientId), s.state == "open", s.desktopId == desktopId else {
-                throw ContractError(.forbidden, "session \(sessionId) is not an open session of desktop \(desktopId)")
-            }
-            session = s.sessionId
-        } else {
-            guard trustedOwner else { throw ContractError(.forbidden, "a GUI run needs an explicit session") }
-            session = service.sessions.open(desktopId: desktopId, caller: connection.clientId, at: Timestamp.string(Date())).sessionId
-        }
-        let epoch = UInt64(b.generation)
-        lock.withLock {
-            bindings[runId] = RunBinding(desktopId: desktopId, sessionId: session, bindingEpoch: epoch, connection: connection, unitRunId: nil)
-        }
-        return (session, epoch)
-    }
+    // MARK: Unit Runs
 
     /// A6: drive the unit Run `runId` as `principal`, in its session. Its
     /// actions join the Run (the principal's connection is attached to it).
