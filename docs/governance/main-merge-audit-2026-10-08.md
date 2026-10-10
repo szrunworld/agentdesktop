@@ -989,3 +989,21 @@ Kevin 原话：
 - b9 给 Kevin 的 #211 合并申请里写了"只改测试，产品代码没有动"，这**不准确**。
 - bb8c248 在产品模块 `Sources/AgentDesktopService/BridgeDiagnostics.swift` 中新增了 `events(after:)`（6 行），这是一个 internal 的只读方法，只供测试使用，产品路径不会调用它。
 - b9 在复审 bb8c248 时看到了这处改动，但申请里的措辞没有相应修改。这一点是 Codex 会话审查 #211 时指出的。
+
+### #211 合并记录（42 执行；b9 已读取 42 会话转录核实）
+
+- **授权**：
+  - 42 会话 `65b88b61-…`，uuid d7b66447，2026-10-10T05:16:58Z。Kevin 在提问中选择了"两个都合并（Recommended）"。
+  - 提问原文写明了 "#210（…SHA d5b1838）和 #211（#166 抓栈，只改测试，SHA 6482353）"，以及"Actions 预算已经用完，合并后不会有远端 CI"。
+  - 另外，b9 会话中也有授权（uuid a05f8afb，见 299f262）。
+  - 注：提问里"只改测试"的说法有误，#211 在产品模块中新增了 6 行只读方法，b9 已在 af29a1b 中更正。
+- **执行**：
+  - 合并前核对：head 未变；讨论 5 条全部已解决；main 为 7fa1b15。
+  - 本地合到 7fa1b15 后测试：full 1231 项通过（7 个 known issue）；strict 两次中一次通过、一次在 SingleEndpoint 失败（#166）；engine 369 项通过。
+  - 以 `--match-head-commit 6482353…` 于 05:29:12Z 合并，合并提交 ce43f3f。
+- **main CI**：
+  - 92b741b（#210）通过。
+  - ce43f3f 的 CI 正在运行，b9 盯着，结果出来后补记。
+- **#212**（#205 后续：Touch ID 验收脚本、拒绝文案）：05:21:14Z 合并，head 4057dad，合并提交 7fa1b15。执行方应为 Codex CLI 会话（Kevin 05:19:46Z 在该会话里发了 "…/pull/212"），待核。
+  - **7fa1b15 的 main CI 失败**：真实失败，不是预算问题。失败项为 `RuntimeSealParityTests.swift:100`，即封堵一致性测试中"已配对但无授权的客户端调用 app.list / window.list，拒绝理由须为 window_discovery_requires_grant，且不得透露任何应用或窗口名"这一断言，记录为 «unknown» 测试。
+  - #212 的源码改动只涉及两处拒绝文案（physical_desktop_requires_grant、bind_requires_grant），不直接触及该路径。原因待查：可能是 #212 引入的回归，也可能是不稳定测试。
