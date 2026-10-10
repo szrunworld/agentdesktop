@@ -426,6 +426,25 @@ struct VerticalSliceTests {
         #expect(s.ledger.questions.last == [], "the stranger's scope has no unit Runs")
     }
 
+    // Codex on 7eee9bb: a model call the last process reserved and never
+    // finished becomes interrupted when the service opens again, so its
+    // scope makes no further call until it is settled.
+    @Test func reservedModelCallsAreInterruptedOnReopen() async throws {
+        let s = try await Slice()
+        _ = try await s.configure()
+        let resolved = try await ConfigBindingResolver(store: s.service.store, codecs: GuiCodecRegistry())
+            .resolve(guiProfileId: nil, expectedProfileRevision: nil, callerScope: "owner")
+        let context = AiCallContext(inferenceAttemptId: "att-crash-1",
+                                    purpose: .guiStep(GuiStepCallPurpose(runId: "run-crash", stepIndex: 0, snapshotId: "snap-1",
+                                                                         bindingEpoch: 1, currentGeneration: 1)),
+                                    callerScopeRef: "owner", budgetScopeRef: "run-crash",
+                                    deadlineMonotonicNanoseconds: SystemMonotonicClock().nowNanoseconds() + 60_000_000_000)
+        _ = try await SQLiteAiCallLedger(store: s.service.store).reserve(context: context, target: resolved.primary.resolvedModel)
+        #expect(try await s.service.store.attempts(budgetScope: "run-crash").map(\.state) == ["reserved"])
+        let reopened = try await Slice(reopening: s.dir, credentials: s.credentials)
+        #expect(try await reopened.service.store.attempts(budgetScope: "run-crash").map(\.state) == ["interrupted"])
+    }
+
     // SEC-001 (service part): the key never appears in any response, in the
     // unit Run's events or in the database files.
     @Test func theKeyStaysInTheCredentialStore() async throws {

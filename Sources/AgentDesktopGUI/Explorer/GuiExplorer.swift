@@ -16,6 +16,36 @@ public struct GuiExplorerPorts: Sendable {
     }
 }
 
+/// A stop the Runtime accepted, visible at once (codex on 8bcb18c): the
+/// lifecycle actor learns of it a moment later, but no model call or input
+/// may start in between. An input already handed to the Runtime is let
+/// finish; the stop then waits for its receipt.
+public final class UnitStopSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+    private var inputOut = false
+
+    public init() {}
+
+    public var isStopped: Bool { lock.withLock { stopped } }
+
+    /// Accept the stop. True when an input is out right now (the caller
+    /// must not cancel the task under it).
+    @discardableResult
+    public func stop() -> Bool { lock.withLock { stopped = true; return inputOut } }
+
+    /// Before handing an input to the Runtime: false once stopped.
+    func beginInput() -> Bool {
+        lock.withLock {
+            guard !stopped else { return false }
+            inputOut = true
+            return true
+        }
+    }
+
+    func endInput() { lock.withLock { inputOut = false } }
+}
+
 /// The bounded local loop of one run (spec §06.3, §07, §09.1):
 ///
 ///     observe → already done? → [suggest → validate → act | wait | finish | needs_user → observe → verify]*
@@ -41,10 +71,12 @@ public final class GuiRunDriver: Sendable {
     let budget: AttemptBudget
     let callerScope: String
     let deadlineNs: UInt64
+    let stopSignal: UnitStopSignal?
 
     public init(binding: GuiRunBinding, lifecycle: RunLifecycle, recorder: any GuiRunRecording, ports: GuiExplorerPorts,
                 provider: GuiAiProvider, budget: AttemptBudget, clock: MonotonicClock, callerScope: String,
-                startedAtNs: UInt64, verifier: GoalVerifier = GoalVerifier()) {
+                startedAtNs: UInt64, verifier: GoalVerifier = GoalVerifier(), stopSignal: UnitStopSignal? = nil) {
+        self.stopSignal = stopSignal
         self.binding = binding
         self.lifecycle = lifecycle
         self.recorder = recorder
@@ -88,6 +120,7 @@ public final class GuiRunDriver: Sendable {
 
     /// Throws when no new model call, input or timer may start.
     private func checkProceed() async throws {
+        guard stopSignal?.isStopped != true else { throw CancellationError() }
         guard await lifecycle.mayProceed(generation: generation) else { throw CancellationError() }
         guard await !recorder.writeFailed else {
             throw ContractError(.auditUnavailable, "the run's record could not be written")
@@ -160,6 +193,9 @@ public final class GuiRunDriver: Sendable {
 
             let input = GuiInferenceInput(binding: binding, bundle: bundle, history: history, stepIndex: stepIndex,
                                           budget: budget, deadlineNs: deadlineNs, callerScope: callerScope)
+            // The last gate before a model call: a stop or a record that
+            // could not be written since the step began ends it here.
+            try await checkProceed()
             let output: GuiInferenceOutput
             do {
                 output = try await provider.suggest(input)
@@ -208,8 +244,13 @@ public final class GuiRunDriver: Sendable {
                 try await move(.executing, "executing")
                 let actionId = try await audited { try await ports.audit.reserveAction(proposal, target: bundle.observation.target) }
                 try await lifecycle.actionStarted(actionId, generation: generation)
+                guard stopSignal?.beginInput() ?? true else {
+                    try await lifecycle.actionResolved(actionId, delivery: .notSent)
+                    throw CancellationError()
+                }
                 let receipt: GuiActionReceipt
                 do {
+                    defer { stopSignal?.endInput() }
                     receipt = try await ports.execution.execute(proposal, actionId: actionId)
                 } catch {
                     // The executor could not say what happened: treat as unknown.

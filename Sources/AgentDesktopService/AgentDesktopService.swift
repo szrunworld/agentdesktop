@@ -58,6 +58,11 @@ public final class AgentDesktopService: Sendable {
     public static func open(_ o: AgentDesktopServiceOptions) async throws -> AgentDesktopService {
         let digestKey = try ConfigStore.loadOrCreateDigestKey(in: o.credentials)
         let store = try ConfigStore(path: o.databasePath, credentials: o.credentials, digestKey: digestKey, options: o.config)
+        // Before anything can start: model calls the last process reserved
+        // and never finished become interrupted (usage unknown), and their
+        // budget scope waits for a settlement; nothing is sent again (codex
+        // on 7eee9bb: this was RunRecovery's first step).
+        _ = try await store.recoverLedger()
         let admission = CredentialRevocationAdmission(store: store)
         await admission.register()
         let credentials = StoreCredentialResolver(store: store)

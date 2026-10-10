@@ -145,9 +145,10 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         let startedAt = clock.nowNanoseconds()
         let recorder = UnitRunRecorder(sink: sink, budget: budget, clock: clock, maxSteps: plan.limits.maxSteps,
                                        deadlineNs: startedAt &+ UInt64(plan.limits.maxWallTimeMs) * 1_000_000)
+        let signal = UnitStopSignal()
         let driver = GuiRunDriver(binding: binding, lifecycle: lifecycle, recorder: recorder, ports: ports,
                                   provider: GuiAiProvider(service: aiService, codecs: codecs, clock: clock), budget: budget,
-                                  clock: clock, callerScope: c.callerScope, startedAtNs: startedAt)
+                                  clock: clock, callerScope: c.callerScope, startedAtNs: startedAt, stopSignal: signal)
         let runId = c.runId
         let pins = ([plan.primary] + plan.fallback).flatMap { c -> [(ConfigResourceKind, String)] in
             [(.guiProfile, c.guiProfileId), (.modelProfile, c.resolvedModel.model.modelProfileId),
@@ -156,7 +157,7 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         lock.withLock { pinned[runId] = pins }
         let task = Task.detached { [weak self] in
             await driver.run()
-            let ending = await Self.ending(of: lifecycle)
+            let ending = await Self.ending(of: lifecycle, stopped: signal.isStopped)
             sink.finished(ending)
             self?.lock.withLock {
                 _ = self?.tasks.removeValue(forKey: runId)
@@ -167,12 +168,13 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         return { [weak self] in
             // A Run waiting for a person ends with this stop.
             self?.lock.withLock { if self?.tasks[runId] == nil { _ = self?.pinned.removeValue(forKey: runId) } }
-            Task {
-                _ = await lifecycle.requestCancel()
-                // Stop model calls and timers at once; an input already handed
-                // to the Runtime finishes and reports.
-                if await lifecycle.inFlightActionId == nil { task.cancel() }
-            }
+            // Visible before this returns: no model call or input starts
+            // after the Runtime accepted the stop. A model call already out
+            // is cancelled with the task; an input already handed to the
+            // Runtime finishes and reports.
+            let inputOut = signal.stop()
+            if !inputOut { task.cancel() }
+            Task { _ = await lifecycle.requestCancel() }
         }
     }
 
@@ -186,8 +188,12 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     public func task(for runId: String) -> Task<Void, Never>? { lock.withLock { tasks[runId] } }
 
     /// How the explorer's part ended, as the Runtime records it.
-    static func ending(of lifecycle: RunLifecycle) async -> UnitRunEnding {
-        switch await lifecycle.state {
+    static func ending(of lifecycle: RunLifecycle, stopped: Bool = false) async -> UnitRunEnding {
+        let state = await lifecycle.state
+        // A stop the Runtime accepted ends it as cancelled, however the
+        // loop noticed (its own failure included); a goal seen before stays.
+        if stopped, state != .succeeded { return .cancelled }
+        switch state {
         case .succeeded:
             return .verified
         case .cancelled, .cancelling:
