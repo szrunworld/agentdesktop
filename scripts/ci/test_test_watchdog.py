@@ -965,19 +965,83 @@ class WatchdogTests(unittest.TestCase):
             alive.kill()
             alive.wait()
 
+    def test_remembered_foreign_member_links_new_children_after_root_exit(self):
+        wd = self.load()
+        run = wd.Run(1001, None, uuid.uuid4().hex, time.time())
+        run.command_gone()
+        parent_start, child_start = (100, 2), (100, 3)
+        run.seen_foreign = {1002: (parent_start, "foreign helper", 0, 0)}
+        foreign = {1002: (1, 1002, parent_start, "foreign helper", 0, 0)}
+        procs = {1003: (1002, 1003, child_start, "new child"),
+                 1004: (1, 1001, (100, 4), "unrelated reused group")}
+        kernel = {1002: (1, 1002, 0, parent_start, 0),
+                  1003: (1002, 1003, os.getuid(), child_start, os.getuid()),
+                  1004: (1, 1001, os.getuid(), (100, 4), os.getuid())}
+        real = wd.kernel_info
+        wd.kernel_info = lambda pid: kernel.get(pid)
+        try:
+            self.assertEqual(set(run._tree(procs, foreign)), {1003})
+            self.assertEqual(set(run._foreign_linked), {1002})
+            # A reused seed PID cannot establish ownership of its child.
+            run.seen_foreign[1002] = ((99, 2), "old helper", 0, 0)
+            self.assertEqual(run._tree(procs, foreign), {})
+        finally:
+            wd.kernel_info = real
+
+    def test_remembered_same_user_member_links_new_children_after_root_exit(self):
+        wd = self.load()
+        run = wd.Run(1001, None, uuid.uuid4().hex, time.time())
+        run.command_gone()
+        run.seen = {1002: ((100, 2), "helper")}
+        procs = {1002: (1, 1002, (100, 2), "helper"),
+                 1003: (1002, 1003, (100, 3), "new child")}
+        real = wd.kernel_info
+        wd.kernel_info = lambda pid: (procs[pid][0], procs[pid][1], os.getuid(), procs[pid][2], os.getuid()) if pid in procs else None
+        try:
+            self.assertEqual(set(run._tree(procs)), {1002, 1003})
+        finally:
+            wd.kernel_info = real
+
+    def sudo_leftover(self, immediate=False):
+        # Keep the helper alive until diagnosis and assertions finish, then
+        # release it through a file. No timing assumption about spindump.
+        import shlex
+        with tempfile.TemporaryDirectory(prefix="watchdog-sudo-") as directory:
+            ready = os.path.join(directory, "ready")
+            release = os.path.join(directory, "release")
+            done = os.path.join(directory, "done")
+            helper = ("import pathlib,time; "
+                      f"pathlib.Path({ready!r}).touch(); "
+                      "deadline=time.monotonic()+180; "
+                      f"\nwhile not pathlib.Path({release!r}).exists() and time.monotonic()<deadline: time.sleep(.05)"
+                      f"\npathlib.Path({done!r}).touch()")
+            command = (f"sudo -n {shlex.quote(sys.executable)} -c {shlex.quote(helper)} "
+                       "</dev/null >/dev/null 2>&1 & ")
+            if not immediate:
+                command += (f"i=0; while [ ! -f {shlex.quote(ready)} ] && [ $i -lt 200 ]; "
+                            "do sleep .05; i=$((i+1)); done; ")
+            command += "exit 0"
+            try:
+                code, log, _, out = self.run_watchdog(
+                    ["sh", "-c", command], stall=30,
+                    env={"WATCHDOG_NO_SNAPSHOTS": "1"} if immediate else None)
+                self.assertEqual(code, 124, log)
+                with open(os.path.join(out, "diagnosis.json")) as f:
+                    report = json.load(f)
+                self.assertTrue(any("another user's process" in e["why"]
+                                    for e in report["outcome"]["running"]), report)
+            finally:
+                from pathlib import Path
+                Path(release).touch()
+                deadline = time.monotonic() + 10
+                while not os.path.exists(done) and time.monotonic() < deadline:
+                    time.sleep(.05)
+                self.assertTrue(os.path.exists(done), "sudo helper did not finish")
+
     @unittest.skipUnless(subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0,
                          "needs passwordless sudo (CI has it)")
     def test_a_root_leftover_from_sudo_fails_the_run_and_is_reported_running(self):
-        # #206 end to end: the command leaves a root process (sudo) behind.
-        # Before, it was not seen and the run passed; now it is a leftover
-        # confirmed running, never signalled: exit 124. It ends by itself.
-        code, log, _, out = self.run_watchdog(
-            ["sh", "-c", "sudo -n /bin/sleep 6 & sleep 2; exit 0"], stall=30)
-        self.assertEqual(code, 124, log)
-        with open(os.path.join(out, "diagnosis.json")) as f:
-            report = json.load(f)
-        running = report["outcome"]["running"]
-        self.assertTrue(any("another user's process" in e["why"] for e in running), running)
+        self.sudo_leftover()
 
     def test_what_a_command_leaves_in_its_group_as_it_exits_is_found(self):
         # Codex on #215: a command that exits before any snapshot ran. Its
@@ -999,15 +1063,7 @@ class WatchdogTests(unittest.TestCase):
     @unittest.skipUnless(subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0,
                          "needs passwordless sudo (CI has it)")
     def test_a_root_leftover_of_a_command_that_exits_at_once_is_reported_running(self):
-        # Codex on #215: sudo's process left by a command that exits at once,
-        # before any snapshot: still found (by the look before reaping),
-        # reported as another user's process still running; exit 124.
-        code, log, _, out = self.run_watchdog(["sh", "-c", "sudo -n /bin/sleep 6 & exit 0"],
-                                              env={"WATCHDOG_NO_SNAPSHOTS": "1"})
-        self.assertEqual(code, 124, log)
-        with open(os.path.join(out, "diagnosis.json")) as f:
-            report = json.load(f)
-        self.assertTrue(any("another user's process" in e["why"] for e in report["outcome"]["running"]), report)
+        self.sudo_leftover(immediate=True)
 
     def test_without_waitid_the_missing_last_look_is_reported_partial(self):
         # b9 on #215: a Python without os.waitid/WNOWAIT cannot take the last

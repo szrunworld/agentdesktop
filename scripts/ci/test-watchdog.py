@@ -459,8 +459,19 @@ class Run:
         foreign = foreign or {}
         nodes = {pid: row[:3] for pid, row in procs.items()}
         nodes.update({pid: row[:3] for pid, row in foreign.items()})
-        found = {pid for pid, (_, pgid, _) in nodes.items() if pgid == self.root}
-        found.add(self.root)
+        found = set()
+        if self.root_alive:
+            found.update(pid for pid, (_, pgid, _) in nodes.items() if pgid == self.root)
+            found.add(self.root)
+        else:
+            # After reaping, neither the old root PID nor its group is ours.
+            # Continue from remembered members only while their identities
+            # still match, including members owned by another user.
+            remembered = {pid: row[0] for pid, row in self.seen.items()}
+            remembered.update({pid: row[0] for pid, row in self.seen_foreign.items()})
+            found.update(pid for pid, ident in remembered.items()
+                         if pid != self.root and pid in nodes
+                         and nodes[pid][2] == ident and start_time(pid) == ident)
         checked = {}
         self._unlinked = {}
 
@@ -506,11 +517,11 @@ class Run:
         foreign = {}
         procs = processes(deadline, problems, foreign)
         ids = {pid: row[2] for pid, row in procs.items()}
-        # The live tree only while the command runs; afterwards only what is
-        # confirmed: seen as the same process, the marker, the terminal.
+        # After the command exits, continue the checked tree from surviving
+        # remembered identities, never from its old PID or process group.
         self._unlinked = {}
         self._foreign_linked = {}
-        live = self._tree(procs, foreign) if self.root_alive else {}
+        live = self._tree(procs, foreign)
         unlinked = self._unlinked
         # Other users' processes of the run: found in the tree now, or seen
         # in it before, still the same process. Never signalled (#206).
