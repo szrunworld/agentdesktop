@@ -162,6 +162,7 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 - `action.failed`：执行链路出现技术错误；是否提交输入由回执的 delivery 决定。`not_dispatched` 表示失败发生在提交前，`dispatched` 表示已提交后失败。该解释也适用于已有历史事件。
 - `action.completed`：执行路径返回成功；仍以回执描述送达和执行状态，不推断外部业务已完成。
 - `action.unknown`：结果无法确认，保留未知，不重新提交输入，也不改写成 refused 或 failed。
+- 外层类型与回执不得矛盾，契约逐类型校验：`action.completed` / `action.failed` / `action.unknown` 的 `receipt.execution` 必须分别是 `completed` / `failed` / `unknown`。
 - 同一次动作只能有一个终态事件；审计无法可靠记录时按现有审计故障策略停止，不编造执行成功。
 
 回执（F1-03）：没有送达（not_dispatched）、执行失败或结果未知时带 `reason{code, message}`；送达时没有这个字段。经 `run.events` 和 `request.show` 回看时都能看到原因。

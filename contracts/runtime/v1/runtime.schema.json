@@ -2920,11 +2920,7 @@
               "$ref": "#/$defs/Timestamp"
             },
             "type": {
-              "enum": [
-                "action.completed",
-                "action.failed",
-                "action.unknown"
-              ]
+              "const": "action.completed"
             },
             "data": {
               "type": "object",
@@ -2934,7 +2930,116 @@
               ],
               "properties": {
                 "receipt": {
-                  "$ref": "#/$defs/ActionReceipt"
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ActionReceipt"
+                    },
+                    {
+                      "properties": {
+                        "execution": {
+                          "const": "completed"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "action.failed"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "receipt"
+              ],
+              "properties": {
+                "receipt": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ActionReceipt"
+                    },
+                    {
+                      "properties": {
+                        "execution": {
+                          "const": "failed"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "sequence",
+            "at",
+            "type",
+            "data"
+          ],
+          "properties": {
+            "runId": {
+              "$ref": "#/$defs/Id"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "type": {
+              "const": "action.unknown"
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "receipt"
+              ],
+              "properties": {
+                "receipt": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/ActionReceipt"
+                    },
+                    {
+                      "properties": {
+                        "execution": {
+                          "const": "unknown"
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
