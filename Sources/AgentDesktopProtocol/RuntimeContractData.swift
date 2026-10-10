@@ -1414,6 +1414,14 @@ enum RuntimeContractData {
         },
         "outcome": {
           "type": "object"
+        },
+        "clientId": {
+          "type": "string",
+          "description": "the principal that made the request"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id",
+          "description": "the Desktop the request named (absent for records older than A5 or naming none)"
         }
       }
     },
