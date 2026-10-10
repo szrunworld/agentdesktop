@@ -92,6 +92,10 @@ public actor UnitRunRecorder: GuiRunRecording {
                                  ("count", .int(1))])
     }
 
+    public func recovery(stepIndex: Int, kind: String, count: Int) async {
+        record("unit.recovery", [("stepIndex", .int(stepIndex)), ("kind", .string(kind)), ("count", .int(count))])
+    }
+
     public func action(_ r: GuiActionReceipt, stepIndex: Int) async {
         record("unit.action", [("stepIndex", .int(stepIndex)), ("actionId", .string(r.actionId)),
                                ("proposalId", .string(r.proposalId)), ("requestId", .string(UnitRun.actRequestId(for: r.actionId))),

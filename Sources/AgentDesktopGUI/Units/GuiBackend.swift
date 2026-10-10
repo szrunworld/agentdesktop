@@ -57,6 +57,8 @@ public protocol GuiRunRecording: Actor {
     func proposed(_ p: GuiProposal) async
     func rejected(stepIndex: Int, reason: String) async
     func recovered(stepIndex: Int) async
+    /// X1-2: a stall took a bounded recovery (`kind` is the stall).
+    func recovery(stepIndex: Int, kind: String, count: Int) async
     func action(_ r: GuiActionReceipt, stepIndex: Int) async
     func verified(_ v: GoalVerification) async
 }

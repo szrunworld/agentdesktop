@@ -5276,8 +5276,12 @@
                 },
                 "kind": {
                   "enum": [
-                    "reobserve_after_empty_reply"
-                  ]
+                    "reobserve_after_empty_reply",
+                    "repeated_action",
+                    "no_progress",
+                    "state_loop"
+                  ],
+                  "description": "reobserve_after_empty_reply: a step's empty model reply (Kevin 2026-10-08). The others (X1-2): a stall took its one bounded recovery — a new observation of the bound target, verified; nothing sent is repeated. A further stall ends the Run with closingReason no_progress (repeated_action, no_progress) or loop_detected (state_loop)."
                 },
                 "count": {
                   "type": "integer",
