@@ -534,12 +534,8 @@ public final class IPhoneAgentScreen: AgentScreen {
             do {
                 pasted = try gateLock.locked(shared: true, giveUp: { stopReason() != nil }) {
                     let pasted = try paste(text, pid: pid)
-                    if case .unknown = pasted.outcome {
-                        // Whatever acts next depends on what the field holds,
-                        // which nobody knows: no input until the phone is
-                        // read again.
-                        block("may hold a half-finished paste")
-                    }
+                    // PasteTransaction raises an unknown barrier while the
+                    // clipboard lease is held; do not raise it again here.
                     return pasted
                 }
             } catch let gate as HostFlagLock.Failure {
@@ -759,7 +755,9 @@ public final class IPhoneAgentScreen: AgentScreen {
     private func paste(_ text: String, pid: pid_t) throws -> PasteTransaction.Result {
         ownPaste = true
         defer { ownPaste = false }
-        return PasteTransaction().paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
+        var transaction = PasteTransaction()
+        transaction.giveUp = { self.stopReason() != nil }
+        return transaction.paste(text, verify: true, driver: PhoneDriver(phone: self, pid: pid))
     }
 
     /// The phone for a paste: Vision reads the window, input goes to Mirroring.

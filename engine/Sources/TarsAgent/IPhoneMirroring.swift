@@ -150,9 +150,13 @@ struct HostFlagLock {
     func locked<T>(shared: Bool = false, giveUp: () -> Bool = { false }, _ body: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        let fd = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        let fd = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0o600)
         guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
         defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
+              fchmod(fd, 0o600) == 0 else { throw CocoaError(.fileWriteNoPermission) }
+        if giveUp() { throw Failure.gaveUp }
         let end = Date().addingTimeInterval(wait)
         while flock(fd, (shared ? LOCK_SH : LOCK_EX) | LOCK_NB) != 0 {
             guard errno == EWOULDBLOCK || errno == EINTR else { throw Failure.busy(path: url.path) }

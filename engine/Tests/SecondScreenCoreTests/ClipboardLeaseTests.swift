@@ -86,3 +86,17 @@ func scratchLockURL() -> URL {
         holder.waitUntilExit()
     }
 }
+
+@Test func aCancelledClipboardWaitRunsNoBody() throws {
+    let url = scratchLockURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let first = try ClipboardLease.acquire(at: url, timeout: 1)
+    defer { first.release() }
+    var checks = 0
+    var ran = false
+    #expect(throws: ClipboardLease.LeaseError.gaveUp) {
+        try ClipboardLease.with(at: url, timeout: 45, giveUp: { checks += 1; return checks >= 2 }) { ran = true }
+    }
+    #expect(!ran)
+    #expect(checks == 2)
+}
