@@ -39,8 +39,13 @@ jobs:
         # 3 s, sampling, stops): 21 cases took 2 min 52 s on CI (#196), so 3
         # minutes left no margin. Room for the cases #193 adds; a hang still
         # ends the step.
+        # In two steps, each with its own limit: after #215 the 52 cases took
+        # 4 min 23 s in one step on CI (main 7fc5464), close to its 6 minutes.
         timeout-minutes: 6
-        run: python3 -m unittest scripts/ci/test_test_watchdog.py -v
+        run: python3 -m unittest -v scripts.ci.test_test_watchdog.WatchdogTests
+      - name: Test watchdog self-tests (discovery and whose processes may be signalled)
+        timeout-minutes: 6
+        run: python3 -m unittest -v scripts.ci.test_test_watchdog.WatchdogOwnershipTests
       - name: Native core unit tests
         timeout-minutes: 8
         run: |

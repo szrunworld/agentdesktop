@@ -20,7 +20,9 @@ def alive(marker):
     return subprocess.run(["pgrep", "-f", marker], capture_output=True).returncode == 0
 
 
-class WatchdogTests(unittest.TestCase):
+class WatchdogHelpers:
+    """What both suites use to run and inspect the watchdog."""
+
     def run_watchdog(self, command, stall=20, timeout=90, env=None):
         out = tempfile.mkdtemp(prefix="watchdog-test-")
         started = time.monotonic()
@@ -28,6 +30,42 @@ class WatchdogTests(unittest.TestCase):
                            capture_output=True, text=True, timeout=timeout, env=dict(os.environ, **(env or {})))
         return r.returncode, r.stdout + r.stderr, time.monotonic() - started, out
 
+    def failing_tool(self, name, script="#!/bin/sh\nexit 2\n"):
+        path = os.path.join(tempfile.mkdtemp(prefix="watchdog-tool-"), name)
+        with open(path, "w") as f:
+            f.write(script)
+        os.chmod(path, 0o755)
+        return path
+
+    def assertStopped(self, report):
+        """Everything confirmed as the run's was stopped. Where sudo works
+        without a password (CI) every process can be checked, so the stop
+        must be ok; elsewhere processes that cannot be checked are reported
+        as unverified, which is not the same as stopped (Kevin, 2026-10-09).
+        The outcome goes to stderr, so the CI log shows which it was (b9)."""
+        status = [s["status"] for s in report["steps"] if s["step"] == "stop"]
+        sudo = subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0
+        print(f"\n[{self.id().rsplit('.', 1)[-1]}] stop: {status}, passwordless sudo: {sudo}", file=sys.stderr)
+        for e in report.get("unverified_at_stop", []):
+            print(f"  unverified: {e['pid']} {e['command'][:120]} ({e['why']})", file=sys.stderr)
+        self.assertNotIn("not_stopped", report)
+        if sudo or not report.get("unverified_at_stop"):
+            self.assertEqual(status, ["ok"])
+        else:
+            self.assertEqual(status, ["unverified"])
+
+    def load(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("watchdog", WATCHDOG)
+        wd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wd)
+        return wd
+
+    STALL = [sys.executable, "-c",
+             'import threading; print("◇ Test stuck() started."); l=threading.Lock(); l.acquire(); l.acquire()']
+
+
+class WatchdogTests(WatchdogHelpers, unittest.TestCase):
     def test_returns_the_commands_own_status(self):
         code, _, _, _ = self.run_watchdog(["sh", "-c", "echo hi; exit 3"])
         self.assertEqual(code, 3)
@@ -269,37 +307,6 @@ class WatchdogTests(unittest.TestCase):
             self.assertStopped(report)
         finally:
             subprocess.run(["pkill", "-f", tag], capture_output=True)
-
-    def failing_tool(self, name, script="#!/bin/sh\nexit 2\n"):
-        path = os.path.join(tempfile.mkdtemp(prefix="watchdog-tool-"), name)
-        with open(path, "w") as f:
-            f.write(script)
-        os.chmod(path, 0o755)
-        return path
-
-    def assertStopped(self, report):
-        """Everything confirmed as the run's was stopped. Where sudo works
-        without a password (CI) every process can be checked, so the stop
-        must be ok; elsewhere processes that cannot be checked are reported
-        as unverified, which is not the same as stopped (Kevin, 2026-10-09).
-        The outcome goes to stderr, so the CI log shows which it was (b9)."""
-        status = [s["status"] for s in report["steps"] if s["step"] == "stop"]
-        sudo = subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0
-        print(f"\n[{self.id().rsplit('.', 1)[-1]}] stop: {status}, passwordless sudo: {sudo}", file=sys.stderr)
-        for e in report.get("unverified_at_stop", []):
-            print(f"  unverified: {e['pid']} {e['command'][:120]} ({e['why']})", file=sys.stderr)
-        self.assertNotIn("not_stopped", report)
-        if sudo or not report.get("unverified_at_stop"):
-            self.assertEqual(status, ["ok"])
-        else:
-            self.assertEqual(status, ["unverified"])
-
-    def load(self):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("watchdog", WATCHDOG)
-        wd = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(wd)
-        return wd
 
     def test_a_stall_reports_the_stopped_command_as_stopped(self):
         # #194: the killed command must not be reported as still running
@@ -608,8 +615,13 @@ class WatchdogTests(unittest.TestCase):
             root.kill()
             root.wait()
 
-    STALL = [sys.executable, "-c",
-             'import threading; print("◇ Test stuck() started."); l=threading.Lock(); l.acquire(); l.acquire()']
+
+class WatchdogOwnershipTests(WatchdogHelpers, unittest.TestCase):
+    """What the watchdog can and cannot know, and what it may signal: tools
+    and lookups failing (#193); other users' processes (#206), the
+    watchdog's own ancestors (#209), the last look before reaping and the
+    signals of a stop (#215), the kernel reader's self-check. A CI step of
+    their own, for its time limit."""
 
     def test_a_failing_lsof_makes_the_process_list_partial(self):
         # #193: a list found without the terminal holders is not reported as
