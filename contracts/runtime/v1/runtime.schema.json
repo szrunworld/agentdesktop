@@ -617,6 +617,9 @@
         "openSessions": {
           "type": "integer",
           "minimum": 0
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
         }
       }
     },
@@ -4226,6 +4229,210 @@
         }
       }
     },
+    "desktop_stop_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "desktop_takeover_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "desktop_handback_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "DesktopControl": {
+      "description": "who controls the Desktop's input, derived from its lease, its admission and its last Run (docs/plan/03 §3.4); a paired client sees controllerRunId, clientId and clientName only for its own Run",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "since",
+        "actionCount"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "creating",
+            "ready",
+            "running",
+            "manual",
+            "stopping",
+            "stopped",
+            "disconnected",
+            "unknown",
+            "error"
+          ],
+          "description": "running: a Run holds the lease; manual: the user's takeover Run holds it; stopping: the Run holding it stops; stopped: desktop.stop, global stop, or the last Run ended by a stop, until a new Run or desktop.handback; disconnected: the last Run lost its control connection; unknown: the last Run has an unknown action; creating and error are reserved"
+        },
+        "controllerRunId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "clientName": {
+          "type": "string"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "actionCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "RunStopState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "phase",
+        "quiescence",
+        "outcome"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "quiescence": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "DesktopStopReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "accepted",
+        "run",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "accepted": {
+          "const": true
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStopState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the Run that held the Desktop, as stopped: phase stopping and quiescence pending while an action of it is in flight"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
+    "DesktopTakeover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "run",
+        "stopped",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "run": {
+          "$ref": "#/$defs/Run"
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStopState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the agent's Run the takeover stopped, if one held the Desktop"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
+    "DesktopHandback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "handedBack",
+        "endedRunId",
+        "observationsCleared",
+        "control"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "handedBack": {
+          "type": "boolean"
+        },
+        "endedRunId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observationsCleared": {
+          "type": "boolean"
+        },
+        "control": {
+          "$ref": "#/$defs/DesktopControl"
+        }
+      }
+    },
     "observe_region_v1_params": {
       "type": "object",
       "additionalProperties": false,
@@ -4977,6 +5184,196 @@
           }
         }
       ]
+    },
+    "desktop_closePlan_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "app_quit_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "pid"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "desktop_resize_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 16384
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 240,
+          "maximum": 16384
+        }
+      }
+    },
+    "ClosePlanProcess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process",
+        "appName",
+        "bundleId"
+      ],
+      "properties": {
+        "process": {
+          "$ref": "#/$defs/ProcessIdentity"
+        },
+        "appName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bundleId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "not_launched_here",
+            "physical_desktop"
+          ]
+        }
+      }
+    },
+    "DesktopClosePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "kind",
+        "display",
+        "canClose",
+        "blockers",
+        "quit",
+        "keep"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "enum": [
+            "virtual",
+            "physical"
+          ]
+        },
+        "display": {
+          "enum": [
+            "destroyed",
+            "kept"
+          ],
+          "description": "a virtual Desktop's display is destroyed; a physical one is the user's and kept"
+        },
+        "canClose": {
+          "type": "boolean"
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "run",
+                  "sessions"
+                ]
+              },
+              "runId": {
+                "$ref": "#/$defs/Id"
+              },
+              "origin": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "quit": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClosePlanProcess"
+          },
+          "description": "processes destroy asks to quit: launched on this Desktop and still running"
+        },
+        "keep": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClosePlanProcess"
+          },
+          "description": "processes with a window there that destroy leaves running"
+        }
+      }
+    },
+    "AppQuitResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "process",
+        "quitRequested",
+        "exited"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "process": {
+          "$ref": "#/$defs/ProcessIdentity"
+        },
+        "quitRequested": {
+          "type": "boolean"
+        },
+        "exited": {
+          "type": "boolean",
+          "description": "the process is gone; false: asked to quit, not proof that it will"
+        }
+      }
     }
   }
 }

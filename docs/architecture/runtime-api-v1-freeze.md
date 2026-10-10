@@ -245,7 +245,8 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 | GUI 参数 | ai.profiles.list / get / create / update / disable / delete / default.get / setDefault | ✅ PR2b-1 | PR2b |
 | 能力检测 | ai.tests.start；ai.operations.get / cancel | ✅ PR2b-1 | PR2b |
 | 用量 | ai.usage.summary | ✅ PR2b-1 | PR2b |
-| Desktop 控制面 | desktop.stop / takeover / handback / closePlan / resize；app.quit；request.list / export | 🔖 | A5 |
+| Desktop 控制面 | desktop.closePlan / resize；app.quit（见下文「关闭计划、退出应用与调整尺寸（A5）」） | ✅ | A5 PR② |
+| Desktop 控制面 | desktop.stop / takeover / handback；`Desktop.control`（见下文「Desktop 控制面（A5）」） | ✅ | A5 PR① |
 | 身份 | hub.pairing.start / status / approve / deny；hub.clients.list / show / revoke；hub.grants.list / set / revoke；hub.connections.list | 🔖 | PR3 |
 | 窗口授权 | hub.windows.request / list / revoke（按窗口的 observe / act / persist，见 docs/security/window-grants.md） | ✅ | 窗口授权前置 PR |
 | 显示器开放 | hub.displays.list / attach / detach（owner 在主窗口把自己的显示器作为物理 Desktop 开放给已配对程序，Touch ID 确认；见 docs/security/owner-display-attach.md） | ✅ | owner 挂接入口 PR |
@@ -290,6 +291,20 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 | AUDIT_UNAVAILABLE | audit_unavailable（docs/plan/03 §3.5 起独立；同时暂停新输入） |
 | EVENTS_CURSOR_EXPIRED | 新码 `events_cursor_expired` |
 | INTERNAL_ERROR | internal_error |
+
+### 关闭计划、退出应用与调整尺寸（A5）
+
+- `desktop.closePlan {desktopId}`（只读，只给 owner；配对程序得到 `permission_denied`，reason `owner_only`）：现在调用 `desktop.destroy` 会怎样，什么都不改。`blockers` 列出持有租约的 Run 与未关闭的 session（有任何一项时 `canClose: false`）；`quit` 列出 destroy 会请求退出的进程（本 Desktop 用 app.launch 启动、仍在运行）；`keep` 列出窗口在这里但会保留的进程（`not_launched_here`：用户自己的应用；物理 Desktop 上一律 `physical_desktop`，显示器也保留，`display: "kept"`）。
+- `app.quit {desktopId, pid}`（`desktop.manage`）：只结束本 Desktop 用 app.launch 启动的进程，配对程序只能结束它自己启动的；其他一律 `permission_denied`，reason `not_launched_here`，不透露该 pid 是什么。另一个客户端的 Run 持有该 Desktop 时 `control_busy`（owner 不受限）。请求退出后最多等 3 秒：进程消失则 `exited: true`，并从本 Desktop 的启动记录和绑定中移除；否则 `exited: false`（只是请求过，不代表会退出）。
+- `desktop.resize {desktopId, width, height}`（`desktop.manage`）：原地调整虚拟 Desktop 的尺寸（320×240 到显示器预留的最大值，超出为 `execution_failed`）；物理 Desktop 为 `invalid_target`。另一个客户端的 Run 持有该 Desktop 时 `control_busy`（owner 不受限）。该 Desktop 的全部观察作废，旧快照上的 act 得到 `stale_observation`。
+
+### Desktop 控制面（A5）
+
+- 三个方法都只给 owner（主窗口）；配对程序得到 `permission_denied`，reason `owner_only`。只作用于一个 Desktop，其他 Desktop 不受影响。
+- `desktop.stop {desktopId}`：关闭该 Desktop 的输入准入，停止持有租约的 Run（任何 origin，closingReason `desktop_stop`）。回执 `DesktopStopReceipt` 分开「已受理」与「已静止」：有在途动作时 `run.phase=stopping`、`quiescence=pending`。此后该 Desktop 上新的 Run 被拒（`input_disabled`，reason `desktop_stopped`），直到 `desktop.handback`。
+- `desktop.takeover {desktopId}`：先关闭 Agent 的准入、停止持有租约的 Run（closingReason `takeover`），等它没有在途动作（拿到 Desktop 锁）后，建一个 `origin=user`、`platform/platform_durable`、kind `exec` 的平台 Run 持有租约。其他 Run 一律被拒（`control_busy`，reason `manual_control`）。超过 deadline 仍有在途动作：`stop_pending`（retryable，notSent 不为 true：接管已受理、准入保持关闭），用新的 requestId 再调。已接管时再调返回同一个 Run。
+- `desktop.handback {desktopId}`：结束人工 Run（closingReason `handback`，outcome `success`），重新开放准入，并作废该 Desktop 的全部观察：Agent 必须重新 observe 才能动作，接管前的快照不会被重放。Desktop 既没停止也没接管时什么都不改（`handedBack: false`）。
+- `Desktop.control {state, since, actionCount, controllerRunId?, clientId?, clientName?}` 由租约、Desktop 准入和最后一个 Run 推导，不落盘：running / manual / stopping / stopped / disconnected（上个 Run owner_lost）/ unknown（上个 Run 有未知动作）/ ready；creating、error 预留。stopped、disconnected、unknown 保持到新 Run 开始或 owner handback。配对程序只在控制者是自己时看到 controllerRunId、clientId、clientName。`transport`、`lastActionAt` 仍在 plannedFields。
 
 ## 6.1 已登记的后续增量（docs/plan/03 §3.2–3.5，2026-10-08 纳入）
 

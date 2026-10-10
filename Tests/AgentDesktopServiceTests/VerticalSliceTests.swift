@@ -445,6 +445,22 @@ struct VerticalSliceTests {
         #expect(try await reopened.service.store.attempts(budgetScope: "run-crash").map(\.state) == ["interrupted"])
     }
 
+    // Codex on c702a5f: when the Runtime's record of inputs cannot be read,
+    // the summary says so instead of reporting zero inputs.
+    @Test func unreadableInputCountsAreAnErrorNotZero() async throws {
+        struct Broken: Error {}
+        let dir = URL(fileURLWithPath: "/tmp/ads-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
+            databasePath: dir.appendingPathComponent("config.sqlite").path, credentials: InMemoryCredentialStore(),
+            http: ScriptedUpstream(), actionOutcomes: { _, _, _ in throw Broken() }))
+        let r = await service.router(callerScope: "owner").answer(method: "ai.usage.summary", params: .obj([
+            ("from", .string("2026-01-01T00:00:00Z")), ("to", .string("2099-01-01T00:00:00Z"))]))
+        guard case let .failure(e) = r else { Issue.record("must not answer zero"); return }
+        #expect(e.code == .usageUnavailable)
+    }
+
     // SEC-001 (service part): the key never appears in any response, in the
     // unit Run's events or in the database files.
     @Test func theKeyStaysInTheCredentialStore() async throws {

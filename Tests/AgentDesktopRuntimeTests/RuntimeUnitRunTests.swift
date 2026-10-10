@@ -355,16 +355,16 @@ func eventTypes(_ s: RuntimeService, _ runId: String) -> [String] {
         // A second Run whose input was out when the host went away.
         store.create(record("run_b"))
         store.appendEvent("run_b", "action.dispatched", .obj([("requestId", .string("r4"))]))
-        let all = store.actionOutcomes(runIds: ["run_a", "run_b"], from: .distantPast, to: .distantFuture)
+        let all = try store.actionOutcomes(runIds: ["run_a", "run_b"], from: .distantPast, to: .distantFuture)
         #expect(all.confirmed == 1 && all.unknown == 1, "a failed input is neither")
-        #expect(store.actionOutcomes(runIds: ["run_a"], from: clock.now.addingTimeInterval(1), to: .distantFuture) == (0, 0))
+        #expect(try store.actionOutcomes(runIds: ["run_a"], from: clock.now.addingTimeInterval(1), to: .distantFuture) == (0, 0))
     }
     // Eight days later, after a restart: the Runs are gone, their outcomes
     // stay, and run_b's lost input counts as unknown.
     clock.now = clock.now.addingTimeInterval(8 * 86400)
     let reopened = try RunStore(path: path, now: { clock.now })
     #expect(reopened.find("run_a") == nil, "retention removed the ended Run")
-    let after = reopened.actionOutcomes(runIds: ["run_a", "run_b"], from: .distantPast, to: .distantFuture)
+    let after = try reopened.actionOutcomes(runIds: ["run_a", "run_b"], from: .distantPast, to: .distantFuture)
     #expect(after.confirmed == 1 && after.unknown == 2, "run_b's lost input counts, as of the restart")
 }
 
@@ -413,4 +413,102 @@ func pairedUnitScene(_ capabilities: [String]) throws -> (RuntimeService, owner:
     #expect(executor.stopCount == 1, "unit.run was taken away")
     executor.lastSink?.finished(.cancelled)
     #expect(s.runs.find(runId)?.closingReason == "grant_narrowed")
+}
+
+// Codex on 158d2a6: a unit Run is never finished by its caller (that would
+// call it a success unverified); it stops with run.cancel.
+@Test func aUnitRunCannotBeFinishedByItsCaller() async throws {
+    let executor = FakeUnitExecutor()
+    let (_, s, c, d, _) = try unitScene(executor: executor)
+    let runId = try #require(data(await offPool(s, c, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    let r = call(s, c, "run.finish", params: #"{"runId":"\#(runId)","exitCode":0}"#)
+    #expect(code(r) == "invalid_argument")
+    #expect(errorDetails(r)?["reason"]?.stringValue == "unit_run_not_finishable")
+    #expect(s.runs.find(runId)?.phase == .running && executor.stopCount == 0)
+    executor.lastSink?.finished(.failed(reason: "verification_failed"))
+    #expect(s.runs.find(runId)?.outcome == .failed)
+}
+
+// Codex on 158d2a6: the window is unbound, or bound again, while the
+// executor admits: no Run is made from the stale binding.
+@Test func aBindingChangedDuringAdmissionCreatesNoRun() async throws {
+    for change in ["unbind", "rebind"] {
+        let executor = FakeUnitExecutor()
+        let (_, s, c, d, _) = try unitScene(executor: executor)
+        executor.duringAdmit = {
+            if change == "unbind" { _ = call(s, c, "window.unbind", params: #"{"desktopId":"\#(d)"}"#) }
+            else { _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#) }
+        }
+        let r = await offPool(s, c, "unit.run", params: unitParams(d))
+        guard case let .failure(e) = r.result else { Issue.record("\(change): must refuse"); continue }
+        #expect(e.code == "invalid_target" && e.details?["reason"]?.stringValue == "binding_changed", "\(change)")
+        #expect(runCount(s, c) == 0 && executor.contexts.isEmpty, "\(change)")
+        #expect(s.sessions.openCount(desktopId: d) == 0, "\(change)")
+    }
+}
+
+@Test func aDesktopDestroyedDuringAdmissionCreatesNoRun() async throws {
+    let executor = FakeUnitExecutor()
+    let (_, s, c, d, _) = try unitScene(executor: executor)
+    executor.duringAdmit = {
+        #expect(data(call(s, c, "desktop.destroy", params: #"{"desktopId":"\#(d)"}"#)) != nil)
+    }
+    let r = await offPool(s, c, "unit.run", params: unitParams(d))
+    #expect(code(r) == "not_found")
+    #expect(errorDetails(r)?["reason"]?.stringValue == "desktop_not_found")
+    #expect(runCount(s, c) == 0 && executor.contexts.isEmpty)
+    #expect(s.sessions.openCount(desktopId: d) == 0)
+}
+
+// Codex on 073b96f: an app granted unit.run without run reads, waits on
+// and stops its own unit Runs; nothing else of run.* opens up.
+@Test func unitRunAloneControlsItsOwnUnitRuns() async throws {
+    let (s, _, app, _, d, executor) = try pairedUnitScene(["observe", "act", "unit.run"])
+    let runId = try #require(data(await offPool(s, app, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    #expect(data(call(s, app, "run.show", params: #"{"runId":"\#(runId)"}"#))?["kind"]?.stringValue == "unit")
+    #expect(data(call(s, app, "run.events", params: #"{"runId":"\#(runId)"}"#)) != nil)
+    #expect(data(call(s, app, "run.list")) != nil)
+    #expect(data(call(s, app, "run.cancel", params: #"{"runId":"\#(runId)"}"#)) != nil)
+    #expect(executor.stopCount == 1)
+    #expect(code(call(s, app, "run.start", context: #"{"desktopId":"\#(d)"}"#)) == "grant_missing")
+    #expect(code(call(s, app, "run.show", params: #"{"runId":"run_missing"}"#)) == "grant_missing")
+}
+
+// Codex on 073b96f: the window grant ends while the executor admits.
+@Test func aWindowGrantEndedDuringAdmissionCreatesNoRun() async throws {
+    let (s, owner, app, id, d, executor) = try pairedUnitScene(["observe", "act", "unit.run"])
+    let g = try #require(s.hub.windowGrants(clientId: id).first)
+    _ = owner
+    // The window closes (the grant ends with it); the connection stays.
+    executor.duringAdmit = { s.endWindowGrant(g, reason: "window_closed") }
+    let r = await offPool(s, app, "unit.run", params: unitParams(d))
+    #expect(code(r) == "grant_missing", "\(r.json.encoded())")
+    #expect(executor.contexts.isEmpty && s.runs.list(RunStore.ListFilter(), after: nil, limit: 10).runs.isEmpty)
+}
+
+// Codex on 073b96f: when needs_input cannot be recorded, the Run does not
+// wait unrecorded: input closes everywhere and the Run ends failed.
+@Test func anUnrecordedNeedsInputFailsClosed() async throws {
+    let dir = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runs.sqlite"
+    let platform = FakePlatform()
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                           backend: FixedBackend(), platform: platform, runs: try RunStore(path: path))
+    s.bindsOnlyLaunchedProcesses = false
+    s.refusesScreenCaptureWithoutBinding = false
+    let c = handshaken(s)
+    let d = try created(s, c)
+    _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
+    let executor = FakeUnitExecutor()
+    s.registerUnitExecutor(executor, ports: RuntimeGuiPorts(service: s))
+    let runId = try #require(data(await offPool(s, c, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    let db = try SQLiteDatabase(path: path)
+    try db.execute("CREATE TRIGGER reject_wait BEFORE INSERT ON events WHEN NEW.type = 'unit.needs_input' BEGIN SELECT RAISE(ABORT, 'injected disk failure'); END")
+    executor.lastSink?.finished(.needsInput(reason: "login_required"))
+    let r = try #require(s.runs.find(runId))
+    #expect(r.phase != .waitingInput, "not waiting unrecorded")
+    #expect(s.execution.auditUnavailable)
+    #expect(s.execution.inputAdmission != .enabled)
 }

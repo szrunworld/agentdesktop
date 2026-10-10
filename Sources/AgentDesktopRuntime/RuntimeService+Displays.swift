@@ -196,6 +196,7 @@ extension RuntimeService {
             d.generation += 1
             d.binding = nil
             desktops.remove(id)
+            execution.forgetDesktop(id)
             observations.forget(desktopId: id)
             endWindowGrants(onDesktop: id)
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.displays.detach", decision: "ended", reason: "\(id) display_detached")
