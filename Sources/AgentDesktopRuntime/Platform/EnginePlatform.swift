@@ -366,7 +366,9 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     }
 
     public func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
-        var input = InputAction(InputAction.Kind(rawValue: action.kind.rawValue)!)
+        // press is the engine's accessibilityPress: the element alone, no
+        // event fallback (the engine refuses any other option with it).
+        var input = InputAction(action.kind == .press ? .accessibilityPress : InputAction.Kind(rawValue: action.kind.rawValue)!)
         input.index = action.elementIndex
         input.x = action.point?.x
         input.y = action.point?.y

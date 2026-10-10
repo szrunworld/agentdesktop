@@ -1480,7 +1480,10 @@ enum RuntimeContractData {
             "click",
             "type",
             "key",
-            "scroll"
+            "scroll",
+            "hover",
+            "press",
+            "drag"
           ]
         },
         "target": {
@@ -1531,6 +1534,10 @@ enum RuntimeContractData {
           "type": "integer",
           "minimum": 1,
           "maximum": 50
+        },
+        "to": {
+          "$ref": "#/$defs/ActionTarget",
+          "description": "drag: where to release"
         }
       },
       "allOf": [
@@ -1601,8 +1608,190 @@ enum RuntimeContractData {
               "direction"
             ]
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "hover"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "modifiers"
+                  ]
+                },
+                {
+                  "required": [
+                    "button"
+                  ]
+                },
+                {
+                  "required": [
+                    "count"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "amount"
+                  ]
+                },
+                {
+                  "required": [
+                    "to"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "press"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "required": [
+                  "elementRef"
+                ]
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "modifiers"
+                  ]
+                },
+                {
+                  "required": [
+                    "button"
+                  ]
+                },
+                {
+                  "required": [
+                    "count"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "amount"
+                  ]
+                },
+                {
+                  "required": [
+                    "to"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "drag"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "target",
+              "to"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "text"
+                  ]
+                },
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "button"
+                  ]
+                },
+                {
+                  "required": [
+                    "count"
+                  ]
+                },
+                {
+                  "required": [
+                    "direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "amount"
+                  ]
+                }
+              ]
+            }
+          }
         }
-      ]
+      ],
+      "description": "hover rests the pointer on the target; press is an accessibility press of one element (elementRef only), never an event click; drag goes from target to `to`. hover and drag are refused with unsupported_backend where the backend cannot do them in the background without side effects (macOS today: hover would be a middle click, drag would take the real pointer and the foreground), never done otherwise instead"
     },
     "act_params": {
       "type": "object",
@@ -11163,14 +11352,6 @@ enum RuntimeContractData {
   ],
   "plannedFields": {
     "note": "optional additions agreed in docs/plan/03 §3.2–3.3; each lands with its schema, fixtures and goldens in the named PR (freeze rule 1: optional fields only)",
-    "Action.kind": {
-      "add": [
-        "hover",
-        "drag",
-        "press"
-      ],
-      "pr": "A5"
-    },
     "observe/act context": {
       "add": "desktopId alone opens an implicit session",
       "pr": "A5"
@@ -11460,8 +11641,7 @@ enum RuntimeContractData {
       "code": "unsupported_backend",
       "exitCode": 6,
       "phase": "handler",
-      "reserved": true,
-      "description": "The backend cannot do this action in the background; it is not done in the foreground instead."
+      "description": "The backend cannot do this action in the background without side effects (act kind drag on macOS: background_drag_unsupported; act kind hover on macOS, which would be a middle click: background_hover_activates); it is not done another way instead. notSent: true, details.reason says which."
     },
     {
       "code": "capability_mismatch",
