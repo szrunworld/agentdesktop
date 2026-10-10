@@ -821,6 +821,33 @@
       "result": "HubDisplayDetachment",
       "status": "implemented",
       "note": "owner; takes the physical Desktop out of one client's grant (with clientId) or every client's (without), ending their window grants on it in the same transaction (desktop_removed) and cutting their connections; without clientId the Desktop is destroyed as well (its record only: the display and its windows are the user's); a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.stop",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_stop_params",
+      "result": "DesktopStopReceipt",
+      "status": "implemented",
+      "note": "owner; closes this Desktop's input admission and stops the Run holding it (any origin, closingReason desktop_stop); the receipt separates accepted from quiescent: run.phase stopping / quiescence pending while an action of it is in flight. New Runs on the Desktop are refused (input_disabled, details.reason desktop_stopped) until desktop.handback; other Desktops are untouched; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.takeover",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_takeover_params",
+      "result": "DesktopTakeover",
+      "status": "implemented",
+      "note": "owner; manual takeover: closes agents' admission on the Desktop, stops the Run holding it (closingReason takeover) and, once nothing of it is in flight, starts a platform Run of origin user (kind exec, platform_durable) that holds the lease; every other Run is refused (control_busy, details.reason manual_control); Desktop.control.state manual. While the stopped Run still finishes an action past the deadline: stop_pending (retryable, notSent false: the takeover was accepted and admission stays closed), ask again with a new requestId. Taking over a Desktop already taken over answers its Run again; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.handback",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_handback_params",
+      "result": "DesktopHandback",
+      "status": "implemented",
+      "note": "owner; ends the user's Run (closingReason handback, outcome success), reopens the Desktop's admission (after desktop.takeover or desktop.stop) and forgets every observation of the Desktop: an agent observes again before acting and nothing queued before is replayed; on a Desktop neither stopped nor taken over nothing changes (handedBack false); a paired client gets permission_denied, reason owner_only"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -955,27 +982,6 @@
       "stage": "P1"
     },
     {
-      "method": "desktop.stop",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "stop input on one Desktop; receipt separates accepted from quiescent"
-    },
-    {
-      "method": "desktop.takeover",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "manual takeover: a platform lease Run with origin user"
-    },
-    {
-      "method": "desktop.handback",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "end the takeover Run and observe again; nothing is replayed"
-    },
-    {
       "method": "desktop.closePlan",
       "status": "reserved",
       "pr": "A5",
@@ -1074,11 +1080,12 @@
     },
     "Desktop": {
       "add": [
-        "control{state,controllerRunId,clientId,clientName,transport,since,actionCount,lastActionAt}",
+        "control.transport",
+        "control.lastActionAt",
         "targetKind (window|device)"
       ],
       "pr": "A5",
-      "note": "kind (virtual|physical: where the display comes from) is in (#120/#143); targetKind (window|device: what is bound) is a different concept and stays planned"
+      "note": "kind (virtual|physical: where the display comes from) is in (#120/#143); control{state,controllerRunId,clientId,clientName,since,actionCount} is in (A5 desktop.stop/takeover/handback); targetKind (window|device: what is bound) is a different concept and stays planned"
     },
     "desktop.create params": {
       "add": [
