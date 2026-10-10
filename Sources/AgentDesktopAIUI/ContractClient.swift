@@ -26,6 +26,15 @@ extension ContractClient {
     public func send(_ command: String, _ params: JSONValue = .obj([])) async throws -> JSONValue {
         try await send(command, params, idempotencyKey: nil)
     }
+
+    /// A client with no Runtime behind it runs no GUI unit.
+    public func startUnitRun(_ params: JSONValue) async throws -> JSONValue {
+        throw ContractError(.capabilityMismatch, "this window has no Runtime to run GUI units")
+    }
+
+    public func runtime(_ method: String, _ params: JSONValue, requestId: String?) async throws -> JSONValue {
+        throw ContractError(.capabilityMismatch, "this window has no Runtime to run GUI units")
+    }
 }
 
 /// Calls the service's router in the same process (the app hosting the

@@ -19,10 +19,10 @@ extension RuntimeService {
     /// are the owner's.
     static let capabilityOf: [String: String] = {
         var m: [String: String] = [:]
-        for x in ["desktop.list", "desktop.show", "app.list", "window.list", "observe", "wait", "artifact.show",
+        for x in ["desktop.list", "desktop.show", "desktop.bindingStatus", "app.list", "window.list", "observe", "observe.region", "observe.subscribe", "observe.unsubscribe", "wait", "artifact.show",
                   "artifact.read", "session.show", "request.show"] { m[x] = "observe" }
         for x in ["act", "session.open", "session.close"] { m[x] = "act" }
-        for x in ["desktop.create", "desktop.destroy", "app.launch", "window.bind", "window.unbind"] { m[x] = "desktop.manage" }
+        for x in ["desktop.create", "desktop.destroy", "desktop.recoverBinding", "app.launch", "window.bind", "window.unbind"] { m[x] = "desktop.manage" }
         for x in ["run.start", "run.attach", "run.finish", "run.show", "run.events", "run.wait", "run.cancel", "run.list",
                   "events.subscribe", "events.unsubscribe"] { m[x] = "run" }
         m["unit.run"] = "unit.run"
@@ -216,11 +216,13 @@ extension RuntimeService {
     /// A paired connection's event stream ends once its access is gone
     /// (revoked, expired, or no longer granted `run`).
     public func subscriptionRevoked(_ c: ConnectionState) -> Bool {
-        guard c.role == .paired, c.subscription != nil,
-              let e = c.cutReason.map({ Self.cutError(c, $0) }) ?? accessError(c, method: "events.subscribe") else { return false }
-        hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "events.subscribe", decision: "denied",
+        let method = c.frameSubscription == nil ? "events.subscribe" : "observe.subscribe"
+        guard c.role == .paired, c.isSubscribed,
+              let e = c.cutReason.map({ Self.cutError(c, $0) }) ?? accessError(c, method: method) else { return false }
+        hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: method, decision: "denied",
                   reason: e.details?["reason"]?.stringValue ?? e.code, runId: c.subscription?.runId)
         c.subscription = nil
+        c.frameSubscription = nil
         return true
     }
 

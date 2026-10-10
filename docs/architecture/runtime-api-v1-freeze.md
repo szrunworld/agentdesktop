@@ -152,36 +152,24 @@ iPhone 镜像（`com.apple.ScreenContinuity`）是普通 macOS 应用，但对�
 
 ### 4.1 事件类型目录（F1-01，2026-10-08 冻结）
 
-Runtime 在每个 Run 上写的事件就是下面这些，Schema 见 `runtime.schema.json#/$defs/PlatformRunEvent`（按 type 分支，data 字段固定）。`run.`、`action.`、`stop.` 前缀只能是这些类型；`unit.` 前缀是 GUI 单元自己的事件，见 §4.2；其他前缀保留。
+Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](../../contracts/runtime/v1/runtime.schema.json)。类型和 data 的必需字段以该契约为准，本页不维护手写副本。Swift 内嵌副本由 `scripts/generate-runtime-contract.sh` 生成。`unit.` 前缀是 GUI 单元自己的事件，目录是 `$defs/UnitRunEvent`，见 §4.2。
 
-| type | data |
-| --- | --- |
-| `run.started` | kind、origin、ownership、lifetime、desktopId、sessionId |
-| `action.accepted` | requestId、kind |
-| `action.dispatched` | requestId |
-| `action.completed` / `action.failed` / `action.unknown` | receipt（完整的 ActionReceipt） |
-| `action.refused` | requestId、reason{code, message}：发送前即被拒绝（G0、快照失效、停止、deadline），没有回执 |
-| `run.finishing` / `stop.accepted` | reason、inFlight、revision |
-| `run.quiescent` | revision |
-| `run.ended` | phase=ended、outcome、reason |
+`RunEvent` 对 `run.`、`action.`、`stop.` 前缀引用该目录校验，`EventFrame` 通过其 event 字段引用 `RunEvent`；目录外类型或不符合字段要求的事件被拒绝。其他前缀的既有解析行为保留，包含扩展前缀 `x.`；这不表示这些类型已加入平台冻结目录。
+
+事件与回执的解释：
+
+- `action.refused`：Runtime 在尝试执行前主动拒绝，没有回执，例如权限、安全策略、失效快照或截止时间检查。
+- `action.failed`：执行链路出现技术错误；是否提交输入由回执的 delivery 决定。`not_dispatched` 表示失败发生在提交前，`dispatched` 表示已提交后失败。该解释也适用于已有历史事件。
+- `action.completed`：执行路径返回成功；仍以回执描述送达和执行状态，不推断外部业务已完成。
+- `action.unknown`：结果无法确认，保留未知，不重新提交输入，也不改写成 refused 或 failed。
+- 外层类型与回执不得矛盾，契约逐类型校验：`action.completed` / `action.failed` / `action.unknown` 的 `receipt.execution` 必须分别是 `completed` / `failed` / `unknown`。
+- 同一次动作只能有一个终态事件；审计无法可靠记录时按现有审计故障策略停止，不编造执行成功。
 
 回执（F1-03）：没有送达（not_dispatched）、执行失败或结果未知时带 `reason{code, message}`；送达时没有这个字段。经 `run.events` 和 `request.show` 回看时都能看到原因。
 
 ### 4.2 GUI 单元事件目录（A6，2026-10-10）
 
-kind 为 `unit` 的 Run 上，Explorer 经 Runtime 追加下面这些事件，Schema 见 `runtime.schema.json#/$defs/UnitRunEvent`。`data` 只放 ID、枚举、错误码和数字：不放截图、键入内容、窗口标题、目标描述或参数值、模型回复、密钥。生命周期（phase / outcome）仍只看 `run.*` 事件。
-
-| type | data |
-| --- | --- |
-| `unit.observation` | observationId |
-| `unit.progress` | stepIndex、stepsLeft、attemptsLeft、secondsLeft（每步开始） |
-| `unit.inference.attempt` | stepIndex、inferenceAttemptId（最后一次）、attempts（这次推理实际发出的模型调用次数，含回退）、state、discarded、errorCode（无则 null） |
-| `unit.step.proposed` | stepIndex、proposalId、inferenceAttemptId、kind（action / wait / finish / needs_user）、actionKind? |
-| `unit.step.rejected` | stepIndex、reason（错误码，小写） |
-| `unit.action` | stepIndex、actionId、proposalId、requestId（该动作 `act` 的 requestId，回执在同一 Run 的 `action.*` 事件里）、deliveryState |
-| `unit.recovery` | stepIndex、kind（reobserve_after_empty_reply）、count |
-| `unit.verification` | status（matched / contradicted）、verifierId、observationId、checkedAt |
-| `unit.needs_input` | reason（错误码）：Run 进入 waiting_input，不再接受输入，只能由停止结束 |
+kind 为 `unit` 的 Run 上，Explorer 经 Runtime 追加 `unit.*` 事件（observation、progress、inference.attempt、step.proposed、step.rejected、action、recovery、verification、needs_input）。类型和 data 的必需字段以 [`runtime.schema.json` 的 `$defs/UnitRunEvent`](../../contracts/runtime/v1/runtime.schema.json) 为准，本页不维护手写副本；`RunEvent` 尚未对 `unit.` 前缀引用它（ACP 的 A6 夹具仍按草案写，对齐后再接上）。`data` 只放 ID、枚举、错误码和数字：不放截图、键入内容、窗口标题、目标描述或参数值、模型回复、密钥。生命周期（phase / outcome）仍只看 `run.*` 事件。`unit.inference.attempt` 的 `attempts` 是这次推理实际发出的模型调用次数（含回退），`inferenceAttemptId` 指最后一次。`unit.action` 的 `requestId` 是该动作 `act` 的 requestId，回执在同一 Run 的 `action.*` 事件里；`unit.needs_input` 表示 Run 进入 waiting_input，不再接受输入，只能由停止结束。
 
 unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时为服务错误码的小写（如 `limit_exceeded`、`deadline_exceeded`、`stale_observation`、`audit_unavailable`、`action_outcome_unknown`），空回复为 `model_empty_response`；停止类沿用 `stopped`、`owner_lost`、`global_stop`、`client_stop`、`runtime_restarted`。有 unknown 动作时 outcome 恒为 `unknown`。
 
@@ -245,9 +233,9 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 | --- | --- | --- | --- |
 | 平台 | runtime.handshake / status / capabilities | ✅ | — |
 | 平台 | runtime.stopAll / enableInput | ✅ | PR1 |
-| Desktop | desktop.list / show / create / destroy；app.list / launch；window.list / bind / unbind | ✅ | — |
+| Desktop（含 `desktop.bindingStatus` / `desktop.recoverBinding` 扩展 v1） | desktop.list / show / create / destroy；app.list / launch；window.list / bind / unbind | ✅ | — |
 | 会话 | session.open / show / close | ✅ | — |
-| 输入 | observe / act / wait；request.show | ✅（observe 的 `path` 在 PR2 去掉） | — |
+| 输入 | observe / act / wait；request.show；`observe.subscribe` / `observe.unsubscribe`（只读画面扩展 v1）；`observe.region`（[区域观察扩展 v1](region-observation-v1.md)，需探测 regionObservation.version） | ✅（observe 的 `path` 在 PR2 去掉） | — |
 | Run | run.start / attach / finish / show / events / wait / cancel / list | ✅ | PR1 |
 | Run | unit.run | 🧊 | PR2 |
 | 事件 | events.subscribe / unsubscribe | ✅ | PR2e |

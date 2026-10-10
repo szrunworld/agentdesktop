@@ -71,6 +71,15 @@ public final class InputEngine: @unchecked Sendable {
         }
         let element = try resolve(action, in: window)
         response.element = element?.info
+        if let element, element.snapshot.isWeb(element.info.index),
+           action.kind == .click || action.kind == .hover || action.kind == .scroll ||
+           (action.kind == .type && action.replace != true) {
+            if let point = action.point, point != element.info.center {
+                throw AccessibilityError("explicit coordinates do not name the observed web element; observe again")
+            }
+            try element.snapshot.validateWebTarget(element.info.index, in: window)
+        }
+
 
         if let point = action.point, !reachable(point) {
             throw AccessibilityError("(\(point.x), \(point.y)) is outside the window \(Self.describe(window.frame))")
