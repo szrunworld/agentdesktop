@@ -72,6 +72,23 @@ struct RenderTests {
         try write("P21-settings-general", frame(.settings, store: store) { GeneralSettingsSpecimen() })
     }
 
+    @Test func inboxAtDifferentWindowSizes() throws {
+        for size in [CGSize(width: 1920, height: 1000),
+                     CGSize(width: 1440, height: 1000),
+                     CGSize(width: 800, height: 600)] {
+            let page = MainFrame(selection: .constant(.inbox),
+                                 runtime: StatusText("本机服务就绪", .running), stopAll: {},
+                                 statusLeft: "0 个 Desktop · 0 个运行进行中", statusRight: "",
+                                 isSample: false) { InboxNotEnabledView() }
+            let png = try #require(SnapshotRenderer.png(page, size: size))
+            let rep = try #require(NSBitmapImageRep(data: png))
+            #expect(rep.pixelsWide == Int(size.width))
+            #expect(rep.pixelsHigh == Int(size.height))
+            try FileManager.default.createDirectory(at: Self.outDir, withIntermediateDirectories: true)
+            try png.write(to: Self.outDir.appendingPathComponent("inbox-\(Int(size.width))x\(Int(size.height)).png"))
+        }
+    }
+
     @Test func shellStatesAndInbox() async throws {
         let m = MockRuntime.sample()
         let store = ShellStore(runtime: m, clock: StillClock())
