@@ -2,7 +2,7 @@
 
 依据：Kevin 2026-10-09 裁决「选择 B，坚持按窗口授权」。#137（A4）的应用级授权不能替代窗口级授权；本 PR 是 #143（物理窗口 Desktop）的前置 PR，在 A4 授权模型之上增加按窗口的 Observe / Act / Persist 授权。
 
-**本 PR 不打开任何封印**：`physicalDesktopsEnabled` 仍为关、`bindsOnlyLaunchedProcesses` 仍为开、`refusesScreenCaptureWithoutBinding` 仍为开；产品里没有任何路径改变它们。窗口授权机制可独立于这些开关测试（测试用 `@testable` 翻开关覆盖物理 Desktop 和“绑定用户窗口”两条路径）。开关何时、如何打开，留给 #143 之后另行裁决。
+**#205 本身不打开任何封印**；Kevin 2026-10-10 裁决（`docs/security/owner-display-attach.md`）之后：`physicalDesktopsEnabled` 为**开**（只有 owner 能挂接，经可信确认窗口 + Touch ID，开放给 App 的显示器仍不含任何窗口），`bindsOnlyLaunchedProcesses` 与 `refusesScreenCaptureWithoutBinding` 仍为开。窗口授权机制可独立于这些开关测试。
 
 ## 原则
 

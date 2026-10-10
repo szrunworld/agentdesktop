@@ -19,6 +19,35 @@ public struct ScreenHandle: Equatable, Sendable {
     }
 }
 
+/// One of the user's active displays as the platform proved it, for the
+/// owner to decide which to open to a paired client
+/// (docs/security/owner-display-attach.md). `origin` is the Runtime's
+/// finding (DisplayOrigin), never the display's own claim: only a physical
+/// one can be attached.
+public struct PlatformDisplay: Equatable, Sendable {
+    public enum Origin: String, Sendable { case physical, virtual, unconfirmed }
+    public var displayId: UInt32
+    /// The product name the system reports, or a neutral one.
+    public var name: String
+    /// Global points, top-left origin.
+    public var frame: Rect
+    public var hiDPI: Bool
+    public var builtin: Bool
+    public var origin: Origin
+    /// Why it is virtual or unconfirmed.
+    public var originDetail: String?
+
+    public init(displayId: UInt32, name: String, frame: Rect, hiDPI: Bool, builtin: Bool, origin: Origin, originDetail: String? = nil) {
+        self.displayId = displayId
+        self.name = name
+        self.frame = frame
+        self.hiDPI = hiDPI
+        self.builtin = builtin
+        self.origin = origin
+        self.originDetail = originDetail
+    }
+}
+
 public struct PlatformWindow: Equatable, Sendable {
     public var windowId: UInt32
     public var pid: Int32
@@ -111,6 +140,9 @@ extension DesktopPlatform {
         throw PlatformError(.refused, "this platform cannot attach the user's displays")
     }
 
+    /// Without the user's displays there is nothing to list.
+    public func displays() -> [PlatformDisplay] { [] }
+
     public func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] { [] }
 }
 
@@ -159,6 +191,10 @@ public protocol DesktopPlatform: Sendable {
     /// physical Desktop. Nothing is created: the handle only names the
     /// display, and destroyScreen must never be called with it.
     func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle
+    /// Every active display with its origin as the platform proved it
+    /// (hub.displays.list, owner only). Only a `physical` one is ever
+    /// attached; the others are listed so the owner sees why not.
+    func displays() -> [PlatformDisplay]
     /// Launch an app onto the screen; its process and windows there. The
     /// process is one this launch provably started (the engine's one-time
     /// launch token, LaunchOwnership); a launch that cannot prove it throws

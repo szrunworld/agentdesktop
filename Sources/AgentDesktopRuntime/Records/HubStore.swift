@@ -226,7 +226,16 @@ public final class HubStore: @unchecked Sendable {
                      expiresAt: r[4] as! String, revision: Int(r[5] as! Int64), state: r[6] as! String)
     }
 
+    /// Tests: every grant write fails to save; or only the nth from now.
+    var failsGrantWrites = false
+    var grantWritesBeforeFailure: Int?
+
     func putGrant(_ g: Grant) throws {
+        if failsGrantWrites { throw RuntimeStoreError("grant store unavailable (test)") }
+        if let n = grantWritesBeforeFailure {
+            grantWritesBeforeFailure = n - 1
+            if n <= 0 { throw RuntimeStoreError("grant store unavailable (test)") }
+        }
         func enc(_ a: [String]) -> String { JSONValue.array(a.map(JSONValue.string)).encoded() }
         try db.execute("""
             INSERT OR REPLACE INTO grants (client_id, capabilities, desktops, apps, expires_at, revision, state)
@@ -256,7 +265,7 @@ public final class HubStore: @unchecked Sendable {
         let old = grant(g.clientId)
         if let expectedRevision {
             guard old?.revision == expectedRevision, old?.state == "active", client(g.clientId)?.state == "active" else {
-                throw RuntimeStoreError("the grant of \(g.clientId) changed while the user was asked")
+                throw RuntimeStoreError("the grant of \(g.clientId) changed while the user was asked", kind: .revisionMismatch)
             }
         }
         g.revision = (old?.revision ?? 0) + 1
@@ -281,6 +290,40 @@ public final class HubStore: @unchecked Sendable {
             }
         }
         return (g, ended)
+    }
+
+    /// Take one Desktop out of the grants of the named clients (nil: every
+    /// client), as one transaction under the grant write lock (Codex on
+    /// fdb5477): each grant is read and written inside it, so a concurrent
+    /// hub.grants.set is never overwritten with a stale copy, and either
+    /// every client loses the Desktop or none does. With `endingReason` the
+    /// window grants on that Desktop end in the same transaction (an ended
+    /// one becomes revoked, as setGrant sweeps). Returned: each grant as
+    /// saved, with the window grants it ended.
+    public func removeDesktop(_ desktopId: String, fromGrantsOf clientIds: [String]?, endingReason: String?) throws
+        -> [(grant: Grant, ended: [(id: String, reason: String)])] {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        return try db.transaction {
+            var out: [(grant: Grant, ended: [(id: String, reason: String)])] = []
+            for c in clients() where clientIds == nil || clientIds!.contains(c.clientId) {
+                guard var g = grant(c.clientId), g.desktops.contains(desktopId) else { continue }
+                g.desktops.removeAll { $0 == desktopId }
+                g.revision += 1
+                try putGrant(g)
+                var ended: [(id: String, reason: String)] = []
+                if let endingReason {
+                    for w in try loadWindowGrants(where: "client_id = ? AND desktop_id = ? AND state IN ('active', 'ended')",
+                                                  [.text(c.clientId), .text(desktopId)]) {
+                        try endWindowGrantRow(w.windowGrantId, state: w.state == "ended" ? "revoked" : "ended", reason: endingReason)
+                        ended.append((w.windowGrantId, endingReason))
+                    }
+                }
+                try bumpEpoch()
+                out.append((g, ended))
+            }
+            return out
+        }
     }
 
     /// The client keeps its record (soft delete) but nothing of it works.
@@ -326,7 +369,7 @@ public final class HubStore: @unchecked Sendable {
         // A client removed, or its grant changed, while the user was asked gets nothing.
         guard client(g.clientId)?.state == "active", let parent = grant(g.clientId), parent.state == "active",
               parent.apps.contains(g.bundleId), parentRevision.map({ $0 == parent.revision }) ?? true else {
-            throw RuntimeStoreError("\(g.clientId) lost its access while the user was asked")
+            throw RuntimeStoreError("\(g.clientId) lost its access while the user was asked", kind: .revisionMismatch)
         }
         try db.execute("""
             INSERT INTO window_grants (window_grant_id, client_id, desktop_id, window_id, pid, process_started_at, bundle_id, app_name,

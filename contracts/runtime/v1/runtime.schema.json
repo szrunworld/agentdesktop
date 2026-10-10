@@ -3876,6 +3876,165 @@
           "description": "the designated requirement every later connection of this client must satisfy"
         }
       }
+    },
+    "HubDisplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displayId",
+        "name",
+        "frame",
+        "hiDPI",
+        "builtin",
+        "origin",
+        "attachable"
+      ],
+      "properties": {
+        "displayId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "name": {
+          "type": "string",
+          "description": "the display's product name as the system reports it, or a neutral name when it reports none"
+        },
+        "frame": {
+          "$ref": "#/$defs/Rect"
+        },
+        "hiDPI": {
+          "type": "boolean"
+        },
+        "builtin": {
+          "type": "boolean"
+        },
+        "origin": {
+          "enum": [
+            "physical",
+            "virtual",
+            "unconfirmed"
+          ],
+          "description": "as the Runtime proved it: physical (built in, or an external display a hardware framebuffer vouches for), virtual (a display some process created), unconfirmed (not provably either; refused)"
+        },
+        "originDetail": {
+          "type": "string",
+          "description": "why it is virtual or unconfirmed"
+        },
+        "attachable": {
+          "type": "boolean",
+          "description": "origin physical and not attached yet"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id",
+          "description": "the physical Desktop already attached to it, if any"
+        }
+      },
+      "description": "one of the user's active displays, for the owner to open to a paired client (owner-display-attach.md)"
+    },
+    "HubDisplayList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displays"
+      ],
+      "properties": {
+        "displays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubDisplay"
+          }
+        }
+      }
+    },
+    "hub_displays_attach_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displayId",
+        "clientId"
+      ],
+      "properties": {
+        "displayId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "a display hub.displays.list reports as physical"
+        },
+        "clientId": {
+          "type": "string",
+          "pattern": "^app:[A-Za-z0-9._-]{1,64}$",
+          "description": "the paired client whose grant gains the Desktop"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "the Desktop's name when it is created now; ignored for a display already attached"
+        }
+      }
+    },
+    "HubDisplayAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktop",
+        "grant",
+        "created"
+      ],
+      "properties": {
+        "desktop": {
+          "$ref": "#/$defs/Desktop"
+        },
+        "grant": {
+          "$ref": "#/$defs/HubGrant",
+          "description": "the client's grant as it is now, naming the Desktop"
+        },
+        "created": {
+          "type": "boolean",
+          "description": "false when the display was already attached and that Desktop was reused"
+        }
+      }
+    },
+    "hub_displays_detach_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "pattern": "^app:[A-Za-z0-9._-]{1,64}$",
+          "description": "only this client loses the Desktop; omitted: every client does and the Desktop is destroyed"
+        }
+      }
+    },
+    "HubDisplayDetachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "destroyed",
+        "grants"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "destroyed": {
+          "type": "boolean"
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubGrant"
+          },
+          "description": "the grants the Desktop was removed from, as they are now"
+        }
+      }
     }
   }
 }

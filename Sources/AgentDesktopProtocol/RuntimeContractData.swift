@@ -3880,6 +3880,165 @@ enum RuntimeContractData {
           "description": "the designated requirement every later connection of this client must satisfy"
         }
       }
+    },
+    "HubDisplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displayId",
+        "name",
+        "frame",
+        "hiDPI",
+        "builtin",
+        "origin",
+        "attachable"
+      ],
+      "properties": {
+        "displayId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "name": {
+          "type": "string",
+          "description": "the display's product name as the system reports it, or a neutral name when it reports none"
+        },
+        "frame": {
+          "$ref": "#/$defs/Rect"
+        },
+        "hiDPI": {
+          "type": "boolean"
+        },
+        "builtin": {
+          "type": "boolean"
+        },
+        "origin": {
+          "enum": [
+            "physical",
+            "virtual",
+            "unconfirmed"
+          ],
+          "description": "as the Runtime proved it: physical (built in, or an external display a hardware framebuffer vouches for), virtual (a display some process created), unconfirmed (not provably either; refused)"
+        },
+        "originDetail": {
+          "type": "string",
+          "description": "why it is virtual or unconfirmed"
+        },
+        "attachable": {
+          "type": "boolean",
+          "description": "origin physical and not attached yet"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id",
+          "description": "the physical Desktop already attached to it, if any"
+        }
+      },
+      "description": "one of the user's active displays, for the owner to open to a paired client (owner-display-attach.md)"
+    },
+    "HubDisplayList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displays"
+      ],
+      "properties": {
+        "displays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubDisplay"
+          }
+        }
+      }
+    },
+    "hub_displays_attach_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displayId",
+        "clientId"
+      ],
+      "properties": {
+        "displayId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "a display hub.displays.list reports as physical"
+        },
+        "clientId": {
+          "type": "string",
+          "pattern": "^app:[A-Za-z0-9._-]{1,64}$",
+          "description": "the paired client whose grant gains the Desktop"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "the Desktop's name when it is created now; ignored for a display already attached"
+        }
+      }
+    },
+    "HubDisplayAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktop",
+        "grant",
+        "created"
+      ],
+      "properties": {
+        "desktop": {
+          "$ref": "#/$defs/Desktop"
+        },
+        "grant": {
+          "$ref": "#/$defs/HubGrant",
+          "description": "the client's grant as it is now, naming the Desktop"
+        },
+        "created": {
+          "type": "boolean",
+          "description": "false when the display was already attached and that Desktop was reused"
+        }
+      }
+    },
+    "hub_displays_detach_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "pattern": "^app:[A-Za-z0-9._-]{1,64}$",
+          "description": "only this client loses the Desktop; omitted: every client does and the Desktop is destroyed"
+        }
+      }
+    },
+    "HubDisplayDetachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "destroyed",
+        "grants"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "destroyed": {
+          "type": "boolean"
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubGrant"
+          },
+          "description": "the grants the Desktop was removed from, as they are now"
+        }
+      }
     }
   }
 }
@@ -9245,6 +9404,33 @@ enum RuntimeContractData {
       "result": "HubWindowGrant",
       "status": "implemented",
       "note": "owner; a paired client only its own (another client's: permission_denied, reason not_own_window_grant), confirmed in the trusted window (A4 R1); the client's connections are cut"
+    },
+    {
+      "method": "hub.displays.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "HubDisplayList",
+      "status": "implemented",
+      "note": "owner (the Agent Desktop window); every active display with its origin as the Runtime proved it (physical, virtual, unconfirmed): only a physical one can be attached; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "hub.displays.attach",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_displays_attach_params",
+      "result": "HubDisplayAttachment",
+      "status": "implemented",
+      "note": "owner; the user confirms in the trusted window with Touch ID or the login password (kind displayAttach); attaches the display as a physical Desktop (one per display, reused if attached) and adds its desktopId to the client's grant (revision + 1); the client still reaches no window of it without a window grant (hub.windows.request); a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "hub.displays.detach",
+      "stage": "P0",
+      "mutation": true,
+      "params": "hub_displays_detach_params",
+      "result": "HubDisplayDetachment",
+      "status": "implemented",
+      "note": "owner; takes the physical Desktop out of one client's grant (with clientId) or every client's (without), ending their window grants on it in the same transaction (desktop_removed) and cutting their connections; without clientId the Desktop is destroyed as well (its record only: the display and its windows are the user's); a paired client gets permission_denied, reason owner_only"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -9525,14 +9711,15 @@ enum RuntimeContractData {
   "authorization": {
     "principal": "from the handshake credential only: owner (the host's in-process connections; no socket client is ever the owner), paired app (app:<id> credential from hub.pairing; a client that paired as verified code must satisfy its designated requirement, read from the socket's audit token, on every handshake), else unpaired",
     "unpaired": "runtime.handshake, runtime.capabilities, hub.pairing.start, hub.pairing.status; anything else is pairing_required",
-    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
+    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). hub.displays.* (attaching one of the user's displays for a client, and taking it back) is the owner's alone and is never asked for by a client. Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
     "checked": "every request, against the client and grant as they are now; an action once more right before its input goes out",
     "pairing": "hub.pairing.start asks the user in the host's trusted window (details, short code, user authentication); approved exactly as shown, the grant's duration counting from the approval; denied, cancelled, timed out or no trusted window: denied",
     "confirmation": "a confirmation is bound to a digest of exactly what will be applied, recomputed by the window from what it displayed; params are shown in full and a call too large to show is refused unseen; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch, confirmation_too_large, pairing_busy or no_trusted_ui",
     "targets": "every Desktop, session and Run a paired client's request names, in its context or params, is authorized; naming two different Desktops is invalid_argument (reason target_mismatch)",
     "handshake": "a socket connection completes runtime.handshake once (conflict, reason already_handshaken)",
     "windowGrants": "docs/security/window-grants.md: a paired client reaches a window it did not launch itself on that Desktop only through a window grant (window ID + process launch + app + Desktop + client), each one confirmed by the user; observe, act and persist are separate; every use is checked against the grant as it is now (bind, both observe steps, each wait poll, act right before dispatch, artifact reads); a grant ends for good when the window closes, its process or app changes, its Desktop goes or the Runtime restarts, or the app or Desktop leaves the client's grant; window.list shows a paired client only windows it holds a grant for and windows of processes it launched; without persist an observation's screenshot is transient (120 s, deleted when the grant ends)",
-    "policy": "iPhone Mirroring (com.apple.ScreenContinuity) is refused for every principal, the owner included, until the iPhone device session is accepted (#139): app.launch by bundle id or by a path in its bundle, window.bind of its process, and observe, act and wait on a binding to it answer permission_denied with reason iphone_mirroring_blocked, before anything is captured, read, sent, moved or recorded as a success. This is a security-policy refusal, not a missing grant: no grant, capability or pairing lifts it. Fail closed: a process is identified by the running-app list and by the bundle of its executable; when neither can tell, it is refused the same way with details.identity unverified (otherwise iphone_mirroring), for that request only, and the next request identifies it anew. A launched process found to be it, or unidentified, is never kept as the Desktop's app; it is asked to quit only because app.launch returns a process its launch token proved it started (never by time or list), and details.quitRequested says whether it was asked (a request, not proof that it exited). A launch that could not prove its process fails with the engine's own error and nothing is quit"
+    "policy": "iPhone Mirroring (com.apple.ScreenContinuity) is refused for every principal, the owner included, until the iPhone device session is accepted (#139): app.launch by bundle id or by a path in its bundle, window.bind of its process, and observe, act and wait on a binding to it answer permission_denied with reason iphone_mirroring_blocked, before anything is captured, read, sent, moved or recorded as a success. This is a security-policy refusal, not a missing grant: no grant, capability or pairing lifts it. Fail closed: a process is identified by the running-app list and by the bundle of its executable; when neither can tell, it is refused the same way with details.identity unverified (otherwise iphone_mirroring), for that request only, and the next request identifies it anew. A launched process found to be it, or unidentified, is never kept as the Desktop's app; it is asked to quit only because app.launch returns a process its launch token proved it started (never by time or list), and details.quitRequested says whether it was asked (a request, not proof that it exited). A launch that could not prove its process fails with the engine's own error and nothing is quit",
+    "displays": "docs/security/owner-display-attach.md: only the owner, in the Agent Desktop window, attaches one of the user's displays as a physical Desktop and lists it in a paired client's grant (hub.displays.attach, confirmed by the user with Touch ID or the login password); a display is attachable only when the Runtime proved it physical (built in, or an external display matched one-to-one to a hardware framebuffer); the attached Desktop gives the client no window: each window still needs a window grant; hub.displays.detach takes it back, ending the client's window grants on it; desktop.create {physical} from a paired client stays permission_denied, reason owner_only"
   }
 }
 """##

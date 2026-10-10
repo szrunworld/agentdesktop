@@ -48,6 +48,22 @@ public final class SessionManager: @unchecked Sendable {
         }
     }
 
+    /// Close every open session on a Desktop, or only `caller`'s there
+    /// (the owner took the Desktop out of its grant).
+    @discardableResult
+    func closeAll(desktopId: String, caller: String? = nil, at: String) -> [String] {
+        lock.withLock {
+            var closed: [String] = []
+            for (id, var s) in sessions where s.desktopId == desktopId && s.state == "open" && (caller == nil || s.caller == caller) {
+                s.state = "closed"
+                s.closedAt = at
+                sessions[id] = s
+                closed.append(id)
+            }
+            return closed
+        }
+    }
+
     /// Whether a session of this id exists at all, whoever's.
     func exists(_ id: String) -> Bool { lock.withLock { sessions[id] != nil } }
 

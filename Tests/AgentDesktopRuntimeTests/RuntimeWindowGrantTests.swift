@@ -435,15 +435,17 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
     let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
                            backend: FixedBackend(), platform: FakePlatform())
-    #expect(s.physicalDesktopsEnabled == false)
+    #expect(s.physicalDesktopsEnabled == true, "opened by Kevin's ruling of 2026-10-10 (owner-display-attach.md)")
     #expect(s.bindsOnlyLaunchedProcesses == true)
     #expect(s.refusesScreenCaptureWithoutBinding == true)
-    // A window grant does not open them: the user's window still cannot be
-    // pulled onto a virtual Desktop, and no physical Desktop is made.
+    // A window grant does not open the bind seal: the user's window still
+    // cannot be pulled onto a virtual Desktop. A physical Desktop is the
+    // owner's to attach (A4), never a paired client's.
     let owner = handshaken(s)
-    #expect(code(call(s, owner, "desktop.create", params: #"{"physical":{}}"#)) == "permission_denied")
+    #expect(data(call(s, owner, "desktop.create", params: #"{"physical":{}}"#))?["kind"]?.stringValue == "physical")
     let (c, id, _) = try pairedClient(s, capabilities: ["observe", "desktop.manage"], desktops: ["created"],
                                       apps: ["com.apple.calculator"], name: "agent")
+    #expect(errorDetails(call(s, c, "desktop.create", params: #"{"physical":{}}"#))?["reason"]?.stringValue == "owner_only")
     let d = try created(s, c)
     try grantWindow(s, clientId: id, desktopId: d)
     let r = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101,"windowId":11}"#)
@@ -632,8 +634,12 @@ private func calculatorScene(_ permissions: [String]) throws -> (Scene, owner: C
         return .approved(digest: r.digest)
     }
     let r = st.request(["observe"])
-    #expect(code(r) == "conflict" || code(r) == "not_found", "\(r.json.encoded())")
+    // The destroyed physical Desktop also left the app's grant (owner
+    // display attach): the app's connection is cut as for any narrowing.
+    #expect(code(r) == "conflict" || code(r) == "not_found" || errorDetails(r)?["reason"]?.stringValue == "grant_narrowed",
+            "\(r.json.encoded())")
     #expect(st.s.hub.windowGrants(clientId: st.appId).isEmpty)
+    #expect(st.s.hub.grant(st.appId)?.desktops.contains(st.desk) == false)
 }
 
 @Test func aLaunchWithoutAStartTimeIsNotTheClientsOwn() throws {

@@ -313,3 +313,30 @@ final class Harness {
         #expect(h.clients.isEmpty)
     }
 }
+
+@Test func displaysCommandsSendTheirMethods() throws {
+    // Owner-only in the Runtime; the CLI only maps them (a paired CLI is told owner_only).
+    let cases: [([String], String, JSONValue)] = [
+        (["displays", "list"], "hub.displays.list", .obj([])),
+        (["displays", "attach", "--display", "1", "--client", "app:wx", "--name", "主显示器"],
+         "hub.displays.attach", .obj([("displayId", .int(1)), ("clientId", .string("app:wx")), ("name", .string("主显示器"))])),
+        (["displays", "attach", "--display", "2", "--client", "app:wx"],
+         "hub.displays.attach", .obj([("displayId", .int(2)), ("clientId", .string("app:wx"))])),
+        (["displays", "detach", "d_1"], "hub.displays.detach", .obj([("desktopId", .string("d_1"))])),
+        (["displays", "detach", "d_1", "--client", "app:wx"], "hub.displays.detach", .obj([("desktopId", .string("d_1")), ("clientId", .string("app:wx"))])),
+    ]
+    for (args, method, params) in cases {
+        let h = Harness()
+        _ = h.cli.run(args + ["--format", "json"])
+        #expect(h.requests == [method], "\(args)")
+        #expect(h.clients.first?.calls.first?.params == params, "\(args)")
+        #expect(RuntimeContract.shared.validate(h.clients[0].calls[0].json, "Request").isEmpty, "\(args)")
+    }
+    // Refused locally, before any connection.
+    for args in [["displays", "attach", "--client", "app:wx"], ["displays", "attach", "--display", "1"],
+                 ["displays", "attach", "--display", "0", "--client", "app:wx"], ["displays", "detach"]] {
+        let h = Harness()
+        #expect(h.cli.run(args) == 2, "\(args)")
+        #expect(h.clients.isEmpty, "\(args)")
+    }
+}

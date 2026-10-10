@@ -30,6 +30,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         "observe", "artifact.show", "artifact.read",
         "run.list", "run.show", "run.events", "run.cancel",
         "request.show",
+        "hub.clients.list", "hub.grants.list", "hub.displays.list", "hub.displays.attach", "hub.displays.detach",
     ]
 
     private let lock = NSLock()
@@ -38,6 +39,10 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     private var clock: TimeInterval = 0
 
     private var desktops: [JSONValue] = []
+    /// The user's displays (HubDisplay without the computed fields) and the
+    /// paired clients with their grants, for the owner's display entry.
+    private var displays: [JSONValue] = []
+    private var clients: [JSONValue] = []
     /// Windows not on any Desktop (window.list, window.bind), and apps that
     /// app.launch can start; both neutral, never a real user app.
     private var freeWindows: [JSONValue] = []
@@ -88,6 +93,39 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             let id = "desk_" + String(format: "%03d", desktops.count + 1)
             desktops.append(desktopJSON(id: id, name: name, width: width, height: height, state: state,
                                         app: app, windowId: windowId + desktops.count))
+            return id
+        }
+    }
+
+    /// Adds one of the user's displays as the Runtime would prove it.
+    public func addDisplay(id: Int, name: String, width: Int = 1512, height: Int = 982, x: Int = 0, hiDPI: Bool = true,
+                           builtin: Bool = true, origin: String = "physical", detail: String? = nil) {
+        lock.withLock {
+            var m: [(String, JSONValue)] = [
+                ("displayId", .int(id)), ("name", .string(name)),
+                ("frame", .obj([("x", .int(x)), ("y", .int(0)), ("width", .int(width)), ("height", .int(height))])),
+                ("hiDPI", .bool(hiDPI)), ("builtin", .bool(builtin)), ("origin", .string(origin)),
+            ]
+            if let detail { m.append(("originDetail", .string(detail))) }
+            displays.append(.obj(m))
+        }
+    }
+
+    /// Adds a paired client with an active grant; returns its clientId.
+    @discardableResult
+    public func addClient(name: String, capabilities: [String] = ["observe", "act", "desktop.manage"], apps: [String] = []) -> String {
+        lock.withLock {
+            let id = "app:mock-" + String(format: "%03d", clients.count + 1)
+            let grant: JSONValue = .obj([
+                ("clientId", .string(id)), ("capabilities", .array(capabilities.map(JSONValue.string))),
+                ("desktops", .array([.string("created")])), ("apps", .array(apps.map(JSONValue.string))),
+                ("expiresAt", .string(Timestamp.string(base.addingTimeInterval(3600)))), ("revision", .int(1)), ("state", .string("active")),
+            ])
+            clients.append(.obj([
+                ("clientId", .string(id)), ("agentName", .string(name)), ("publisher", .null), ("callerFacts", .obj([])),
+                ("codeIdentity", .obj([("level", .string("same_user")), ("hardenedRuntime", .bool(false))])),
+                ("state", .string("active")), ("registeredAt", .string(stamp())), ("grant", grant), ("connections", .array([])),
+            ]))
             return id
         }
     }
@@ -197,6 +235,10 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         let form = m.addDesktop(name: "Web 表单验证", app: "Safari")
         let notes = m.addDesktop(name: "文本编辑", app: "TextEdit")
         _ = m.addDesktop(name: "计算器", app: "Calculator")
+        m.addDisplay(id: 1, name: "内建显示器")
+        m.addDisplay(id: 9, name: "Virtual Display", width: 1920, height: 1080, x: 1512, hiDPI: false, builtin: false,
+                     origin: "virtual", detail: "an engine virtual display (vendor 0x3256, model 2)")
+        m.addClient(name: "微信助手", apps: ["com.tencent.xinWeChat"])
         let past = m.addRun(desktopId: form, phase: "ended", outcome: "success", receipts: 1)
         m.addAction(runId: past, delivery: "dispatched", execution: "completed")
         let a = m.addRun(desktopId: form, receipts: 3)
@@ -368,6 +410,60 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             _ = try desktop(id)
             desktops.removeAll { $0["desktopId"]?.stringValue == id }
             return .obj([("desktopId", .string(id)), ("destroyed", .bool(true)), ("quitApps", .array([]))])
+        case "hub.clients.list":
+            return .obj([("clients", .array(clients)), ("pairings", .array([]))])
+        case "hub.grants.list":
+            return .obj([("grants", .array(clients.compactMap { $0["grant"] }))])
+        case "hub.displays.list":
+            return .obj([("displays", .array(displays.map { d in
+                let attached = desktops.first { $0["kind"]?.stringValue == "physical" && $0["screen"]?["displayId"] == d["displayId"] }
+                var out = d.setting("attachable", .bool(d["origin"]?.stringValue == "physical" && attached == nil))
+                if let id = attached?["desktopId"] { out = out.setting("desktopId", id) }
+                return out
+            }))])
+        case "hub.displays.attach":
+            let displayId = p["displayId"]!.intValue!
+            let clientId = p["clientId"]!.stringValue!
+            guard let i = clients.firstIndex(where: { $0["clientId"]?.stringValue == clientId }) else {
+                throw RuntimeError.notFound("no active client \(clientId)")
+            }
+            guard let d = displays.first(where: { $0["displayId"]?.intValue == displayId }) else {
+                throw RuntimeError.notFound("display \(displayId) is not one of the active displays")
+            }
+            guard d["origin"]?.stringValue == "physical" else {
+                throw RuntimeError("permission_denied", "display \(displayId) is not proved physical", phase: .handler, notSent: true,
+                                   details: .obj([("reason", .string("display_not_physical"))]))
+            }
+            let existing = desktops.first { $0["kind"]?.stringValue == "physical" && $0["screen"]?["displayId"]?.intValue == displayId }
+            let desktop: JSONValue = existing ?? .obj([
+                ("desktopId", .string("desk_" + String(format: "%03d", desktops.count + 1))),
+                ("name", .string(p["name"]?.stringValue ?? d["name"]!.stringValue!)), ("kind", .string("physical")),
+                ("state", .string("ready")), ("createdAt", .string(stamp())),
+                ("screen", .obj([("displayId", .int(displayId)), ("frame", d["frame"]!), ("hiDPI", d["hiDPI"]!)])),
+                ("binding", .null), ("openSessions", .int(0)),
+            ])
+            if existing == nil { desktops.append(desktop) }
+            var grant = clients[i]["grant"]!
+            var list = grant["desktops"]?.arrayValue ?? []
+            if !list.contains(desktop["desktopId"]!) { list.append(desktop["desktopId"]!) }
+            grant = grant.setting("desktops", .array(list)).setting("revision", .int((grant["revision"]?.intValue ?? 0) + 1))
+            clients[i] = clients[i].setting("grant", grant)
+            return .obj([("desktop", desktop), ("grant", grant), ("created", .bool(existing == nil))])
+        case "hub.displays.detach":
+            let id = p["desktopId"]!.stringValue!
+            let only = p["clientId"]?.stringValue
+            guard let d = desktops.first(where: { $0["desktopId"]?.stringValue == id }) else { throw RuntimeError.notFound("no desktop \(id)") }
+            guard d["kind"]?.stringValue == "physical" else { throw RuntimeError.invalidArgument("desktop \(id) is virtual") }
+            var touched: [JSONValue] = []
+            for i in clients.indices where only == nil || clients[i]["clientId"]?.stringValue == only {
+                guard var grant = clients[i]["grant"], (grant["desktops"]?.arrayValue ?? []).contains(.string(id)) else { continue }
+                grant = grant.setting("desktops", .array((grant["desktops"]?.arrayValue ?? []).filter { $0 != .string(id) }))
+                    .setting("revision", .int((grant["revision"]?.intValue ?? 0) + 1))
+                clients[i] = clients[i].setting("grant", grant)
+                touched.append(grant)
+            }
+            if only == nil { desktops.removeAll { $0["desktopId"]?.stringValue == id } }
+            return .obj([("desktopId", .string(id)), ("destroyed", .bool(only == nil)), ("grants", .array(touched))])
         case "app.list":
             var apps: [JSONValue] = desktops.compactMap { d -> JSONValue? in
                 guard let b = d["binding"], !b.isNull else { return nil }

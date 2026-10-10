@@ -1,3 +1,4 @@
+import AgentDesktopProtocol
 import AgentDesktopRuntime
 import AppKit
 import CoreGraphics
@@ -13,6 +14,47 @@ import SecondScreenCore
 /// left out, so a physical Desktop can never attach them.
 enum PhysicalDisplays {
     static func name(_ id: CGDirectDisplayID) -> String { "physical-\(id)" }
+
+    /// Every active display with its proved origin, for the owner's attach
+    /// entry (hub.displays.list). The same classification decides which
+    /// ones `screens()` registers, so a display shown as physical here is
+    /// one attachDisplay accepts.
+    static func report() -> [PlatformDisplay] {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return [] }
+        let displays = ids.prefix(Int(count)).map {
+            DisplayOrigin.Display(id: $0, builtin: CGDisplayIsBuiltin($0) != 0,
+                                  vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0),
+                                  serial: CGDisplaySerialNumber($0))
+        }
+        let origins = DisplayOrigin.classify(displays, framebuffers: framebuffers())
+        return displays.map { d in
+            let bounds = CGDisplayBounds(d.id)
+            let pixels = CGDisplayCopyDisplayMode(d.id)?.pixelWidth ?? Int(bounds.width)
+            let (origin, detail): (PlatformDisplay.Origin, String?) = {
+                switch origins[d.id] {
+                case .physical?: return (.physical, nil)
+                case let .virtual(why)?: return (.virtual, why)
+                case let .unconfirmed(why)?: return (.unconfirmed, why)
+                case nil: return (.unconfirmed, "the display could not be classified")
+                }
+            }()
+            return PlatformDisplay(displayId: d.id, name: displayName(d.id, builtin: d.builtin),
+                                   frame: AgentDesktopProtocol.Rect(x: bounds.origin.x, y: bounds.origin.y, width: bounds.width, height: bounds.height),
+                                   hiDPI: pixels > Int(bounds.width), builtin: d.builtin, origin: origin, originDetail: detail)
+        }
+    }
+
+    /// The product name the system shows for the display, or a neutral one.
+    static func displayName(_ id: CGDirectDisplayID, builtin: Bool) -> String {
+        if let screen = NSScreen.screens.first(where: { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == id }) {
+            let name = screen.localizedName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+        return builtin ? "内建显示器" : "显示器 \(id)"
+    }
 
     static func screens() -> [ScreenInfo] {
         var count: UInt32 = 0

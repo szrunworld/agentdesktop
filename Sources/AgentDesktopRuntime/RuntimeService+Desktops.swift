@@ -32,7 +32,7 @@ extension RuntimeService {
         switch desktop(id) {
         case let .failure(e): return .failure(e)
         case let .success(d):
-            let limit = until ?? now().addingTimeInterval(Self.desktopLockWait)
+            let limit = until ?? now().addingTimeInterval(desktopLockWait)
             guard d.lock.lock(before: limit) else {
                 return .failure(RuntimeError("deadline_exceeded",
                                              "desktop \(d.desktopId) stayed busy past the deadline; nothing was done",
@@ -77,7 +77,7 @@ extension RuntimeService {
             if let physical = p["physical"] {
                 guard physicalDesktopsEnabled else {
                     return .failure(RuntimeError("permission_denied",
-                                                 "physical Desktops are turned off in this build (#145): your screen cannot be attached, with or without window grants",
+                                                 "physical Desktops are switched off in this Runtime: attaching your screen and binding its windows needs your authorization for each window",
                                                  phase: .handler, notSent: true,
                                                  details: .obj([("reason", .string("physical_desktop_requires_grant"))])))
                 }
@@ -114,7 +114,23 @@ extension RuntimeService {
 
     func destroyDesktop(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
+        // A physical Desktop's grants change with it: the same lock as
+        // hub.displays.attach / detach, taken before the Desktop's own
+        // (Codex on b0e2df9: an attach reusing it must not race its removal).
+        let physical = desktops.find(p["desktopId"]?.stringValue ?? "")?.kind == .physical
+        if physical { createLock.lock() }
+        defer { if physical { createLock.unlock() } }
         return withDesktop(p["desktopId"], as: c, method: "desktop.destroy") { d in
+            // The user's display, opened to one or more apps by the owner:
+            // only the owner takes it back (hub.displays.detach), which also
+            // removes it from every grant. An app that may use it may not
+            // pull it from under the others (Codex on a6a9088), and is told
+            // nothing of its Runs or sessions first (Codex on b0e2df9).
+            if d.kind == .physical, c.role == .paired {
+                hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "desktop.destroy", decision: "denied", reason: "owner_only")
+                throw RuntimeError("permission_denied", "a physical Desktop is the owner's to detach (hub.displays.detach); an app cannot destroy it",
+                                   phase: .handler, notSent: true, details: .obj([("reason", .string("owner_only"))]))
+            }
             if let holder = execution.holder(of: d.desktopId) {
                 throw RuntimeError("conflict", "run \(holder) controls desktop \(d.desktopId); cancel it first",
                                    phase: .handler, details: .obj([("holderRunId", .string(holder))]))
@@ -125,6 +141,11 @@ extension RuntimeService {
                                    phase: .handler, details: .obj([("openSessions", .int(open))]))
             }
             if d.kind == .physical {
+                // First every app it was opened to loses it, as detach does
+                // (Codex on a6a9088): a grant store that cannot record that
+                // keeps the Desktop, and nothing is reported destroyed (Codex
+                // on b0e2df9). The window grants end below, as the Desktop's.
+                if case let .failure(e) = takeDesktopFromGrants(d.desktopId, only: nil, by: c, endingWindowGrants: false) { throw e }
                 // The display and every window on it are the user's: drop
                 // the binding and the record, nothing else.
                 d.state = "destroyed"

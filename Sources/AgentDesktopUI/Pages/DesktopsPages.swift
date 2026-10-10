@@ -12,6 +12,7 @@ public struct DesktopsOverviewView: View {
     @State private var query = ""
     @State private var layout: Layout = .grid
     @State private var creating: CreateDesktopFlow?
+    @State private var attaching: AttachDisplayFlow?
 
     public enum Layout: String, CaseIterable, Identifiable {
         case grid = "网格", list = "列表"
@@ -55,6 +56,9 @@ public struct DesktopsOverviewView: View {
                 HStack(spacing: ADSpace.s) {
                     Button { navigation.sideBySide = true } label: { Label("并排预览", systemImage: "square.grid.2x2") }
                         .buttonStyle(ADButtonStyle(.secondary)).disabled(store.desktops.isEmpty)
+                    Button { startAttach() } label: { Label("开放我的显示器", systemImage: "display.and.arrow.down") }
+                        .buttonStyle(ADButtonStyle(.secondary)).disabled(!connected)
+                        .help("把你的一块显示器作为物理 Desktop 开放给一个已配对的程序；每个窗口仍要你单独授权")
                     Button { startCreate() } label: { Label("创建 Desktop", systemImage: "plus") }
                         .buttonStyle(ADButtonStyle(.primary)).disabled(!connected)
                 }
@@ -112,6 +116,18 @@ public struct DesktopsOverviewView: View {
                     .clipShape(RoundedRectangle(cornerRadius: ADRadius.panel))
                     .shadow(color: .black.opacity(0.18), radius: 24, y: 8)
                 }
+            } else if let flow = attaching {
+                ZStack {
+                    Color.black.opacity(0.18).ignoresSafeArea()
+                        .accessibilityHidden(true)
+                    AttachDisplaySheet(flow: flow, cancel: { attaching = nil }, finished: { id in
+                        attaching = nil
+                        Task { await store.refreshDesktops() }
+                        if !id.isEmpty { navigation.showDesktop(id) }
+                    })
+                    .clipShape(RoundedRectangle(cornerRadius: ADRadius.panel))
+                    .shadow(color: .black.opacity(0.18), radius: 24, y: 8)
+                }
             }
         }
     }
@@ -119,6 +135,7 @@ public struct DesktopsOverviewView: View {
     var connected: Bool { if case .connected = store.connection { return true }; return false }
 
     func startCreate() { creating = CreateDesktopFlow(runtime: store.runtime) }
+    func startAttach() { attaching = AttachDisplayFlow(runtime: store.runtime) }
 
     func listRow(_ d: JSONValue) -> some View {
         let id = d["desktopId"]?.stringValue ?? ""
@@ -158,6 +175,7 @@ public struct DesktopInspectorView: View {
     @ObservedObject var navigation: ShellNavigation
     @StateObject private var activity: DesktopActivityLoader
     @StateObject private var frame: DesktopFrameLease
+    @StateObject private var access: PhysicalDesktopAccess
     @State private var zoom: PreviewZoom = .fit
     let desktopId: String
     let openPreview: ((String) -> Void)?
@@ -169,6 +187,7 @@ public struct DesktopInspectorView: View {
         self.openPreview = openPreview
         _activity = StateObject(wrappedValue: DesktopActivityLoader(runtime: store.runtime, desktopId: desktopId))
         _frame = StateObject(wrappedValue: DesktopFrameLease())
+        _access = StateObject(wrappedValue: PhysicalDesktopAccess(runtime: store.runtime, desktopId: desktopId))
     }
 
     /// With activity and picture already read (renders, tests).
@@ -180,9 +199,11 @@ public struct DesktopInspectorView: View {
         self.openPreview = openPreview
         _activity = StateObject(wrappedValue: activity)
         _frame = StateObject(wrappedValue: frame ?? DesktopFrameLease())
+        _access = StateObject(wrappedValue: PhysicalDesktopAccess(runtime: store.runtime, desktopId: activity.desktopId))
     }
 
     var desktop: JSONValue? { store.desktops.first { $0["desktopId"]?.stringValue == desktopId } }
+    var isPhysical: Bool { desktop?["kind"]?.stringValue == "physical" }
 
     var state: PageState { Self.state(list: store.desktopsState, found: desktop != nil) }
 
@@ -226,6 +247,13 @@ public struct DesktopInspectorView: View {
                             .liveFrame(frame, displayId: DesktopFrameHub.displayId(of: desktop))
                         Text("停止、接管、关闭：\(WaitingFor.a5)（desktop.stop / takeover / closePlan 尚未上线）")
                             .font(ADFont.note).foregroundStyle(ADColor.muted)
+                        if isPhysical {
+                            PhysicalDesktopAccessView(access: access, gone: {
+                                Task { await store.refreshDesktops() }
+                                navigation.back()
+                            })
+                            .task(id: store.tick) { await access.load() }
+                        }
                         recent
                     }
                     .frame(maxWidth: .infinity)

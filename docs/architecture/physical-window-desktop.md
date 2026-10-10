@@ -139,21 +139,20 @@ AgentDesktop Runtime（唯一）
 
 被 main 上已合并的 PR 覆盖、因此本 PR 不再重复的部分：单窗口截图与 `windowScreenshot`（#145）、物理 Desktop 关闭开关与无绑定拒绝截图（#145）、启动/发现授权（#151/#153/#137）、窗口授权与绑定检查（#205）。
 
-### 7.3 封印开关：需要 Kevin 裁决
+### 7.3 封印开关：Kevin 2026-10-10 裁决（owner 挂接入口 PR）
 
-本 PR 不改产品默认值，测试 `theSealsStayAsTheProductShipsThem` 锁定：
+裁决：只打开 `physicalDesktopsEnabled`；`bindsOnlyLaunchedProcesses` 和 `refusesScreenCaptureWithoutBinding` 保持开着；显示器来源判定的上限（公开 API 证明不了帧缓冲此刻驱动哪块显示器）已接受，不研究私有接口。
 
-| 开关 | 产品默认 | 打开后的行为 |
+| 开关 | 产品默认（本裁决后） | 行为 |
 | --- | --- | --- |
-| `physicalDesktopsEnabled` | 关：`desktop.create {physical}` 对所有调用方（包括 owner）返回 `permission_denied / physical_desktop_requires_grant`，不查显示器 | owner 可以挂接用户显示器，并把它列进某个 App 的授权；App 自己仍不能挂接（A4）。挂接本身看不到任何窗口：绑定、观察、操作、保存都要逐窗口 Touch ID 授权（7.1），并受 7.2 全部检查 |
-| `bindsOnlyLaunchedProcesses` | 开：虚拟 Desktop 只能绑定在它上面 `app.launch` 的进程 | 虚拟 Desktop 可以把用户窗口**搬过来**绑定（仍需窗口授权）。与物理 Desktop 无关；搬动用户窗口是另一类风险，建议单独裁决 |
-| `refusesScreenCaptureWithoutBinding` | 开：无绑定的虚拟 Desktop 不截整屏 | 与物理 Desktop 无关（物理 Desktop 无绑定时始终拒绝） |
+| `physicalDesktopsEnabled` | **开** | owner 可以挂接用户显示器，并经 `hub.displays.attach`（可信确认窗口 + Touch ID）把它开放给某个已配对 App；App 自己仍不能挂接（`owner_only`）。挂接本身看不到任何窗口：绑定、观察、操作、保存都要逐窗口 Touch ID 授权（7.1），并受 7.2 全部检查 |
+| `bindsOnlyLaunchedProcesses` | 开 | 虚拟 Desktop 只能绑定在它上面 `app.launch` 的进程；搬动用户窗口是另一类风险，留待单独裁决 |
+| `refusesScreenCaptureWithoutBinding` | 开 | 与物理 Desktop 无关（物理 Desktop 无绑定时始终拒绝） |
 
-建议的裁决选项（由 Kevin 决定）：只打开 `physicalDesktopsEnabled`，另两个保持；或先只允许测试副本（side instance）打开以完成真机验收，产品仍关。
-
-**还缺一个 owner 入口**（Codex 在 dbd0673 上指出）：owner 只存在于宿主进程内（主窗口），目前主窗口没有"挂接我的显示器为物理 Desktop、并把它授权给某个 App"的操作；socket 上的 CLI 是已配对客户端，不是 owner。所以即使打开封印，App 也拿不到物理 Desktop。这个入口属于产品设计（谁在主窗口里点、怎么展示、是否需要 Touch ID），本 PR 不做，需要 Kevin 决定后另开 PR。在这之前，WeChat Agent 第四阶段仍无法绑定用户自己打开的微信窗口。
+owner 入口的设计见 `docs/security/owner-display-attach.md`：主窗口 Desktops › "开放我的显示器"，列出显示器（名称、分辨率、来源判定结果；虚拟 / 未证实的不可选）与已配对程序，确认后 Runtime 复用或新建物理 Desktop 并写进该程序的授权；详情页可按程序收回或全部收回并解除挂接。
 
 ### 7.4 真机验收（Kevin 本人）
 
-`scripts/physical-desktop-acceptance.sh`：测试副本、独立钥匙串文件、只开并只关一个自己启动的 Chess 实例，只对它发一次 Escape，不创建虚拟显示器、不碰正式端点和微信。目前脚本在第 2 步验证"已配对 App 不能挂接显示器"（`owner_only` 或封印拒绝）后报 `PENDING`（退出码 3），什么都不截、不绑；有了 owner 入口后，用 `PD_DESKTOP=d_…` 指定 owner 挂接的物理 Desktop 跑完第 3–8 步。记录模板：`docs/acceptance/physical-desktop/window-grants-acceptance.md`。覆盖物和显示器变化两项需要人为制造（通知、改分辨率），写在模板里作为可选手动步骤。
+先 `scripts/owner-attach-acceptance.sh`（记录模板 `docs/acceptance/physical-desktop/owner-attach-acceptance.md`）：配对测试 CLI，证明它自己挂接不了，然后由你在测试副本主窗口里开放主显示器给它，脚本确认它看不到任何窗口，再由你收回。
 
+再 `scripts/physical-desktop-acceptance.sh`（记录模板 `docs/acceptance/physical-desktop/window-grants-acceptance.md`）：测试副本、独立钥匙串文件，只开并只关一个自己启动的 Chess 实例，只对它发一次 Escape，不创建虚拟显示器、不碰正式端点和微信。第 2 步不再停下：没有 `PD_DESKTOP` 时脚本等你在测试副本主窗口里把主显示器开放给 pd-cli，然后跑完第 3–8 步。覆盖物和显示器变化两项需要人为制造（通知、改分辨率），写在模板里作为可选手动步骤。验收前退出 layer 1500 铺满全屏的第三方工具，否则每次观察都按设计返回 `occluded`。

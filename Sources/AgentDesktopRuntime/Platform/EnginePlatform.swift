@@ -12,10 +12,32 @@ import SecondScreenRuntime
 /// never the main thread.
 public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     private let engine: AgentRuntime
+    /// The host's report of every active display with its proved origin
+    /// (PhysicalDisplays.report): the engine itself holds only the physical
+    /// ones it was given as host screens.
+    private let displayReport: @Sendable () -> [PlatformDisplay]
 
-    public init(engine: AgentRuntime) {
+    public init(engine: AgentRuntime, displays: @escaping @Sendable () -> [PlatformDisplay] = { [] }) {
         self.engine = engine
+        self.displayReport = displays
         ClipboardProbe.prepareKeyboardLayout()
+    }
+
+    /// Owner only (hub.displays.list). The attachable ones are exactly
+    /// the host screens attachDisplay accepts: the same classification
+    /// decides both, so the list never offers what attach would refuse.
+    public func displays() -> [PlatformDisplay] {
+        let host = Set(((try? check(handle(ControlRequest(command: .screenList))))?.screens ?? []).filter { $0.kind == .primary }.map(\.displayID))
+        return displayReport().map { d in
+            var d = d
+            // Proved physical by the host but not registered with the engine
+            // (a display that appeared after the report): not attachable yet.
+            if d.origin == .physical, !host.contains(d.displayId) {
+                d.origin = .unconfirmed
+                d.originDetail = "the display is not registered with the engine yet; try again in a moment"
+            }
+            return d
+        }
     }
 
     // G2 probes: accessibility and keyboard-layout reads only.

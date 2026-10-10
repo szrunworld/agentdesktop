@@ -48,7 +48,7 @@ public struct RuntimeProblem: Equatable, Sendable {
     static func reasonAdvice(_ reason: String) -> String? {
         switch reason {
         case "bind_requires_grant":
-            return "目前只能绑定由这个 Desktop 启动的应用：你自己打开的窗口即使已获窗口授权，也不会被移到虚拟 Desktop 上，物理 Desktop 也暂未开放。请改用“启动应用”。"
+            return "目前只能绑定由这个 Desktop 启动的应用：你自己打开的窗口即使已获窗口授权，也不会被移到虚拟 Desktop 上，物理 Desktop 需要由你在主窗口开放。请改用“启动应用”。"
         case "screen_capture_requires_grant":
             return "这个 Desktop 还没有绑定窗口；没有整屏授权时不截整个屏幕。请先绑定窗口。"
         case "no_launch_apps_configured":
@@ -66,7 +66,11 @@ public struct RuntimeProblem: Equatable, Sendable {
         case "iphone_mirroring_blocked":
             return "iPhone 镜像不能通过通用桌面控制操作：输入会直接到达手机，绕开 iPhone 专用的保护。iPhone 设备会话验收之前，它一律被拒绝。"
         case "physical_desktop_requires_grant":
-            return "物理 Desktop 在当前版本中暂未开放：即使有窗口授权，也不能把你的显示器作为 Desktop。请使用虚拟 Desktop。"
+            return "这个 Runtime 关闭了物理 Desktop，不能把你的显示器作为 Desktop。请使用虚拟 Desktop。"
+        case "owner_only":
+            return "这个操作只属于 Agent Desktop 的本机用户：请在 Agent Desktop 主窗口里完成，外部程序不能代替。"
+        case "display_not_physical":
+            return "这块显示器没有被证实为物理显示器（可能是虚拟显示器，或来源无法核实），不会开放给任何程序。"
         default:
             return nil
         }

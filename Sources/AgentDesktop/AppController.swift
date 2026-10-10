@@ -226,7 +226,8 @@ final class AppController: NSObject, NSApplicationDelegate {
             // <dir>/<name>.runtime (side instance), owner-only.
             let records = role.runtimeRecordsDirectory.path
             let service = try RuntimeService.persistent(
-                identity: identity, backend: MacBackend(), platform: EnginePlatform(engine: runtime), records: records)
+                identity: identity, backend: MacBackend(),
+                platform: EnginePlatform(engine: runtime, displays: { PhysicalDisplays.report() }), records: records)
             // A4: pairings and owner-only calls from socket clients are
             // decided by the user in this app's trusted window.
             service.confirmer = TrustedConfirmationWindow()
