@@ -412,16 +412,18 @@ public final class HubStore: @unchecked Sendable {
     /// the client's reach (window-grants.md).
     public func revokeEndedWindowGrant(_ id: String) throws {
         if failsWindowGrantWrites { throw RuntimeStoreError("window grant store unavailable (test)") }
-        try db.execute("UPDATE window_grants SET state = 'revoked' WHERE window_grant_id = ? AND state = 'ended'", [.text(id)])
+        try db.execute("UPDATE window_grants SET state = 'revoked', ended_reason = 'window_grant_revoked' WHERE window_grant_id = ? AND state = 'ended'",
+                       [.text(id)])
     }
 
     /// Inside a transaction the caller holds.
     @discardableResult
     private func endWindowGrantRow(_ id: String, state: String, reason: String) throws -> Bool {
         if failsWindowGrantWrites { throw RuntimeStoreError("window grant store unavailable (test)") }
-        // Active ones end; an ended one can only become revoked.
+        // Active ones end; an ended one can only become revoked, and then
+        // says why it was revoked (Codex on 30eb124).
         try db.execute("""
-            UPDATE window_grants SET state = ?, ended_reason = CASE WHEN state = 'active' THEN ? ELSE ended_reason END
+            UPDATE window_grants SET state = ?, ended_reason = ?
             WHERE window_grant_id = ? AND (state = 'active' OR (state = 'ended' AND ? = 'revoked'))
             """, [.text(state), .text(reason), .text(id), .text(state)])
         return db.changes == 1

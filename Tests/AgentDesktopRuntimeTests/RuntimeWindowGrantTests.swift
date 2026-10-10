@@ -832,6 +832,7 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
         sc.s.endWindowGrant(g, reason: "window_closed")
         #expect(data(call(sc.s, owner, method, params: #"{"clientId":"\#(sc.c.clientId)"}"#)) != nil)
         #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "revoked", "\(method)")
+        #expect(["grant_revoked", "client_revoked"].contains(sc.s.hub.windowGrant(g.windowGrantId)?.endedReason ?? ""))
     }
 }
 
@@ -952,6 +953,7 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     #expect(data(call(sc.s, owner, "hub.grants.set", params: p)) != nil)
     #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "revoked")
     #expect(sc.s.hub.auditEvents().contains { $0["decision"]?.stringValue == "revoked" && $0["reason"]?.stringValue == "\(g.windowGrantId) app_removed" })
+    #expect(sc.s.hub.windowGrant(g.windowGrantId)?.endedReason == "app_removed", "the reason it was revoked for")
     let (back, _) = socketConnection(sc.s, clientId: sc.c.clientId, token: token)
     #expect(code(call(sc.s, back, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) == "not_found")
 }
