@@ -159,15 +159,17 @@ final class BridgeStallWatch: @unchecked Sendable {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = err
         do { try p.run() } catch { return .failed(reason: "could not start: \(error.localizedDescription)") }
-        let deadline = Date().addingTimeInterval(limit)
-        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        // Monotonic: a clock set back or forward does not stretch or cut the
+        // wait (Codex on 919e460).
+        let deadline = DispatchTime.now() + limit
+        while p.isRunning && DispatchTime.now() < deadline { Thread.sleep(forTimeInterval: 0.05) }
         if p.isRunning {
             // Only the process this watch started: its parent is this process
             // and its executable is the one launched.
             guard isChild(p.processIdentifier, running: executable) else { return .timedOut(ended: false) }
             p.terminate()
-            let exitBy = Date().addingTimeInterval(2)
-            while p.isRunning && Date() < exitBy { Thread.sleep(forTimeInterval: 0.05) }
+            let exitBy = DispatchTime.now() + 2
+            while p.isRunning && DispatchTime.now() < exitBy { Thread.sleep(forTimeInterval: 0.05) }
             return .timedOut(ended: !p.isRunning)
         }
         let firstLine = (try? String(contentsOfFile: stderrFile, encoding: .utf8))?
