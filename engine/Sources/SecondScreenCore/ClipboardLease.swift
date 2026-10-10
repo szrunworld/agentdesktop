@@ -11,11 +11,13 @@ import Foundation
 /// drops when the holder exits or crashes.
 public final class ClipboardLease {
     public enum LeaseError: LocalizedError, Equatable {
+        case gaveUp
         case busy(seconds: Double)
         case unavailable(String)
 
         public var errorDescription: String? {
             switch self {
+            case .gaveUp: return "stopped waiting for the clipboard; nothing was pasted"
             case .busy(let seconds):
                 return "another agent has been using the clipboard for over \(Self.format(seconds)) s; "
                     + "nothing was pasted"
@@ -48,7 +50,7 @@ public final class ClipboardLease {
     deinit { release() }
 
     /// Waits up to `timeout` seconds for the clipboard.
-    public static func acquire(at url: URL = defaultURL, timeout: TimeInterval) throws -> ClipboardLease {
+    public static func acquire(at url: URL = defaultURL, timeout: TimeInterval, giveUp: () -> Bool = { false }) throws -> ClipboardLease {
         let directory = url.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
@@ -68,6 +70,7 @@ public final class ClipboardLease {
 
         let deadline = Date().addingTimeInterval(timeout)
         while true {
+            if giveUp() { close(fd); throw LeaseError.gaveUp }
             if flock(fd, LOCK_EX | LOCK_NB) == 0 { return ClipboardLease(url: url, fd: fd) }
             let error = errno
             guard error == EWOULDBLOCK || error == EINTR else {
@@ -92,8 +95,8 @@ public final class ClipboardLease {
 
     /// Runs `body` holding the clipboard.
     public static func with<Value>(at url: URL = defaultURL, timeout: TimeInterval,
-                                   _ body: () throws -> Value) throws -> Value {
-        let lease = try acquire(at: url, timeout: timeout)
+                                   giveUp: () -> Bool = { false }, _ body: () throws -> Value) throws -> Value {
+        let lease = try acquire(at: url, timeout: timeout, giveUp: giveUp)
         defer { lease.release() }
         return try body()
     }
