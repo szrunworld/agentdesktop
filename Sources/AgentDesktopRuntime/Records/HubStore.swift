@@ -265,11 +265,14 @@ public final class HubStore: @unchecked Sendable {
             try putGrant(g)
             // A revoked grant revokes its ended window grants too: what was kept
             // under them goes out of reach for good (Codex on 0232db6).
-            let states = g.state != "active" ? "('active', 'ended')" : "('active')"
-            for w in try loadWindowGrants(where: "client_id = ? AND state IN \(states)", [.text(g.clientId)]) {
+            // Ended ones are swept too (Codex on 31fd421): taking an app or
+            // Desktop away takes back what was kept under them, so an ended
+            // grant then becomes revoked.
+            for w in try loadWindowGrants(where: "client_id = ? AND state IN ('active', 'ended')", [.text(g.clientId)]) {
                 let why = g.state != "active" ? "grant_revoked" : endingWindowGrants?(w)
                 guard let why else { continue }
-                try endWindowGrantRow(w.windowGrantId, state: g.state != "active" ? "revoked" : "ended", reason: why)
+                let to = g.state != "active" || w.state == "ended" ? "revoked" : "ended"
+                try endWindowGrantRow(w.windowGrantId, state: to, reason: why)
                 ended.append((w.windowGrantId, why))
             }
             if let old, !Set(g.capabilities).isSuperset(of: old.capabilities) || !Set(g.desktops).isSuperset(of: old.desktops)

@@ -943,3 +943,14 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     moved.windowGrantId = "wg_short"
     #expect(sc.s.windowArtifactRefusal(moved, sc.c))
 }
+
+@Test func takingTheAppAwayAfterTheWindowClosedStillTakesBackKeptScreenshots() throws {
+    let (sc, owner, g, token) = try calculatorScene(["observe", "persist"])
+    let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+    sc.s.endWindowGrant(g, reason: "window_closed")
+    let p = #"{"clientId":"\#(sc.c.clientId)","capabilities":["observe","act","desktop.manage","run"],"desktops":["created"],"apps":[]}"#
+    #expect(data(call(sc.s, owner, "hub.grants.set", params: p)) != nil)
+    #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "revoked")
+    let (back, _) = socketConnection(sc.s, clientId: sc.c.clientId, token: token)
+    #expect(code(call(sc.s, back, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) == "not_found")
+}
