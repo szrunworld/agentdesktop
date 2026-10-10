@@ -277,11 +277,14 @@ extension RuntimeService {
         // The window: the one named, or the app's frontmost, where this
         // Desktop can bind it (on its display for a physical Desktop).
         let wanted = p["windowId"]?.intValue.flatMap { UInt32(exactly: $0) }
-        var candidates = backend.windows(pid: nil, bundleId: bundleId, includeOffscreen: false).filter { w in
-            guard w.bundleId == bundleId, w.frame.width >= 2, w.frame.height >= 2, wanted == nil || w.windowId == wanted else { return false }
-            if d.kind == .physical { return platform?.window(on: d.screen, pid: w.process.pid, windowId: w.windowId) != nil }
-            return true
+        func eligible() -> [WindowSummary] {
+            backend.windows(pid: nil, bundleId: bundleId, includeOffscreen: false).filter { w in
+                guard w.bundleId == bundleId, w.frame.width >= 2, w.frame.height >= 2, wanted == nil || w.windowId == wanted else { return false }
+                if d.kind == .physical { return platform?.window(on: d.screen, pid: w.process.pid, windowId: w.windowId) != nil }
+                return true
+            }
         }
+        var candidates = eligible()
         var expectedRecovery: TargetBinding?
         if recoverBinding {
             guard d.lock.lock(before: now().addingTimeInterval(desktopLockWait)) else {
@@ -369,6 +372,15 @@ extension RuntimeService {
            backend.windows(pid: old.process.pid, bundleId: bundleId, includeOffscreen: true).contains(where: { $0.windowId == old.windowId }) {
             return refuse("recovery_target_changed", "binding or control changed while approval was pending; request recovery again", code: "conflict")
         }
+        // The replacement must still be the only one (#261): a second eligible
+        // window of the process that appeared while the user decided makes
+        // the target ambiguous again, whatever was approved.
+        if let old = expectedRecovery {
+            let now = eligible().filter { $0.process == old.process && $0.windowId != old.windowId }
+            guard now.count == 1, now[0].windowId == w.windowId else {
+                return refuse("recovery_ambiguous", "another window of the app appeared while approval was pending; request recovery again", code: "conflict")
+            }
+        }
         do { try hub.addWindowGrant(grant, parentRevision: parent?.revision ?? -1) } catch {
             return .failure(RuntimeError("conflict", "this client's access changed while the user was asked; ask again",
                                          phase: .handler, notSent: true, details: .obj([("reason", .string("target_changed"))])))
@@ -376,6 +388,12 @@ extension RuntimeService {
         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.windows.request", decision: "granted",
                   reason: "\(grant.windowGrantId) \(permissions.joined(separator: ","))")
         if let old = expectedRecovery {
+            // The old window is gone for good (checked above): its grant ends
+            // now, with its sticky reason, audit and transient screenshots,
+            // not at some later check (#261).
+            if let oldGrant = old.windowGrantId.flatMap(hub.windowGrant), oldGrant.state == "active" {
+                endWindowGrant(oldGrant, reason: windowGrantFailure(oldGrant)?.reason ?? "window_closed", by: c)
+            }
             d.generation += 1
             d.binding = TargetBinding(generation: d.generation, process: w.process, windowId: w.windowId,
                                       appName: w.appName, boundAt: nowString, windowGrantId: grant.windowGrantId)
