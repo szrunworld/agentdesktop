@@ -176,13 +176,19 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
             if !inputOut { gate.cancel() }
             Task { _ = await lifecycle.requestCancel() }
         }
-        let task = Task.detached { [weak self] in
-            await driver.run()
-            sink.finished(await Self.ending(of: lifecycle, stopped: signal.isStopped))
-            self?.lock.withLock { _ = self?.tasks.removeValue(forKey: runId) }
+        // Made and registered under the lock, so its own cleanup (which
+        // takes the lock) cannot run before it is registered (codex on
+        // 073b96f: a fast Run left its finished task behind).
+        let task: Task<Void, Never> = lock.withLock {
+            let t = Task.detached { [weak self] in
+                await driver.run()
+                sink.finished(await Self.ending(of: lifecycle, stopped: signal.isStopped))
+                self?.lock.withLock { _ = self?.tasks.removeValue(forKey: runId) }
+            }
+            tasks[runId] = t
+            return t
         }
         gate.set(task)
-        lock.withLock { tasks[runId] = task }
     }
 
     /// The task driving a Run, for callers that await its end (tests).

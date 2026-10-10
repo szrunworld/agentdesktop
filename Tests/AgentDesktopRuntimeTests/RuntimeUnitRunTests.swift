@@ -403,3 +403,56 @@ func pairedUnitScene(_ capabilities: [String]) throws -> (RuntimeService, owner:
     #expect(runCount(s, c) == 0 && executor.contexts.isEmpty)
     #expect(s.sessions.openCount(desktopId: d) == 0)
 }
+
+// Codex on 073b96f: an app granted unit.run without run reads, waits on
+// and stops its own unit Runs; nothing else of run.* opens up.
+@Test func unitRunAloneControlsItsOwnUnitRuns() async throws {
+    let (s, _, app, _, d, executor) = try pairedUnitScene(["observe", "act", "unit.run"])
+    let runId = try #require(data(await offPool(s, app, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    #expect(data(call(s, app, "run.show", params: #"{"runId":"\#(runId)"}"#))?["kind"]?.stringValue == "unit")
+    #expect(data(call(s, app, "run.events", params: #"{"runId":"\#(runId)"}"#)) != nil)
+    #expect(data(call(s, app, "run.list")) != nil)
+    #expect(data(call(s, app, "run.cancel", params: #"{"runId":"\#(runId)"}"#)) != nil)
+    #expect(executor.stopCount == 1)
+    #expect(code(call(s, app, "run.start", context: #"{"desktopId":"\#(d)"}"#)) == "grant_missing")
+    #expect(code(call(s, app, "run.show", params: #"{"runId":"run_missing"}"#)) == "grant_missing")
+}
+
+// Codex on 073b96f: the window grant ends while the executor admits.
+@Test func aWindowGrantEndedDuringAdmissionCreatesNoRun() async throws {
+    let (s, owner, app, id, d, executor) = try pairedUnitScene(["observe", "act", "unit.run"])
+    let g = try #require(s.hub.windowGrants(clientId: id).first)
+    _ = owner
+    // The window closes (the grant ends with it); the connection stays.
+    executor.duringAdmit = { s.endWindowGrant(g, reason: "window_closed") }
+    let r = await offPool(s, app, "unit.run", params: unitParams(d))
+    #expect(code(r) == "grant_missing", "\(r.json.encoded())")
+    #expect(executor.contexts.isEmpty && s.runs.list(RunStore.ListFilter(), after: nil, limit: 10).runs.isEmpty)
+}
+
+// Codex on 073b96f: when needs_input cannot be recorded, the Run does not
+// wait unrecorded: input closes everywhere and the Run ends failed.
+@Test func anUnrecordedNeedsInputFailsClosed() async throws {
+    let dir = try socketDirectory()
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let path = dir + "/runs.sqlite"
+    let platform = FakePlatform()
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                           backend: FixedBackend(), platform: platform, runs: try RunStore(path: path))
+    s.bindsOnlyLaunchedProcesses = false
+    s.refusesScreenCaptureWithoutBinding = false
+    let c = handshaken(s)
+    let d = try created(s, c)
+    _ = call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101}"#)
+    let executor = FakeUnitExecutor()
+    s.registerUnitExecutor(executor, ports: RuntimeGuiPorts(service: s))
+    let runId = try #require(data(await offPool(s, c, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    let db = try SQLiteDatabase(path: path)
+    try db.execute("CREATE TRIGGER reject_wait BEFORE INSERT ON events WHEN NEW.type = 'unit.needs_input' BEGIN SELECT RAISE(ABORT, 'injected disk failure'); END")
+    executor.lastSink?.finished(.needsInput(reason: "login_required"))
+    let r = try #require(s.runs.find(runId))
+    #expect(r.phase != .waitingInput, "not waiting unrecorded")
+    #expect(s.execution.auditUnavailable)
+    #expect(s.execution.inputAdmission != .enabled)
+}

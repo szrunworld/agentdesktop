@@ -128,6 +128,20 @@ extension RuntimeService {
         return nil
     }
 
+    /// The caller's window grant to observe and act on the bound window, as
+    /// it is now (nil for the owner and for a window of its own launch).
+    func windowAccessLost(_ c: ConnectionState, _ d: DesktopRecord, _ binding: TargetBinding) -> RuntimeError? {
+        do {
+            _ = try windowUse(c, d, binding, "observe", method: "unit.run", audit: false)
+            _ = try windowUse(c, d, binding, "act", method: "unit.run", audit: false)
+            return nil
+        } catch let e as RuntimeError {
+            return e
+        } catch {
+            return RuntimeError("internal_error", "\(error)", phase: .handler, notSent: true)
+        }
+    }
+
     /// The Desktop gone, or its bound window not the one admission checked.
     func targetChanged(_ desktopId: String, _ binding: TargetBinding) -> RuntimeError? {
         guard let d = desktops.find(desktopId) else {
@@ -203,6 +217,8 @@ extension RuntimeService {
         // The Desktop and its window may have changed meanwhile too (codex on
         // 158d2a6): the Run binds what is there now, the window checked above.
         if let changed = targetChanged(desktopId, binding) { return .failure(changed) }
+        // And the window grant behind it (codex on 073b96f).
+        if let lost = windowAccessLost(c, d, binding) { return .failure(lost) }
         let session = sessions.open(desktopId: desktopId, caller: c.clientId, at: nowString)
         let unit = RunUnit(mode: p["mode"]?.stringValue ?? "auto",
                            goalHash: UnitRun.goalHash(p["goal"]?["description"]?.stringValue ?? ""),
@@ -229,6 +245,7 @@ extension RuntimeService {
         let lostNow = !durable && c.isClosed ? "owner_lost"
             : accessLost(c, desktopId: desktopId).map { $0.details?["reason"]?.stringValue ?? $0.code }
             ?? targetChanged(desktopId, binding).map { $0.details?["reason"]?.stringValue ?? $0.code }
+            ?? windowAccessLost(c, d, binding).map { $0.details?["reason"]?.stringValue ?? $0.code }
         if let reason = lostNow {
             execution.stop(runId: runId, reason: reason, endAs: .cancelled)
             execution.releaseExecutor(runId: runId)
@@ -256,7 +273,13 @@ extension RuntimeService {
         case .cancelled:
             execution.finishUnit(runId: runId, reason: "stopped", endAs: .cancelled)
         case let .needsInput(reason):
-            runs.appendEvent(runId, "unit.needs_input", .obj([("reason", .string(reason))]))
+            // Fail closed (codex on 073b96f): a wait the record does not show
+            // is not entered; the audit failure stops input everywhere.
+            guard runs.appendEvent(runId, "unit.needs_input", .obj([("reason", .string(reason))])) > 0 else {
+                execution.auditStorageFailed()
+                execution.finishUnit(runId: runId, reason: "audit_unavailable", endAs: .failed)
+                break
+            }
             execution.waitForInput(runId: runId)
             execution.releaseExecutor(runId: runId)
         }
