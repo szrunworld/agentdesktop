@@ -99,6 +99,15 @@ cleanup() {
     fi
     stop "${PROBE:-}" "${PROBE_START:-}" || cbad "the probe TextEdit (pid $PROBE) is still running"
     stop "${HOST:-}" "${HOST_START:-}" || cbad "the test Agent Desktop (pid $HOST) is still running"
+    # Launched but never identified (Codex on 037a804): nothing is stopped
+    # without its recorded identity, so a survivor is a cleanup failure.
+    if [ -n "${HOST:-}" ] && [ -z "${HOST_START:-}" ] && kill -0 "$HOST" 2>/dev/null; then
+        cbad "the test Agent Desktop was started (pid $HOST) but its identity was not recorded, so it was not stopped; quit it by hand"
+    fi
+    if [ -n "${PROBE_OPENED:-}" ] && [ -f "$DIR/textedit-before" ]; then
+        left=$(pgrep -x TextEdit | sort | comm -13 "$DIR/textedit-before" - | tr '\n' ' ' | sed 's/ *$//')
+        [ -z "$left" ] || cbad "TextEdit pid(s) $left started during the run and are still running; the script could not tell they were its own, so it left them; check by hand"
+    fi
     restore_search_list || cbad "restoring the keychain search list failed"
     if [ -e "$KC" ]; then
         security delete-keychain "$KC" > "$DIR/kc.err" 2>&1 || cbad "deleting the test keychain: $(cat "$DIR/kc.err")"
@@ -149,6 +158,7 @@ echo "window grant acceptance probe" > "$DIR/wg-probe-A.txt"
 # Only a TextEdit process that did not exist before this launch is ours: the
 # script inspects and quits that one and no other (Codex on 7629d6b).
 pgrep -x TextEdit | sort > "$DIR/textedit-before"
+PROBE_OPENED=1
 open -n -g -a TextEdit "$DIR/wg-probe-A.txt" || { bad "open TextEdit failed"; exit 1; }
 i=0; PROBE=""
 while [ -z "$PROBE" ] && [ $i -lt 40 ]; do
