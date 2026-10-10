@@ -48,6 +48,23 @@ CONFIRM="$(dirname "$0")/window-grant-confirmation.py"
 CHESS=com.apple.Chess
 WAIT="${WAIT:-300}"
 pass=0; fail=0
+# Optional operator gates for a live run: do not race window arrangement
+# or present the next decision before its instruction has been checked.
+gate() {
+    [ "${PD_INTERACTIVE:-0}" = 1 ] || return 0
+    echo "OPERATOR GATE: $* (press Return in the controlling terminal to continue)"
+    IFS= read -r gate_answer || exit 1
+}
+displays() { swift - <<'SWIFT'
+import CoreGraphics
+var count: UInt32 = 0
+let status = CGGetOnlineDisplayList(0, nil, &count)
+guard status == .success else { exit(1) }
+var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+guard CGGetOnlineDisplayList(count, &ids, &count) == .success else { exit(1) }
+print(ids.prefix(Int(count)).sorted().map(String.init).joined(separator: " "))
+SWIFT
+}
 ok()  { echo "PASS  $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
 field() { python3 -c 'import json,sys
@@ -86,7 +103,8 @@ security create-keychain -p "$(uuidgen)" "$KC"
 security set-keychain-settings "$KC"
 restore_search_list
 export AGENTDESKTOP_ENDPOINT="$EP" AGENTDESKTOP_KEYCHAIN="$KC"
-DISPLAYS_BEFORE=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -c "Resolution:")
+DISPLAYS_BEFORE=$(displays)
+[ -n "$DISPLAYS_BEFORE" ] || { bad "cannot read the online display baseline"; exit 1; }
 
 echo "== start Agent Desktop (test copy)"
 AGENTDESKTOP_SOCKET="$DIR/side.sock" AGENTDESKTOP_MAIN_WINDOW=1 "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
@@ -170,11 +188,13 @@ WG=$(field "$DIR/grant.json" data.windowGrantId)
 [ -n "$WG" ] && ok "window grant $WG" || { bad "window grant: $(cat "$DIR/grant.json")"; exit 1; }
 [ "$(field "$DIR/grant.json" data.window.windowId)" = "$WIN" ] && ok "it is the probe window" || bad "granted another window"
 
+gate "Arrange probe Chess pid $PROBE in front before observation"
 echo "== 4. bind in place, observe: the window alone, transient, no screen image"
 "$B" window bind --desktop "$DESK" --pid "$PROBE" --window "$WIN" --format json > "$DIR/bind.json"
 [ "$(field "$DIR/bind.json" data.binding.windowId)" = "$WIN" ] && ok "bound in place" || bad "bind: $(cat "$DIR/bind.json")"
 SID=$(field "$("$B" session open --desktop "$DESK" --format json > "$DIR/session.json"; echo "$DIR/session.json")" data.sessionId)
 "$B" observe --session "$SID" --format json > "$DIR/observe.json"
+[ -n "$(field "$DIR/observe.json" data.snapshotId)" ] || { bad "no valid observation: $(cat "$DIR/observe.json")"; exit 1; }
 [ "$(field "$DIR/observe.json" data.target.windowId)" = "$WIN" ] && ok "observed the granted window" || bad "observe: $(cat "$DIR/observe.json")"
 [ "$(field "$DIR/observe.json" data.image.transient)" = True ] && ok "image is transient (no persist)" || bad "image: $(field "$DIR/observe.json" data.image)"
 # The image itself must be the window: its size is the window frame at the
@@ -196,10 +216,13 @@ SNAP=$(field "$DIR/observe.json" data.snapshotId)
 "$B" act key --key escape --session "$SID" --snapshot "$SNAP" --format json > "$DIR/act.json"
 [ "$(field "$DIR/act.json" data.delivery)" = dispatched ] && ok "Escape dispatched to the window" || bad "act: $(cat "$DIR/act.json")"
 
+gate "Next request includes persist: choose REJECT"
 echo "== 6. ask again: press 拒绝 in the window"
 python3 "$CONFIRM" "$B" windows request --desktop "$DESK" --app "$CHESS" --window "$WIN" --allow observe,act,persist > "$DIR/deny.json"
 grep -q user_denied "$DIR/deny.json" && ok "refused (user_denied)" || bad "deny: $(cat "$DIR/deny.json")"
 
+grep -q user_denied "$DIR/deny.json" || exit 1
+gate "Next request revokes the grant: approve and authenticate"
 echo "== 7. the CLI gives up its window grant: confirm in the window, approve with Touch ID or your password"
 python3 "$CONFIRM" "$B" windows revoke "$WG" > "$DIR/revoke.json" || true   # its connection is cut: the reply may not arrive
 "$B" windows list --all --format json > "$DIR/after.json"
@@ -209,10 +232,12 @@ sys.exit(0 if any(g["windowGrantId"]==sys.argv[2] and g["state"]=="revoked" for 
     && ok "the window grant is revoked" || bad "after revoke: $(cat "$DIR/after.json")"
 SID2=$(field "$("$B" session open --desktop "$DESK" --format json > "$DIR/session2.json"; echo "$DIR/session2.json")" data.sessionId)
 "$B" observe --session "$SID2" --format json > "$DIR/observe2.json"
-grep -q window_grant_missing "$DIR/observe2.json" && ok "observe refused after revoke" || bad "observe after revoke: $(cat "$DIR/observe2.json")"
+python3 -c 'import json,sys
+r=json.load(open(sys.argv[1])); e=r.get("error", {}); reason=e.get("details", {}).get("reason")
+sys.exit(0 if r.get("ok") is False and e.get("code")=="grant_missing" and reason in ("window_grant_missing", "window_grant_ended") else 1)' "$DIR/observe2.json" && ok "observe refused after revoke" || bad "observe after revoke: $(cat "$DIR/observe2.json")"
 
 echo "== 8. nothing created, audit names no window content"
-DISPLAYS_AFTER=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -c "Resolution:")
+DISPLAYS_AFTER=$(displays)
 [ "$DISPLAYS_BEFORE" = "$DISPLAYS_AFTER" ] && ok "display count unchanged ($DISPLAYS_AFTER)" || bad "displays $DISPLAYS_BEFORE -> $DISPLAYS_AFTER"
 sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT at, client_id, method, decision, reason FROM auth_events WHERE decision IN ('asked','confirmed','granted','used','revoked','ended','cut','denied') ORDER BY rowid" > "$DIR/audit.json"
 tail -25 "$DIR/audit.json"
