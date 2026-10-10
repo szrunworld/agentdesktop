@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Desktops › 总览 (P01, P03): what desktop.list and the active Runs say,
 /// with creation (P04/P05), the side-by-side view (P07) and a preview window
-/// per Desktop (P08). Stopping waits for desktop.stop (A5).
+/// per Desktop (P08). Each card stops its own Desktop (desktop.stop).
 public struct DesktopsOverviewView: View {
     @ObservedObject var store: ShellStore
     @ObservedObject var navigation: ShellNavigation
@@ -13,6 +13,7 @@ public struct DesktopsOverviewView: View {
     @State private var layout: Layout = .grid
     @State private var creating: CreateDesktopFlow?
     @State private var attaching: AttachDisplayFlow?
+    @StateObject private var stops: DesktopStops
 
     public enum Layout: String, CaseIterable, Identifiable {
         case grid = "网格", list = "列表"
@@ -28,6 +29,7 @@ public struct DesktopsOverviewView: View {
         self.store = store
         self.navigation = navigation
         self.openPreview = openPreview
+        _stops = StateObject(wrappedValue: DesktopStops(store: store))
     }
 
     /// Desktops after the filter and the name / ID search.
@@ -85,11 +87,13 @@ public struct DesktopsOverviewView: View {
                         ForEach(shown.indices, id: \.self) { i in
                             let d = shown[i]
                             let id = d["desktopId"]?.stringValue ?? ""
-                            DesktopCard(desktop: d, control: DesktopControlPresentation.make(desktop: d, activeRuns: store.activeRuns),
-                                        openPreview: openPreview.map { f in { f(id) } }, stop: nil,
+                            let info = DesktopControlInfo.make(desktop: d, activeRuns: store.activeRuns)
+                            DesktopCard(desktop: d, control: info.presentation,
+                                        openPreview: openPreview.map { f in { f(id) } },
+                                        stop: connected && stops.canStop(id, info: info, methods: methods) ? { Task { await stops.stop(id) } } : nil,
                                         openDetail: { navigation.showDesktop(id) },
                                         picture: AnyView(CardPicture(store: store, desktopId: id).id(id)),
-                                        stopUnavailable: "停止单个 Desktop：\(WaitingFor.a5)")
+                                        stopUnavailable: stopWhy(info), stopNote: stops.note(id))
                         }
                     }
                 } else {
@@ -100,6 +104,7 @@ public struct DesktopsOverviewView: View {
                 }
             }
         }
+        .task(id: store.tick) { await stops.refresh() }
         // P04 is a modal inside the main window (not a separate sheet
         // window), so the page stays one window for the user and for
         // accessibility.
@@ -133,13 +138,19 @@ public struct DesktopsOverviewView: View {
     }
 
     var connected: Bool { if case .connected = store.connection { return true }; return false }
+    var methods: DesktopControlMethods { DesktopControlMethods(capabilities: store.capabilities) }
+
+    func stopWhy(_ info: DesktopControlInfo) -> String? {
+        DesktopInspectorView.stopBlocked(info, methods: methods, connected: connected)
+    }
 
     func startCreate() { creating = CreateDesktopFlow(runtime: store.runtime) }
     func startAttach() { attaching = AttachDisplayFlow(runtime: store.runtime) }
 
     func listRow(_ d: JSONValue) -> some View {
         let id = d["desktopId"]?.stringValue ?? ""
-        let control = DesktopControlPresentation.make(desktop: d, activeRuns: store.activeRuns)
+        let info = DesktopControlInfo.make(desktop: d, activeRuns: store.activeRuns)
+        let control = info.presentation
         return HStack(spacing: ADSpace.m) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(d["name"]?.stringValue ?? "—").font(ADFont.bodyStrong).foregroundStyle(ADColor.ink)
@@ -156,6 +167,10 @@ public struct DesktopsOverviewView: View {
             if let openPreview {
                 Button { openPreview(id) } label: { Label("预览", systemImage: "eye") }.buttonStyle(ADButtonStyle(.secondary))
             }
+            Button { Task { await stops.stop(id) } } label: { Label("停止", systemImage: "stop.fill") }
+                .buttonStyle(ADButtonStyle(.secondary))
+                .disabled(!connected || !stops.canStop(id, info: info, methods: methods))
+                .help(stopWhy(info) ?? (stops.note(id) ?? "只停止这个 Desktop 的输入"))
             Button { navigation.showDesktop(id) } label: { Label("详情", systemImage: "chevron.right") }
                 .buttonStyle(ADButtonStyle(.secondary)).accessibilityLabel("打开 \(d["name"]?.stringValue ?? "Desktop") 的详情")
         }
@@ -168,15 +183,21 @@ public struct DesktopsOverviewView: View {
     }
 }
 
-/// Desktops › 详情 (P06): live picture, controller, connection panel and
-/// recent actions. Takeover and stop wait for A5.
+/// Desktops › 详情 (P06, P12–P18): live picture, Desktop.control, the
+/// owner's stop / takeover / handback / close, connection panel, apps and
+/// size, recent actions. Every control state is the Runtime's answer.
 public struct DesktopInspectorView: View {
     @ObservedObject var store: ShellStore
     @ObservedObject var navigation: ShellNavigation
     @StateObject private var activity: DesktopActivityLoader
     @StateObject private var frame: DesktopFrameLease
     @StateObject private var access: PhysicalDesktopAccess
+    @StateObject private var control: DesktopControlFlow
     @State private var zoom: PreviewZoom = .fit
+    @State private var review: UnknownResultReview?
+    /// Hiding the picture releases the live frame; it never touches
+    /// control or Runs (UC14).
+    @State private var showPicture = true
     let desktopId: String
     let openPreview: ((String) -> Void)?
 
@@ -188,11 +209,12 @@ public struct DesktopInspectorView: View {
         _activity = StateObject(wrappedValue: DesktopActivityLoader(runtime: store.runtime, desktopId: desktopId))
         _frame = StateObject(wrappedValue: DesktopFrameLease())
         _access = StateObject(wrappedValue: PhysicalDesktopAccess(runtime: store.runtime, desktopId: desktopId))
+        _control = StateObject(wrappedValue: DesktopControlFlow(runtime: store.runtime, desktopId: desktopId))
     }
 
-    /// With activity and picture already read (renders, tests).
+    /// With activity, picture and control already read (renders, tests).
     init(store: ShellStore, navigation: ShellNavigation, activity: DesktopActivityLoader, frame: DesktopFrameLease? = nil,
-         openPreview: ((String) -> Void)? = nil) {
+         control: DesktopControlFlow? = nil, review: UnknownResultReview? = nil, openPreview: ((String) -> Void)? = nil) {
         self.store = store
         self.navigation = navigation
         self.desktopId = activity.desktopId
@@ -200,10 +222,14 @@ public struct DesktopInspectorView: View {
         _activity = StateObject(wrappedValue: activity)
         _frame = StateObject(wrappedValue: frame ?? DesktopFrameLease())
         _access = StateObject(wrappedValue: PhysicalDesktopAccess(runtime: store.runtime, desktopId: activity.desktopId))
+        _control = StateObject(wrappedValue: control ?? DesktopControlFlow(runtime: store.runtime, desktopId: activity.desktopId))
+        _review = State(initialValue: review)
     }
 
     var desktop: JSONValue? { store.desktops.first { $0["desktopId"]?.stringValue == desktopId } }
     var isPhysical: Bool { desktop?["kind"]?.stringValue == "physical" }
+    var methods: DesktopControlMethods { DesktopControlMethods(capabilities: store.capabilities) }
+    var connected: Bool { if case .connected = store.connection { return true }; return false }
 
     var state: PageState { Self.state(list: store.desktopsState, found: desktop != nil) }
 
@@ -218,7 +244,35 @@ public struct DesktopInspectorView: View {
         }
     }
 
+    /// Why the header's stop is off, or nil when it is on.
+    static func stopBlocked(_ info: DesktopControlInfo, methods: DesktopControlMethods, connected: Bool) -> String? {
+        if !connected { return "Runtime 未连接" }
+        if !methods.has("desktop.stop") { return DesktopControlMethods.missing("desktop.stop") }
+        if !info.canStop { return info.state == "stopping" ? "停止已受理，正在等待静止" : "输入已停止" }
+        return nil
+    }
+
+    static func takeoverBlocked(_ info: DesktopControlInfo, methods: DesktopControlMethods, connected: Bool) -> String? {
+        if !connected { return "Runtime 未连接" }
+        if !methods.has("desktop.takeover") { return DesktopControlMethods.missing("desktop.takeover") }
+        if !info.canTakeover { return "你已在控制这个 Desktop" }
+        return nil
+    }
+
+    /// The newest unknown action of the Run named by Desktop.control.
+    func unknownEntry(_ info: DesktopControlInfo) -> ActionEntry? {
+        let unknown = activity.actions.filter { $0.presentation.level == .unknown }
+        return unknown.first { $0.runId == info.controllerRunId } ?? unknown.first
+    }
+
+    func openReview(_ info: DesktopControlInfo) {
+        guard let e = unknownEntry(info) else { return }
+        review = UnknownResultReview(runtime: store.runtime, desktopId: desktopId, entry: e)
+        control.dialog = .unknown(requestId: e.requestId)
+    }
+
     public var body: some View {
+        let info = desktop.map { DesktopControlInfo.make(desktop: $0, activeRuns: store.activeRuns) }
         PageContainer(state: state, emptyTitle: "这个 Desktop 已不存在",
                       emptyDetail: "\(desktopId) 已关闭或被销毁；它的运行与动作记录仍在 Runs 中。",
                       emptyAction: ("返回总览", { navigation.back() }),
@@ -231,22 +285,44 @@ public struct DesktopInspectorView: View {
                         .buttonStyle(ADButtonStyle(.secondary))
                     Button { openPreview?(desktopId) } label: { Label("独立预览", systemImage: "rectangle.on.rectangle") }
                         .buttonStyle(ADButtonStyle(.secondary)).disabled(openPreview == nil || desktop == nil)
-                    Button {} label: { Label("停止输入", systemImage: "stop.fill") }
-                        .buttonStyle(ADButtonStyle(.danger)).disabled(true).help("停止单个 Desktop 需要 desktop.stop：\(WaitingFor.a5)")
-                    Button {} label: { Label("关闭", systemImage: "xmark.circle") }
-                        .buttonStyle(ADButtonStyle(.secondary)).disabled(true).help("关闭前要列出将结束的资源（desktop.closePlan）：\(WaitingFor.a5)")
+                    Button { showPicture.toggle() } label: {
+                        Label(showPicture ? "隐藏预览" : "显示预览", systemImage: showPicture ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(ADButtonStyle(.secondary)).disabled(desktop == nil)
+                    .help("只隐藏画面；Desktop、控制者和运行不受影响")
+                    let stopWhy = info.flatMap { Self.stopBlocked($0, methods: methods, connected: connected) } ?? "Desktop 不在列表中"
+                    Button { Task { await control.stop() } } label: { Label("停止输入", systemImage: "stop.fill") }
+                        .buttonStyle(ADButtonStyle(.danger))
+                        .disabled(info.flatMap { Self.stopBlocked($0, methods: methods, connected: connected) } != nil || info == nil
+                                  || control.working != nil)
+                        .help(info.flatMap { Self.stopBlocked($0, methods: methods, connected: connected) } == nil
+                              ? "只停止这个 Desktop 的输入；先受理，静止后才显示已停止" : stopWhy)
+                    Button { Task { await control.openClose() } } label: { Label("关闭", systemImage: "xmark.circle") }
+                        .buttonStyle(ADButtonStyle(.secondary))
+                        .disabled(!connected || !methods.has("desktop.closePlan") || desktop == nil || control.working != nil)
+                        .help(methods.has("desktop.closePlan") ? "先列出将结束与将保留的资源" : DesktopControlMethods.missing("desktop.closePlan"))
                 }
             }
         }) {
-            if let desktop {
-                let control = DesktopControlPresentation.make(desktop: desktop, activeRuns: store.activeRuns)
+            if let desktop, let info {
                 HStack(alignment: .top, spacing: ADSpace.xl) {
                     VStack(alignment: .leading, spacing: ADSpace.l) {
-                        ControllerBanner(control: control)
-                        DesktopFrameView(lease: frame, zoom: $zoom, height: 460, desktop: desktop)
-                            .liveFrame(frame, displayId: DesktopFrameHub.displayId(of: desktop))
-                        Text("停止、接管、关闭：\(WaitingFor.a5)（desktop.stop / takeover / closePlan 尚未上线）")
-                            .font(ADFont.note).foregroundStyle(ADColor.muted)
+                        if let banner = DesktopControlBannerText.make(info) {
+                            ControlNotice(title: banner.title, detail: banner.detail, tone: banner.tone,
+                                          actionTitle: banner.actionTitle, action: bannerAction(banner, info))
+                        }
+                        DesktopControlAnswers(flow: control, takeoverAgain: takeoverBlocked(info) == nil ? {
+                            Task { await control.takeover() }
+                        } : nil)
+                        ControllerBanner(control: info.presentation)
+                        if showPicture {
+                            DesktopFrameView(lease: frame, zoom: $zoom, height: 460, desktop: desktop)
+                                .liveFrame(frame, displayId: DesktopFrameHub.displayId(of: desktop))
+                        } else {
+                            Text("预览已隐藏：画面不再捕获；Desktop、控制者和运行照常继续。")
+                                .font(ADFont.note).foregroundStyle(ADColor.muted)
+                                .frame(maxWidth: .infinity, minHeight: 80).adPanel()
+                        }
                         if isPhysical {
                             PhysicalDesktopAccessView(access: access, gone: {
                                 Task { await store.refreshDesktops() }
@@ -257,11 +333,69 @@ public struct DesktopInspectorView: View {
                         recent
                     }
                     .frame(maxWidth: .infinity)
-                    ConnectionPanel(desktop: desktop, control: control).frame(width: 294)
+                    VStack(spacing: ADSpace.l) {
+                        ConnectionPanel(desktop: desktop, control: info.presentation,
+                                        takeover: takeoverBlocked(info) == nil ? { control.dialog = .takeover } : nil,
+                                        info: info,
+                                        handback: connected && methods.has("desktop.handback") && control.working == nil
+                                            ? { Task { await control.handback() } } : nil,
+                                        takeoverUnavailable: takeoverBlocked(info))
+                        DesktopManagePanel(flow: control, desktop: desktop, methods: methods)
+                    }
+                    .frame(width: 294)
                 }
             }
         }
-        .task(id: store.tick) { await activity.load(runs: store.runs) }
+        .overlay { dialogs(info) }
+        .task(id: store.tick) {
+            await activity.load(runs: store.runs)
+            await control.refresh()
+        }
+        .task {
+            control.changed = { [weak store] in
+                await store?.refreshDesktops()
+                await store?.refreshRuns()
+            }
+            if methods.has("desktop.closePlan"), control.closePlan == nil { await control.loadClosePlan() }
+        }
+        .onChange(of: control.closed) { _, closed in
+            if closed != nil { navigation.back() }
+        }
+    }
+
+    func takeoverBlocked(_ info: DesktopControlInfo) -> String? {
+        if control.working != nil { return "正在处理上一个请求" }
+        return Self.takeoverBlocked(info, methods: methods, connected: connected)
+    }
+
+    func bannerAction(_ banner: DesktopControlBannerText, _ info: DesktopControlInfo) -> (() -> Void)? {
+        switch banner.action {
+        case .handback:
+            guard connected, methods.has("desktop.handback"), control.working == nil else { return nil }
+            return { Task { await control.handback() } }
+        case .review:
+            guard unknownEntry(info) != nil else { return nil }
+            return { openReview(info) }
+        case nil:
+            return nil
+        }
+    }
+
+    @ViewBuilder func dialogs(_ info: DesktopControlInfo?) -> some View {
+        if let info, let dialog = control.dialog {
+            let name = desktop?["name"]?.stringValue ?? desktopId
+            DesktopModal {
+                switch dialog {
+                case .takeover: TakeoverDialog(flow: control, name: name, info: info)
+                case .close: CloseDesktopDialog(flow: control, name: name, info: info)
+                case .unknown:
+                    if let review {
+                        UnknownResultDialog(review: review, flow: control, name: name,
+                                            canEndHere: info.state == "unknown" && methods.has("desktop.handback"))
+                    }
+                }
+            }
+        }
     }
 
     var recent: some View {

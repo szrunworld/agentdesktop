@@ -8,9 +8,10 @@ func code(of body: () async throws -> Void) async -> String? {
 }
 
 /// Field names the plan adds later (methods.json plannedFields). None may
-/// appear in a Mock answer before the contract has them.
+/// appear in a Mock answer before the contract has them. Desktop.control
+/// is in since A5; its planned transport and lastActionAt are not.
 let plannedFieldNames: Set<String> = [
-    "control", "targetKind", "businessResult", "elapsedMs", "geometryRevision", "dispatchSequence",
+    "transport", "lastActionAt", "targetKind", "businessResult", "elapsedMs", "geometryRevision", "dispatchSequence",
     "proposalId", "inferenceAttemptId", "reconciliations", "captureSequence", "coverage", "unit",
     "episodeEligible", "excludedReason", "launch", "bind", "principal",
 ]
@@ -32,6 +33,8 @@ struct MockRuntimeTests {
         let desk = try await m.call("desktop.list")["desktops"]!.arrayValue!.first!["desktopId"]!
         let runs = try await m.call("run.list", .obj([("limit", .int(50))]))["runs"]!.arrayValue!
         let runId = runs.first!["runId"]!
+        m.enableDesktopControl()
+        let launched = m.addLaunchedApp(desk.stringValue!, name: "Probe")
         let calls: [(String, JSONValue)] = [
             ("runtime.handshake", .obj([("apiVersions", .array([.string(RuntimeAPI.version)])),
                                         ("client", .obj([("name", .string("t")), ("version", .string("1"))]))])),
@@ -52,6 +55,11 @@ struct MockRuntimeTests {
             ("app.launch", .obj([("desktopId", desk), ("bundleId", .string("com.example.probe")), ("newInstance", .bool(true))])),
             ("window.bind", .obj([("desktopId", desk), ("pid", .int(4242))])),
             ("observe", .obj([("elements", .bool(false))])),
+            // Lane UI-B (A5 control methods).
+            ("desktop.stop", .obj([("desktopId", desk)])), ("desktop.takeover", .obj([("desktopId", desk)])),
+            ("desktop.handback", .obj([("desktopId", desk)])), ("desktop.closePlan", .obj([("desktopId", desk)])),
+            ("desktop.resize", .obj([("desktopId", desk), ("width", .int(1440)), ("height", .int(900))])),
+            ("app.quit", .obj([("desktopId", desk), ("pid", .int(launched))])),
             ("desktop.destroy", .obj([("desktopId", desk)])),
         ]
         m.addFreeWindow(pid: 4242, windowId: 9001)
