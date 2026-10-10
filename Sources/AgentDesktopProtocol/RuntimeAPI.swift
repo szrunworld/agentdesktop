@@ -75,6 +75,9 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case displaysList = "hub.displays.list"
     case displaysAttach = "hub.displays.attach"
     case displaysDetach = "hub.displays.detach"
+    case desktopClosePlan = "desktop.closePlan"
+    case appQuit = "app.quit"
+    case desktopResize = "desktop.resize"
 }
 
 /// The machine-readable contract: schema, method catalog and error table.

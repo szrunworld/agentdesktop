@@ -144,6 +144,11 @@ extension DesktopPlatform {
     public func displays() -> [PlatformDisplay] { [] }
 
     public func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] { [] }
+
+    /// Platforms that cannot resize a screen say so; nothing changes.
+    public func resizeScreen(name: String, width: Int, height: Int) throws -> ScreenHandle {
+        throw PlatformError(.refused, "this platform cannot resize a screen")
+    }
 }
 
 /// A refusal by the platform, already classified for the Runtime API.
@@ -187,6 +192,8 @@ public struct PlatformError: Error, Equatable, Sendable, CustomStringConvertible
 public protocol DesktopPlatform: Sendable {
     func createScreen(name: String, width: Int?, height: Int?) throws -> ScreenHandle
     func destroyScreen(name: String) throws
+    /// Change an agent screen's size in place; returns it as it is now.
+    func resizeScreen(name: String, width: Int, height: Int) throws -> ScreenHandle
     /// One of the user's own displays, by ID (nil: the main display), for a
     /// physical Desktop. Nothing is created: the handle only names the
     /// display, and destroyScreen must never be called with it.

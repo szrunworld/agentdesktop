@@ -185,6 +185,8 @@ public final class RuntimeService: @unchecked Sendable {
     /// How long a request without a deadline waits for a busy Desktop
     /// (RuntimeService.desktopLockWait); tests shorten it.
     var desktopLockWait = RuntimeService.desktopLockWait
+    /// How long app.quit waits for the process to exit (RuntimeService.quitWait); tests shorten it.
+    var quitWait = RuntimeService.quitWait
     /// How long a screenshot taken under a window grant without persist is
     /// kept (window-grants.md); tests shorten it.
     var transientArtifactLifetime = RuntimeService.transientArtifactSeconds
@@ -202,6 +204,7 @@ public final class RuntimeService: @unchecked Sendable {
         .sessionOpen, .sessionShow, .sessionClose, .observe, .observeRegionV1, .observeSubscribe, .observeUnsubscribe,
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
         .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
+        .desktopClosePlan, .appQuit, .desktopResize,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
@@ -541,6 +544,9 @@ public final class RuntimeService: @unchecked Sendable {
         case .displaysList: return listDisplays(connection)
         case .displaysAttach: return attachDisplay(p, connection)
         case .displaysDetach: return detachDisplay(p, connection)
+        case .desktopClosePlan: return closePlan(p, connection)
+        case .appQuit: return quitApp(p, connection)
+        case .desktopResize: return resizeDesktop(p, connection)
         }
     }
 }

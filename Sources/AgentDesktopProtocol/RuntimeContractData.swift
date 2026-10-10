@@ -4388,6 +4388,196 @@ enum RuntimeContractData {
           "$ref": "#/$defs/HubWindowGrant"
         }
       }
+    },
+    "desktop_closePlan_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "app_quit_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "pid"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "desktop_resize_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 16384
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 240,
+          "maximum": 16384
+        }
+      }
+    },
+    "ClosePlanProcess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process",
+        "appName",
+        "bundleId"
+      ],
+      "properties": {
+        "process": {
+          "$ref": "#/$defs/ProcessIdentity"
+        },
+        "appName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bundleId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "not_launched_here",
+            "physical_desktop"
+          ]
+        }
+      }
+    },
+    "DesktopClosePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "kind",
+        "display",
+        "canClose",
+        "blockers",
+        "quit",
+        "keep"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "enum": [
+            "virtual",
+            "physical"
+          ]
+        },
+        "display": {
+          "enum": [
+            "destroyed",
+            "kept"
+          ],
+          "description": "a virtual Desktop's display is destroyed; a physical one is the user's and kept"
+        },
+        "canClose": {
+          "type": "boolean"
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "run",
+                  "sessions"
+                ]
+              },
+              "runId": {
+                "$ref": "#/$defs/Id"
+              },
+              "origin": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "quit": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClosePlanProcess"
+          },
+          "description": "processes destroy asks to quit: launched on this Desktop and still running"
+        },
+        "keep": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClosePlanProcess"
+          },
+          "description": "processes with a window there that destroy leaves running"
+        }
+      }
+    },
+    "AppQuitResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "process",
+        "quitRequested",
+        "exited"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "process": {
+          "$ref": "#/$defs/ProcessIdentity"
+        },
+        "quitRequested": {
+          "type": "boolean"
+        },
+        "exited": {
+          "type": "boolean",
+          "description": "the process is gone; false: asked to quit, not proof that it will"
+        }
+      }
     }
   }
 }
@@ -9820,6 +10010,33 @@ enum RuntimeContractData {
       "result": "HubDisplayDetachment",
       "status": "implemented",
       "note": "owner; takes the physical Desktop out of one client's grant (with clientId) or every client's (without), ending their window grants on it in the same transaction (desktop_removed) and cutting their connections; without clientId the Desktop is destroyed as well (its record only: the display and its windows are the user's); a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "desktop.closePlan",
+      "stage": "P0",
+      "mutation": false,
+      "params": "desktop_closePlan_params",
+      "result": "DesktopClosePlan",
+      "status": "implemented",
+      "note": "owner; what desktop.destroy would do now, changing nothing: blockers (the Run holding the Desktop, open sessions; canClose false while any), the processes it would ask to quit (app.launch started them here and they still run) and the ones whose windows stay (not launched here: the user's own apps lent by window.bind or shown there; everything on a physical Desktop, whose display is kept); a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "app.quit",
+      "stage": "P0",
+      "mutation": true,
+      "params": "app_quit_params",
+      "result": "AppQuitResult",
+      "status": "implemented",
+      "note": "desktop.manage; ends one process app.launch started on this Desktop (a paired client: one it launched itself), never the user's own apps: anything else is permission_denied, reason not_launched_here, naming nothing; a Run of another client holding the Desktop: control_busy (the owner may quit regardless). Asks the app to quit and waits up to 3 s: exited true once the process is gone (it leaves the Desktop's launches and its binding, if bound), else exited false (asked, not proof)"
+    },
+    {
+      "method": "desktop.resize",
+      "stage": "P0",
+      "mutation": true,
+      "params": "desktop_resize_params",
+      "result": "Desktop",
+      "status": "implemented",
+      "note": "desktop.manage; a virtual Desktop's size, changed in place (320x240 up to what the display reserved; beyond: execution_failed); a physical Desktop is invalid_target; a Run of another client holding the Desktop: control_busy (the owner may resize regardless). Every observation of the Desktop is forgotten: act on an older snapshot is stale_observation"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -9975,27 +10192,6 @@ enum RuntimeContractData {
       "note": "end the takeover Run and observe again; nothing is replayed"
     },
     {
-      "method": "desktop.closePlan",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "what closing a Desktop would end and what it keeps"
-    },
-    {
-      "method": "desktop.resize",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "change a Desktop's size"
-    },
-    {
-      "method": "app.quit",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "quit only a process this Desktop launched"
-    },
-    {
       "method": "request.list",
       "status": "reserved",
       "pr": "A5",
@@ -10100,7 +10296,7 @@ enum RuntimeContractData {
   "authorization": {
     "principal": "from the handshake credential only: owner (the host's in-process connections; no socket client is ever the owner), paired app (app:<id> credential from hub.pairing; a client that paired as verified code must satisfy its designated requirement, read from the socket's audit token, on every handshake), else unpaired",
     "unpaired": "runtime.handshake, runtime.capabilities, hub.pairing.start, hub.pairing.status; anything else is pairing_required",
-    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy, app.launch, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). hub.displays.* (attaching one of the user's displays for a client, and taking it back) is the owner's alone and is never asked for by a client. Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
+    "paired": "runtime.status (counts only what it may see), and each method its grant covers: observe (desktop/app/window lists, observe, wait, artifacts, session.show, request.show), act (act, session.open/close), desktop.manage (desktop create/destroy/resize, app.launch/quit, window bind/unbind), run (run.*, events.*, and runtime.stopAll, which stops only its own Runs and leaves input admission as it is), unit.run; Desktops in grant.desktops or \"created\" ones it created; apps in grant.apps. runtime.enableInput, ai.*, hub.clients.*, hub.grants.*, hub.connections.list: one call at a time, each confirmed by the user in the trusted window, and only for a client whose code identity is verified, except calls that only take access away (revoke, narrowing grants.set); never for the caller's own grant (self_grant). hub.displays.* (attaching one of the user's displays for a client, and taking it back) is the owner's alone and is never asked for by a client. Everything else is the owner's (permission_denied, reason owner_only, or the seal's reasons launch_requires_grant, window_discovery_requires_grant, bind_requires_grant, gui_run_requires_grant)",
     "checked": "every request, against the client and grant as they are now; an action once more right before its input goes out",
     "pairing": "hub.pairing.start asks the user in the host's trusted window (details, short code, user authentication); approved exactly as shown, the grant's duration counting from the approval; denied, cancelled, timed out or no trusted window: denied",
     "confirmation": "a confirmation is bound to a digest of exactly what will be applied, recomputed by the window from what it displayed; params are shown in full and a call too large to show is refused unseen; refusals: permission_denied with reason user_denied, user_cancelled, confirmation_timeout, confirmation_busy, confirmation_mismatch, confirmation_too_large, pairing_busy or no_trusted_ui",
