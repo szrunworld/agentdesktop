@@ -169,7 +169,7 @@ if requestingWindow {
     do { stored = try KeychainCredentialStore(keychainPath: keychainPath).load(endpoint: endpoint.path, profile: ACPPairing.profile) } catch {
         fail("cannot read the bridge's credential: \(error)")
     }
-    guard let credential = stored else { fail("not paired with \(endpoint.path); run `agentdesktop-acp-dev pair --endpoint \(endpoint.path) --desktops …` first") }
+    guard let credential = stored else { fail("not paired with \(endpoint.path); run `agentdesktop-acp-dev pair --endpoint \(endpoint.path) --desktops <ids from the Agent Desktop main window>` first") }
     let client = ACPWindowRequest.client(endpoint: endpoint, credential: credential)
     defer { client.close() }
     do {
@@ -219,7 +219,7 @@ if demo {
     // `agentdesktop-acp-dev pair`, i.e. by this same program.
     let credential = (try? KeychainCredentialStore(keychainPath: keychainPath).load(endpoint: endpoint.path, profile: ACPPairing.profile)) ?? nil
     if credential == nil {
-        FileHandle.standardError.write(Data("agentdesktop-acp: not paired with \(endpoint.path); run `agentdesktop-acp-dev pair --endpoint \(endpoint.path)` first\n".utf8))
+        FileHandle.standardError.write(Data("agentdesktop-acp: not paired with \(endpoint.path); run `agentdesktop-acp-dev pair --endpoint \(endpoint.path) --desktops <ids from the Agent Desktop main window>` first, then `agentdesktop-acp-dev request-window` for the window a task works in\n".utf8))
     }
     runtime = ACPBridgeRuntimePort(makeClient: ACPBridgeConfiguration.socketFactory(endpoint: endpoint, credential: credential), log: log)
     store = ACPFileSessionStore(directory: URL(fileURLWithPath: state).appendingPathComponent("sessions", isDirectory: true))
