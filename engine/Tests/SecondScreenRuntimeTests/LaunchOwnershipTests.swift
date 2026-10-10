@@ -549,3 +549,26 @@ func failedOpenRestoresOnlyTheTargetForeground(scenario: String) async throws {
         #expect(sys.focusReturned.isEmpty)
     }
 }
+
+@Test func stalledWindowLookupReturnsWithoutWaitingForTheWorker() async {
+    let release = DispatchSemaphore(value: 0)
+    defer { release.signal() }
+    let result = await LaunchOwnership.boundedWindowLookup(pid: 500, timeout: 0.03) { _ in
+        _ = release.wait(timeout: .now() + 5)
+        return []
+    }
+    #expect(result == nil)
+}
+
+@Test func completedWindowLookupPreservesItsResult() async {
+    let result = await LaunchOwnership.boundedWindowLookup(pid: 500, timeout: 2) { _ in [] }
+    #expect(result?.isEmpty == true)
+}
+
+@Test func noWindowPollingHonorsZeroBudgetWithoutQuerying() async {
+    let window = await LaunchOwnership.firstWindow(pid: 500, timeout: 0) { _ in
+        Issue.record("a zero-budget poll must not query the system")
+        return []
+    }
+    #expect(window == nil)
+}
