@@ -322,19 +322,38 @@ public struct DisconnectedView: View {
 public struct InboxNotEnabledView: View {
     public init() {}
     public var body: some View {
-        VStack(alignment: .leading, spacing: ADSpace.xl) {
-            PageHeader(eyebrow: "Inbox", title: "Inbox", subtitle: "平台审批与问题。")
-            VStack(alignment: .leading, spacing: ADSpace.m) {
-                StateBadge("尚未启用", tone: .idle)
-                Text("尚未启用：平台审批将在后续版本提供").font(ADFont.sectionTitle).foregroundStyle(ADColor.ink)
-                Text("启用后，外部 Agent 请求的平台动作审批会集中出现在这里。业务审批（是否发消息、联系谁）仍由各自的应用处理。现在这里没有任何待处理项，也不会显示示例。")
-                    .font(ADFont.note).foregroundStyle(ADColor.muted).fixedSize(horizontal: false, vertical: true)
+        ScrollView {
+            VStack(alignment: .leading, spacing: ADSpace.xl) {
+                PageHeader(eyebrow: "Inbox", title: "Inbox", subtitle: "平台审批与问题。")
+                VStack(spacing: ADSpace.m) {
+                    Image(systemName: "tray")
+                        .font(.system(size: 32, weight: .regular))
+                        .foregroundStyle(ADColor.muted)
+                        .frame(width: 64, height: 64)
+                        .background(ADColor.canvas, in: RoundedRectangle(cornerRadius: 16))
+                    StateBadge("尚未启用", tone: .idle)
+                    Text("平台审批将在后续版本提供")
+                        .font(ADFont.sectionTitle).foregroundStyle(ADColor.ink)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("启用后，外部 Agent 请求的平台动作审批会集中出现在这里。")
+                        .font(ADFont.note).foregroundStyle(ADColor.muted)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("业务审批仍由各自的应用处理。当前没有待处理项。")
+                        .font(ADFont.note).foregroundStyle(ADColor.muted)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(ADSpace.xxl)
+                .frame(maxWidth: 640)
+                .adPanel()
+                .frame(maxWidth: .infinity)
+                .padding(.top, ADSpace.xl)
             }
-            .padding(ADSpace.xl)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .adPanel()
+            .padding(ADLayout.contentPadding)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(ADLayout.contentPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(ADColor.canvas)
     }
