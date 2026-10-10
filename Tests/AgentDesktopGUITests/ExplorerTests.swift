@@ -413,6 +413,28 @@ struct UnitRunAdmissionTests {
         #expect(refusal(await h.admit()) == nil)
     }
 
+    // Codex on 817221a: GUI contract evidence holds for the coordinate
+    // protocol (and adapter) it was tested with only.
+    @Test func row12_evidenceIsBoundToTheCoordinateProtocol() async throws {
+        let h = try GuiHarness([])
+        try await h.setUpProfile()   // uitars_v1 with image_pixels
+        let c = try await ConfigBindingResolver(store: h.store, codecs: h.codecs)
+            .resolve(guiProfileId: nil, expectedProfileRevision: nil, callerScope: "owner").primary
+        let model = c.resolvedModel.model
+        func record(_ gui: (String, String)?) async throws {
+            try await h.store.recordCapabilityEvidence(
+                modelProfileId: model.modelProfileId, revision: Int(model.revision), layer: .guiContract, status: "verified",
+                operationId: nil, reasonCode: nil, adapter: ("1.0.0", "uitars-prompt-1", "uitars-parser-1"), gui: gui)
+        }
+        #expect(try await h.store.guiContractPassed(c) == false, "never tested")
+        try await record(("uitars_v1", "normalized_1000"))
+        #expect(try await h.store.guiContractPassed(c) == false, "tested with another coordinate protocol")
+        try await record(nil)
+        #expect(try await h.store.guiContractPassed(c) == false, "evidence that does not say which protocol")
+        try await record(("uitars_v1", "image_pixels"))
+        #expect(try await h.store.guiContractPassed(c) == true)
+    }
+
     @Test func anActionTheBackendCannotExecuteIsRefused() async throws {
         let h = try GuiHarness([])
         try await h.setUpProfile()

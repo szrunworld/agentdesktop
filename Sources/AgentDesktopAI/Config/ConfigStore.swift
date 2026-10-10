@@ -844,7 +844,8 @@ public actor ConfigStore: GuiContractEvidence {
     /// `unknown` again, and one layer never sets another (CFG-008).
     public func recordCapabilityEvidence(modelProfileId: String, revision: Int, layer: CapabilityLayer,
                                          status: String, operationId: String?, reasonCode: String?,
-                                         adapter: (version: String, prompt: String, parser: String)? = nil) throws {
+                                         adapter: (version: String, prompt: String, parser: String)? = nil,
+                                         gui: (adapterId: String, coordinateProtocol: String)? = nil) throws {
         guard let body = try revisionBody(.modelProfile, modelProfileId, revision) else {
             throw ContractError(.notFound, "model profile revision not found")
         }
@@ -853,6 +854,9 @@ public actor ConfigStore: GuiContractEvidence {
             scope += [("adapterVersion", .string(adapter.version)), ("promptVersion", .string(adapter.prompt)),
                       ("parserVersion", .string(adapter.parser))]
         }
+        // What the GUI contract test proved is tied to how coordinates were
+        // asked for and read (codex on 817221a).
+        if let gui { scope += [("adapterId", .string(gui.adapterId)), ("coordinateProtocol", .string(gui.coordinateProtocol))] }
         let evidence = JSONValue.obj([
             ("status", .string(status)), ("checkedAt", .string(now)),
             ("testOperationId", operationId.map(JSONValue.string) ?? .null), ("scope", .obj(scope)),
@@ -866,8 +870,10 @@ public actor ConfigStore: GuiContractEvidence {
     }
 
     /// F40-06 row 12: verified guiContract evidence for exactly this
-    /// candidate (model profile revision, connection revision, adapter,
-    /// prompt and parser versions). Anything else is not passed.
+    /// candidate (model profile revision, connection revision, adapter id
+    /// and versions, prompt, parser, coordinate protocol). Anything else,
+    /// evidence recorded before the coordinate protocol was kept included,
+    /// is not passed.
     public func guiContractPassed(_ c: GuiCandidate) throws -> Bool {
         let model = c.resolvedModel.model
         guard let row = try db.row("SELECT body FROM capability_evidence WHERE model_profile_id=? AND model_profile_revision=? AND layer=?",
@@ -880,6 +886,8 @@ public actor ConfigStore: GuiContractEvidence {
             && scope?["adapterVersion"]?.stringValue == c.guiProfile["adapterVersion"]?.stringValue
             && scope?["promptVersion"]?.stringValue == c.guiProfile["promptVersion"]?.stringValue
             && scope?["parserVersion"]?.stringValue == c.guiProfile["parserVersion"]?.stringValue
+            && scope?["adapterId"]?.stringValue == c.adapterId
+            && scope?["coordinateProtocol"]?.stringValue == c.coordinateProtocol
     }
 
     // MARK: GUI profiles
