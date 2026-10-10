@@ -115,8 +115,8 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         let host = (response.screens ?? []).filter { $0.kind == .primary }
         let wanted = displayId ?? UInt32(CGMainDisplayID())
         guard let s = host.first(where: { $0.displayID == wanted }) else {
-            let known = host.map { String($0.displayID) }.joined(separator: ", ")
-            throw PlatformError(.notFound, "display \(wanted) is not one of the user's physical displays (\(known.isEmpty ? "none" : known))")
+            // Which displays exist is not told to a caller that has no grant.
+            throw PlatformError(.notFound, "display \(wanted) is not a confirmed physical display")
         }
         return ScreenHandle(name: s.name, displayId: s.displayID, frame: Self.rect(s.frame), hiDPI: s.hiDPI)
     }
@@ -206,6 +206,65 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         return (w, h)
     }
 
+    /// The one display-wide high-layer window that is known OS furniture:
+    /// the system Dock keeps a transparent layer over the whole display.
+    /// Only that layer is left out; the Dock's menus, folder stacks and
+    /// other panels count like any overlay (Codex on 1994bca). The Dock is
+    /// told by its process (bundle com.apple.dock at the system path), never
+    /// by the window's owner name, which any app can take (Codex on
+    /// 4c2536b). Everything else above the normal layer counts.
+    static func isSystemDock(pid: Int32) -> Bool {
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+        return app.bundleIdentifier == "com.apple.dock"
+            && app.bundleURL?.standardizedFileURL.path == "/System/Library/CoreServices/Dock.app"
+    }
+
+    public func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] {
+        let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
+        let menuBar = CGFloat(NSStatusBar.system.thickness)
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return list.compactMap { entry in
+            // Transparent windows count too: input routing does not look at
+            // alpha, so an invisible panel can still take a click (Codex on 23ea538).
+            guard let layer = entry[kCGWindowLayer as String] as? Int, layer > 0,
+                  let pid = entry[kCGWindowOwnerPID as String] as? Int32,
+                  let number = entry[kCGWindowNumber as String] as? UInt32,
+                  let b = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let f = CGRect(dictionaryRepresentation: b), f.intersects(bounds)
+            else { return nil }
+            let owner = entry[kCGWindowOwnerName as String] as? String ?? ""
+            let frame = Rect(x: f.minX, y: f.minY, width: f.width, height: f.height)
+            guard Self.isCoveringOverlay(frame: frame, systemDock: Self.isSystemDock(pid: pid), boundProcess: pid == boundPid,
+                                         screen: screen.frame, menuBar: Double(menuBar)) else { return nil }
+            return PlatformWindow(windowId: number, pid: pid, appName: owner,
+                                  title: entry[kCGWindowName as String] as? String ?? "", frame: frame)
+        }
+    }
+
+    /// Whether a window above the normal layer counts as covering what is
+    /// under it: fail closed. Only three things are left out: the Dock's
+    /// display-wide layer, anything confined to the menu bar strip (status
+    /// items, the menu bar itself), and windows input routing never picks
+    /// (2 points or less on a side).
+    /// An unknown layer spanning the whole display (a gesture utility's
+    /// transparent overlay looks exactly like an opaque one in the window
+    /// list) counts: what the user sees may not be what is acted on.
+    static func isCoveringOverlay(frame f: Rect, systemDock: Bool, boundProcess: Bool = false, screen s: Rect, menuBar: Double) -> Bool {
+        let spansDisplay = f.x <= s.x + 1 && f.y <= s.y + 1
+            && f.x + f.width >= s.x + s.width - 1 && f.y + f.height >= s.y + s.height - 1
+        if systemDock && spansDisplay { return false }
+        // Another process's item in the menu bar strip cannot take input
+        // posted to the bound process; the bound process's own can (input
+        // routing picks any of its windows), so those count (Codex on 536bb4d).
+        if !boundProcess && f.y <= s.y + 1 && f.y + f.height <= s.y + menuBar + 1 { return false }
+        // Left out only what input routing can never pick: BackgroundInput's
+        // topWindow takes any window larger than 2 points both ways, so the
+        // same cutoff applies here (Codex on 4952c9e, 8c1ebc1).
+        if f.width <= 2 || f.height <= 2 { return false }
+        return true
+    }
+
     public func stack(on screen: ScreenHandle) -> [PlatformWindow] {
         let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
@@ -248,31 +307,13 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         return ElementRead(window: Self.window(w), elements: elements, truncated: response.elementsTruncated)
     }
 
-    /// Engine refusals that happen before any event is posted: target
-    /// lookups and argument checks in InputEngine.perform.
-    static let preDispatchFailures = [
-        "has no window", "has no on-screen window", "is not on screen", "is outside the window",
-        "no element", "give --index", "needs --value", "needs the field named", "permission",
-        "has no frame to click", "does not take its text", "unknown key", "no screen named",
-        // A one-character key with no key code is typed (#171 §1.1): stopped
-        // before its character, nothing was submitted (#163). Typing itself is
-        // never judged by text (notPerformed), until #173.
-        "no character was submitted",
-    ]
-
     /// Whether an engine failure proves the action performed nothing (#170
-    /// not_performed). The engine says so only in its message text, which is
-    /// weak evidence (#173). A click may already have pressed through
-    /// accessibility before falling back to events, and typing may already
-    /// have clicked a web field or submitted characters, so for those two a
-    /// failure is never taken as not performed until the engine reports it
-    /// structurally (#173): the delivery is unknown. Keys and scrolls fail
-    /// before any input, and keep the text match.
-    static func notPerformed(_ message: String, kind: PlatformAction.Kind) -> Bool {
-        switch kind {
-        case .click, .type: return false
-        case .key, .scroll: return preDispatchFailures.contains { message.lowercased().contains($0.lowercased()) }
-        }
+    /// not_performed). Only the engine's structured record says so (#173):
+    /// `delivery` == "notPerformed", set by the execution path itself before
+    /// anything was submitted. "submitted", "unknown" or no record at all
+    /// (an engine that does not say) is never not performed.
+    static func notPerformed(delivery: String?) -> Bool {
+        delivery == "notPerformed"
     }
 
     public func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String {
@@ -295,7 +336,7 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         let response = handle(r)
         guard response.ok else {
             let message = response.error ?? "the engine refused the action"
-            let before = Self.notPerformed(message, kind: action.kind)
+            let before = Self.notPerformed(delivery: response.delivery)
             var e = Self.classify(message)
             e.beforeDispatch = before
             throw e

@@ -30,7 +30,14 @@ import Testing
                                     details: .obj([("params", .obj([("clientId", .string(evil))])),
                                                    ("target", .obj([("agentName", .string(evil)), ("clientId", .string(evil))]))]),
                                     shortCode: nil, digest: "d", deadline: Date().addingTimeInterval(60))
-    for r in [pairing, admin] {
+    let window = ConfirmationRequest(confirmationId: "conf_3", kind: .windowGrant, requester: requester, action: "hub.windows.request",
+                                     details: .obj([("desktop", .obj([("desktopId", .string(evil)), ("kind", .string("physical")), ("displayId", .int(1))])),
+                                                    ("window", .obj([("windowId", .int(12)), ("process", .obj([("pid", .int(202))])),
+                                                                     ("appName", .string(evil)), ("bundleId", .string(evil)), ("title", .string(evil)),
+                                                                     ("frame", .obj([("x", .int(0)), ("y", .int(0)), ("width", .int(10)), ("height", .int(10))]))])),
+                                                    ("permissions", .array([.string(evil)])), ("durationSeconds", .int(600))]),
+                                     shortCode: nil, digest: "d", deadline: Date().addingTimeInterval(60))
+    for r in [pairing, admin, window] {
         let text = TrustedConfirmationWindow.describe(r)
         // Exactly one line says what the system verified, and it says "cannot verify".
         let verified = text.split(separator: "\n").filter { $0.hasPrefix("代码身份（系统核实）") }
@@ -52,4 +59,26 @@ import Testing
     #expect(lines.contains { $0.contains("1 分 30 秒") })
     let revoked = expired.setting("state", .string("revoked"))
     #expect(TrustedConfirmationWindow.changeLines("hub.grants.set", old: revoked, params: .obj([])).contains { $0.contains("已被撤销") })
+}
+
+@Test func aWindowGrantNamesTheOneWindowItsPermissionsAndAPhysicalWarning() {
+    let requester = JSONValue.obj([("clientId", .string("app:c_1")), ("agentName", .string("WeChat Agent")),
+                                   ("codeIdentity", .obj([("level", .string("same_user"))]))])
+    func ask(_ kind: String, _ perms: [String]) -> String {
+        TrustedConfirmationWindow.describe(ConfirmationRequest(
+            confirmationId: "conf_w", kind: .windowGrant, requester: requester, action: "hub.windows.request",
+            details: .obj([("desktop", .obj([("desktopId", .string("d_1")), ("kind", .string(kind)), ("displayId", .int(1))])),
+                           ("window", .obj([("windowId", .int(12)), ("process", .obj([("pid", .int(202))])), ("appName", .string("微信")),
+                                            ("bundleId", .string("com.tencent.xinWeChat")), ("title", .string("文件传输助手")),
+                                            ("frame", .obj([("x", .int(100)), ("y", .int(100)), ("width", .int(400)), ("height", .int(300))]))])),
+                           ("permissions", .array(perms.map(JSONValue.string))), ("durationSeconds", .int(3600))]),
+            shortCode: nil, digest: "d", deadline: Date().addingTimeInterval(60)))
+    }
+    let physical = ask("physical", ["observe"])
+    #expect(physical.contains("真实窗口") && physical.contains("文件传输助手") && physical.contains("com.tencent.xinWeChat"))
+    #expect(physical.contains("查看") && !physical.contains("操作（点击、输入）") && physical.contains("不含保存"))
+    #expect(physical.contains("只授权这一个窗口"))
+    let virtual = ask("virtual", ["observe", "act", "persist"])
+    #expect(!virtual.contains("真实窗口") && virtual.contains("操作（点击、输入）") && !virtual.contains("不含保存"))
+    #expect(TrustedConfirmationWindow.changeLines("hub.windows.revoke", old: nil, params: nil).first?.contains("这个窗口") == true)
 }

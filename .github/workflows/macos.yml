@@ -61,7 +61,9 @@ jobs:
             --test-bundle-path engine/.build/debug/AgentDesktopEnginePackageTests.xctest/Contents/MacOS/AgentDesktopEnginePackageTests \
             --testing-library swift-testing --filter ControlServerTests
       - name: Keep the engine test watchdog's evidence
-        if: failure()
+        # Always: a passing run can still have written a report (the check
+        # for leftovers failed and the status was kept, #193).
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: engine-test-watchdog

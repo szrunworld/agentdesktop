@@ -10,10 +10,14 @@ public struct TargetBinding: Equatable, Sendable {
     public var windowId: UInt32
     public var appName: String
     public var boundAt: String
+    /// The window grant a paired app bound this window under, if any.
+    public var windowGrantId: String? = nil
 
     public var json: JSONValue {
-        .obj([("generation", .int(generation)), ("process", process.json), ("windowId", .int(Int(windowId))),
-              ("appName", .string(appName)), ("boundAt", .string(boundAt))])
+        var m: [(String, JSONValue)] = [("generation", .int(generation)), ("process", process.json), ("windowId", .int(Int(windowId))),
+                                        ("appName", .string(appName)), ("boundAt", .string(boundAt))]
+        if let windowGrantId { m.append(("windowGrantId", .string(windowGrantId))) }
+        return .obj(m)
     }
 }
 
@@ -49,6 +53,20 @@ public final class DesktopRecord: @unchecked Sendable {
     public internal(set) var state = "ready"
     /// Apps app.launch started here: the agent's, closed with the Desktop.
     public internal(set) var launched: [ProcessIdentity] = []
+    /// Who launched each of them: a paired app reaches the windows of a
+    /// launch it made here without a window grant (window-grants.md).
+    /// Readable without the Desktop's lock (window.list must not wait for
+    /// an action holding it).
+    public internal(set) var launchedBy: [ProcessIdentity: Launch] {
+        get { pidLock.withLock { _launchedBy } }
+        set { pidLock.withLock { _launchedBy = newValue } }
+    }
+    private var _launchedBy: [ProcessIdentity: Launch] = [:]
+    /// Who started a process here, and which app it asked for.
+    public struct Launch: Equatable, Sendable {
+        public var clientId: String
+        public var bundleId: String?
+    }
     /// The principal that created it; a paired app's grant can cover
     /// "the Desktops I created".
     public internal(set) var createdBy: String?

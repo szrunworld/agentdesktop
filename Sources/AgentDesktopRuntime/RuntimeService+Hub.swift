@@ -207,7 +207,12 @@ extension RuntimeService {
     /// its open connections are refused from the next request on.
     func revokeClient(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let id = p["clientId"]?.stringValue ?? ""
-        guard (try? hub.revoke(id)) ?? nil != nil, let client = hub.client(id) else { return .failure(.notFound("no client \(id)")) }
+        guard let revoked = try? hub.revokeEndingWindowGrants(id), let client = hub.client(id) else {
+            return .failure(.notFound("no client \(id)"))
+        }
+        // Its window grants ended with it, in the same transaction; what was
+        // kept only under them goes.
+        endedWindowGrants(revoked.windowGrants, state: "revoked", reason: "client_revoked")
         // The linearization point: from here nothing more reaches the app.
         cutConnections(of: id, reason: "client_revoked")
         accessWithdrawn(id)
@@ -252,18 +257,34 @@ extension RuntimeService {
             }
             let epoch = hub.policyEpoch
             let saved: HubStore.Grant
+            var endedWindows: [(id: String, reason: String)] = []
             do {
                 if viaConfirmation, c.approvedTargetRevision == nil {
                     return .failure(RuntimeError("conflict", "no grant revision was confirmed; ask again", phase: .handler, notSent: true,
                                                  details: .obj([("reason", .string("target_changed"))])))
                 }
-                saved = try hub.setGrant(g, expectedRevision: viaConfirmation ? c.approvedTargetRevision : nil)
+                // Window grants for an app or Desktop the new grant no longer
+                // covers end with it, in the same transaction (window-grants.md).
+                let next = g
+                (saved, endedWindows) = try hub.setGrant(g, expectedRevision: viaConfirmation ? c.approvedTargetRevision : nil,
+                                                         endingWindowGrants: { [self] w in
+                    if !next.apps.contains(w.bundleId) { return "app_removed" }
+                    let created = next.desktops.contains("created") && desktops.find(w.desktopId)?.createdBy == id
+                    return next.desktops.contains(w.desktopId) || created ? nil : "desktop_removed"
+                })
             } catch let e as RuntimeStoreError where viaConfirmation {
                 return .failure(RuntimeError("conflict", e.description, phase: .handler, notSent: true,
                                              details: .obj([("reason", .string("target_changed"))])))
             } catch {
                 return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable", phase: .handler, notSent: true))
             }
+            // Observe taken away: what was kept briefly under its window
+            // grants goes at once (Codex on e5142e9).
+            if !saved.capabilities.contains("observe") {
+                for w in hub.windowGrants(clientId: id) { artifacts.removeTransients(windowGrantId: w.windowGrantId) }
+            }
+            // Audited as what each became: an ended grant swept here is revoked.
+            for e in endedWindows { endedWindowGrants([e.id], state: hub.windowGrant(e.id)?.state ?? "ended", reason: e.reason) }
             // Narrowed: its connections are cut, it reconnects under the new grant.
             if hub.policyEpoch != epoch { cutConnections(of: id, reason: "grant_narrowed") }
             for r in activeRuns(of: id)
@@ -280,9 +301,11 @@ extension RuntimeService {
         let id = p["clientId"]?.stringValue ?? ""
         guard var g = hub.grant(id) else { return .failure(.notFound("no grant for \(id)")) }
         g.state = "revoked"
-        guard let saved = try? hub.setGrant(g) else {
+        // Its window grants end with it, in the same transaction.
+        guard let (saved, ended) = try? hub.setGrant(g, endingWindowGrants: nil) else {
             return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable", phase: .handler, notSent: true))
         }
+        endedWindowGrants(ended.map(\.id), state: "revoked", reason: "grant_revoked")
         cutConnections(of: id, reason: "grant_revoked")
         accessWithdrawn(id)
         execution.stopRuns(ofClient: id, reason: "grant_revoked")

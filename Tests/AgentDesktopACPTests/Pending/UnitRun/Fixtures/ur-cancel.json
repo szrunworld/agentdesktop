@@ -1,0 +1,154 @@
+{
+  "name": "ur-cancel",
+  "e2eClass": "cancel",
+  "gates": [
+    "G2-05",
+    "G1-11"
+  ],
+  "description": "取消：动作发出后编辑器 session/cancel；Runtime 受理停止（stop.accepted），进行中的动作收尾，静止后 Run cancelled。",
+  "layer": "fixture: Mock today (URTestRuntime); Real after A6 (lane Q, test copy under /tmp/adt-*)",
+  "desktopId": "desk_A",
+  "input": {
+    "mode": "explore",
+    "goal": {
+      "description": "打开计算器的「关于计算器」窗口"
+    },
+    "verification": {
+      "all": [
+        {
+          "kind": "element_text_equals",
+          "role": "static_text",
+          "text": "关于计算器"
+        }
+      ]
+    },
+    "allowedActions": [
+      "click",
+      "wait"
+    ],
+    "limits": {
+      "maxSteps": 10,
+      "maxSeconds": 120
+    }
+  },
+  "runtime": {
+    "answer": "accept",
+    "phaseAfterAccept": "running",
+    "onAccept": [
+      {
+        "type": "run.started",
+        "data": {
+          "kind": "unit",
+          "origin": "agent_hub",
+          "ownership": "external_client",
+          "lifetime": "connection_scoped",
+          "desktopId": "desk_A",
+          "sessionId": "sess_A"
+        }
+      },
+      {
+        "type": "action.accepted",
+        "data": {
+          "requestId": "req_ac0000a1",
+          "kind": "click"
+        }
+      },
+      {
+        "type": "action.dispatched",
+        "data": {
+          "requestId": "req_ac0000a1"
+        }
+      }
+    ],
+    "trigger": {
+      "cancelAfter": "action.dispatched"
+    },
+    "onTrigger": [
+      {
+        "type": "stop.accepted",
+        "data": {
+          "reason": "cancelled",
+          "inFlight": true,
+          "revision": 2
+        }
+      },
+      {
+        "type": "action.completed",
+        "data": {
+          "receipt": {
+            "receiptId": "rcpt_ac0000a1",
+            "requestId": "req_ac0000a1",
+            "runId": "$RUN",
+            "desktopId": "desk_A",
+            "sessionId": "sess_A",
+            "snapshotId": "snap_ac0000a1",
+            "delivery": "dispatched",
+            "execution": "completed",
+            "verification": "not_requested",
+            "businessResult": "not_evaluated",
+            "route": "ax",
+            "target": {
+              "generation": 1,
+              "process": {
+                "pid": 4242,
+                "startedAt": "2026-10-08T12:00:00.000Z"
+              },
+              "windowId": 101,
+              "elementRef": "el_about",
+              "point": null
+            },
+            "timing": {
+              "acceptedAt": "2026-10-08T12:00:03.000Z",
+              "dispatchedAt": "2026-10-08T12:00:04.000Z",
+              "completedAt": "2026-10-08T12:00:05.000Z"
+            }
+          }
+        }
+      },
+      {
+        "type": "run.quiescent",
+        "data": {
+          "revision": 3
+        }
+      },
+      {
+        "type": "run.ended",
+        "data": {
+          "phase": "ended",
+          "outcome": "cancelled",
+          "reason": "cancelled"
+        }
+      }
+    ],
+    "final": {
+      "outcome": "cancelled",
+      "closingReason": "cancelled",
+      "unknownActions": 0,
+      "verification": "not_run"
+    }
+  },
+  "expect": {
+    "submit": "accepted",
+    "actionLevels": [
+      "accepted",
+      "dispatched",
+      "executed"
+    ],
+    "finalToolStatus": "completed",
+    "planResult": "结果：已取消",
+    "textContains": [
+      "正在停止",
+      "任务结束：已取消"
+    ],
+    "textExcludes": [
+      "已验证",
+      "\"actionLevel\":\"verified\""
+    ],
+    "runtimeFinal": {
+      "outcome": "cancelled",
+      "closingReason": "cancelled"
+    },
+    "unitRunCalls": 1,
+    "cancelCalls": 1
+  }
+}

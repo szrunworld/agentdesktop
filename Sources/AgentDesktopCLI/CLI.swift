@@ -40,6 +40,8 @@ struct CLI {
     func client(_ endpoint: Endpoint) -> RuntimeClient {
         makeClient?(endpoint) ?? SocketRuntimeClient(endpoint: endpoint, info: CLI.clientInfo, credential: credential(for: endpoint))
     }
+    /// Current signer comparison is diagnostic evidence, not authentication.
+    var peerSigner: (Data) -> EndpointInspector.Signer = EndpointInspector.signer(auditToken:)
     /// Ask the OS to start the product; returns an error message on failure.
     var launchProduct: (_ appPath: String?) -> String? = CLI.openProduct
     /// Note a write's requestId, method and endpoint before it is sent, so

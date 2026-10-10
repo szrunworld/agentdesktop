@@ -40,6 +40,22 @@ CLI="/tmp/adt-acp/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
 
 Zed 1.23.2 支持自定义 ACP agent（`agent_servers`，`"type": "custom"`）。在 Zed 的用户设置（`zed: open settings`，即 `~/.config/zed/settings.json`）里加一项，**测试结束后删除**。本线没有改动 Zed 的任何设置。
 
+**先配对（A4 之后必需，2026-10-10）。** A4（#137）合入后，Runtime 只对已配对的客户端提供服务。ACP 桥用钥匙串里 profile 为 `acp` 的凭据连接，没有凭据时只会得到 `pairing_required`：启动时 stderr 会提示 `not paired with …`，每次提交都是确定拒绝。测试副本要用临时钥匙串，**不要写登录钥匙串**：
+
+```sh
+export AGENTDESKTOP_ENDPOINT=/tmp/adt-acp/side.runtime.sock
+security create-keychain -p "$(uuidgen)" /tmp/adt-acp/test.keychain-db
+security set-keychain-settings /tmp/adt-acp/test.keychain-db       # 测试期间不自动锁
+# create-keychain 可能把它加进搜索列表；如果加了，按原样恢复（见 scripts/a4-touchid-acceptance.sh）
+export AGENTDESKTOP_KEYCHAIN=/tmp/adt-acp/test.keychain-db
+agentdesktop agents pair --name ACP --profile acp --capabilities observe,act,desktop.manage --desktops created --wait-timeout 180
+```
+
+- 配对请求出现在测试副本的 Agent Desktop 窗口里，由 Kevin 本人核对后点「批准」并用 Touch ID 确认。自动化不能代替。
+- 下面 Zed 配置的 `env` 里要同时带上 `AGENTDESKTOP_ENDPOINT` 和 `AGENTDESKTOP_KEYCHAIN`。
+- 测试结束后执行 `security delete-keychain /tmp/adt-acp/test.keychain-db`。
+- S4 之前，开发版 ACP 桥是 `same_user` 身份：能按授权使用 Desktop，但不能执行任何敏感管理操作（R1）。
+
 dev 入口（S 线合入后、CLI `acp` 之前）：
 
 ```json
@@ -49,7 +65,7 @@ dev 入口（S 线合入后、CLI `acp` 之前）：
       "type": "custom",
       "command": "/Users/kevinshi/orca/agentdesktop/.build/debug/agentdesktop-acp-dev",
       "args": [],
-      "env": { "AGENTDESKTOP_ENDPOINT": "/tmp/adt-acp/side.runtime.sock" }
+      "env": { "AGENTDESKTOP_ENDPOINT": "/tmp/adt-acp/side.runtime.sock", "AGENTDESKTOP_KEYCHAIN": "/tmp/adt-acp/test.keychain-db" }
     }
   }
 }

@@ -132,6 +132,7 @@ extension RuntimeService {
                 d.binding = nil
                 desktops.remove(d.desktopId)
                 observations.forget(desktopId: d.desktopId)
+                endWindowGrants(onDesktop: d.desktopId)
                 return .obj([("desktopId", .string(d.desktopId)), ("destroyed", .bool(true)), ("quitApps", .array([]))])
             }
             d.state = "destroying"
@@ -154,6 +155,7 @@ extension RuntimeService {
             d.state = "destroyed"
             desktops.remove(d.desktopId)
             observations.forget(desktopId: d.desktopId)
+            endWindowGrants(onDesktop: d.desktopId)
             return .obj([("desktopId", .string(d.desktopId)), ("destroyed", .bool(true)), ("quitApps", .array(closed))])
         }
     }
@@ -201,6 +203,7 @@ extension RuntimeService {
                                            quitRequested: requested)
             }
             d.launched.append(process)
+            d.launchedBy[process] = .init(clientId: c.clientId, bundleId: p["bundleId"]?.stringValue)
             return .obj([
                 ("desktopId", .string(d.desktopId)),
                 ("process", process.json),
@@ -218,8 +221,16 @@ extension RuntimeService {
     func bindWindow(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         return withDesktop(p["desktopId"], as: c, method: "window.bind") { d in
-            guard let pid = p["pid"]?.intValue.map(Int32.init) else { throw RuntimeError.schemaInvalid("pid is required") }
-            let wanted = p["windowId"]?.intValue.map(UInt32.init)
+            // Out of range is refused, never trapped on nor read as absent.
+            guard let rawPid = p["pid"]?.intValue else { throw RuntimeError.schemaInvalid("pid is required") }
+            guard let pid = Int32(exactly: rawPid) else { throw RuntimeError.invalidArgument("pid \(rawPid) is out of range") }
+            var wanted: UInt32?
+            if let value = p["windowId"] {
+                guard let raw = value.intValue, let w = UInt32(exactly: raw) else {
+                    throw RuntimeError.invalidArgument("windowId must fit an unsigned 32-bit window ID")
+                }
+                wanted = w
+            }
             // The app is checked again under the lock, naming nothing (round-four review L2).
             if c.role == .paired,
                !appAllowed(c, bundleId: backend.applications(includeBackground: true).first { $0.process.pid == pid }?.bundleId) {
@@ -230,6 +241,23 @@ extension RuntimeService {
             // caller may not see.
             try refuseMirroring(pid)
             let process = backend.processIdentity(pid)
+            // A window the caller did not launch here: only one it holds a
+            // window grant for, named by its windowId (window-grants.md).
+            // The refusal names nothing of the window.
+            var windowGrantId: String?
+            if c.role == .paired, !launchedHere(c, d, process) {
+                let live = wanted.map { liveWindowGrants(c, desktopId: d.desktopId, windowId: $0, process: process) } ?? []
+                guard let g = live.first(where: { !effectivePermissions($0).isEmpty }) else {
+                    hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.bind", decision: "denied",
+                              reason: wanted == nil ? "window_id_required" : "window_grant_missing")
+                    throw RuntimeError("grant_missing",
+                                       "binding a window this client did not launch here needs its windowId and a window grant (hub.windows.request)",
+                                       phase: .request, notSent: true, details: .obj([("reason", .string("bind_requires_grant"))]))
+                }
+                windowGrantId = g.windowGrantId
+                hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.bind", decision: "used",
+                          reason: "\(g.windowGrantId) window.bind")
+            }
             // The grant check comes first: a refusal says nothing about
             // whether a process with that pid exists.
             if d.kind == .virtual && bindsOnlyLaunchedProcesses && !d.launched.contains(process) {
@@ -251,7 +279,7 @@ extension RuntimeService {
                 }
                 d.generation += 1
                 d.binding = TargetBinding(generation: d.generation, process: process, windowId: window.windowId,
-                                          appName: window.appName, boundAt: nowString)
+                                          appName: window.appName, boundAt: nowString, windowGrantId: windowGrantId)
                 return d.json(openSessions: sessions.openCount(desktopId: d.desktopId))
             }
             let moved = try platform.moveWindows(to: d.screen, pid: pid, windowId: wanted)
@@ -262,7 +290,7 @@ extension RuntimeService {
             }
             d.generation += 1
             d.binding = TargetBinding(generation: d.generation, process: process, windowId: window.windowId,
-                                      appName: window.appName, boundAt: nowString)
+                                      appName: window.appName, boundAt: nowString, windowGrantId: windowGrantId)
             return d.json(openSessions: sessions.openCount(desktopId: d.desktopId))
         }
     }

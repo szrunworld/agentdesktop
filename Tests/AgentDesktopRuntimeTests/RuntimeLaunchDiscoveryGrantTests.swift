@@ -174,11 +174,21 @@ private func leaks(_ v: JSONValue?) -> [String] {
         let byPid = send(blind, "window.list", .obj([("pid", .int(202)), ("includeOffscreen", .bool(true))])).data
         let byBundle = send(blind, "window.list", .obj([("bundleId", .string("com.tencent.xinWeChat"))])).data
         #expect(leaks(a0).isEmpty && leaks(w0).isEmpty && leaks(byPid).isEmpty && leaks(byBundle).isEmpty)
-        // Granted one app: that app's windows only.
-        let calc = st.client(try st.pair(["observe"], apps: ["com.apple.calculator"], name: "calc"))
+        // Granted one app: none of its windows yet (window-grants.md: an app
+        // grant is not a grant for its windows) …
+        let calcCred = try st.pair(["observe"], apps: ["com.apple.calculator"], name: "calc")
+        let calc = st.client(calcCred)
         defer { calc.close() }
+        let w0calc = send(calc, "window.list", .obj([("includeOffscreen", .bool(true))])).data
+        #expect(w0calc?["windows"]?.arrayValue?.isEmpty == true)
+        // … then exactly the window the user granted.
+        let desk = try #require(data(call(st.s, st.owner, "desktop.create"))?["desktopId"]?.stringValue)
+        var g = try #require(st.s.hub.grant(calcCred.clientId))
+        g.desktops = [desk]
+        try st.s.hub.putGrant(g)
+        try grantWindow(st.s, clientId: calcCred.clientId, desktopId: desk, permissions: ["observe"])
         let w1 = send(calc, "window.list", .obj([("includeOffscreen", .bool(true))])).data
-        #expect(w1?["windows"]?.arrayValue?.map { $0["bundleId"]?.stringValue } == ["com.apple.calculator"])
+        #expect(w1?["windows"]?.arrayValue?.map { $0["windowId"]?.intValue } == [11])
         #expect(leaks(w1).isEmpty && leaks(send(calc, "app.list", .obj([("includeBackground", .bool(true))])).data).isEmpty)
         // Other ways in: Desktops it may not see, hub listings.
         #expect(leaks(send(calc, "desktop.list").data).isEmpty)
@@ -189,7 +199,10 @@ private func leaks(_ v: JSONValue?) -> [String] {
 @Test func sec05NarrowingOrRevokingAppliesToEveryListingAtOnce() async throws {
     try await offPool {
         let st = try Stage()
-        let cred = try st.pair(["observe"], apps: ["com.apple.calculator", "com.tencent.xinWeChat"], name: "wide")
+        let desk = try #require(data(call(st.s, st.owner, "desktop.create"))?["desktopId"]?.stringValue)
+        let cred = try st.pair(["observe"], desktops: [desk], apps: ["com.apple.calculator", "com.tencent.xinWeChat"], name: "wide")
+        try grantWindow(st.s, clientId: cred.clientId, desktopId: desk, windowId: 12, pid: 202, bundleId: "com.tencent.xinWeChat",
+                        permissions: ["observe"])
         let c = st.client(cred)
         defer { c.close() }
         let before = send(c, "window.list", .obj([("includeOffscreen", .bool(true))])).data
@@ -197,7 +210,7 @@ private func leaks(_ v: JSONValue?) -> [String] {
         // Narrowed: the open connection is cut; reconnecting, WeChat is gone
         // from every listing.
         #expect(data(call(st.s, st.owner, "hub.grants.set",
-                          params: #"{"clientId":"\#(cred.clientId)","capabilities":["observe"],"desktops":["created"],"apps":["com.apple.calculator"]}"#)) != nil)
+                          params: #"{"clientId":"\#(cred.clientId)","capabilities":["observe"],"desktops":["\#(desk)"],"apps":["com.apple.calculator"]}"#)) != nil)
         #expect(send(c, "window.list").data == nil, "the old connection answers nothing more")
         let after = st.client(cred)
         defer { after.close() }

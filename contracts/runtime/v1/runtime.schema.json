@@ -746,7 +746,7 @@
         "physical": {
           "type": "object",
           "additionalProperties": false,
-          "description": "attach one of the user's own displays instead of creating a virtual one: nothing is created, window.bind needs windowId and never moves the window, app.launch is refused, desktop.destroy only drops the record; mutually exclusive with width/height",
+          "description": "attach one of the user's own displays instead of creating a virtual one: nothing is created, window.bind needs windowId and never moves the window, app.launch is refused, desktop.destroy only drops the record; with physical, width and height are refused (the display's size applies)",
           "properties": {
             "displayId": {
               "type": "integer",
@@ -764,6 +764,18 @@
         "height": [
           "width"
         ]
+      },
+      "if": {
+        "required": [
+          "physical"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "width"
+          ]
+        }
       }
     },
     "desktop_destroy_params": {
@@ -951,6 +963,10 @@
         },
         "boundAt": {
           "$ref": "#/$defs/Timestamp"
+        },
+        "windowGrantId": {
+          "$ref": "#/$defs/Id",
+          "description": "the caller's window grant this binding was made under; absent for the owner's bindings and an app's own launched windows"
         }
       }
     },
@@ -1162,6 +1178,13 @@
         },
         "transform": {
           "$ref": "#/$defs/ImageTransform"
+        },
+        "transient": {
+          "type": "boolean",
+          "description": "true: kept only briefly (no persist permission for the window); gone at expiresAt or when the window grant ends"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
         }
       }
     },
@@ -2575,6 +2598,13 @@
         },
         "runId": {
           "$ref": "#/$defs/Id"
+        },
+        "transient": {
+          "type": "boolean",
+          "description": "true: kept only briefly (no persist permission for the window); gone at expiresAt or when the window grant ends"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
         }
       }
     },
@@ -3595,6 +3625,174 @@
           "items": {
             "$ref": "#/$defs/HubGrant"
           }
+        }
+      }
+    },
+    "WindowGrantWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windowId",
+        "process",
+        "bundleId",
+        "appName"
+      ],
+      "properties": {
+        "windowId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "process": {
+          "$ref": "#/$defs/ProcessIdentity"
+        },
+        "bundleId": {
+          "type": "string"
+        },
+        "appName": {
+          "type": "string"
+        }
+      },
+      "description": "the window a grant covers: window ID together with the process launch (pid + start time) and its app; a window ID alone is never an identity"
+    },
+    "HubWindowGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windowGrantId",
+        "clientId",
+        "desktopId",
+        "window",
+        "permissions",
+        "state",
+        "createdAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "windowGrantId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowGrantWindow"
+        },
+        "permissions": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "persist"
+            ]
+          }
+        },
+        "state": {
+          "enum": [
+            "active",
+            "revoked",
+            "ended"
+          ]
+        },
+        "endedReason": {
+          "type": "string",
+          "description": "why it no longer holds: window_closed, process_changed, app_changed, window_grant_revoked, client_revoked, grant_revoked, app_removed, desktop_removed, desktop_destroyed"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "confirmationId": {
+          "type": "string"
+        }
+      }
+    },
+    "HubWindowGrantList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windowGrants"
+      ],
+      "properties": {
+        "windowGrants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HubWindowGrant"
+          }
+        }
+      }
+    },
+    "hub_windows_request_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "bundleId",
+        "permissions"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "bundleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$"
+        },
+        "windowId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295,
+          "description": "omitted: the app's frontmost window where the Desktop can bind it; the user confirms the window shown"
+        },
+        "permissions": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "enum": [
+              "observe",
+              "act",
+              "persist"
+            ]
+          }
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 604800
+        }
+      }
+    },
+    "hub_windows_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "includeEnded": {
+          "type": "boolean",
+          "description": "also revoked and ended grants; default active only"
+        }
+      }
+    },
+    "window_grant_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windowGrantId"
+      ],
+      "properties": {
+        "windowGrantId": {
+          "$ref": "#/$defs/Id"
         }
       }
     },

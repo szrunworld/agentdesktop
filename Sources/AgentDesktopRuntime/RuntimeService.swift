@@ -178,6 +178,9 @@ public final class RuntimeService: @unchecked Sendable {
     /// bar, notifications and any window dragged there). Tests turn this
     /// off; the product never does.
     var refusesScreenCaptureWithoutBinding = true
+    /// How long a screenshot taken under a window grant without persist is
+    /// kept (window-grants.md); tests shorten it.
+    var transientArtifactLifetime = RuntimeService.transientArtifactSeconds
     public let contract: RuntimeContract
     let startedAt: Date
     let now: @Sendable () -> Date
@@ -216,6 +219,13 @@ public final class RuntimeService: @unchecked Sendable {
             return scratch
         }()
         self.contract = contract
+        // Desktops do not outlive the process that made them, so no window
+        // grant on one does either (window-grants.md).
+        // Each one audited like any other ending (Codex on 9ea0dad).
+        for id in (try? self.hub.endWindowGrants(reason: "runtime_restarted")) ?? [] {
+            self.hub.audit(connectionId: "runtime", clientId: self.hub.windowGrant(id)?.clientId ?? "?", method: "hub.windows",
+                           decision: "ended", reason: "\(id) runtime_restarted")
+        }
         self.startedAt = Timestamp.date(identity.startedAt) ?? now()
         self.now = now
         // The sweep never removes what the Runtime still uses: the
@@ -444,12 +454,13 @@ public final class RuntimeService: @unchecked Sendable {
             ] + extensions.capabilitySections()))
 
         case .desktopList:
-            // A paired app sees only the Desktops its grant covers.
+            // A paired app sees only the Desktops its grant covers, and of a
+            // bound window only one it may reach (window-grants.md).
             let visible = desktops.list().filter { desktopAllowed(connection, $0.desktopId) }
-            return .success(.obj([("desktops", .array(visible.map(desktopJSON)))]))
+            return .success(.obj([("desktops", .array(visible.map { desktopJSON($0, for: connection) }))]))
 
         case .desktopShow:
-            return desktop(p["desktopId"]).map(desktopJSON)
+            return desktop(p["desktopId"]).map { desktopJSON($0, for: connection) }
 
         case .appList:
             // A paired app sees only the apps its grant names, not the user's others.
@@ -459,9 +470,11 @@ public final class RuntimeService: @unchecked Sendable {
 
         case .windowList:
             let pid = p["pid"]?.intValue.map(Int32.init)
+            // A paired app sees only windows it holds a window grant for and
+            // windows of launches it made: never every window of a granted app.
             let windows = backend.windows(pid: pid, bundleId: p["bundleId"]?.stringValue,
                                           includeOffscreen: p["includeOffscreen"]?.boolValue ?? false)
-                .filter { appAllowed(connection, bundleId: $0.bundleId) }
+                .filter { connection.role != .paired || visibleToPaired(connection, $0) }
             return .success(.obj([("windows", .array(windows.map(\.json)))]))
 
         case .desktopCreate: return createDesktop(p, connection)
@@ -501,6 +514,9 @@ public final class RuntimeService: @unchecked Sendable {
         case .grantsSet: return setGrant(p, connection)
         case .grantsRevoke: return revokeGrant(p, connection)
         case .connectionsList: return listConnections()
+        case .windowsRequest: return requestWindowGrant(p, connection)
+        case .windowsList: return listWindowGrants(p, connection)
+        case .windowsRevoke: return revokeWindowGrant(p, connection)
         }
     }
 }
