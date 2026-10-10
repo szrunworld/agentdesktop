@@ -40,6 +40,8 @@ private func expiringDuring(_ method: String, params: String = #"{"connectionId"
     #expect(notSent(r) == false, "a write the service did is not 'not performed'")
     #expect(errorDetails(r)?["writeOutcome"]?.stringValue == "completed")
     #expect(errorDetails(r)?["reason"]?.stringValue == "grant_expired", "the refusal's own reason is kept")
+    // The client keeps its id: the same requestId reads the outcome.
+    #expect(errorDetails(r)?["recovery"]?.stringValue == "look_up_same_request_id")
     // The ledger holds the write as done: the same requestId is never a new write.
     #expect(try s.ledger.record(caller: clientId, requestId: id)?.state == .completed)
 }
@@ -69,6 +71,11 @@ private func expiringDuring(_ method: String, params: String = #"{"connectionId"
     #expect(data(r) == nil)
     #expect(notSent(r) == false)
     #expect(errorDetails(r)?["writeOutcome"]?.stringValue == "completed")
+    // Codex on 38edddd: pairing again gives a new client id the ledger does
+    // not know, so no advice to replay the requestId.
+    #expect(errorDetails(r)?["recovery"]?.stringValue == "check_outcome_do_not_resubmit")
+    if case let .failure(e) = r.result { #expect(!e.message.contains("same requestId"), "\(e.message)") }
+    #expect(s.hub.client(clientId)?.state == "revoked")
 }
 
 // What the service itself answered is passed on as it was: a refusal before

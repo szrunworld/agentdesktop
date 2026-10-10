@@ -102,7 +102,7 @@ enum RuntimeContractData {
         },
         "details": {
           "type": "object",
-          "description": "Code-specific facts. writeOutcome \"completed\" (#203): a write the service did before the caller lost its access (client_revoked, grant_missing, grant_expired); its answer is withheld, notSent is false, and a new requestId would write again."
+          "description": "Code-specific facts. writeOutcome \"completed\" (#203): a write the service did before the caller lost its access (client_revoked, grant_missing, grant_expired); its answer is withheld and notSent is false. recovery then says how to find the outcome: \"look_up_same_request_id\" (grant_expired, grant_missing: the client keeps its id, so the same requestId reads it; a new one would write again) or \"check_outcome_do_not_resubmit\" (client_revoked: pairing again gives a new client id the request ledger does not know)."
         }
       }
     },
@@ -9491,19 +9491,19 @@ enum RuntimeContractData {
       "code": "client_revoked",
       "exitCode": 4,
       "phase": "handler",
-      "description": "The client was removed; its credential no longer works. On a write the service already did, details.writeOutcome is \"completed\" and notSent is false: only the answer is withheld."
+      "description": "The client was removed; its credential no longer works. On a write the service already did, details.writeOutcome is \"completed\", notSent is false and details.recovery is \"check_outcome_do_not_resubmit\": pairing again gives a new client id that cannot look the request up, so check the outcome and do not submit it again."
     },
     {
       "code": "grant_missing",
       "exitCode": 4,
       "phase": "handler",
-      "description": "The capability, Desktop or app is not in the client's grant. On a write the service already did, details.writeOutcome is \"completed\" and notSent is false: only the answer is withheld."
+      "description": "The capability, Desktop or app is not in the client's grant. On a write the service already did, details.writeOutcome is \"completed\", notSent is false and details.recovery is \"look_up_same_request_id\": only the answer is withheld."
     },
     {
       "code": "grant_expired",
       "exitCode": 4,
       "phase": "handler",
-      "description": "The grant that covered this has expired. On a write the service already did, details.writeOutcome is \"completed\" and notSent is false: only the answer is withheld."
+      "description": "The grant that covered this has expired. On a write the service already did, details.writeOutcome is \"completed\", notSent is false and details.recovery is \"look_up_same_request_id\": only the answer is withheld."
     },
     {
       "code": "permit_expired",
