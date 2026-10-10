@@ -20,7 +20,7 @@ struct DisplayAttachTests {
     @Test func theFlowOffersOnlyProvedPhysicalDisplaysAndAttachesThroughTheRuntime() async throws {
         let m = MockRuntime.sample()
         let store = await loaded(m)
-        let flow = AttachDisplayFlow(runtime: m)
+        let flow = AttachDisplayFlow(runtime: m, now: { Date(timeIntervalSince1970: 1_791_446_400) })
         #expect(!flow.canSubmit)
         await flow.load()
         #expect(flow.displays.count == 2 && flow.clients.count == 1)
@@ -43,7 +43,7 @@ struct DisplayAttachTests {
         let d = try #require(store.desktops.first { $0["desktopId"]?.stringValue == id })
         #expect(d["kind"]?.stringValue == "physical" && d["name"]?.stringValue == "我的主显示器")
         // The display is now attached: listed as such, and a second attach reuses the Desktop.
-        let again = AttachDisplayFlow(runtime: m)
+        let again = AttachDisplayFlow(runtime: m, now: { Date(timeIntervalSince1970: 1_791_446_400) })
         await again.load()
         #expect(again.displays[0]["desktopId"]?.stringValue == id && AttachDisplayFlow.originText(again.displays[0]).text.hasPrefix("已挂接"))
         // An attached display can still be opened to another app: the Desktop is shared (Codex on a6a9088).
@@ -58,7 +58,7 @@ struct DisplayAttachTests {
     @Test func aRefusalShowsTheProblemAndKeepsTheForm() async {
         let m = MockRuntime.sample()
         _ = await loaded(m)
-        let flow = AttachDisplayFlow(runtime: m)
+        let flow = AttachDisplayFlow(runtime: m, now: { Date(timeIntervalSince1970: 1_791_446_400) })
         await flow.load()
         m.failNext("hub.displays.attach", code: "permission_denied")
         await flow.submit()
@@ -73,7 +73,7 @@ struct DisplayAttachTests {
     @Test func thePhysicalDesktopPanelListsAndTakesBackAccess() async throws {
         let m = MockRuntime.sample()
         let store = await loaded(m)
-        let flow = AttachDisplayFlow(runtime: m)
+        let flow = AttachDisplayFlow(runtime: m, now: { Date(timeIntervalSince1970: 1_791_446_400) })
         await flow.load()
         await flow.submit()
         let id = try #require(flow.desktopId)
@@ -96,7 +96,7 @@ struct DisplayAttachTests {
     @Test func theSheetAndThePhysicalDetailRender() async throws {
         let m = MockRuntime.sample()
         let store = await loaded(m)
-        let flow = AttachDisplayFlow(runtime: m)
+        let flow = AttachDisplayFlow(runtime: m, now: { Date(timeIntervalSince1970: 1_791_446_400) })
         await flow.load()
         let form = SnapshotRenderer.png(AttachDisplaySheet(flow: flow, cancel: {}, finished: { _ in }), size: CGSize(width: 640, height: 720))
         #expect((form?.count ?? 0) > 10_000)

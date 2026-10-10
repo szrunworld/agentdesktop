@@ -64,4 +64,24 @@ struct AgentRuntimeTests {
     private final class Seen {
         var command: ControlRequest.Command?
     }
+
+    // #173: an input request carries what it did, early failures included.
+    @Test func anInputThatStopsBeforeAnythingSaysNotPerformed() async {
+        let runtime = AgentRuntime(serialBase: 950)
+        runtime.hostScreens = { [] }
+        var noScreen = ControlRequest(command: .input)
+        noScreen.screen = "nowhere"
+        noScreen.pid = 1
+        noScreen.input = InputAction(.click)
+        let r1 = await runtime.handle(noScreen)
+        #expect(!r1.ok)
+        #expect(r1.delivery == "notPerformed")
+        var noPid = ControlRequest(command: .input)
+        noPid.screen = "nowhere"
+        let r2 = await runtime.handle(noPid)
+        #expect(r2.delivery == "notPerformed")
+        // A request that is not input carries none.
+        let list = await runtime.handle(ControlRequest(command: .screenList))
+        #expect(list.delivery == nil)
+    }
 }

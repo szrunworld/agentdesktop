@@ -12,6 +12,9 @@ final class RTestRuntime: @unchecked Sendable {
         case accept
         /// The Runtime accepts and records it, the answer never arrives.
         case loseAnswer
+        /// The Runtime accepts and records it, then withholds the answer
+        /// because the caller lost its access meanwhile (#203).
+        case doneButWithheld
         /// The connection breaks before the request reached the Runtime.
         case loseBeforeArrival
         case refuse(code: String)
@@ -141,7 +144,7 @@ final class RTestRuntime: @unchecked Sendable {
                 let e = RuntimeError(code, "refused by test", phase: .handler)
                 ledger[r.requestId] = ("unit.run", "failed", .obj([("error", e.json)]))
                 throw e
-            case .accept, .loseAnswer:
+            case .accept, .loseAnswer, .doneButWithheld:
                 let id = "run_\(nextRun)"; nextRun += 1
                 runs[id] = ["phase": "running", "quiescence": "not_confirmed", "lifetime": "connection_scoped",
                             "connectionId": "conn_\(conn)"]
@@ -150,6 +153,11 @@ final class RTestRuntime: @unchecked Sendable {
                 let run = runJSON(id)
                 ledger[r.requestId] = ("unit.run", "completed", .obj([("data", run)]))
                 if case .loseAnswer = unitRun { throw RuntimeError.connectionLost("answer lost") }
+                if case .doneButWithheld = unitRun {
+                    throw RuntimeError("grant_expired", "the grant expired; the write was done, only its answer is withheld",
+                                       phase: .request, notSent: false,
+                                       details: .obj([("reason", .string("grant_expired")), ("writeOutcome", .string("completed"))]))
+                }
                 return run
             }
         case "request.show":

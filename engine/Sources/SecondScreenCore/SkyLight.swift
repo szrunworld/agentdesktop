@@ -70,6 +70,7 @@ enum SkyLight {
     /// Chromium and Catalyst windows, and with `alsoPublic`, through the
     /// public call too, which some AppKit targets need instead.
     static func postMouse(_ event: CGEvent, to pid: pid_t, alsoPublic: Bool) {
+        DeliveryRecorder.submitting()
         if let postToPid {
             postToPid(pid, event)
             if alsoPublic { event.postToPid(pid) }
@@ -83,6 +84,7 @@ enum SkyLight {
     /// process. Such events skip the HID path, so NSMenu never sees them:
     /// menu key equivalents need `postKeyWithoutAuth` while the app is front.
     static func postKey(_ event: CGEvent, to pid: pid_t) {
+        DeliveryRecorder.submitting()
         guard let postToPid else {
             event.postToPid(pid)
             return
@@ -100,6 +102,7 @@ enum SkyLight {
     }
 
     static func postKeyWithoutAuth(_ event: CGEvent, to pid: pid_t) {
+        DeliveryRecorder.submitting()
         if let postToPid { postToPid(pid, event) } else { event.postToPid(pid) }
     }
 
@@ -160,6 +163,9 @@ enum SkyLight {
     @discardableResult
     static func focusWithoutRaise(windowID: CGWindowID, pid: pid_t) -> Bool {
         guard let front = frontPSN(), let target = psn(windowID: windowID, pid: pid) else { return false }
+        // Marked right before the system is asked, past the checks that can
+        // stop it with nothing done (Codex on 811833a).
+        DeliveryRecorder.submitting()
         let defocused = post(focusRecord(windowID: windowID, kind: 2), to: front)
         let focused = post(focusRecord(windowID: windowID, kind: 1), to: target)
         return defocused && focused
@@ -181,6 +187,8 @@ enum SkyLight {
     static func bringToFront(windowID: CGWindowID, pid: pid_t) -> ProcessSerialNumber? {
         guard let setFrontProcess, var target = psn(windowID: windowID, pid: pid) else { return nil }
         let previous = frontPSN()
+        // Marked right before the system is asked (Codex on 811833a).
+        DeliveryRecorder.submitting()
         guard setFrontProcess(&target, windowID, 0x200) == 0 else { return nil }  // kCPSUserGenerated
         for kind: UInt8 in [1, 2] {
             var record = [UInt8](repeating: 0, count: 0xF8)
@@ -208,9 +216,12 @@ enum SkyLight {
     /// millisecond: the event only has to be queued while it is front.
     static func withMenuShortcutActivation(windowID: CGWindowID, pid: pid_t, _ body: () -> Void) {
         guard let setFrontProcess, var target = psn(windowID: windowID, pid: pid), let previous = frontPSN() else {
+            // Nothing activated; whatever `body` posts marks itself.
             body()
             return
         }
+        // Marked right before the system is asked (Codex on 811833a).
+        DeliveryRecorder.submitting()
         _ = setFrontProcess(&target, 0, 0x400)
         body()
         setFront(previous)

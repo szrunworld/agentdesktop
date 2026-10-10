@@ -283,7 +283,7 @@ extension RuntimeService {
             // whether a process with that pid exists.
             if d.kind == .virtual && bindsOnlyLaunchedProcesses && !d.launched.contains(process) {
                 throw RuntimeError("permission_denied",
-                                   "only an app launched on desktop \(d.desktopId) can be bound until per-window grants exist; launch it there with app.launch",
+                                   "a virtual Desktop binds only apps launched on it, and a window grant does not bring another window onto it (#145); launch the app on desktop \(d.desktopId) with app.launch",
                                    phase: .handler, notSent: true,
                                    details: .obj([("reason", .string("bind_requires_grant"))]))
             }

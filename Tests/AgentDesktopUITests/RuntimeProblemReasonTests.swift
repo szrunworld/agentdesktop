@@ -18,6 +18,8 @@ import Testing
 @Test func everySealReasonHasItsOwnAdviceAndOtherReasonsKeepTheCodeText() {
     for reason in ["bind_requires_grant", "screen_capture_requires_grant", "physical_desktop_requires_grant", "owner_only", "display_not_physical"] {
         #expect(RuntimeProblem.reasonAdvice(reason) != nil, "\(reason)")
+        // Window grants exist since #205: no advice may still promise them (Codex on 9391a03).
+        #expect(!(RuntimeProblem.reasonAdvice(reason) ?? "").contains("上线前"), "\(reason)")
     }
     let plain = RuntimeProblem(RuntimeError("permission_denied", "x", phase: .handler,
                                             details: .obj([("reason", .string("something_else"))])))
@@ -37,4 +39,27 @@ import Testing
     #expect(texts.allSatisfy { $0 != nil })
     #expect(Set(texts.compactMap { $0 }).count == texts.count, "each reason says something different")
     #expect(RuntimeProblem.reasonAdvice("launch_failed")?.contains("不会自动重试") == true)
+}
+
+// #203: a write done before access was withdrawn says so, whatever the
+// code and reason, and is not taken as not performed.
+@Test func aWriteDoneButWithheldIsNotShownAsNotPerformed() {
+    let e = RuntimeError("grant_expired", "the grant expired", phase: .request, notSent: false,
+                         details: .obj([("reason", .string("grant_expired")), ("writeOutcome", .string("completed")),
+                                        ("recovery", .string("look_up_same_request_id"))]))
+    let p = RuntimeProblem(e)
+    #expect(p.advice == RuntimeProblem.writeDoneAdvice)
+    #expect(p.notSent == false)
+}
+
+// Codex on 38edddd: a removed client pairs again under a new identity, so
+// it is not told to look the request up again.
+@Test func aWriteDoneForARemovedClientIsNotToldToReplayTheRequest() {
+    let e = RuntimeError("client_revoked", "removed", phase: .request, notSent: false,
+                         details: .obj([("reason", .string("client_revoked")), ("writeOutcome", .string("completed")),
+                                        ("recovery", .string("check_outcome_do_not_resubmit"))]))
+    let p = RuntimeProblem(e)
+    #expect(p.advice == RuntimeProblem.writeDoneRevokedAdvice)
+    #expect(!p.advice.contains("同一个请求查询"))
+    #expect(p.notSent == false)
 }

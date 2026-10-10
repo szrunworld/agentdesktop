@@ -306,7 +306,7 @@ public final class RuntimeService: @unchecked Sendable {
                     accessWithdrawn(connection.clientId)
                 }
                 if let refusal = lost ?? cut.map({ Self.cutError(connection, $0) }), case .success = response.result {
-                    return .failure(request.requestId, refusal)
+                    return .failure(request.requestId, spec.mutation ? Self.writeDone(refusal, request.requestId) : refusal)
                 }
             }
             return response
@@ -527,5 +527,33 @@ public final class RuntimeService: @unchecked Sendable {
         case .displaysAttach: return attachDisplay(p, connection)
         case .displaysDetach: return detachDisplay(p, connection)
         }
+    }
+}
+
+extension RuntimeService {
+    /// A write the service answered as done, whose caller lost its access
+    /// meanwhile (#203): the answer is still withheld, but the refusal never
+    /// says not performed (runtime-api-v1-freeze §1.1). The service's success
+    /// is the evidence; the ledger usually holds it completed too, but its
+    /// write is best effort (b9 on f2d89bf).
+    ///
+    /// How to find the outcome depends on the code (Codex on 38edddd): an
+    /// expired or narrowed grant keeps the client's id, so the same requestId
+    /// reads the ledger again; a removed client can only pair again, under a
+    /// new id the ledger does not know, so the same requestId would be a new
+    /// write there. `details.recovery` says which.
+    static func writeDone(_ refusal: RuntimeError, _ requestId: String) -> RuntimeError {
+        var e = refusal
+        e.notSent = false
+        let revoked = refusal.code == "client_revoked"
+        e.message += "; the write was done before access was withdrawn (requestId \(requestId)), only its answer is withheld. "
+            + (revoked
+                ? "Pairing again gives a new client that cannot look this request up: check the outcome first and do not submit it again"
+                : "Once access is back, ask again with the same requestId; a new requestId would write again")
+        e.details = .obj((refusal.details?.objectMembers ?? []) + [
+            ("writeOutcome", .string("completed")),
+            ("recovery", .string(revoked ? "check_outcome_do_not_resubmit" : "look_up_same_request_id")),
+        ])
+        return e
     }
 }

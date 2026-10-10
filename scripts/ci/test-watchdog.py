@@ -74,29 +74,84 @@ SNAPSHOTS = os.environ.get("WATCHDOG_NO_SNAPSHOTS") != "1"
 FAKE_UNREADABLE = os.environ.get("WATCHDOG_FAKE_UNREADABLE", "")
 # And the kernel's process list failing (#193).
 FAKE_NO_PROCESS_LIST = os.environ.get("WATCHDOG_FAKE_NO_PROCESS_LIST") == "1"
+# Whether the command's exit can be seen without reaping it (os.waitid with
+# WNOWAIT; on macOS only from Python 3.13). The self-tests can act out an
+# older Python.
+WAITID = (all(hasattr(os, n) for n in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT"))
+          and os.environ.get("WATCHDOG_FAKE_NO_WAITID") != "1")
 
 
 MARKER = "TEST_WATCHDOG_RUN"
 _libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
 
+KINFO_SIZE = 648  # struct kinfo_proc on this platform
+
+
 def kernel_info(pid):
-    """(ppid, pgid, uid, (seconds, microseconds) started) of a process, all
-    from one proc_pidinfo(PROC_PIDTBSDINFO) call, or None when there is no
-    such live process (zombies included) or it cannot be read. The start
-    time with the pid identifies a process: pids are reused, even within a
-    second (Codex and b9 on #196)."""
-    buf = ctypes.create_string_buffer(136)  # struct proc_bsdinfo
-    if _libc.proc_pidinfo(pid, 3, ctypes.c_uint64(0), buf, 136) != 136:
+    """(ppid, pgid, real uid, (seconds, microseconds) started, effective
+    uid) of a process, all from one sysctl(KERN_PROC_PID) read, or None when
+    there is no such live process (zombies included). The start time with
+    the pid identifies a process: pids are reused, even within a second
+    (Codex and b9 on #196). Unlike proc_pidinfo this answers for every
+    user's processes, so a run is followed through another user's process,
+    such as one sudo started (#206). The offsets of struct kinfo_proc were
+    checked against ps for this user's processes, launchd and WindowServer:
+    p_starttime at 0, p_stat at 36, p_pid at 40, the real uid at 392, the
+    effective uid at 420, e_ppid at 560, e_pgid at 564."""
+    mib = (ctypes.c_int * 4)(1, 14, 1, pid)  # CTL_KERN, KERN_PROC, KERN_PROC_PID
+    buf = ctypes.create_string_buffer(KINFO_SIZE)
+    size = ctypes.c_size_t(KINFO_SIZE)
+    if _libc.sysctl(mib, 4, buf, ctypes.byref(size), None, 0) != 0 or size.value != KINFO_SIZE:
         return None
-    ppid, uid = struct.unpack_from("<II", buf, 16)  # pbi_ppid, pbi_uid
-    pgid, = struct.unpack_from("<I", buf, 100)  # pbi_pgid
-    return ppid, pgid, uid, struct.unpack_from("<QQ", buf, 120)  # pbi_start_tvsec, _tvusec
+    raw = buf.raw
+    if struct.unpack_from("<i", raw, 40)[0] != pid or raw[36] == 5:  # not this pid, or SZOMB
+        return None
+    sec, usec = struct.unpack_from("<qi", raw, 0)
+    ruid, = struct.unpack_from("<I", raw, 392)
+    euid, = struct.unpack_from("<I", raw, 420)
+    ppid, pgid = struct.unpack_from("<ii", raw, 560)
+    return ppid, pgid, ruid, (sec, usec), euid
 
 
 def start_time(pid):
     info = kernel_info(pid)
     return None if info is None else info[3]
+
+
+def _bsdinfo_start(pid):
+    """This process's start time as proc_pidinfo gives it: a second reader
+    to check kernel_info against."""
+    buf = ctypes.create_string_buffer(136)  # struct proc_bsdinfo
+    if _libc.proc_pidinfo(pid, 3, ctypes.c_uint64(0), buf, 136) != 136:
+        return None
+    return struct.unpack_from("<QQ", buf, 120)
+
+
+_kernel_problem = []  # [] unchecked, [None] fine, [reason] unusable
+
+
+def kernel_problem():
+    """Why kernel_info cannot be trusted on this machine, or None. Its
+    offsets were measured on one macOS; a runner with another layout would
+    read wrong parents or owners, and those decide what may be signalled
+    (b9 on #206). So before anything is trusted, this process is read and
+    every field compared with what the process knows of itself, and the
+    start time with proc_pidinfo's. Any mismatch: nothing is listed, so
+    nothing is signalled, and the reason is reported."""
+    if not _kernel_problem:
+        me = os.getpid()
+        info = kernel_info(me)
+        if info is None:
+            reason = "sysctl(KERN_PROC_PID) gave no kinfo_proc of the expected size for this process"
+        else:
+            ppid, pgid, ruid, start, euid = info
+            expected = {"ppid": (ppid, os.getppid()), "pgid": (pgid, os.getpgrp()), "real uid": (ruid, os.getuid()),
+                        "effective uid": (euid, os.geteuid()), "start": (tuple(start), tuple(_bsdinfo_start(me) or ()))}
+            wrong = [f"{k} read {a}, expected {b}" for k, (a, b) in expected.items() if a != b]
+            reason = ("kinfo_proc does not match this process (" + "; ".join(wrong) + ")") if wrong else None
+        _kernel_problem.append(reason)
+    return _kernel_problem[0]
 
 
 def all_pids():
@@ -192,7 +247,7 @@ def parse_ps_row(row):
     return int(parts[0]), parts[1].rstrip()
 
 
-def processes(deadline=None, problems=None):
+def processes(deadline=None, problems=None, foreign=None):
     """pid -> (ppid, pgid, start, command) for every live process of this
     user. Parent, group and start time come from the kernel, together, in
     one call per process (kernel_info), so a relationship is never paired
@@ -201,7 +256,15 @@ def processes(deadline=None, problems=None):
     a pid that changed hands between the two shows the wrong text but is
     never acted on by it. What went wrong goes to problems (#193): the
     kernel list failing means the list is empty, not that nothing runs; ps
-    failing costs only the command lines."""
+    failing costs only the command lines. Only processes whose real and
+    effective uid are this user's are listed: only those may be signalled.
+    Other users' processes (one sudo started, say) go to `foreign` with
+    their uids, so a run can be followed through them (#206)."""
+    reason = kernel_problem()
+    if reason is not None:
+        if problems is not None:
+            problems.append(f"process list: {reason}")
+        return {}
     ok, rows, detail = run_step([PS, "-axo", "pid=,command="], timeout=within(deadline, 10))
     if not ok and problems is not None:
         problems.append(f"ps (command lines only): {detail}")
@@ -219,11 +282,65 @@ def processes(deadline=None, problems=None):
         pids = []
     for pid in pids:
         info = kernel_info(pid)
-        if info is None or info[2] != me:
-            continue  # gone, a zombie, or another user's
-        ppid, pgid, _, start = info
-        procs[pid] = (ppid, pgid, start, commands.get(pid, "(command unknown)"))
+        if info is None:
+            continue  # gone, or a zombie
+        ppid, pgid, ruid, start, euid = info
+        command = commands.get(pid, "(command unknown)")
+        if ruid == me and euid == me:
+            procs[pid] = (ppid, pgid, start, command)
+        elif foreign is not None:
+            foreign[pid] = (ppid, pgid, start, command, ruid, euid)
     return procs
+
+
+def spindump_target(procs, run):
+    """The process to take a spindump of: one of the run's still there,
+    this user's first, else another user's (Codex on #215: never the
+    reaped command); None when none is left."""
+    return next(iter(procs), None) or next(iter(run.foreign_members), None)
+
+
+def kill_command(pid):
+    """SIGKILL the command (the watchdog's own unreaped child) only."""
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def exited_unreaped(pid):
+    """Whether the child has exited, without reaping it (WNOWAIT): until it
+    is reaped its pid and group id cannot be given to another process."""
+    try:
+        return os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    except ChildProcessError:
+        return True  # already reaped
+
+
+def own_ancestors():
+    """pid -> start of each of the watchdog's own ancestors (the shell that
+    started it, and up), confirmed link by link as the run's tree is: the
+    parent is read, the child still names it as its parent and is the same
+    process, and the parent is read again, unchanged. A link that does not
+    hold ends the chain there (#209: Kevin, not "started about the same
+    time" but identity and parent). Up to launchd, which is never a
+    candidate anyway."""
+    chain = {}
+    pid = os.getpid()
+    while kernel_problem() is None:
+        child = kernel_info(pid)
+        if child is None or child[0] <= 1:
+            break
+        parent = child[0]
+        before = kernel_info(parent)
+        again = kernel_info(pid)
+        after = kernel_info(parent)
+        if (before is None or after is None or again is None or again[0] != parent
+                or again[3] != child[3] or before[3] != after[3]):
+            break
+        chain[parent] = before[3]
+        pid = parent
+    return chain
 
 
 class Run:
@@ -268,6 +385,18 @@ class Run:
         # Why `sudo ps` could not read environments; its outcome is the
         # unverifiable list, so it is reported with that.
         self.sudo_problem = ""
+        # Other users' processes confirmed part of the run (by a checked
+        # link or the run's group): never signalled, reported with their
+        # uid (#206). pid -> (start, command, real uid, effective uid).
+        self.foreign_members = {}
+        self.seen_foreign = {}
+        self._foreign_linked = {}
+        # The watchdog's own ancestors, confirmed link by link: never part
+        # of the run, so never unverifiable (#209).
+        self.ancestors = own_ancestors()
+        # Set when this Python cannot see the command's exit without reaping
+        # it, so the last look before reaping is not taken (#215).
+        self.no_capture_before_reap = False
 
     def command_gone(self):
         """The command has exited and been reaped: its pid may be reused at
@@ -284,13 +413,35 @@ class Run:
             return
         self.last_snapshot = now
         problems = []
-        procs = processes(problems=problems)
+        foreign = {}
+        procs = processes(problems=problems, foreign=foreign)
         if any(not p.startswith("ps ") for p in problems):
             self.failed_snapshots += 1
-        for pid, cmd in self._tree(procs).items():
+        for pid, cmd in self._tree(procs, foreign).items():
             self.seen.setdefault(pid, (procs[pid][2], cmd))
+        for pid, row in self._foreign_linked.items():
+            self.seen_foreign.setdefault(pid, row)
 
-    def _tree(self, procs):
+    def capture_before_reap(self):
+        """The run's tree, its group and the other users' processes in it,
+        remembered at the last moment the command's pid and group id are
+        surely its own: exited, not yet reaped. Not one of the periodic
+        snapshots (WATCHDOG_NO_SNAPSHOTS does not turn it off). Its children
+        were handed to launchd when it exited, so what this finds is mostly
+        by group: a process that left the group (setsid) and was not seen
+        by an earlier snapshot is still not found."""
+        problems = []
+        foreign = {}
+        procs = processes(problems=problems, foreign=foreign)
+        if any(not p.startswith("ps ") for p in problems):
+            self.failed_snapshots += 1
+        for pid, cmd in self._tree(procs, foreign).items():
+            if pid != self.root:
+                self.seen.setdefault(pid, (procs[pid][2], cmd))
+        for pid, row in self._foreign_linked.items():
+            self.seen_foreign.setdefault(pid, row)
+
+    def _tree(self, procs, foreign=None):
         """The root, its group (the root is unreaped, so the group id is
         its own) and its descendants. A child is linked by its parent's pid,
         and the listing is read in no set order: the pid may have belonged
@@ -300,26 +451,44 @@ class Run:
         its parent and is the process listed, and the parent is still the
         process listed. Then, at that moment, the child's parent was ours
         (b9 on #196). A link that fails leaves the child, and what hangs
-        only from it, out of this look."""
-        found = {pid for pid, (_, pgid, _, _) in procs.items() if pgid == self.root}
-        found.add(self.root)
+        only from it, out of this look. The tree runs through other users'
+        processes too (one sudo started): those are kept apart, never
+        signalled, and this user's processes under them are the run's
+        (#206). Returns this user's members; the others are left in
+        self._foreign_linked."""
+        foreign = foreign or {}
+        nodes = {pid: row[:3] for pid, row in procs.items()}
+        nodes.update({pid: row[:3] for pid, row in foreign.items()})
+        found = set()
+        if self.root_alive:
+            found.update(pid for pid, (_, pgid, _) in nodes.items() if pgid == self.root)
+            found.add(self.root)
+        else:
+            # After reaping, neither the old root PID nor its group is ours.
+            # Continue from remembered members only while their identities
+            # still match, including members owned by another user.
+            remembered = {pid: row[0] for pid, row in self.seen.items()}
+            remembered.update({pid: row[0] for pid, row in self.seen_foreign.items()})
+            found.update(pid for pid, ident in remembered.items()
+                         if pid != self.root and pid in nodes
+                         and nodes[pid][2] == ident and start_time(pid) == ident)
         checked = {}
         self._unlinked = {}
 
         def linked(pid, ppid):
             if pid not in checked:
-                parent = procs.get(ppid, (None, None, None))[2]
+                parent = nodes.get(ppid, (None, None, None))[2]
                 ok = parent is not None and start_time(ppid) == parent
                 if ok:
                     now = kernel_info(pid)
-                    ok = now is not None and now[0] == ppid and now[3] == procs[pid][2]
+                    ok = now is not None and now[0] == ppid and now[3] == nodes[pid][2]
                 ok = ok and start_time(ppid) == parent
                 checked[pid] = ok
             return checked[pid]
         changed = True
         while changed:
             changed = False
-            for pid, (ppid, _, _, _) in procs.items():
+            for pid, (ppid, _, _) in nodes.items():
                 if ppid in found and pid not in found and linked(pid, ppid):
                     found.add(pid)
                     changed = True
@@ -330,24 +499,42 @@ class Run:
         changed = True
         while changed:
             changed = False
-            for pid, (ppid, _, _, _) in procs.items():
+            for pid, (ppid, _, _) in nodes.items():
                 if ppid in unlinked and pid not in unlinked and pid not in found:
                     unlinked.add(pid)
                     changed = True
-        self._unlinked = {pid: procs[pid][3] for pid in unlinked}
+        def command(pid):
+            return procs[pid][3] if pid in procs else foreign[pid][3]
+        self._unlinked = {pid: command(pid) for pid in unlinked}
+        self._foreign_linked = {pid: (foreign[pid][2], foreign[pid][3], foreign[pid][4], foreign[pid][5])
+                                for pid in found if pid in foreign}
         return {pid: procs[pid][3] for pid in found if pid in procs}
 
     def members(self, deadline=None):
         """pid -> command of every live process of the run. With a deadline,
         every step is limited to the time left (Codex on #188)."""
         self.discovery_problems = problems = []
-        procs = processes(deadline, problems)
+        foreign = {}
+        procs = processes(deadline, problems, foreign)
         ids = {pid: row[2] for pid, row in procs.items()}
-        # The live tree only while the command runs; afterwards only what is
-        # confirmed: seen as the same process, the marker, the terminal.
+        # After the command exits, continue the checked tree from surviving
+        # remembered identities, never from its old PID or process group.
         self._unlinked = {}
-        live = self._tree(procs) if self.root_alive else {}
+        self._foreign_linked = {}
+        live = self._tree(procs, foreign)
         unlinked = self._unlinked
+        # Other users' processes of the run: found in the tree now, or seen
+        # in it before, still the same process. Never signalled (#206).
+        # Remembered once found: after the command is reaped they can be
+        # found only by what was seen.
+        for pid, row in self._foreign_linked.items():
+            self.seen_foreign.setdefault(pid, row)
+        members = dict(self._foreign_linked)
+        for pid, row in self.seen_foreign.items():
+            if pid in foreign and foreign[pid][2] == row[0]:
+                members.setdefault(pid, row)
+        self.foreign_members = {pid: row for pid, row in members.items()
+                                if start_time(pid) == row[0]}
         for pid, (ident, cmd) in self.seen.items():
             if ids.get(pid) == ident:
                 live[pid] = procs[pid][3]
@@ -368,8 +555,10 @@ class Run:
         # Only what is still there as the process listed: a candidate that
         # exited before its link was checked is gone, not uncertain (Codex
         # on #196).
+        starts = {pid: row[2] for pid, row in foreign.items()}
+        starts.update(ids)
         self.unlinked = {pid: cmd for pid, cmd in unlinked.items()
-                         if pid not in live and start_time(pid) == procs[pid][2]}
+                         if pid not in live and pid in starts and start_time(pid) == starts[pid]}
         self.unverifiable.update(self.unlinked)
         self.idents = {pid: ids[pid] for pid in live}
         return dict(sorted(live.items()))
@@ -416,6 +605,8 @@ class Run:
         for pid, (_, _, start, cmd) in procs.items():
             if pid in known or pid in helpers or start[0] < self.started_at - 1:
                 continue
+            if pid in self.ancestors and start_time(pid) == self.ancestors[pid]:
+                continue  # the watchdog's own ancestor, still the same process (#209)
             # (A process gone meanwhile fails the identity check below; its
             # command line is not a sign of anything, and may be unknown.)
             env = process_environment(pid)
@@ -456,25 +647,45 @@ class Run:
         return found
 
     def stop(self):
-        """Take the whole set first, then kill: the group (only while the
-        command is unreaped, so the group id is surely its own), then each
-        confirmed process. Every per-pid signal follows a fresh look and is
+        """Take the whole set first, then kill: the command itself (only
+        while it is unreaped), then each confirmed process of this user; no
+        group signal, and never another user's process. Every per-pid signal follows a fresh look and is
         checked against the kernel right before it is sent (signal())."""
         # What went wrong in any scan of the stop is kept to the end: a scan
         # that failed may have missed a process a later scan can no longer
         # find (it left the group when the group was killed; Codex on #197).
         problems = []
+        # Every process of the run seen during the stop, with its identity,
+        # to say at the end which of them are confirmed gone (Kevin on
+        # #206: stopped, running and unverified are told apart).
+        met = {}
 
         def look():
             found = self.members()
             problems.extend(p for p in self.discovery_problems if p not in problems)
+            for pid, cmd in found.items():
+                met.setdefault(pid, (self.idents.get(pid), cmd, None))
+            for pid, (start, cmd, ruid, euid) in self.foreign_members.items():
+                met.setdefault(pid, (start, cmd, (ruid, euid)))
             return found
         targets = look()
+        # Without a group signal, what the first look found through the live
+        # tree must not be lost once the command is reaped (its children go
+        # to launchd, its pid stops counting): remember this user's members
+        # with their identities, and signal them now, before the command
+        # (Codex on #215).
+        for pid, cmd in targets.items():
+            if pid != self.root and pid in self.idents:
+                self.seen.setdefault(pid, (self.idents[pid], cmd))
+        self.signal({pid: cmd for pid, cmd in targets.items() if pid != self.root})
         if self.root_alive:
-            try:
-                os.killpg(self.root, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+            # The command itself, alone: it is the watchdog's own child, not
+            # yet reaped, so its pid is surely its own (this needs no kernel
+            # read). Never its whole group: another user's process in it
+            # (sudo's) must not be signalled, and a group signal would reach
+            # it wherever the permissions allow (Codex on #215). The rest of
+            # the group is this user's members, each checked by signal().
+            kill_command(self.root)
             # Reap the command at once, within a limit: unreaped, it would
             # be reported as not stopped (#194). Once reaped its pid and group
             # id may be reused, so from then on neither is used.
@@ -500,6 +711,18 @@ class Run:
             targets = look()
         self.not_stopped = targets
         self.discovery_problems = problems
+        # Other users' processes are never signalled: if still there, they
+        # are confirmed running, and the stop did not end the run (#206).
+        running = {pid: f"{cmd}" for pid, cmd in targets.items()}
+        reasons = {pid: "still running after the watchdog's signals" for pid in targets}
+        for pid, (start, cmd, ruid, euid) in self.foreign_members.items():
+            running[pid] = cmd
+            reasons[pid] = (f"another user's process (real uid {ruid}, effective uid {euid}); "
+                            "the watchdog never signals those")
+        stopped = {pid: cmd for pid, (start, cmd, _) in met.items()
+                   if pid not in running and start_time(pid) != start}
+        self.outcome = {"stopped": stopped, "running": running, "reasons": reasons,
+                        "unverified": dict(self.unverifiable)}
         return targets
 
 
@@ -559,6 +782,15 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
     print("processes of the run:", flush=True)
     for pid, cmd in procs.items():
         print(f"  {pid} {cmd[:200]}", flush=True)
+    if run.foreign_members:
+        # Part of the run, but another user's: listed, never signalled, and
+        # not sampled (sampling another user's process needs root; spindump
+        # below covers them where sudo works).
+        report["other_users_processes"] = [
+            {"pid": pid, "command": cmd, "real_uid": ruid, "effective_uid": euid}
+            for pid, (_, cmd, ruid, euid) in run.foreign_members.items()]
+        for pid, (_, cmd, ruid, euid) in run.foreign_members.items():
+            print(f"  {pid} {cmd[:160]} (another user's: uid {ruid}/{euid}; never signalled)", flush=True)
     if run.unverifiable:
         report["unverifiable"] = unverified_entries(run)
         step("environment check", "incomplete",
@@ -591,10 +823,15 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
     elif remaining() < 10:
         step("spindump", "skipped", f"diagnosis budget left: {max(remaining(), 0):.0f} s")
     else:
-        target = next(iter(procs), run.root)
-        ok, _, detail = run_step(["sudo", "-n", "spindump", str(target), "5", "-file",
-                                  os.path.join(out_dir, "spindump.txt")], timeout=min(90, remaining()))
-        step("spindump", "ok" if ok else "unavailable", detail)
+        # A process of the run still there: this user's first, else another
+        # user's (Codex on #215: never the reaped command).
+        target = spindump_target(procs, run)
+        if target is None:
+            step("spindump", "skipped", "no process of the run is left to take it of")
+        else:
+            ok, _, detail = run_step(["sudo", "-n", "spindump", str(target), "5", "-file",
+                                      os.path.join(out_dir, "spindump.txt")], timeout=min(90, remaining()))
+            step("spindump", "ok" if ok else "unavailable", detail)
     missing = [s["step"] for s in report["steps"] if s["status"] != "ok"]
     print(f"=== reports in {out_dir}; incomplete steps: {', '.join(missing) or 'none'} ===", flush=True)
 
@@ -613,6 +850,9 @@ def incomplete(run):
     command ran counts too: a process it would have remembered (one that
     then left the tree) cannot be found by any later look (Codex on #197)."""
     problems = [p for p in run.discovery_problems if not p.startswith("ps ")]
+    if getattr(run, "no_capture_before_reap", False):
+        problems.append("the last look before reaping the command was not taken (this Python has no "
+                        "os.waitid with WNOWAIT): what the command left in its group as it exited may be missed")
     if run.failed_snapshots:
         problems.append(f"{run.failed_snapshots} snapshot(s) while the command ran: the process list failed")
     return problems
@@ -670,13 +910,26 @@ def record_stop(run, out_dir):
             report = json.load(f)
     except (OSError, ValueError):
         report = {"steps": []}
-    if run.not_stopped:
-        report["not_stopped"] = [{"pid": pid, "command": cmd} for pid, cmd in run.not_stopped.items()]
+    # Each process of the run met during the stop, in one of three states
+    # (Kevin on #206): stopped (confirmed gone), running (confirmed still
+    # there: not stopped, or another user's, which is never signalled) and
+    # unverified (could not be confirmed either way; never signalled).
+    outcome = getattr(run, "outcome", None) or {"stopped": {}, "running": dict(run.not_stopped),
+                                                "reasons": {}, "unverified": dict(run.unverifiable)}
+    running, reasons = outcome["running"], outcome["reasons"]
+    report["outcome"] = {
+        "stopped": [{"pid": pid, "command": cmd} for pid, cmd in outcome["stopped"].items()],
+        "running": [{"pid": pid, "command": cmd, "why": reasons.get(pid, "still running")}
+                    for pid, cmd in running.items()],
+        "unverified": unverified_entries(run),
+    }
+    if running:
+        report["not_stopped"] = report["outcome"]["running"]
         report.setdefault("steps", []).append(
-            {"step": "stop", "status": "failed", "detail": f"{len(run.not_stopped)} process(es) still running"})
-        print(f"test-watchdog: could not stop {len(run.not_stopped)} process(es) of the run:", flush=True)
-        for pid, cmd in run.not_stopped.items():
-            print(f"  still running (not stopped): {pid} {cmd[:160]}", flush=True)
+            {"step": "stop", "status": "failed", "detail": f"{len(running)} process(es) of the run still running"})
+        print(f"test-watchdog: could not stop {len(running)} process(es) of the run:", flush=True)
+        for e in report["not_stopped"]:
+            print(f"  still running (not stopped): {e['pid']} {e['command'][:160]} ({e['why']})", flush=True)
     elif incomplete(run):
         # The last look itself failed in part: nothing is known to be left,
         # which is not the same as nothing left (#193).
@@ -789,9 +1042,22 @@ def main():
                 output.take(data)
         # Checked on every turn, data or not (Codex on #188): a leftover
         # writing to the terminal must not keep the exit from being seen.
-        if child.poll() is None:
+        if not WAITID:
+            # No way to see the exit without reaping: the last look before
+            # reaping cannot be taken, which is said, never skipped silently
+            # (b9 on #215).
+            run.no_capture_before_reap = True
+        if not (exited_unreaped(child.pid) if WAITID else child.poll() is not None):
             run.snapshot()
         else:
+            # The command has exited but is not reaped yet: its pid and group
+            # id are still its own. One last full look now, before reaping,
+            # so what it left in its group (another user's process sudo
+            # started, say) is known even if no snapshot ran while it lived
+            # (Codex on #215). Then reap it.
+            if WAITID:
+                run.capture_before_reap()
+            child.wait()
             run.command_gone()
             # Drain what is left, never blocking: a process the run left
             # behind can hold the terminal open forever (b9 on #188).
@@ -812,19 +1078,23 @@ def main():
             # leftover (a Runtime, a helper, a background task): evidence,
             # then stop it and fail.
             left = run.members()
-            if not left and incomplete(run):
+            # Another user's process of the run that is still there is a
+            # leftover confirmed running, like one of this user's: it fails
+            # the run (b9 on #206; before, it was not seen at all).
+            remaining = len(left) + len(run.foreign_members)
+            if not remaining and incomplete(run):
                 report_failed_discovery(run, args.out, child.returncode, output.last)
                 return child.returncode
-            if not left and run.unverifiable:
+            if not remaining and run.unverifiable:
                 # Nothing confirmed as the run's, but processes started since
                 # it began could not be checked: reported, left alone, and the
                 # command's own status kept (Codex and b9 on #188; locally
                 # they are likely other sessions', and CI has sudo).
                 report_unverifiable(run, args.out, child.returncode, output.last)
                 return child.returncode
-            if left:
+            if remaining:
                 diagnose(run, output.started, output.finished, args.out,
-                         f"the command exited ({child.returncode}) but {len(left)} process(es) of its run remain",
+                         f"the command exited ({child.returncode}) but {remaining} process(es) of its run remain",
                          "leftover processes", output.last, child.returncode)
                 run.stop()
                 record_stop(run, args.out)

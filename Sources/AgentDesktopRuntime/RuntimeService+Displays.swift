@@ -106,7 +106,7 @@ extension RuntimeService {
             return .failure(RuntimeError("conflict", "the grant of \(clientId) expired while the user was asked; renew it first", phase: .handler,
                                          notSent: true, details: .obj([("reason", .string("grant_expired"))])))
         }
-        guard platform.displays().first(where: { $0.displayId == displayId })?.origin == .physical else {
+        guard platform.displays().first(where: { $0.displayId == displayId }) == display else {
             return .failure(RuntimeError("conflict", "display \(displayId) changed while the user was asked; ask again", phase: .handler, notSent: true,
                                          details: .obj([("reason", .string("display_changed"))])))
         }

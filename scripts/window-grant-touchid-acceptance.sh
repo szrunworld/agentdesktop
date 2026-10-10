@@ -24,6 +24,12 @@
 #                                                   then 批准 and Touch ID
 #   3. a second window grant                     -> 拒绝
 #   4. wg-cli giving up its window grant         -> 批准, then Touch ID
+# Cleanup: the script records the online displays and your keychain search
+# list first; at the end it destroys the Desktop, quits its own TextEdit and
+# test host, restores the search list and deletes the test keychain, then
+# checks each of these against the record. Any mismatch prints
+# "CLEANUP FAILED (清理失败)" and exits 3, whatever the steps said; only
+# "RESULT: PASS" means both the acceptance steps and the cleanup passed.
 # Usage, from the repository:
 #   scripts/bundle-app.sh && ALLOW_VIRTUAL_DISPLAY=1 scripts/window-grant-touchid-acceptance.sh
 set -u
@@ -37,6 +43,7 @@ DIR=/tmp/adt-wg-acc
 EP="$DIR/side.runtime.sock"
 KC="$DIR/test.keychain-db"
 B="$APP/Contents/Resources/bin/agentdesktop"
+CONFIRM="$(dirname "$0")/window-grant-confirmation.py"
 pass=0; fail=0
 ok()  { echo "PASS  $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
@@ -46,31 +53,89 @@ for k in sys.argv[2].split("."):
     d = d[int(k)] if isinstance(d, list) else d.get(k) if isinstance(d, dict) else None
 print("" if d is None else d)' "$1" "$2" 2>/dev/null; }
 
-cleanup() {
-    [ -n "${DESK:-}" ] && "$B" desktop destroy "$DESK" --format json > /dev/null 2>&1
-    # Only the very process this script started: same pid and same start
-    # time as recorded at launch (Codex on 8e9eb9d: the pid may be reused).
-    if [ -n "${PROBE:-}" ] && [ -n "${PROBE_START:-}" ] && [ "$(ps -o lstart= -p "$PROBE" 2>/dev/null)" = "$PROBE_START" ]; then
-        kill "$PROBE" 2>/dev/null
-    fi
-    # The test host too, only while its pid still has the recorded start time.
-    if [ -n "${HOST:-}" ] && [ -n "${HOST_START:-}" ] && [ "$(ps -o lstart= -p "$HOST" 2>/dev/null)" = "$HOST_START" ]; then
-        kill "$HOST" 2>/dev/null
-    fi
-    [ -s "$DIR/search-list" ] && restore_search_list
-    security delete-keychain "$KC" 2>/dev/null
-    rm -rf "$DIR"
+# What the machine looked like before the run. Cleanup is checked against it
+# item by item (Kevin's ruling on #205, 1.4/1.5): a cleanup that cannot be
+# shown to have worked fails the run, whatever the acceptance steps said.
+displays() { swift - 2>/dev/null <<'SWIFT'
+import CoreGraphics
+var n: UInt32 = 0
+CGGetOnlineDisplayList(0, nil, &n)
+var ids = [CGDirectDisplayID](repeating: 0, count: Int(n))
+CGGetOnlineDisplayList(n, &ids, &n)
+print(ids.prefix(Int(n)).sorted().map(String.init).joined(separator: " "))
+SWIFT
 }
-trap cleanup EXIT
-
-rm -rf "$DIR"; mkdir -p "$DIR"
-security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//' > "$DIR/search-list"
-[ -s "$DIR/search-list" ] || { echo "cannot read your keychain search list; stopping without touching it"; exit 1; }
+search_list() { security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//'; }
+DISPLAYS_BEFORE=$(displays)
+[ -n "$DISPLAYS_BEFORE" ] || { echo "cannot list the displays; stopping before anything was started"; exit 1; }
+SEARCH_BEFORE=$(search_list)
+[ -n "$SEARCH_BEFORE" ] || { echo "cannot read your keychain search list; stopping before anything was started"; exit 1; }
 restore_search_list() {
     set --
-    while IFS= read -r k; do set -- "$@" "$k"; done < "$DIR/search-list"
+    while IFS= read -r k; do set -- "$@" "$k"; done <<EOF
+$SEARCH_BEFORE
+EOF
     [ $# -gt 0 ] && security list-keychains -d user -s "$@"
 }
+# Whether the process recorded as pid $1 with start time $2 still runs.
+alive() { [ -n "$1" ] && [ -n "$2" ] && [ "$(ps -o lstart= -p "$1" 2>/dev/null)" = "$2" ]; }
+# Stop that very process (same pid, same start time; Codex on 8e9eb9d: the
+# pid may be reused) and wait for it to go.
+stop() {
+    alive "$1" "$2" || return 0
+    kill "$1" 2>/dev/null
+    i=0; while alive "$1" "$2" && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done
+    ! alive "$1" "$2"
+}
+
+cleanup() {
+    rc=$?
+    trap - EXIT
+    cfail=0
+    cbad() { echo "CLEANUP FAILED (清理失败): $*"; cfail=$((cfail + 1)); }
+    echo "== cleanup"
+    if [ -n "${DESK:-}" ]; then
+        "$B" desktop destroy "$DESK" --format json > "$DIR/destroy.json" 2>&1 \
+            || cbad "desktop destroy $DESK: $(cat "$DIR/destroy.json" 2>/dev/null)"
+    fi
+    stop "${PROBE:-}" "${PROBE_START:-}" || cbad "the probe TextEdit (pid $PROBE) is still running"
+    stop "${HOST:-}" "${HOST_START:-}" || cbad "the test Agent Desktop (pid $HOST) is still running"
+    # Launched but never identified (Codex on 037a804): nothing is stopped
+    # without its recorded identity, so a survivor is a cleanup failure.
+    if [ -n "${HOST:-}" ] && [ -z "${HOST_START:-}" ] && kill -0 "$HOST" 2>/dev/null; then
+        cbad "the test Agent Desktop was started (pid $HOST) but its identity was not recorded, so it was not stopped; quit it by hand"
+    fi
+    if [ -n "${PROBE_OPENED:-}" ] && [ -f "$DIR/textedit-before" ]; then
+        left=$(pgrep -x TextEdit | sort | comm -13 "$DIR/textedit-before" - | tr '\n' ' ' | sed 's/ *$//')
+        [ -z "$left" ] || cbad "TextEdit pid(s) $left started during the run and are still running; the script could not tell they were its own, so it left them; check by hand"
+    fi
+    restore_search_list || cbad "restoring the keychain search list failed"
+    if [ -e "$KC" ]; then
+        security delete-keychain "$KC" > "$DIR/kc.err" 2>&1 || cbad "deleting the test keychain: $(cat "$DIR/kc.err")"
+    fi
+    # The virtual display goes with its Desktop, at the latest with the host.
+    i=0; while [ "$(displays)" != "$DISPLAYS_BEFORE" ] && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done
+    now=$(displays)
+    [ "$now" = "$DISPLAYS_BEFORE" ] || cbad "online displays are [$now], before the run [$DISPLAYS_BEFORE]"
+    [ "$(search_list)" = "$SEARCH_BEFORE" ] || cbad "the keychain search list differs from before the run"
+    rm -rf "$DIR"
+    [ ! -e "$DIR" ] || cbad "$DIR could not be removed"
+    if [ $cfail -gt 0 ]; then
+        echo "RESULT: FAIL - cleanup failed ($cfail item(s) above); this run is not an acceptance pass"
+        exit 3
+    fi
+    echo "cleanup verified: displays, the probe TextEdit, the test host and the keychain search list are as before; the test keychain and $DIR are gone"
+    if [ $rc -eq 0 ]; then
+        echo "RESULT: PASS - acceptance steps and cleanup both passed"
+    else
+        echo "RESULT: FAIL - acceptance steps did not pass (exit $rc)"
+    fi
+    exit $rc
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+
+rm -rf "$DIR"; mkdir -p "$DIR"
 security create-keychain -p "$(uuidgen)" "$KC"
 security set-keychain-settings "$KC"
 restore_search_list
@@ -94,6 +159,7 @@ echo "window grant acceptance probe" > "$DIR/wg-probe-A.txt"
 # Only a TextEdit process that did not exist before this launch is ours: the
 # script inspects and quits that one and no other (Codex on 7629d6b).
 pgrep -x TextEdit | sort > "$DIR/textedit-before"
+PROBE_OPENED=1
 open -n -g -a TextEdit "$DIR/wg-probe-A.txt" || { bad "open TextEdit failed"; exit 1; }
 i=0; PROBE=""
 while [ -z "$PROBE" ] && [ $i -lt 40 ]; do
@@ -132,8 +198,8 @@ echo "== before any grant: the app sees none of TextEdit's windows"
 [ "$(field "$DIR/list0.json" data.windows.0.windowId)" = "" ] && ok "window list is empty" || bad "window list: $(cat "$DIR/list0.json")"
 
 echo "== 2. ask for the probe window (查看 only): check what the window shows, then 批准 and Touch ID"
-"$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe --duration 10m \
-    --format json > "$DIR/grant.json"
+python3 "$CONFIRM" "$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe --duration 10m \
+    > "$DIR/grant.json" || { bad "window grant did not complete: $(cat "$DIR/grant.json")"; exit 1; }
 WG=$(field "$DIR/grant.json" data.windowGrantId)
 [ -n "$WG" ] && ok "window grant $WG" || bad "window grant: $(cat "$DIR/grant.json")"
 [ "$(field "$DIR/grant.json" data.window.windowId)" = "$WIN" ] && ok "it is the probe window" || bad "granted another window"
@@ -148,13 +214,15 @@ echo "== the seals stay: binding the user's window onto the virtual Desktop is s
 grep -q bind_requires_grant "$DIR/bind.json" && ok "bind refused (bind_requires_grant)" || bad "bind: $(cat "$DIR/bind.json")"
 
 echo "== 3. ask again: press 拒绝 in the window"
-"$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe,act --format json > "$DIR/deny.json"
+python3 "$CONFIRM" "$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe,act > "$DIR/deny.json"
 grep -q user_denied "$DIR/deny.json" && ok "refused (user_denied)" || bad "deny: $(cat "$DIR/deny.json")"
+grep -q user_denied "$DIR/deny.json" || exit 1
 "$B" windows request --desktop "$DESK" --app com.apple.TextEdit --window "$WIN" --allow observe --format json > "$DIR/cool.json"
 grep -q window_grant_cooldown "$DIR/cool.json" && ok "asking again at once is refused without a prompt" || bad "cooldown: $(cat "$DIR/cool.json")"
 
 echo "== 4. the CLI gives up its window grant: confirm in the window, approve with Touch ID or your password"
-"$B" windows revoke "$WG" --format json > "$DIR/revoke.json" || true   # its connection is cut: the reply may not arrive
+python3 "$CONFIRM" "$B" windows revoke "$WG" > "$DIR/revoke.json" \
+    || { bad "revoke did not complete: $(cat "$DIR/revoke.json")"; exit 1; }
 "$B" windows list --all --format json > "$DIR/after.json"
 python3 -c 'import json,sys
 gs=json.load(open(sys.argv[1]))["data"]["windowGrants"]
@@ -168,5 +236,5 @@ sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT at, client_id, method, 
 sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT count(*) FROM auth_events WHERE reason LIKE '%wg-probe%'" | grep -qx 0 \
     && ok "no window title in the audit" || bad "a window title is in the audit"
 grep "AgentDesktop confirmation" "$DIR/host.log" || true
-echo "passed $pass, failed $fail"
+echo "acceptance steps: passed $pass, failed $fail (the result comes after the cleanup check)"
 [ $fail -eq 0 ] && [ $pass -eq 15 ]

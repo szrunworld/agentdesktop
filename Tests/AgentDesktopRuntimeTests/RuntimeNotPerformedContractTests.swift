@@ -73,18 +73,12 @@ import Testing
     #expect(s.desktops.count == 0)
 }
 
-// Codex on a72ac3b (P1): the engine tells "nothing was sent" only in its
-// message text. Until it reports that structurally (#173), a failed click or
-// typing is never not performed, whatever the text says (a click may have
-// pressed through accessibility first; typing may have clicked a web field).
-@Test func anEngineFailureOfAClickOrTypingIsNeverTakenAsNotPerformed() {
-    for message in ["no element 3 in the window; run state again", "the field does not take its text through accessibility",
-                    "Agent Desktop needs the Accessibility permission to drive apps"] {
-        #expect(!EnginePlatform.notPerformed(message, kind: .click), "\(message)")
-        #expect(!EnginePlatform.notPerformed(message, kind: .type), "\(message)")
+// #173: the engine's structured record decides, never its message text.
+// Only "notPerformed" is not performed; "submitted", "unknown" and a
+// missing record (an engine that does not say) are not.
+@Test func onlyTheEnginesRecordOfNoDeliveryIsNotPerformed() {
+    #expect(EnginePlatform.notPerformed(delivery: "notPerformed"))
+    for d in ["submitted", "unknown", nil, "", "NotPerformed"] as [String?] {
+        #expect(!EnginePlatform.notPerformed(delivery: d), "\(d ?? "nil")")
     }
-    // Keys and scrolls fail before any input; the text match stays for them.
-    #expect(EnginePlatform.notPerformed(#"unknown key "f13x""#, kind: .key))
-    #expect(EnginePlatform.notPerformed("Agent Desktop needs the Accessibility permission to drive apps", kind: .scroll))
-    #expect(!EnginePlatform.notPerformed("the app stopped answering", kind: .key))
 }

@@ -147,6 +147,11 @@ public final class ACPBridgeRuntimePort: ACPRuntimePort, @unchecked Sendable {
                 return .refused(code: e.code, message: e.message)
             }
             if Self.answerUnknown(e) { return .unconfirmed }
+            // Done, only the answer withheld: the caller lost its access while
+            // the Runtime worked (#203, b9 on 38edddd). Never a refusal: the
+            // entry stays `.sending`, so a later look reads the outcome with
+            // the same requestId and nothing is sent again.
+            if e.details?["writeOutcome"]?.stringValue == "completed" { return .unconfirmed }
             try? log.record(.init(submissionKey: s.submissionKey, requestId: requestId, method: entry.method, state: .refused,
                                   refusalCode: e.code, refusalMessage: e.message, updatedAt: log.stampNow()))
             return .refused(code: e.code, message: e.message)

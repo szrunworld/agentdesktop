@@ -31,15 +31,24 @@ public struct RuntimeProblem: Equatable, Sendable {
         }
         let (t, a) = Self.text(e.code)
         // A refusal that names its reason says what the user can do instead.
-        let advice = e.details?["reason"]?.stringValue.flatMap(Self.reasonAdvice) ?? a
+        // A write that was done but whose answer was withheld (#203) says so
+        // first: submitting it again would write again.
+        let advice = e.details?["writeOutcome"]?.stringValue == "completed"
+            ? (e.details?["recovery"]?.stringValue == "look_up_same_request_id" ? Self.writeDoneAdvice : Self.writeDoneRevokedAdvice)
+            : e.details?["reason"]?.stringValue.flatMap(Self.reasonAdvice) ?? a
         self.init(code: e.code, title: t, advice: advice, notSent: e.notSent ?? false)
     }
+
+    static let writeDoneAdvice = "这次写入已经完成，只是结果没有返回给这个应用。恢复授权后请用同一个请求查询结果，不要重新提交，否则会再写一次。"
+    /// A removed client pairs again under a new identity, which cannot look
+    /// the old request up (Codex on 38edddd).
+    static let writeDoneRevokedAdvice = "这次写入已经完成，只是结果没有返回给这个应用。重新配对后身份会改变，原来的请求无法再查到；请先确认写入的结果，不要重新提交。"
 
     /// Advice for refusals whose `details.reason` changes what to do.
     static func reasonAdvice(_ reason: String) -> String? {
         switch reason {
         case "bind_requires_grant":
-            return "在逐窗口授权上线前，只能绑定由这个 Desktop 启动的应用。请改用“启动应用”。"
+            return "目前只能绑定由这个 Desktop 启动的应用：你自己打开的窗口即使已获窗口授权，也不会被移到虚拟 Desktop 上，物理 Desktop 需要由你在主窗口开放。请改用“启动应用”。"
         case "screen_capture_requires_grant":
             return "这个 Desktop 还没有绑定窗口；没有整屏授权时不截整个屏幕。请先绑定窗口。"
         case "no_launch_apps_configured":

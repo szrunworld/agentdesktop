@@ -84,6 +84,12 @@ final class BridgeDiagnostics: @unchecked Sendable {
 
     var events: [Event] { lock.withLock { recorded } }
 
+    /// Tests: the events noted after the first `count` (an incremental read,
+    /// so a watcher copies only what is new while it holds the lock).
+    func events(after count: Int) -> [Event] {
+        lock.withLock { count < recorded.count ? Array(recorded[max(0, count)...]) : [] }
+    }
+
     /// One call's stages.
     struct Trace: Sendable {
         let recorder: BridgeDiagnostics

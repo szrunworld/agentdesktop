@@ -285,19 +285,15 @@ func menuNavigationNeverGetsThroughOnAMenuThatIsNotProvedTheBoundWindows(_ menuC
     #expect(sc.platform.performed.count == 4)
 }
 
-// Kevin 2026-10-09 (#163, #171): "not performed" only with evidence. Until
-// the engine reports it structurally (#173), a failed typing is never taken
-// as not performed, not even one that stopped before its first character
-// or after a click into a web field went out: the delivery is unknown. A
-// one-character key with no key code is typed too; stopped before its
-// character it submitted nothing, and keys keep the text match.
-@Test func aStoppedTypingIsUnknownAndOnlyAKeyBeforeItsCharacterIsNotPerformed() {
-    let none = "keyboard focus is not in window 11; no character was submitted"
-    let some = "keyboard focus left window 11 after 2 of 6 characters were submitted to the input interface (whether the app received them is not known); the rest was not submitted"
-    #expect(!EnginePlatform.notPerformed(none, kind: .type))
-    #expect(!EnginePlatform.notPerformed(some, kind: .type))
-    #expect(EnginePlatform.notPerformed(none, kind: .key))
-    #expect(!EnginePlatform.notPerformed(some, kind: .key))
+// #173 (with #163's per-character check): the engine records what typing
+// did. Stopped before its first character it submitted nothing and records
+// not performed, which the Runtime marks notSent; stopped after some, or
+// after a click into a web field went out, it records submitted: never
+// notSent. The message text decides nothing.
+@Test func aStoppedTypingIsJudgedByTheEnginesRecordNotItsText() {
+    #expect(EnginePlatform.notPerformed(delivery: "notPerformed"))
+    #expect(!EnginePlatform.notPerformed(delivery: "submitted"))
+    #expect(!EnginePlatform.notPerformed(delivery: nil))
 }
 
 // Codex on b258049 (P1): no menu was open before a key or typing was sent,

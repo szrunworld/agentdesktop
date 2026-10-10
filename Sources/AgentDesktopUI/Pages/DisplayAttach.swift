@@ -22,14 +22,15 @@ public final class AttachDisplayFlow: ObservableObject {
     @Published public private(set) var result: JSONValue?
 
     private let runtime: RuntimePort
+    private let now: () -> Date
 
-    public init(runtime: RuntimePort) { self.runtime = runtime }
+    public init(runtime: RuntimePort, now: @escaping () -> Date = Date.init) { self.runtime = runtime; self.now = now }
 
     public var started: Bool { step != .pending }
     public var isDone: Bool { step == .done }
     public var desktopId: String? { result?["desktop"]?["desktopId"]?.stringValue }
     public var canSubmit: Bool {
-        guard step == .pending, let displayId, clientId != nil else { return false }
+        guard step == .pending, let displayId, let clientId, Self.openable(clients, now: now()).contains(where: { $0["clientId"]?.stringValue == clientId }) else { return false }
         return displays.first { $0["displayId"]?.intValue == displayId }.map(Self.openable) ?? false
     }
 
@@ -60,8 +61,12 @@ public final class AttachDisplayFlow: ObservableObject {
     }
 
     /// Paired apps with an active grant: the only ones a display can be opened to.
-    public static func openable(_ clients: [JSONValue]) -> [JSONValue] {
-        clients.filter { $0["state"]?.stringValue == "active" && $0["grant"]?["state"]?.stringValue == "active" }
+    public static func openable(_ clients: [JSONValue], now: Date = Date()) -> [JSONValue] {
+        clients.filter { client in
+            guard client["state"]?.stringValue == "active", client["grant"]?["state"]?.stringValue == "active",
+                  let expiry = client["grant"]?["expiresAt"]?.stringValue.flatMap(Timestamp.date) else { return false }
+            return expiry > now
+        }
     }
 
     public func load() async {
@@ -69,7 +74,7 @@ public final class AttachDisplayFlow: ObservableObject {
             let d = try await runtime.call("hub.displays.list")
             let c = try await runtime.call("hub.clients.list")
             displays = d["displays"]?.arrayValue ?? []
-            clients = Self.openable(c["clients"]?.arrayValue ?? [])
+            clients = Self.openable(c["clients"]?.arrayValue ?? [], now: now())
             if displayId == nil, let first = displays.first(where: Self.attachable) ?? displays.first(where: Self.openable) {
                 displayId = first["displayId"]?.intValue
             }
