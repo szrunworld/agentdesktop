@@ -814,3 +814,12 @@ Kevin 原话：
   - 状态：未授权。
 - **#211 6482353**：已改用单调时钟，b9 复审通过；等 Codex 和 CI，未授权。
 - **待审计**：main 上新出现三次合并，b9 正在核查授权：#205（0ac22c4）、#136（14f0bba）、#140（0772aa4）。
+- **#211 合并申请（b9 提交给 Kevin，执行人 42）**：SHA `6482353ebfa6a2d3068169f547dc459fa3b277da`。
+  - Codex："Didn't find any major issues"（Reviewed commit 6482353ebf，02:10:43Z，👍 02:10:47Z）。
+  - b9 复审：评论 6092547500，此前各轮见 PR。
+  - CI：build 通过。
+  - 讨论：共 5 条，全部已解决。
+  - 状态：CLEAN / MERGEABLE；与 main 0772aa4 做 merge-tree 无冲突。
+  - 验证结果（42 自述）：strict 跑 3 次，第 1 次在 SingleEndpoint 失败（#166），第 2、3 次通过；full 1081、engine 360 通过。
+  - 改动范围：只改测试。
+  - **未授权。**
