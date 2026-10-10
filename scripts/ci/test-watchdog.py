@@ -658,6 +658,15 @@ class Run:
                 met.setdefault(pid, (start, cmd, (ruid, euid)))
             return found
         targets = look()
+        # Without a group signal, what the first look found through the live
+        # tree must not be lost once the command is reaped (its children go
+        # to launchd, its pid stops counting): remember this user's members
+        # with their identities, and signal them now, before the command
+        # (Codex on #215).
+        for pid, cmd in targets.items():
+            if pid != self.root and pid in self.idents:
+                self.seen.setdefault(pid, (self.idents[pid], cmd))
+        self.signal({pid: cmd for pid, cmd in targets.items() if pid != self.root})
         if self.root_alive:
             # The command itself, alone: it is the watchdog's own child, not
             # yet reaped, so its pid is surely its own (this needs no kernel

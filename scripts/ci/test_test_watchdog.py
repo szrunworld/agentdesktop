@@ -398,19 +398,23 @@ class WatchdogTests(unittest.TestCase):
     def test_targets_are_found_again_when_reaping_times_out(self):
         # Codex on #196: while stop() waits for the command, a target may
         # exit and its pid go to an unrelated process; even when the wait
-        # times out, the list taken before it is not acted on.
+        # times out, the list taken before it is not acted on after it.
+        # (Right after the first look, before the wait, its members are
+        # signalled, identity-checked: Codex on #215.) Signals are recorded,
+        # not sent, and the recorded identity matches throughout, the worst
+        # case, so only looking again after the wait keeps the old list
+        # from being acted on.
         wd = self.load()
         bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        phase = {"waited": False}
+        sent = []
 
         class Unreaped:
             def wait(self, timeout=None):
+                phase["waited"] = True
                 raise subprocess.TimeoutExpired("cmd", timeout)
         try:
             run = wd.Run(999999, None, uuid.uuid4().hex, time.time(), Unreaped())
-            # Before the wait the bystander's pid was a target; after it, it
-            # belongs to an unrelated process and is no longer one.
-            # Its recorded identity is the bystander's own, the worst case, so
-            # only looking again saves it.
             looks = iter([{bystander.pid: "old target"}])
             ident = wd.start_time(bystander.pid)
 
@@ -419,14 +423,14 @@ class WatchdogTests(unittest.TestCase):
                 run.idents = {pid: ident for pid in found}
                 return found
             run.members = members
-            real = wd.kill_command
+            real, real_kill = wd.kill_command, wd.os.kill
             wd.kill_command = lambda *a: None
+            wd.os.kill = lambda pid, sig: sent.append((phase["waited"], pid))
             try:
                 run.stop()
             finally:
-                wd.kill_command = real
-            time.sleep(0.3)
-            self.assertIsNone(bystander.poll(), "a target taken before the wait was killed")
+                wd.kill_command, wd.os.kill = real, real_kill
+            self.assertNotIn((True, bystander.pid), sent, "the list taken before the wait was acted on after it")
             self.assertTrue(run.root_alive)
         finally:
             bystander.kill()
@@ -1068,6 +1072,34 @@ class WatchdogTests(unittest.TestCase):
         run.foreign_members = {4242: ((1, 2), "sudo's", 0, 0)}
         self.assertEqual(wd.spindump_target({}, run), 4242)
         self.assertEqual(wd.spindump_target({777: "ours"}, run), 777)
+
+    def test_a_member_known_only_through_the_live_tree_is_still_stopped(self):
+        # Codex on #215: no group signal any more; a child of the command
+        # with no marker, not on the terminal, never snapshotted, is known
+        # only through the command's tree. It is stopped all the same, and
+        # reported as stopped, not lost when the command is reaped.
+        wd = self.load()
+        root = subprocess.Popen(
+            [sys.executable, "-c", "import subprocess, time; c = subprocess.Popen(['/bin/sleep', '60'], "
+             "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env={}); "
+             "print(c.pid, flush=True); time.sleep(60)"],
+            stdout=subprocess.PIPE, text=True, start_new_session=True)
+        child = int(root.stdout.readline())
+
+        class Command:
+            def wait(self, timeout=None):
+                return root.wait(timeout=timeout)
+        try:
+            run = wd.Run(root.pid, None, uuid.uuid4().hex, time.time(), Command())
+            run.stop()
+            time.sleep(0.3)
+            self.assertIsNone(wd.start_time(child), "the command's child survived the stop")
+            self.assertIn(child, run.outcome["stopped"])
+        finally:
+            subprocess.run(["kill", "-9", str(child)], capture_output=True)
+            if root.poll() is None:
+                root.kill()
+            root.wait()
 
 
 if __name__ == "__main__":
