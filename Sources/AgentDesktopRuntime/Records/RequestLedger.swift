@@ -188,7 +188,7 @@ public final class RequestLedger: @unchecked Sendable {
         public var method: String?
         public var state: State?
         public var desktopId: String?
-        public var since: String?
+        public var since: Date?
         public init() {}
     }
 
@@ -201,7 +201,13 @@ public final class RequestLedger: @unchecked Sendable {
         if let m = f.method { sql += " AND method = ?"; args.append(.text(m)) }
         if let st = f.state { sql += " AND state = ?"; args.append(.text(st.rawValue)) }
         if let d = f.desktopId { sql += " AND desktop_id = ?"; args.append(.text(d)) }
-        if let since = f.since { sql += " AND accepted_at >= ?"; args.append(.text(since)) }
+        // Compared in the ledger's own spelling (UTC, milliseconds, Z), so any
+        // valid date-time the caller gave compares right (Codex on a0c3211);
+        // never older than the retention, whether or not a restart pruned it.
+        var from = now().addingTimeInterval(-Double(Self.retentionDays) * 86400)
+        if let since = f.since, since > from { from = since }
+        sql += " AND accepted_at >= ?"
+        args.append(.text(Timestamp.string(from)))
         if let after {
             let p = after.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
             if p.count == 3 {
