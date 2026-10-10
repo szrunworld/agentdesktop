@@ -439,11 +439,17 @@ extension RuntimeService {
                 // during the read is answered (Codex on 86c3dd0, as observe does).
                 if d.kind == .physical, let before = exposedBefore {
                     let after = try exposedTarget(d, b, notSent: true)
-                    guard after.stack == before.stack, Self.sameFrame(after.window.frame, before.window.frame) else {
+                    // The frame the read itself saw too: a window that moved and came
+                    // back during the read leaves its elements at the other place
+                    // (Codex on 4c2536b).
+                    let readFrame = read?.window.frame ?? before.window.frame
+                    guard after.stack == before.stack, Self.sameFrame(after.window.frame, before.window.frame),
+                          Self.sameFrame(readFrame, before.window.frame) else {
                         throw RuntimeError("stale_observation", "the windows on desktop \(d.desktopId) changed while it was read; wait again",
                                            phase: .handler, notSent: true,
                                            details: .obj([("reason", .string("changed_during_capture")), ("generation", .int(b.generation)),
-                                                          ("frameBefore", before.window.frame.json), ("frameAfter", after.window.frame.json)]))
+                                                          ("frameBefore", before.window.frame.json), ("frameRead", readFrame.json),
+                                                          ("frameAfter", after.window.frame.json)]))
                     }
                 }
                 let snapshotId = DesktopRegistry.newId(prefix: "obs")

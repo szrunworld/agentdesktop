@@ -298,6 +298,8 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     var onCapture: (() -> Void)?
     /// Runs as an element read returns, outside the Desktop's lock.
     var onElements: (() -> Void)?
+    /// Runs as an element read starts reading the window (before its frame is taken).
+    var onElementsRead: (() -> Void)?
 
     func stack(on screen: ScreenHandle) -> [PlatformWindow] {
         lock.withLock {
@@ -347,6 +349,7 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         defer { lock.withLock { axRunning -= 1 } }
         lock.withLock { axGate }?.wait()
         if let f = lock.withLock({ axFailure }) { throw f }
+        lock.withLock { onElementsRead }?()
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "the window is gone") }
         defer { lock.withLock { onElements }?() }
         return ElementRead(window: w, elements: elements, truncated: lock.withLock { axTruncated })

@@ -407,8 +407,9 @@ final class LockedStrings: @unchecked Sendable {
 
 @Test func whatCountsAsAnOverlayOverTheUsersWindow() {
     let screen = Rect(x: 0, y: 0, width: 1512, height: 982)
+    // "Dock" here means the system Dock's process; the name alone proves nothing.
     func covers(_ f: Rect, _ owner: String = "App") -> Bool {
-        EnginePlatform.isCoveringOverlay(frame: f, owner: owner, screen: screen, menuBar: 37)
+        EnginePlatform.isCoveringOverlay(frame: f, systemDock: owner == "Dock", screen: screen, menuBar: 37)
     }
     #expect(covers(Rect(x: 1150, y: 40, width: 350, height: 80), "NotificationCenter"), "a banner")
     #expect(covers(Rect(x: 200, y: 300, width: 220, height: 180), "Other"), "another app's menu")
@@ -418,6 +419,8 @@ final class LockedStrings: @unchecked Sendable {
     #expect(!covers(Rect(x: 1010, y: 0, width: 38, height: 37), "WeChat"), "a status item")
     #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Dock"), "the Dock's display-wide layer")
     #expect(covers(Rect(x: 600, y: 500, width: 240, height: 300), "Dock"), "a Dock menu or folder stack counts (Codex on 1994bca)")
+    // An app that calls itself "Dock" is not the Dock (Codex on 4c2536b).
+    #expect(!EnginePlatform.isSystemDock(pid: getpid()), "this test process is not the Dock")
     #expect(!covers(Rect(x: 0, y: 38, width: 1, height: 1), "Typeless"), "a 1×1 anchor")
     #expect(covers(Rect(x: 300, y: 200, width: 3, height: 400)), "a thin but long panel counts (Codex on 4952c9e)")
     #expect(covers(Rect(x: 300, y: 200, width: 400, height: 3)), "and lying down")
@@ -491,6 +494,16 @@ final class LockedStrings: @unchecked Sendable {
     // Codex on 86c3dd0: the window read must still be where it was when the poll is stored.
     let sc = try physicalScene()
     sc.platform.onElements = { sc.platform.moveWindow(11, by: 40) }
+    let w = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                 context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w)?.details?["reason"]?.stringValue == "changed_during_capture", "\(w.json.encoded())")
+}
+
+@Test func aWaitOnAPhysicalDesktopStopsWhenTheWindowMovedAndCameBackDuringTheRead() throws {
+    // Codex on 4c2536b: the read saw the window elsewhere; before and after agree, the read does not.
+    let sc = try physicalScene()
+    sc.platform.onElementsRead = { sc.platform.moveWindow(11, by: 40) }
+    sc.platform.onElements = { sc.platform.moveWindow(11, by: -40) }
     let w = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
                  context: #"{"sessionId":"\#(sc.session)"}"#)
     #expect(failure(w)?.details?["reason"]?.stringValue == "changed_during_capture", "\(w.json.encoded())")

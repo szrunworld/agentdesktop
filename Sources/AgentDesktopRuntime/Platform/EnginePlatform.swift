@@ -206,12 +206,18 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         return (w, h)
     }
 
-    /// The one owner whose display-wide high-layer window is known OS
-    /// furniture: the Dock keeps a transparent layer over the whole display.
+    /// The one display-wide high-layer window that is known OS furniture:
+    /// the system Dock keeps a transparent layer over the whole display.
     /// Only that layer is left out; the Dock's menus, folder stacks and
-    /// other panels count like any overlay (Codex on 1994bca). Everything
-    /// else above the normal layer counts, unknown or not.
-    static let furniture: Set<String> = ["Dock"]
+    /// other panels count like any overlay (Codex on 1994bca). The Dock is
+    /// told by its process (bundle com.apple.dock at the system path), never
+    /// by the window's owner name, which any app can take (Codex on
+    /// 4c2536b). Everything else above the normal layer counts.
+    static func isSystemDock(pid: Int32) -> Bool {
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+        return app.bundleIdentifier == "com.apple.dock"
+            && app.bundleURL?.standardizedFileURL.path == "/System/Library/CoreServices/Dock.app"
+    }
 
     public func overlays(on screen: ScreenHandle) -> [PlatformWindow] {
         let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
@@ -229,7 +235,8 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
             else { return nil }
             let owner = entry[kCGWindowOwnerName as String] as? String ?? ""
             let frame = Rect(x: f.minX, y: f.minY, width: f.width, height: f.height)
-            guard Self.isCoveringOverlay(frame: frame, owner: owner, screen: screen.frame, menuBar: Double(menuBar)) else { return nil }
+            guard Self.isCoveringOverlay(frame: frame, systemDock: Self.isSystemDock(pid: pid), screen: screen.frame,
+                                         menuBar: Double(menuBar)) else { return nil }
             return PlatformWindow(windowId: number, pid: pid, appName: owner,
                                   title: entry[kCGWindowName as String] as? String ?? "", frame: frame)
         }
@@ -243,10 +250,10 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     /// An unknown layer spanning the whole display (a gesture utility's
     /// transparent overlay looks exactly like an opaque one in the window
     /// list) counts: what the user sees may not be what is acted on.
-    static func isCoveringOverlay(frame f: Rect, owner: String, screen s: Rect, menuBar: Double) -> Bool {
+    static func isCoveringOverlay(frame f: Rect, systemDock: Bool, screen s: Rect, menuBar: Double) -> Bool {
         let spansDisplay = f.x <= s.x + 1 && f.y <= s.y + 1
             && f.x + f.width >= s.x + s.width - 1 && f.y + f.height >= s.y + s.height - 1
-        if furniture.contains(owner) && spansDisplay { return false }
+        if systemDock && spansDisplay { return false }
         if f.y <= s.y + 1 && f.y + f.height <= s.y + menuBar + 1 { return false }
         // Left out only what input routing can never pick: BackgroundInput's
         // topWindow takes any window larger than 2 points both ways, so the
