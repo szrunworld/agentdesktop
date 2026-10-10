@@ -39,6 +39,9 @@ final class BridgeStallWatch: @unchecked Sendable {
         let recorder: BridgeDiagnostics
         var read = 0
         var pending: [UInt64: (method: String, createdAt: UInt64)] = [:]
+        /// Started before their taskCreated was noted (Codex on d4ff0b6: the
+        /// task can start before the connection thread notes its creation).
+        var startedEarly: Set<UInt64> = []
         init(label: String, recorder: BridgeDiagnostics) { self.label = label; self.recorder = recorder }
     }
     private var sources: [Source] = []
@@ -70,8 +73,13 @@ final class BridgeStallWatch: @unchecked Sendable {
                 let new = source.recorder.events(after: source.read)
                 source.read += new.count
                 for e in new {
-                    if e.stage == .taskCreated { source.pending[e.call] = (e.method, e.uptimeNanos) }
-                    if e.stage == .taskStarted { source.pending[e.call] = nil }
+                    switch e.stage {
+                    case .taskCreated:
+                        if source.startedEarly.remove(e.call) == nil { source.pending[e.call] = (e.method, e.uptimeNanos) }
+                    case .taskStarted:
+                        if source.pending.removeValue(forKey: e.call) == nil { source.startedEarly.insert(e.call) }
+                    default: break
+                    }
                 }
                 return source.pending.map { call, v in
                     Stall(label: source.label, call: call, method: v.method, waitedNanos: at > v.createdAt ? at - v.createdAt : 0)

@@ -119,3 +119,21 @@ private func scratch() -> String {
     #expect(!BridgeStallWatch.isChild(getpid(), running: "/bin/sleep"), "not a child of itself")
     #expect(!BridgeStallWatch.isChild(1, running: "/sbin/launchd"), "launchd is nobody's child here")
 }
+
+// Codex on d4ff0b6: the task may note taskStarted before the connection
+// thread notes taskCreated; such a call is never a stall, read in one look
+// or across two.
+@Test func aTaskThatStartedBeforeItsCreationWasNotedIsNeverAStall() {
+    let clock = Clock(), r = BridgeDiagnostics(), w = watch(clock)
+    w.watch(r, label: "a")
+    let t1 = r.begin(method: "ai.connections.list")
+    t1.noteInTask(.taskStarted, taskPriority: 21)
+    #expect(w.waiting().isEmpty, "the start is read before the creation")
+    t1.note(.taskCreated)
+    let t2 = r.begin(method: "ai.connections.list")
+    t2.noteInTask(.taskStarted, taskPriority: 21)
+    t2.note(.taskCreated)
+    let last = r.events.last!.uptimeNanos
+    clock.set(last + 60 * second)
+    #expect(w.waiting().isEmpty && w.due() == nil)
+}
