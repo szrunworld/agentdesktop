@@ -522,6 +522,30 @@ enum RuntimeContractData {
             }
           }
         },
+        "liveObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "method",
+            "maxFPS",
+            "maxWidth"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "method": {
+              "const": "observe.subscribe"
+            },
+            "maxFPS": {
+              "const": 2
+            },
+            "maxWidth": {
+              "const": 1920
+            }
+          }
+        },
         "bindingRecovery": {
           "type": "object",
           "additionalProperties": false,
@@ -4133,6 +4157,182 @@ enum RuntimeContractData {
           "required": [
             "maxWidth"
           ]
+        }
+      ]
+    },
+    "observe_subscribe_v1_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1920
+        },
+        "region": {
+          "$ref": "#/$defs/Rect"
+        }
+      }
+    },
+    "ObservationSubscription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subscriptionId",
+        "subscribed",
+        "fps",
+        "maxWidth",
+        "version"
+      ],
+      "properties": {
+        "subscriptionId": {
+          "$ref": "#/$defs/Id"
+        },
+        "subscribed": {
+          "const": true
+        },
+        "fps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1920
+        },
+        "version": {
+          "const": 1
+        }
+      }
+    },
+    "ObservationSubscriptionEnd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subscribed"
+      ],
+      "properties": {
+        "subscribed": {
+          "const": false
+        }
+      }
+    },
+    "ObservationFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiVersion",
+        "subscriptionId",
+        "sequence",
+        "type",
+        "status"
+      ],
+      "properties": {
+        "apiVersion": {
+          "$ref": "#/$defs/ApiVersion"
+        },
+        "subscriptionId": {
+          "$ref": "#/$defs/Id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "const": "observation.frame"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "paused"
+          ]
+        },
+        "frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image",
+            "screen",
+            "target",
+            "capturedAt"
+          ],
+          "properties": {
+            "image": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ImageArtifact"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "screen": {
+              "$ref": "#/$defs/ScreenRef"
+            },
+            "target": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ObservedTarget"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "capturedAt": {
+              "$ref": "#/$defs/Timestamp"
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/Error"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ready"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "frame"
+            ],
+            "not": {
+              "required": [
+                "error"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "paused"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "error"
+            ],
+            "not": {
+              "required": [
+                "frame"
+              ]
+            }
+          }
         }
       ]
     },
@@ -8936,6 +9136,22 @@ enum RuntimeContractData {
       "mutation": false,
       "params": "observe_region_v1_params",
       "result": "Observation",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.subscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_subscribe_v1_params",
+      "result": "ObservationSubscription",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.unsubscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "ObservationSubscriptionEnd",
       "status": "implemented"
     },
     {

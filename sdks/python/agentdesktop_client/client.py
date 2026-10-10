@@ -259,6 +259,49 @@ class RuntimeClient:
                                     details={"requestId": req["requestId"]})
             raise
 
+    def observation_frames(self, desktop_id: str, *, fps: int = 1, max_width: int = 1280,
+                           region: Optional[dict] = None) -> Iterator[dict]:
+        """Use a dedicated client connection. Images are transient and are
+        read via artifact.read on another connection of the same principal.
+        Closing this iterator closes only its read-only view connection.
+        """
+        params = {"fps": fps, "maxWidth": max_width}
+        if region is not None:
+            params["region"] = region
+        subscribed = self.call("observe.subscribe", params, context={"desktopId": desktop_id})
+        subscription_id = subscribed.get("subscriptionId")
+        if subscribed.get("version") != 1 or not isinstance(subscription_id, str):
+            raise RuntimeError_("instance_mismatch", "invalid observation subscription", "transport")
+        sequence = 0
+        try:
+            while self._sock is not None:
+                while b"\n" not in self._buf:
+                    try:
+                        chunk = self._sock.recv(65536)
+                    except (socket.timeout, OSError) as e:
+                        raise RuntimeError_("connection_lost", f"no complete observation frame ({e})", "transport")
+                    if not chunk:
+                        return
+                    self._buf += chunk
+                    if len(self._buf) > MAX_FRAME:
+                        raise RuntimeError_("instance_mismatch", "observation frame exceeds 1 MiB", "transport")
+                raw, self._buf = self._buf.split(b"\n", 1)
+                try:
+                    frame = _strict_loads(raw.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError) as e:
+                    raise RuntimeError_("instance_mismatch", f"invalid observation JSON ({e})", "transport")
+                if not isinstance(frame, dict) or frame.get("apiVersion") != API_VERSION \
+                        or frame.get("type") != "observation.frame" or frame.get("subscriptionId") != subscription_id \
+                        or type(frame.get("sequence")) is not int or frame["sequence"] <= sequence \
+                        or frame.get("status") not in ("ready", "paused") \
+                        or (frame["status"] == "ready" and (not isinstance(frame.get("frame"), dict) or "error" in frame)) \
+                        or (frame["status"] == "paused" and (not isinstance(frame.get("error"), dict) or "frame" in frame)):
+                    raise RuntimeError_("instance_mismatch", "invalid observation frame", "transport")
+                sequence = frame["sequence"]
+                yield frame
+        finally:
+            self.close()
+
     # -- typed helpers ---------------------------------------------------
     def status(self) -> dict: return self.call("runtime.status")
     def capabilities(self) -> dict: return self.call("runtime.capabilities")

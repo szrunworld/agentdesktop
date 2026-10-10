@@ -180,6 +180,22 @@
       "status": "implemented"
     },
     {
+      "method": "observe.subscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_subscribe_v1_params",
+      "result": "ObservationSubscription",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.unsubscribe",
+      "stage": "P0",
+      "mutation": false,
+      "params": "empty_params",
+      "result": "ObservationSubscriptionEnd",
+      "status": "implemented"
+    },
+    {
       "method": "request.show",
       "stage": "P0",
       "mutation": false,

@@ -221,7 +221,7 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 | 平台 | runtime.stopAll / enableInput | ✅ | PR1 |
 | Desktop（含 `desktop.bindingStatus` / `desktop.recoverBinding` 扩展 v1） | desktop.list / show / create / destroy；app.list / launch；window.list / bind / unbind | ✅ | — |
 | 会话 | session.open / show / close | ✅ | — |
-| 输入 | observe / act / wait；request.show；`observe.region`（[区域观察扩展 v1](region-observation-v1.md)，需探测 regionObservation.version） | ✅（observe 的 `path` 在 PR2 去掉） | — |
+| 输入 | observe / act / wait；request.show；`observe.subscribe` / `observe.unsubscribe`（只读画面扩展 v1）；`observe.region`（[区域观察扩展 v1](region-observation-v1.md)，需探测 regionObservation.version） | ✅（observe 的 `path` 在 PR2 去掉） | — |
 | Run | run.start / attach / finish / show / events / wait / cancel / list | ✅ | PR1 |
 | Run | unit.run | 🧊 | PR2 |
 | 事件 | events.subscribe / unsubscribe | ✅ | PR2e |

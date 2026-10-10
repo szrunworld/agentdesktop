@@ -41,7 +41,8 @@ public final class ConnectionState: @unchecked Sendable {
     var attachedRuns: Set<String> = []
     /// Set by events.subscribe: the server pushes frames on this connection.
     var subscription: EventSubscription?
-    public var isSubscribed: Bool { subscription != nil }
+    var frameSubscription: ObservationSubscription?
+    public var isSubscribed: Bool { subscription != nil || frameSubscription != nil }
 
     // A4 revocation boundary. Once the owner withdraws this connection's
     // access it is cut: nothing more is sent on it. Every send holds the
@@ -198,7 +199,7 @@ public final class RuntimeService: @unchecked Sendable {
     /// Methods that exist only with a desktop platform.
     static let platformMethods: Set<RuntimeMethod> = [
         .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind, .bindingStatus, .recoverBinding,
-        .sessionOpen, .sessionShow, .sessionClose, .observe, .observeRegionV1,
+        .sessionOpen, .sessionShow, .sessionClose, .observe, .observeRegionV1, .observeSubscribe, .observeUnsubscribe,
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
         .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
     ]
@@ -249,6 +250,7 @@ public final class RuntimeService: @unchecked Sendable {
 
     func implemented(_ m: RuntimeMethod) -> Bool { platform != nil || !Self.platformMethods.contains(m) }
 
+    var observationStreamNow: @Sendable () -> ContinuousClock.Instant = { ContinuousClock().now }
     var nowString: String { Timestamp.string(now()) }
 
     public func respond(to line: Data, on connection: ConnectionState) -> RuntimeResponse {
@@ -279,7 +281,7 @@ public final class RuntimeService: @unchecked Sendable {
                 return .failure(request.requestId, RuntimeError(
                     "handshake_required", "send runtime.handshake first on each connection", phase: .handshake))
             }
-            guard connection.subscription == nil else {
+            guard !connection.isSubscribed else {
                 return .failure(request.requestId, RuntimeError(
                     "conflict", "this connection carries an event subscription; use another connection or send events.unsubscribe",
                     phase: .handler, details: .obj([("reason", .string("subscribed"))])))
@@ -319,7 +321,8 @@ public final class RuntimeService: @unchecked Sendable {
             return .failure(request.requestId, RuntimeError(
                 "handshake_required", "send runtime.handshake first on each connection", phase: .handshake))
         }
-        if connection.subscription != nil, method != .eventsUnsubscribe {
+        if (connection.subscription != nil && method != .eventsUnsubscribe) ||
+           (connection.frameSubscription != nil && method != .observeUnsubscribe) {
             return .failure(request.requestId, RuntimeError(
                 "conflict", "this connection carries an event subscription; use another connection or send events.unsubscribe",
                 phase: .handler, details: .obj([("reason", .string("subscribed"))])))
@@ -351,6 +354,7 @@ public final class RuntimeService: @unchecked Sendable {
 
     /// The connection is gone: Runs it owned take no further input.
     public func connectionClosed(_ connection: ConnectionState) {
+        connection.frameSubscription = nil
         openConnections.remove(connection)
         hub.expirePairings(connectionId: connection.connectionId)
         execution.ownerLost(connection)
@@ -460,7 +464,9 @@ public final class RuntimeService: @unchecked Sendable {
             ] + (platform == nil ? [] : [("regionObservation", .obj([("version", .int(1)),
                  ("method", .string("observe.region")), ("maxWidth", .int(4096))])),
                 ("bindingRecovery", .obj([("version", .int(1)), ("statusMethod", .string("desktop.bindingStatus")),
-                     ("recoveryMethod", .string("desktop.recoverBinding")), ("requiresConfirmation", .bool(true))]))]) + extensions.capabilitySections()))
+                     ("recoveryMethod", .string("desktop.recoverBinding")), ("requiresConfirmation", .bool(true))])),
+                ("liveObservation", .obj([("version", .int(1)), ("method", .string("observe.subscribe")),
+                     ("maxFPS", .int(2)), ("maxWidth", .int(1920))]))]) + extensions.capabilitySections()))
 
         case .desktopList:
             // A paired app sees only the Desktops its grant covers, and of a
@@ -497,6 +503,10 @@ public final class RuntimeService: @unchecked Sendable {
         case .sessionShow: return showSession(p, connection)
         case .sessionClose: return closeSession(p, connection)
         case .observe, .observeRegionV1: return observe(request, connection)
+        case .observeSubscribe: return subscribeObservation(request, connection)
+        case .observeUnsubscribe:
+            connection.frameSubscription = nil
+            return .success(.obj([("subscribed", .bool(false))]))
         case .requestShow: return showRequest(p, connection)
         case .act: return act(request, connection)
         case .wait: return wait(request, connection)

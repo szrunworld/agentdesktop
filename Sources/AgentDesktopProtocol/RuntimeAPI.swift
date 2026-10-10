@@ -38,6 +38,8 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case sessionShow = "session.show"
     case sessionClose = "session.close"
     case observe
+    case observeSubscribe = "observe.subscribe"
+    case observeUnsubscribe = "observe.unsubscribe"
     case observeRegionV1 = "observe.region"
     case requestShow = "request.show"
     case act
