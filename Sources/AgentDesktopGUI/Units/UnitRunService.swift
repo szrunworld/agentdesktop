@@ -34,6 +34,8 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         let verifications: [GuiVerification]
         let allowedActions: [GuiActionKind]
         let limits: GuiLimits
+        /// What admission pinned is held under this until the Run starts.
+        let pinToken: String
 
         var guiProfileId: String? { primary.guiProfileId }
         var guiProfileRevision: Int? { primary.guiProfileRevision }
@@ -132,9 +134,37 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         var limits = resolved.primary.limits
         if let steps = p["limits"]?["maxSteps"]?.intValue { limits.maxSteps = min(limits.maxSteps, steps) }
         if let seconds = p["limits"]?["maxSeconds"]?.intValue { limits.maxWallTimeMs = min(limits.maxWallTimeMs, seconds * 1000) }
+        // Pin what the plan uses now, at admission (codex on ed056dc): from
+        // here no deletion can take it away before the Run starts. A deletion
+        // that slipped in between resolving and pinning is caught by
+        // resolving the same revision once more.
+        let token = "admit-" + UUID().uuidString.lowercased()
+        lock.withLock { pinned[token] = Self.pins(of: [resolved.primary] + resolved.fallback) }
+        do {
+            _ = try await resolver.resolve(guiProfileId: resolved.primary.guiProfileId,
+                                           expectedProfileRevision: resolved.primary.guiProfileRevision, callerScope: callerScope)
+        } catch let e as ContractError {
+            _ = lock.withLock { pinned.removeValue(forKey: token) }
+            return .failure(Self.admissionError(e, explicitProfile: true))
+        } catch {
+            _ = lock.withLock { pinned.removeValue(forKey: token) }
+            return .failure(RuntimeError("internal_error", "the GUI profile could not be resolved", phase: .handler, notSent: true))
+        }
         return .success(Plan(primary: resolved.primary, fallback: resolved.fallback, policyRevision: resolved.policyRevision,
                              goal: Self.goalText(p["goal"] ?? .null), verifications: verifications, allowedActions: allowed,
-                             limits: limits))
+                             limits: limits, pinToken: token))
+    }
+
+    static func pins(of candidates: [GuiCandidate]) -> [(ConfigResourceKind, String)] {
+        candidates.flatMap { c -> [(ConfigResourceKind, String)] in
+            [(.guiProfile, c.guiProfileId), (.modelProfile, c.resolvedModel.model.modelProfileId),
+             (.connection, c.resolvedModel.connection.connectionId)]
+        }
+    }
+
+    public func discard(_ plan: any UnitRunPlan) {
+        guard let plan = plan as? Plan else { return }
+        _ = lock.withLock { pinned.removeValue(forKey: plan.pinToken) }
     }
 
     /// The goal as the model reads it: the description, then the parameter
@@ -191,11 +221,8 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
                                   provider: GuiAiProvider(service: aiService, codecs: codecs, clock: clock), budget: budget,
                                   clock: clock, callerScope: c.callerScope, startedAtNs: startedAt, stopSignal: signal)
         let runId = c.runId
-        let pins = ([plan.primary] + plan.fallback).flatMap { c -> [(ConfigResourceKind, String)] in
-            [(.guiProfile, c.guiProfileId), (.modelProfile, c.resolvedModel.model.modelProfileId),
-             (.connection, c.resolvedModel.connection.connectionId)]
-        }
-        lock.withLock { pinned[runId] = pins }
+        // The admission's pins become the Run's.
+        lock.withLock { pinned[runId] = pinned.removeValue(forKey: plan.pinToken) ?? Self.pins(of: [plan.primary] + plan.fallback) }
         // Armed before the driver can run: a stop accepted at any moment,
         // even before this, keeps the next model call and input from starting.
         let gate = TaskGate()

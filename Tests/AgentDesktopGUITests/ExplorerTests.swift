@@ -515,6 +515,57 @@ struct UnitRunAdmissionTests {
         #expect(!units.pins(.guiProfile, gui["guiProfileId"]!.stringValue!))
     }
 
+    // Codex on ed056dc: admission pins what it resolved, so nothing it will
+    // use can be deleted before the Run starts; a plan never started gives
+    // its pins back.
+    @Test func admissionPinsUntilStartedOrDiscarded() async throws {
+        let h = try GuiHarness([])
+        let gui = try await h.setUpProfile()
+        let units = try #require(h.units)
+        let id = try #require(gui["guiProfileId"]?.stringValue)
+        let plan = try await h.admit().get()
+        #expect(units.pins(.guiProfile, id), "pinned at admission")
+        units.discard(plan)
+        #expect(!units.pins(.guiProfile, id), "given back")
+        let kept = try await h.admit().get()
+        let stop = UnitRunStopHandle()
+        units.start(kept, context: UnitRunContext(runId: "run-pin-1", sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
+                                                  callerScope: "owner", params: h.startParams()),
+                    sink: RecordingSink(runId: "run-pin-1"), stop: stop)
+        units.discard(kept)
+        #expect(units.pins(.guiProfile, id), "a started plan's pins belong to its Run")
+        stop.stop()
+        await units.task(for: "run-pin-1")?.value
+        #expect(!units.pins(.guiProfile, id), "freed when the Run ends")
+    }
+
+    // A change that slips in between resolving and pinning is caught.
+    @Test func admissionResolvesAgainAfterPinning() async throws {
+        final class ChangingResolver: GuiBindingResolver, @unchecked Sendable {
+            let inner: GuiBindingResolver
+            let lock = NSLock()
+            var calls = 0
+            init(_ inner: GuiBindingResolver) { self.inner = inner }
+            func resolve(guiProfileId: String?, expectedProfileRevision: Int?, callerScope: String) async throws
+                -> (primary: GuiCandidate, fallback: [GuiCandidate], policyRevision: Int) {
+                let n = lock.withLock { calls += 1; return calls }
+                if n == 2 { throw ContractError(.notFound, "the GUI profile was deleted") }
+                return try await inner.resolve(guiProfileId: guiProfileId, expectedProfileRevision: expectedProfileRevision,
+                                               callerScope: callerScope)
+            }
+        }
+        let h = try GuiHarness([])
+        let gui = try await h.setUpProfile()
+        let units = UnitRunService(resolver: ChangingResolver(ConfigBindingResolver(store: h.store, codecs: h.codecs)),
+                                   evidence: h.evidence,
+                                   ports: GuiExplorerPorts(observation: h.observation, execution: h.executor, audit: h.audit),
+                                   features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]),
+                                   aiService: h.ai, codecs: h.codecs, clock: h.clock)
+        let r = await units.admit(params: h.startParams(), callerScope: "owner")
+        #expect(refusal(r)?.0 == "not_found")
+        #expect(!units.pins(.guiProfile, gui["guiProfileId"]!.stringValue!), "nothing stays pinned")
+    }
+
     // Codex on 89d4596: a stop accepted while an input is out keeps the
     // pins until the driver exits; nothing it uses can be deleted under it.
     @Test func aStoppedRunKeepsItsPinsUntilItsDriverExits() async throws {
