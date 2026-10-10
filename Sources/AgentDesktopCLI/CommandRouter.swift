@@ -311,10 +311,6 @@ enum CommandRouter {
             if o["--double"] != nil { a.append(("count", .int(2))) }
             return try act(o, a)
         },
-        Spec(words: ["act", "hover"], summary: "move the pointer over an element or image point, without clicking",
-             options: actOptions.merging(["--element": true, "--image-point": true]) { a, _ in a }, positionals: []) { o, _ in
-            try act(o, [("kind", .string("hover")), ("target", try actTarget(o, required: true)!)])
-        },
         Spec(words: ["act", "press"], summary: "press one element through accessibility, with no mouse event",
              options: actOptions.merging(["--element": true]) { a, _ in a }, positionals: []) { o, _ in
             try act(o, [("kind", .string("press")), ("target", .obj([("elementRef", .string(try required(o, "--element")))]))])

@@ -1787,7 +1787,7 @@
           }
         }
       ],
-      "description": "hover moves the pointer over the target without pressing; press is an accessibility press of one element (elementRef only), never an event click; drag (target to `to`) is refused with unsupported_backend where the backend cannot drag in the background (macOS today), never done in the foreground instead"
+      "description": "hover rests the pointer on the target; press is an accessibility press of one element (elementRef only), never an event click; drag goes from target to `to`. hover and drag are refused with unsupported_backend where the backend cannot do them in the background without side effects (macOS today: hover would be a middle click, drag would take the real pointer and the foreground), never done otherwise instead"
     },
     "act_params": {
       "type": "object",

@@ -196,7 +196,7 @@ public final class MCPServer {
             r.context = RequestContext(sessionId: try need("sessionId"))
             copy(["query", "elements"])
             if a["includeImage"]?.boolValue == false { p.append(("screenshot", .bool(false))) }
-        case "act_click", "act_type", "act_key", "act_scroll", "act_hover", "act_press":
+        case "act_click", "act_type", "act_key", "act_scroll", "act_press":
             r.context = RequestContext(sessionId: try need("sessionId"))
             var action: [(String, JSONValue)] = []
             switch tool.name {
@@ -211,9 +211,6 @@ public final class MCPServer {
             case "act_key":
                 action = [("kind", .string("key")), ("key", .string(try need("key")))]
                 if let m = a["modifiers"] { action.append(("modifiers", m)) }
-            case "act_hover":
-                guard let t = try target() else { throw RuntimeError.invalidArgument("give elementRef or x,y") }
-                action = [("kind", .string("hover")), ("target", t)]
             case "act_press":
                 action = [("kind", .string("press")), ("target", .obj([("elementRef", .string(try need("elementRef")))]))]
             default:

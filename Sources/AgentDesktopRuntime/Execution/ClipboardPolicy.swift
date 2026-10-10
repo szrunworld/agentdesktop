@@ -27,8 +27,9 @@ import Foundation
 ///   control whose name says paste, copy or cut (in the languages macOS
 ///   ships) is refused.
 /// - Typing never uses the clipboard (accessibility value writes or unicode
-///   key events; a test keeps it so). Scrolling and hovering neither. A
-///   press (accessibility) is checked like a click on its element. But typed text goes
+///   key events; a test keeps it so). Scrolling neither. A press
+///   (accessibility) is checked like a click on its element. Hovering is
+///   refused: the engine's hover is a middle click, a paste in some apps. But typed text goes
 ///   to the focused element, and its target may be clicked first: both are
 ///   checked like a click.
 /// - Return and Space (by name or as a blank character) press the focused
@@ -53,9 +54,13 @@ enum ClipboardPolicy {
     static func refusal(_ action: PlatformAction, snapshotElement: PlatformElement?, pid: Int32, windowId: UInt32,
                         menu: (pid: Int32, items: [PlatformMenuItem]?)?, platform: DesktopPlatform) -> String? {
         switch action.kind {
-        case .scroll, .hover:
-            // The pointer moves; nothing is pressed or sent to a control.
+        case .scroll:
             return nil
+        case .hover:
+            // The macOS engine hovers with a middle-button press, which some
+            // apps take as paste (Codex P1 on #252). act refuses hover before
+            // this; refused here too should a path reach it.
+            return "hover_middle_click"
         case .type:
             // The engine sends the text character by character: a tab in it
             // moves focus mid-action (to a "Copy" button the next space then
