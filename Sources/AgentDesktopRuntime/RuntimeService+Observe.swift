@@ -32,7 +32,7 @@ extension RuntimeService {
     /// observation is stored. An element read that ran out of time leaves the
     /// observation with its screenshot and `coverage.ax` partial or
     /// unavailable.
-    func observe(_ request: RuntimeRequest, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
+    func observe(_ request: RuntimeRequest, _ c: ConnectionState, readOnlyFrame: Bool = false) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         let p = request.params
         let session: RuntimeSession?
@@ -128,7 +128,7 @@ extension RuntimeService {
                     // capture (Codex on 5e30bb6 and a228d4d: the one that
                     // allowed observe may have run out meanwhile).
                     let live = liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
-                    let persisting = live.first { effectivePermissions($0).contains("persist") }
+                    let persisting = readOnlyFrame ? nil : live.first { effectivePermissions($0).contains("persist") }
                     let observing = live.first { effectivePermissions($0).contains("observe") }
                     guard let g = persisting ?? observing else {
                         // Nothing written stays, uncounted (as for a failed register).
@@ -149,6 +149,7 @@ extension RuntimeService {
                     }
                     keptUnderGrant = g
                 }
+                if readOnlyFrame { transientUntil = min(transientUntil ?? .distantFuture, now().addingTimeInterval(transientArtifactLifetime)) }
                 let info: ArtifactStore.Info
                 do {
                     info = try artifacts.register(artifactId, mediaType: "image/png", clientId: c.clientId,
@@ -317,7 +318,7 @@ extension RuntimeService {
                                    ("windowId", .int(Int(b.windowId))), ("windowFrame", frame.json),
                                    ("title", .string(title))])
             }
-            observations.store(stored)
+            if !readOnlyFrame { observations.store(stored) }
             var m: [(String, JSONValue)] = [("snapshotId", .string(snapshotId)), ("desktopId", .string(d.desktopId))]
             if let session { m.append(("sessionId", .string(session.sessionId))) }
             var coverage: [(String, JSONValue)] = [("screenshot", .string(wantsImage ? "complete" : "not_requested")),
