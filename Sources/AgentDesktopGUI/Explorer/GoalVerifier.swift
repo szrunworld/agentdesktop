@@ -10,7 +10,8 @@ import Foundation
 ///   read can show that something is absent; a partial or unavailable read
 ///   leaves "not found" inconclusive, never true. A `value_equals_parameter`
 ///   whose labelled element is missing, appears twice or has no readable
-///   value is inconclusive too: the verifier never picks one of two.
+///   value is inconclusive too: the verifier never picks one of two. Its one
+///   candidate is unique only on a complete read.
 ///
 /// Combinators: `not` swaps matched and contradicted and keeps inconclusive;
 /// `all` is contradicted when any operand is, matched only when every one
@@ -90,6 +91,10 @@ public struct GoalVerifier: Sendable {
             return found ? .matched : absent
         case let .valueEqualsParameter(role, label, _, value):
             let candidates = elements.filter { $0.role == role && same($0.label, label) }
+            // Two found already are ambiguous however much was read; one
+            // found is unique only when the whole tree was read (Codex on
+            // 3f59d7c: the unread part may hold a second one).
+            if candidates.count == 1, case .inconclusive = absent { return absent }
             guard candidates.count == 1, let shown = candidates[0].value else {
                 if candidates.count > 1 { return .inconclusive(.ambiguous) }
                 if candidates.isEmpty {
