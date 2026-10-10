@@ -31,7 +31,7 @@ struct UnitStack {
     }
 }
 
-func unitStack(configure: Bool = true) async throws -> UnitStack {
+func unitStack(configure: Bool = true, contractTest: Bool = true) async throws -> UnitStack {
     let platform = FormPlatform()
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_unit", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: "/tmp/unit.sock", buildSource: "unknown"),
@@ -56,7 +56,7 @@ func unitStack(configure: Bool = true) async throws -> UnitStack {
             ports: GuiExplorerPorts(observation: ports, execution: ports, audit: UnitTestNoAudit()),
             features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]))))
     runtime.registerUnitExecutor(try #require(service.units), ports: ports)
-    if configure { try await configureArk(service) }
+    if configure { try await configureArk(service, contractTest: contractTest) }
     return UnitStack(platform: platform, runtime: runtime, client: c, desktop: desktop, service: service, upstream: upstream, dir: dir)
 }
 
@@ -68,8 +68,9 @@ struct UnitTestNoAudit: GuiAuditPort {
 }
 
 /// The owner's model configuration: Ark connection, model, UI-TARS GUI
-/// profile set as default (the local owner's scope is uid:<n>).
-func configureArk(_ service: AgentDesktopService) async throws {
+/// profile set as default (the local owner's scope is uid:<n>), and, unless
+/// told otherwise, the capability test it must pass to run (F40-06 row 12).
+func configureArk(_ service: AgentDesktopService, contractTest: Bool = true) async throws {
     let router = service.router(callerScope: "uid:\(getuid())")
     func ai(_ command: String, _ params: JSONValue = .obj([]), key: String? = nil) async throws -> JSONValue {
         switch await router.answer(method: command, params: params, idempotencyKey: key) {
@@ -88,9 +89,38 @@ func configureArk(_ service: AgentDesktopService) async throws {
         ("adapterId", .string("uitars_v1")), ("adapterVersion", .string("1.0.0")), ("promptVersion", .string("uitars-prompt-1")),
         ("parserVersion", .string("uitars-parser-1")), ("coordinateProtocol", .string("normalized_1000")), ("limits", GuiLimits.ceiling.json),
         ("allowedFallbackProfileRefs", .array([]))]), key: "unit-config-g1")
+    if contractTest {
+        func until(_ check: () async throws -> Bool) async throws {
+            for _ in 0..<500 { if try await check() { return }; try await Task.sleep(nanoseconds: 10_000_000) }
+            throw ContractError(.deadlineExceeded, "condition not reached")
+        }
+        let refresh = try await ai("ai.models.refresh", .obj([("connectionId", conn["connectionId"]!), ("expectedRevision", conn["revision"]!)]),
+                                   key: "unit-config-r1")
+        try await until { ["succeeded", "failed"].contains(try await ai("ai.operations.get", .obj([("operationId", refresh["operationId"]!)]))["state"]?.stringValue ?? "") }
+        let test = try await ai("ai.tests.start", .obj([("guiProfileId", gui["guiProfileId"]!), ("expectedRevision", gui["revision"]!),
+                                                        ("fixtureId", .string("synthetic_gui_v1"))]), key: "unit-config-t1")
+        var state = ""
+        try await until {
+            state = try await ai("ai.operations.get", .obj([("operationId", test["operationId"]!)]))["state"]?.stringValue ?? ""
+            return ["succeeded", "failed", "cancelled"].contains(state)
+        }
+        #expect(state == "succeeded", "the capability test must pass for unit.run")
+    }
     let def = try await ai("ai.profiles.default.get")
     _ = try await ai("ai.profiles.setDefault", .obj([("guiProfileId", gui["guiProfileId"]!), ("expectedDefaultRevision", def["default"]!["revision"]!),
                                                     ("expectedProfileRevision", gui["revision"]!)]), key: "unit-config-d1")
+}
+
+// F40-06 row 12 end to end: a GUI profile whose model profile revision has
+// not passed the GUI contract test runs nothing (no Run, no input).
+@Test func aProfileThatHasNotPassedTheContractTestRunsNothing() async throws {
+    let s = try await unitStack(contractTest: false)
+    defer { try? FileManager.default.removeItem(at: s.dir) }
+    let r = await s.call("unit.run", unitRunParams(s.desktop))
+    guard case let .failure(e) = r.result else { Issue.record("must be refused"); return }
+    #expect(e.code == "capability_mismatch" && e.details?["reason"]?.stringValue == "gui_contract_not_passed")
+    #expect(s.runtime.runs.list(RunStore.ListFilter(), after: nil, limit: 10).runs.isEmpty)
+    #expect(s.platform.inputs.isEmpty && s.upstream.runCalls == 0)
 }
 
 func unitRunParams(_ desktop: String, text: String = saved, extra: String = "") -> String {
