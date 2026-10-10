@@ -29,7 +29,7 @@ extension RuntimeService {
         f.method = p["method"]?.stringValue
         f.state = p["state"]?.stringValue.flatMap(RequestLedger.State.init(rawValue:))
         f.desktopId = p["desktopId"]?.stringValue
-        f.since = p["since"]?.stringValue
+        f.since = p["since"]?.stringValue.flatMap(Timestamp.date)
         return f
     }
 

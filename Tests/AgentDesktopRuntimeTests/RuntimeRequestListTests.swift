@@ -121,3 +121,33 @@ private func allPages(_ sc: Scene, filter: String = "", limit: Int, on c: Connec
     #expect(page.records.map(\.requestId) == ["old-1"])
     #expect(page.records.first?.desktopId == nil && page.records.first?.caller == "local:1")
 }
+
+@Test func sinceComparesTimesNotSpellingsAndOldRecordsStayOut() throws {
+    // Codex on a0c3211: `since` in another valid spelling, and the 7-day
+    // retention while the Runtime keeps running.
+    let clock = Clock(Date(timeIntervalSince1970: 1_791_000_000))   // 2026-10-03T…Z
+    let ledger = try RequestLedger(path: nil, now: { clock.now })
+    func write(_ id: String) throws {
+        let r = RuntimeRequest(validated: try StrictJSON.parse(Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(id)","method":"window.unbind","params":{"desktopId":"d_1"}}"#.utf8)))
+        _ = try ledger.begin(caller: "local:1", r, desktopId: "d_1")
+        try ledger.finish(caller: "local:1", requestId: id, .success(.obj([])))
+    }
+    try write("first")
+    let at = clock.now
+    clock.now = at.addingTimeInterval(1)
+    try write("second")
+    var f = RequestLedger.Filter()
+    // The same instant as `second`, without fractional seconds and with an offset.
+    let iso = ISO8601DateFormatter()
+    iso.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
+    f.since = Timestamp.date(iso.string(from: at.addingTimeInterval(1)))
+    #expect(try ledger.list(f, after: nil, limit: 10).records.map(\.requestId) == ["second"])
+    // Eight days on, without a restart: both are past the retention.
+    clock.now = at.addingTimeInterval(8 * 86400)
+    #expect(try ledger.list(RequestLedger.Filter(), after: nil, limit: 10).records.isEmpty)
+}
+
+private final class Clock: @unchecked Sendable {
+    var now: Date
+    init(_ d: Date) { now = d }
+}

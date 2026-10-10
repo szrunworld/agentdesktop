@@ -119,3 +119,23 @@ private func reason(_ r: RuntimeResponse) -> String? { errorDetails(r)?["reason"
     #expect(code(r) == "control_busy")
     #expect(!sc.platform.calls.contains { $0.hasPrefix("resize") })
 }
+
+@Test func quitAndResizeDoNothingOnceTheDeadlinePassedWhileWaiting() throws {
+    // Codex P1 on 2c2f442: a request given up by its client must not quit an
+    // app or resize a screen after waiting for a busy Desktop.
+    let platform = FakePlatform()
+    let sc = try scene(platform)
+    _ = try #require(data(call(sc.s, sc.c, "app.launch", params: #"{"desktopId":"\#(sc.desktop)","bundleId":"com.apple.Notes"}"#)))
+    let desk = try #require(sc.s.desktops.find(sc.desktop))
+    for (method, params) in [("app.quit", #"{"desktopId":"\#(sc.desktop)","pid":303}"#),
+                             ("desktop.resize", #"{"desktopId":"\#(sc.desktop)","width":1024,"height":768}"#)] {
+        desk.lock.lock()   // a slow operation holds the Desktop
+        let line = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"\#(RuntimeRequest.newId())","method":"\#(method)","deadline":"\#(Timestamp.string(Date().addingTimeInterval(0.3)))","params":\#(params)}"#
+        let r = answer(sc.s, line, sc.c)
+        desk.lock.unlock()
+        #expect(code(r) == "deadline_exceeded", "\(method)")
+        if case let .failure(e) = r.result { #expect(e.notSent == true, "\(method)") }
+    }
+    #expect(platform.quit.isEmpty)
+    #expect(!platform.calls.contains { $0.hasPrefix("resize") })
+}
