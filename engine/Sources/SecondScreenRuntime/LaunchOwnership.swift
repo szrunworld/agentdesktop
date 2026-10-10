@@ -181,12 +181,7 @@ public struct AppLaunching: Sendable {
         },
         canPlaceWindows: { WindowMover.isTrusted },
         firstWindow: { pid, timeout in
-            let deadline = Date().addingTimeInterval(timeout)
-            while Date() < deadline {
-                if let window = WindowMover.windows(ofPID: pid).first { return window }
-                try? await Task.sleep(nanoseconds: 200_000_000)
-            }
-            return nil
+            await LaunchOwnership.firstWindow(pid: pid, timeout: timeout, lookup: { WindowMover.windows(ofPID: $0) })
         },
         move: { window, display, fill in WindowMover.move(window, to: display, fill: fill) })
 }
@@ -196,6 +191,39 @@ public struct AppLaunching: Sendable {
 /// the user's apps beyond what the system did when the app was opened, and
 /// then the foreground is handed back.
 public enum LaunchOwnership {
+    /// A synchronous WindowServer lookup is run off the cooperative pool.
+    /// A stalled lookup ends polling; no further workers are queued behind it.
+    static func boundedWindowLookup(pid: pid_t, timeout: TimeInterval,
+                                    lookup: @escaping @Sendable (pid_t) -> [WindowInfo]) async -> [WindowInfo]? {
+        guard timeout > 0, !Task.isCancelled else { return nil }
+        let deadline = ContinuousClock().now.advanced(by: .seconds(timeout))
+        return await withCheckedContinuation { continuation in
+            let gate = WindowLookupGate(continuation)
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = lookup(pid)
+                gate.finish(ContinuousClock().now < deadline ? result : nil)
+            }
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + max(0, timeout)) {
+                gate.finish(nil)
+            }
+        }
+    }
+
+    static func firstWindow(pid: pid_t, timeout: TimeInterval,
+                            lookup: @escaping @Sendable (pid_t) -> [WindowInfo]) async -> WindowInfo? {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(max(0, timeout)))
+        while clock.now < deadline && !Task.isCancelled {
+            let remaining = clock.now.duration(to: deadline).components
+            let seconds = Double(remaining.seconds) + Double(remaining.attoseconds) / 1e18
+            guard let windows = await boundedWindowLookup(pid: pid, timeout: min(0.5, seconds), lookup: lookup) else { return nil }
+            guard !Task.isCancelled else { return nil }
+            if let first = windows.first { return first }
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return nil }
+        }
+        return nil
+    }
+
     /// The environment variable carrying a launch's one-time token.
     public static let tokenVariable = "AGENTDESKTOP_LAUNCH_TOKEN"
 
@@ -390,5 +418,15 @@ public struct LaunchRefusal: Error, Equatable, Sendable {
         self.message = message
         self.opened = opened
         self.reason = reason
+    }
+}
+
+private final class WindowLookupGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<[WindowInfo]?, Never>?
+    init(_ continuation: CheckedContinuation<[WindowInfo]?, Never>) { self.continuation = continuation }
+    func finish(_ result: [WindowInfo]?) {
+        let pending = lock.withLock { let c = continuation; continuation = nil; return c }
+        pending?.resume(returning: result)
     }
 }
