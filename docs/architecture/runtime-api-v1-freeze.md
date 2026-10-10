@@ -54,6 +54,7 @@ ADR v2.2 开工顺序第 2 步（PR2）。本文在迁移之前冻结**唯一的
 | act 的目标与快照检查、G2、截止时间、停止 | `RuntimeService+Act` 投递边界之前的 17 处 | 符合：都在 `markDispatching` 和 `platform.perform` 之前 |
 | 重启时未走到投递边界的 act | `RequestLedger` 恢复逻辑 | 符合：只针对 `act`，并以 `dispatch_started_at` 为证；其他方法在途时记为 unknown |
 | observe 的截图封堵 | `RuntimeService+Observe` | 符合：在截图之前 |
+| **已配对客户端的 ai.* 调用，服务处理期间失去访问权**（grant 过期、被撤销或切断） | `RuntimeService.swift` 扩展方法返回后的复查 | **#203 已修正**：读操作照旧扣下答复，标 `notSent: true`（读不产生外部效果）。写操作若服务已经返回成功（账本写入为尽力而为），答复仍然扣下，但拒绝改为 `notSent: false`，并加 `details.writeOutcome: "completed"`；此前会错标 `notSent: true`，可能导致重复写入。服务自己返回的拒绝或 `request_acceptance_unknown` 原样转发 |
 | **引擎报错时的 `beforeDispatch`** | `EnginePlatform.perform` | **已结构化（#173）**：引擎在每个输入请求里回报 `delivery`（`notPerformed` / `submitted` / `unknown`）。它由执行路径本身记录：事件、焦点或前台切换、真实鼠标移动在**调用之前**标记为已提交；辅助功能的按下和写值按实际返回的错误码记录。记录器只能单向升级，所以复合动作只要提交过任何东西，就不会是未执行。Runtime 只在 `delivery == "notPerformed"` 时标 `notSent`；字段缺失按 unknown 处理。按错误文字判断的 `preDispatchFailures` 和 `notPerformed(message, kind:)` 已删除 |
 
 **另行登记的发现**

@@ -179,19 +179,19 @@
       "code": "client_revoked",
       "exitCode": 4,
       "phase": "handler",
-      "description": "The client was removed; its credential no longer works."
+      "description": "The client was removed; its credential no longer works. On a write the service already did, details.writeOutcome is \"completed\", notSent is false and details.recovery is \"check_outcome_do_not_resubmit\": pairing again gives a new client id that cannot look the request up, so check the outcome and do not submit it again."
     },
     {
       "code": "grant_missing",
       "exitCode": 4,
       "phase": "handler",
-      "description": "The capability, Desktop or app is not in the client's grant."
+      "description": "The capability, Desktop or app is not in the client's grant. On a write the service already did, details.writeOutcome is \"completed\", notSent is false and details.recovery is \"look_up_same_request_id\": only the answer is withheld."
     },
     {
       "code": "grant_expired",
       "exitCode": 4,
       "phase": "handler",
-      "description": "The grant that covered this has expired."
+      "description": "The grant that covered this has expired. On a write the service already did, details.writeOutcome is \"completed\", notSent is false and details.recovery is \"look_up_same_request_id\": only the answer is withheld."
     },
     {
       "code": "permit_expired",

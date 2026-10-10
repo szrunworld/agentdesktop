@@ -133,6 +133,28 @@ import Testing
         #expect(server.methodCalls("request.show").count == 1)
     }
 
+    // #203 (b9 on 38edddd): a Run started whose answer was withheld because
+    // access was withdrawn is neither refused nor sent again: unconfirmed,
+    // the entry stays `.sending`, and a later look finds the Run.
+    @Test func aStartDoneButWithheldIsUnconfirmedThenFoundWithTheSameRequestId() async throws {
+        let server = RTestRuntime()
+        server.methods.append("unit.run")
+        server.unitRun = .doneButWithheld
+        let path = RTest.tempLogPath()
+        let port = try RTest.port(server, logPath: path)
+        #expect(try await port.submit(RTest.submission()) == .unconfirmed)
+        #expect(try ACPSubmissionLog(path: path).entry("sess-1/prompt-1")?.state == .sending)
+        // While the ledger cannot be read, it stays unconfirmed; nothing is resent.
+        server.requestShowFails = true
+        #expect(try await port.submit(RTest.submission()) == .unconfirmed)
+        server.requestShowFails = false
+        let r = try await port.submit(RTest.submission())
+        guard case let .duplicate(snap) = r else { Issue.record("\(r)"); return }
+        #expect(server.runs[snap.runId] != nil)
+        #expect(server.methodCalls("unit.run").count == 1)
+        #expect(try ACPSubmissionLog(path: path).entry("sess-1/prompt-1")?.state == .accepted)
+    }
+
     // T11: unknown is never retried.
     @Test func t11UnknownIsNeverResent() async throws {
         let server = RTestRuntime()
