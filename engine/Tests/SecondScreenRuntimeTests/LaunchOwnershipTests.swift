@@ -512,3 +512,37 @@ extension Result where Failure == LaunchRefusal {
     #expect(sys.opened == 1, "tried once, never retried")
     #expect(sys.focusReturned.isEmpty && sys.moves == 0 && sys.binds.isEmpty && sys.quitPIDs.isEmpty)
 }
+
+@Test(arguments: ["target", "unchanged", "other", "restoreFailed"])
+func failedOpenRestoresOnlyTheTargetForeground(scenario: String) async throws {
+    let sys = ScriptedSystem()
+    let (app, cleanup) = try tempApp(sys)
+    defer { cleanup() }
+    var l = sys.launching
+    l.frontmost = { sys.lock.withLock {
+        sys.opened == 0 || scenario == "unchanged" ? 77 : scenario == "other" ? 88 : 500
+    } }
+    l.open = { _, _ in
+        sys.lock.withLock {
+            sys.opened += 1
+            sys.running[500] = sys.bundles[app.path]?.id
+        }
+        return .failure(CocoaError(.executableLoad))
+    }
+    l.restoreFocusOnce = { previous, expected in
+        sys.lock.withLock { sys.focusReturned.append((previous, expected)) }
+        return scenario != "restoreFailed"
+    }
+    let result = await LaunchOwnership.openOwnedProcess(app, newInstance: true, using: l)
+    guard case let .failure(refusal) = result else { Issue.record("expected launch failure"); return }
+    #expect(refusal.reason == "launch_failed")
+    #expect(sys.opened == 1)
+    #expect(sys.moves == 0 && sys.binds.isEmpty && sys.quitPIDs.isEmpty)
+    if scenario == "target" || scenario == "restoreFailed" {
+        #expect(sys.focusReturned.count == 1)
+        #expect(sys.focusReturned.first?.0 == 77 && sys.focusReturned.first?.1 == 500)
+        #expect(refusal.message.contains(scenario == "target" ? "was restored" : "not confirmed"))
+    } else {
+        #expect(sys.focusReturned.isEmpty)
+    }
+}
