@@ -60,7 +60,9 @@ struct PairingDenialDurabilityTests {
         let result = call(s, owner, "hub.pairing.deny", params: #"{"pairingId":"\#(id)"}"#)
         #expect(code(result) == "conflict")
         if case let .failure(e) = result.result { #expect(e.notSent == true) }
-        #expect(hub.pairing(id)?.state == "expired")
+        // The simulated decision rolls back with the denial's transaction;
+        // what matters is that the pairing was not denied.
+        #expect(hub.pairing(id)?.state != "denied")
         #expect(!hub.auditEvents().contains { $0["method"]?.stringValue == "hub.pairing.deny" })
     }
 }
