@@ -8,6 +8,11 @@ import Testing
 // `@Suite(.serialized)` (one main actor per process, so suites in different
 // test modules do not overlap either). This keeps a new pasteboard test from
 // slipping outside that (docs/security/clipboard-concurrency.md).
+//
+// Limits (b9 on #264): a textual check, not a compiler guarantee. It reads
+// the Swift sources under engine/Tests, Swift Testing suites written as
+// `struct` and top-level `@Test` functions; XCTest classes and the root
+// package's tests are outside it.
 @Suite struct PasteboardSerializationPolicyTests {
     static let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 
@@ -51,8 +56,33 @@ import Testing
     static let touchesPasteboard = pasteboardMarkers + ["scratch()", ".pasteboard ="]
     static let serializedFiles: Set<String> = ["PasteboardSnapshotTests.swift", "IPhonePasteTests.swift"]
 
-    /// (files touching a pasteboard outside the serialized files, suites
-    /// touching one without both attributes, serialized suites found).
+    /// Each top-level `@Test` function in `text` (not inside a suite): its
+    /// name and body up to the next declaration at column 0.
+    static func topLevelTests(in text: String) -> [(name: String, body: String)] {
+        let lines = text.components(separatedBy: "\n")
+        var found: [(String, String)] = []
+        for (i, line) in lines.enumerated() where line.hasPrefix("@Test") {
+            // The declaration is on this line or the next attribute lines.
+            var j = i
+            while j < lines.count, !lines[j].contains("func ") { j += 1 }
+            guard j < lines.count, let range = lines[j].range(of: "func ") else { continue }
+            let name = String(lines[j][range.upperBound...].prefix { $0.isLetter || $0.isNumber || $0 == "_" })
+            var end = j + 1
+            while end < lines.count {
+                let l = lines[end]
+                if let first = l.first, first != "}", first != "/", !first.isWhitespace { break }
+                end += 1
+            }
+            found.append((name, lines[j...min(end, lines.count) - 1].joined(separator: "\n")))
+        }
+        return found
+    }
+
+    /// (files touching a pasteboard outside the serialized files, suites or
+    /// top-level tests touching one without the serialized suite's
+    /// attributes, serialized suites found). A top-level `@Test` is never
+    /// serialized with the suites: one that touches a pasteboard is refused
+    /// (Codex on #264).
     static func violations(_ files: [(name: String, text: String)]) -> (outside: [String], unserialized: [String], serialized: Int) {
         var outside: [String] = []
         var unserialized: [String] = []
@@ -66,6 +96,9 @@ import Testing
                 } else {
                     unserialized.append("\(name): \(suite.name)")
                 }
+            }
+            for test in topLevelTests(in: text) where touchesPasteboard.contains(where: test.body.contains) {
+                unserialized.append("\(name): top-level @Test \(test.name)")
             }
         }
         return (outside, unserialized, serialized)
@@ -89,6 +122,15 @@ import Testing
             let found = Self.violations([("SneakyTests.swift", text)])
             #expect(found.outside == ["SneakyTests.swift"], "\(call)")
             #expect(found.unserialized == ["SneakyTests.swift: Sneaky"], "\(call)")
+        }
+        // Codex on #264: a top-level @Test in an allowed file, outside any
+        // suite, is not serialized with them.
+        for attrs in ["@Test", "@MainActor\n@Test"] {
+            let text = "func scratchPasteboard() -> NSPasteboard { NSPasteboard(name: .init(\"x\")) }\n\n"
+                + "\(attrs) func looseOne() {\n    _ = scratchPasteboard()\n}\n"
+            let found = Self.violations([("PasteboardSnapshotTests.swift", text)])
+            #expect(found.outside.isEmpty)
+            #expect(found.unserialized == ["PasteboardSnapshotTests.swift: top-level @Test looseOne"], "\(attrs)")
         }
         let clean = Self.violations([("PlainTests.swift", "@Suite struct Plain {\n    @Test func t() {}\n}\n")])
         #expect(clean.outside.isEmpty && clean.unserialized.isEmpty)
