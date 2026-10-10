@@ -380,12 +380,12 @@ class WatchdogTests(unittest.TestCase):
             # the same second (lstart is exact to the second).
             run.snapshot(force=True)
             self.assertIn(bystander.pid, run.seen)
-            real = wd.os.killpg
-            wd.os.killpg = lambda *a: None  # the group signal is not what is tested here
+            real = wd.kill_command
+            wd.kill_command = lambda *a: None  # killing the command itself is not what is tested here
             try:
                 run.stop()
             finally:
-                wd.os.killpg = real
+                wd.kill_command = real
             time.sleep(0.3)
             self.assertIsNone(bystander.poll(), "the process that reused the reaped pid was killed")
             self.assertFalse(run.root_alive)
@@ -419,12 +419,12 @@ class WatchdogTests(unittest.TestCase):
                 run.idents = {pid: ident for pid in found}
                 return found
             run.members = members
-            real = wd.os.killpg
-            wd.os.killpg = lambda *a: None
+            real = wd.kill_command
+            wd.kill_command = lambda *a: None
             try:
                 run.stop()
             finally:
-                wd.os.killpg = real
+                wd.kill_command = real
             time.sleep(0.3)
             self.assertIsNone(bystander.poll(), "a target taken before the wait was killed")
             self.assertTrue(run.root_alive)
@@ -541,15 +541,15 @@ class WatchdogTests(unittest.TestCase):
                     procs[stranger.pid] = (root.pid,) + procs[stranger.pid][1:]
                 return procs
             wd.processes = lying
-            real_killpg = wd.os.killpg
-            wd.os.killpg = lambda *a: None
+            real_killpg = wd.kill_command
+            wd.kill_command = lambda *a: None
             try:
                 run = wd.Run(root.pid, None, uuid.uuid4().hex, time.time())
                 self.assertNotIn(stranger.pid, run.members())
                 self.assertIn(stranger.pid, run.unverifiable)
                 run.stop()
             finally:
-                wd.processes, wd.os.killpg = real, real_killpg
+                wd.processes, wd.kill_command = real, real_killpg
             time.sleep(0.3)
             self.assertIsNone(stranger.poll(), "an unverified process was signalled")
             out = tempfile.mkdtemp(prefix="watchdog-test-")
@@ -581,8 +581,8 @@ class WatchdogTests(unittest.TestCase):
                 listed[gone.pid] = True
                 return procs
             wd.processes = with_the_gone_child
-            real_killpg = wd.os.killpg
-            wd.os.killpg = lambda *a: None
+            real_killpg = wd.kill_command
+            wd.kill_command = lambda *a: None
             try:
                 # Started in the future: nothing is a marker candidate, so
                 # only the link check can make anything unverified here.
@@ -594,7 +594,7 @@ class WatchdogTests(unittest.TestCase):
                 self.assertEqual(run.unverifiable, {})
                 run.stop()
             finally:
-                wd.processes, wd.os.killpg = real, real_killpg
+                wd.processes, wd.kill_command = real, real_killpg
             out = tempfile.mkdtemp(prefix="watchdog-test-")
             wd.record_stop(run, out)
             with open(os.path.join(out, "diagnosis.json")) as f:
@@ -1018,6 +1018,56 @@ class WatchdogTests(unittest.TestCase):
         step = report["steps"][0]
         self.assertEqual(step["status"], "partial", step)
         self.assertIn("last look before reaping the command was not taken", step["detail"])
+
+    def test_a_stop_never_signals_another_users_process_in_the_group(self):
+        # Codex on #215 (P1): a group signal reaches every member of the
+        # command's group, another user's too (sudo's), wherever the
+        # permissions allow. The stop signals the command itself and this
+        # user's checked members, one by one; never the group, never theirs.
+        wd = self.load()
+        root = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        theirs = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+
+        class Reaped:
+            def wait(self, timeout=None):
+                return root.wait(timeout=5)
+        real_processes, real_kill, real_killpg = wd.processes, wd.os.kill, wd.os.killpg
+        kills, groups = [], []
+
+        def listing(deadline=None, problems=None, foreign=None):
+            procs = real_processes(deadline, problems, foreign)
+            # "theirs" in the command's group, as another user's process.
+            row = procs.pop(theirs.pid)
+            if foreign is not None:
+                foreign[theirs.pid] = (row[0], root.pid, row[2], "a process sudo started", 0, 0)
+            return procs
+        wd.processes = listing
+        wd.os.kill = lambda pid, sig: (kills.append(pid), real_kill(pid, sig))
+        wd.os.killpg = lambda *a: groups.append(a)
+        try:
+            run = wd.Run(root.pid, None, uuid.uuid4().hex, time.time(), Reaped())
+            run.stop()
+        finally:
+            wd.processes, wd.os.kill, wd.os.killpg = real_processes, real_kill, real_killpg
+        try:
+            self.assertEqual(groups, [], "a group signal was sent")
+            self.assertNotIn(theirs.pid, kills, "another user's process was signalled")
+            self.assertIn(root.pid, kills, "the command itself was not stopped")
+            self.assertIsNone(theirs.poll())
+            self.assertIn(theirs.pid, run.outcome["running"])
+        finally:
+            theirs.kill()
+            theirs.wait()
+
+    def test_the_spindump_is_of_a_process_still_there(self):
+        # Codex on #215: only another user's process left: the spindump is
+        # of it, not of the reaped command; none left: none.
+        wd = self.load()
+        run = wd.Run(999999, None, uuid.uuid4().hex, time.time())
+        self.assertIsNone(wd.spindump_target({}, run))
+        run.foreign_members = {4242: ((1, 2), "sudo's", 0, 0)}
+        self.assertEqual(wd.spindump_target({}, run), 4242)
+        self.assertEqual(wd.spindump_target({777: "ours"}, run), 777)
 
 
 if __name__ == "__main__":

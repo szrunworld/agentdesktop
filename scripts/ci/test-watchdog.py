@@ -293,6 +293,21 @@ def processes(deadline=None, problems=None, foreign=None):
     return procs
 
 
+def spindump_target(procs, run):
+    """The process to take a spindump of: one of the run's still there,
+    this user's first, else another user's (Codex on #215: never the
+    reaped command); None when none is left."""
+    return next(iter(procs), None) or next(iter(run.foreign_members), None)
+
+
+def kill_command(pid):
+    """SIGKILL the command (the watchdog's own unreaped child) only."""
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 def exited_unreaped(pid):
     """Whether the child has exited, without reaping it (WNOWAIT): until it
     is reaped its pid and group id cannot be given to another process."""
@@ -499,6 +514,10 @@ class Run:
         unlinked = self._unlinked
         # Other users' processes of the run: found in the tree now, or seen
         # in it before, still the same process. Never signalled (#206).
+        # Remembered once found: after the command is reaped they can be
+        # found only by what was seen.
+        for pid, row in self._foreign_linked.items():
+            self.seen_foreign.setdefault(pid, row)
         members = dict(self._foreign_linked)
         for pid, row in self.seen_foreign.items():
             if pid in foreign and foreign[pid][2] == row[0]:
@@ -617,9 +636,9 @@ class Run:
         return found
 
     def stop(self):
-        """Take the whole set first, then kill: the group (only while the
-        command is unreaped, so the group id is surely its own), then each
-        confirmed process. Every per-pid signal follows a fresh look and is
+        """Take the whole set first, then kill: the command itself (only
+        while it is unreaped), then each confirmed process of this user; no
+        group signal, and never another user's process. Every per-pid signal follows a fresh look and is
         checked against the kernel right before it is sent (signal())."""
         # What went wrong in any scan of the stop is kept to the end: a scan
         # that failed may have missed a process a later scan can no longer
@@ -640,10 +659,13 @@ class Run:
             return found
         targets = look()
         if self.root_alive:
-            try:
-                os.killpg(self.root, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+            # The command itself, alone: it is the watchdog's own child, not
+            # yet reaped, so its pid is surely its own (this needs no kernel
+            # read). Never its whole group: another user's process in it
+            # (sudo's) must not be signalled, and a group signal would reach
+            # it wherever the permissions allow (Codex on #215). The rest of
+            # the group is this user's members, each checked by signal().
+            kill_command(self.root)
             # Reap the command at once, within a limit: unreaped, it would
             # be reported as not stopped (#194). Once reaped its pid and group
             # id may be reused, so from then on neither is used.
@@ -781,10 +803,15 @@ def diagnose(run, started, finished, out_dir, why, trigger, last_output, exit_st
     elif remaining() < 10:
         step("spindump", "skipped", f"diagnosis budget left: {max(remaining(), 0):.0f} s")
     else:
-        target = next(iter(procs), run.root)
-        ok, _, detail = run_step(["sudo", "-n", "spindump", str(target), "5", "-file",
-                                  os.path.join(out_dir, "spindump.txt")], timeout=min(90, remaining()))
-        step("spindump", "ok" if ok else "unavailable", detail)
+        # A process of the run still there: this user's first, else another
+        # user's (Codex on #215: never the reaped command).
+        target = spindump_target(procs, run)
+        if target is None:
+            step("spindump", "skipped", "no process of the run is left to take it of")
+        else:
+            ok, _, detail = run_step(["sudo", "-n", "spindump", str(target), "5", "-file",
+                                      os.path.join(out_dir, "spindump.txt")], timeout=min(90, remaining()))
+            step("spindump", "ok" if ok else "unavailable", detail)
     missing = [s["step"] for s in report["steps"] if s["status"] != "ok"]
     print(f"=== reports in {out_dir}; incomplete steps: {', '.join(missing) or 'none'} ===", flush=True)
 
