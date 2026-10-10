@@ -237,7 +237,8 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     /// Whether a window above the normal layer counts as covering what is
     /// under it: fail closed. Only three things are left out: the Dock's
     /// display-wide layer, anything confined to the menu bar strip (status
-    /// items, the menu bar itself), and anchor windows under 4×4 points.
+    /// items, the menu bar itself), and anchor windows under 4×4 points
+    /// (both sides).
     /// An unknown layer spanning the whole display (a gesture utility's
     /// transparent overlay looks exactly like an opaque one in the window
     /// list) counts: what the user sees may not be what is acted on.
@@ -246,7 +247,9 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
             && f.x + f.width >= s.x + s.width - 1 && f.y + f.height >= s.y + s.height - 1
         if furniture.contains(owner) && spansDisplay { return false }
         if f.y <= s.y + 1 && f.y + f.height <= s.y + menuBar + 1 { return false }
-        if f.width < 4 || f.height < 4 { return false }
+        // Only a window small in both directions is an anchor; a thin but
+        // long panel can still take a click (Codex on 4952c9e).
+        if f.width < 4 && f.height < 4 { return false }
         return true
     }
 

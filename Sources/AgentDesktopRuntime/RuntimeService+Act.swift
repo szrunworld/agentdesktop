@@ -406,7 +406,10 @@ extension RuntimeService {
                                        details: .obj([("reason", .string("process_exited")), ("generation", .int(b.generation))]))
                 }
                 try refuseMirroring(b.process.pid)
-                try refuseChangedDisplay(d, b, notSent: true)
+                // On the user's screen, the same target checks as observe and
+                // act: display unchanged, nothing over the window (Codex on
+                // 1994bca and 4952c9e).
+                if d.kind == .physical { _ = try exposedTarget(d, b, notSent: true) }
                 bound = b
                 observations.invalidateElementRefs(desktopId: d.desktopId)
                 return .null
@@ -430,8 +433,9 @@ extension RuntimeService {
                 }
                 // Still allowed to see it before anything read is answered.
                 _ = try windowUse(c, d, b, "observe", method: "wait", audit: false)
-                // And still on the display it was read against (Codex on 1994bca).
-                try refuseChangedDisplay(d, b, notSent: true)
+                // And still exposed on the display it was read against, so
+                // nothing that appeared during the read is answered.
+                if d.kind == .physical { _ = try exposedTarget(d, b, notSent: true) }
                 let snapshotId = DesktopRegistry.newId(prefix: "obs")
                 var stored = StoredObservation(snapshotId: snapshotId, desktopId: d.desktopId, capturedAt: nowString,
                                                screen: d.screen, binding: b, windowFrame: read?.window.frame, transform: nil,

@@ -382,6 +382,8 @@ final class LockedStrings: @unchecked Sendable {
     #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Dock"), "the Dock's display-wide layer")
     #expect(covers(Rect(x: 600, y: 500, width: 240, height: 300), "Dock"), "a Dock menu or folder stack counts (Codex on 1994bca)")
     #expect(!covers(Rect(x: 0, y: 38, width: 1, height: 1), "Typeless"), "a 1×1 anchor")
+    #expect(covers(Rect(x: 300, y: 200, width: 3, height: 400)), "a thin but long panel counts (Codex on 4952c9e)")
+    #expect(covers(Rect(x: 300, y: 200, width: 400, height: 3)), "and lying down")
 }
 
 @Test func noPathCapturesTheUsersScreenOnAPhysicalDesktop() throws {
@@ -423,4 +425,25 @@ final class LockedStrings: @unchecked Sendable {
                   context: #"{"sessionId":"\#(sc.session)"}"#)
     #expect(failure(w2)?.details?["reason"]?.stringValue == "display_changed", "\(w2.json.encoded())")
     #expect(sc.platform.calls.filter { $0.hasPrefix("elements") }.count > reads, "the read happened; the store was refused")
+}
+
+@Test func aWaitOnAPhysicalDesktopStopsWhenSomethingCoversTheWindow() throws {
+    // Codex on 4952c9e: wait polls check exposure like observe and act.
+    let sc = try physicalScene()
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 501, pid: 600, appName: "NotificationCenter", title: "",
+                                                               frame: Rect(x: 50, y: 30, width: 350, height: 80))]
+    let reads = sc.platform.calls.filter { $0.hasPrefix("elements") }.count
+    let w = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                 context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w)?.details?["reason"]?.stringValue == "occluded", "\(w.json.encoded())")
+    #expect(sc.platform.calls.filter { $0.hasPrefix("elements") }.count == reads, "nothing was read")
+    // Something that appears during the read: the poll's result is not stored or answered.
+    sc.platform.overlayWindows["physical-1"] = []
+    sc.platform.onElements = {
+        sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 502, pid: 600, appName: "X", title: "",
+                                                                   frame: Rect(x: 50, y: 30, width: 350, height: 80))]
+    }
+    let w2 = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                  context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w2)?.details?["reason"]?.stringValue == "occluded", "\(w2.json.encoded())")
 }
