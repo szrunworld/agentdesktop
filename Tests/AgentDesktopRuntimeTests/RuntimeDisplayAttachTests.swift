@@ -189,6 +189,46 @@ private func attach(_ s: RuntimeService, _ c: ConnectionState, display: Int = 1,
     #expect(s.hub.grant(aId)?.desktops == ["created"])
 }
 
+@Test func detachingFromSeveralClientsIsAllOrNothing() throws {
+    // Codex on fdb5477: a grant write that fails for the second client
+    // leaves the first one's grant, window grants and connection as they were.
+    let platform = FakePlatform()
+    let s = displayService(platform)
+    let owner = handshaken(s)
+    let (a, aId, _) = try pairedClient(s, capabilities: ["observe", "act", "desktop.manage"], desktops: ["created"],
+                                       apps: ["com.apple.calculator"], name: "a")
+    let (b, bId, _) = try pairedClient(s, capabilities: ["observe"], desktops: [], name: "b")
+    let d = try #require(data(attach(s, owner, client: aId))?["desktop"]?["desktopId"]?.stringValue)
+    _ = try #require(data(attach(s, owner, client: bId)))
+    let wg = try grantWindow(s, clientId: aId, desktopId: d)
+    s.hub.grantWritesBeforeFailure = 1
+    let r = call(s, owner, "hub.displays.detach", params: #"{"desktopId":"\#(d)"}"#)
+    #expect(code(r) == "audit_unavailable", "\(r.json.encoded())")
+    #expect(s.hub.grant(aId)?.desktops.contains(d) == true && s.hub.grant(bId)?.desktops == [d])
+    #expect(s.hub.windowGrant(wg.windowGrantId)?.state == "active")
+    #expect(a.cutReason == nil && b.cutReason == nil && s.desktops.find(d) != nil)
+    // The same for the owner's destroy.
+    s.hub.grantWritesBeforeFailure = 1
+    #expect(code(call(s, owner, "desktop.destroy", params: #"{"desktopId":"\#(d)"}"#)) == "audit_unavailable")
+    #expect(s.hub.grant(aId)?.desktops.contains(d) == true && s.hub.windowGrant(wg.windowGrantId)?.state == "active")
+    s.hub.grantWritesBeforeFailure = nil
+    #expect(data(call(s, owner, "hub.displays.detach", params: #"{"desktopId":"\#(d)"}"#))?["grants"]?.arrayValue?.count == 2)
+}
+
+@Test func anAttachedDisplayKeepsItsDesktopsNameWhateverIsAsked() throws {
+    // Codex on fdb5477: the confirmation shows the name that applies.
+    let window = FakeConfirmer()
+    let s = displayService(FakePlatform(), confirmer: window)
+    let owner = handshaken(s)
+    let (_, aId, _) = try pairedClient(s, capabilities: ["observe"], desktops: ["created"], name: "a")
+    let (_, bId, _) = try pairedClient(s, capabilities: ["observe"], desktops: [], name: "b")
+    _ = try #require(data(attach(s, owner, client: aId, name: "第一次的名字")))
+    let r = try #require(data(attach(s, owner, client: bId, name: "另一个名字")))
+    #expect(r["desktop"]?["name"]?.stringValue == "第一次的名字" && r["created"]?.boolValue == false)
+    #expect(window.requests.last?.details["desktop"]?["name"]?.stringValue == "第一次的名字")
+    #expect(window.requests.last?.details["desktop"]?["desktopId"]?.stringValue == r["desktop"]?["desktopId"]?.stringValue)
+}
+
 @Test func aGrantThatExpiredWhileTheUserDecidedGetsNoDesktop() throws {
     let platform = FakePlatform()
     let s = displayService(platform, confirmer: nil)

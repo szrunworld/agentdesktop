@@ -62,11 +62,14 @@ extension RuntimeService {
                           "display \(displayId) is not proved to be one of your physical displays (\(display.origin.rawValue)\(display.originDetail.map { ": " + $0 } ?? ""))")
         }
         let existing = desktops.physical(displayId: displayId)
+        // An attached display keeps its Desktop's name: what is shown is
+        // what applies (Codex on fdb5477); a given name counts only for a
+        // Desktop made now.
         let name: String
-        if let given = p["name"]?.stringValue {
-            name = given
-        } else if let existing {
+        if let existing {
             name = existing.name
+        } else if let given = p["name"]?.stringValue {
+            name = given
         } else {
             // A default name the owner has not used yet.
             let base = String(display.name.prefix(60))
@@ -87,8 +90,12 @@ extension RuntimeService {
         ])
         let seenRevision = grant.revision
         if case let .failure(e) = confirm(.displayAttach, by: c, action: "hub.displays.attach", details: details) { return .failure(e) }
-        // Checked again after the user decided: the client and its grant,
-        // and the display, as they are now.
+        // Under the lock attach shares with detach and destroy, and only
+        // then checked again (Codex on fdb5477: the wait for the lock is
+        // part of the time the grant may expire in): the client and its
+        // grant, and the display, as they are now.
+        createLock.lock()
+        defer { createLock.unlock() }
         guard let g2 = hub.grant(clientId), g2.state == "active", hub.client(clientId)?.state == "active", g2.revision == seenRevision else {
             return .failure(RuntimeError("conflict", "\(clientId) changed while the user was asked; ask again", phase: .handler, notSent: true,
                                          details: .obj([("reason", .string("target_changed"))])))
@@ -103,8 +110,6 @@ extension RuntimeService {
             return .failure(RuntimeError("conflict", "display \(displayId) changed while the user was asked; ask again", phase: .handler, notSent: true,
                                          details: .obj([("reason", .string("display_changed"))])))
         }
-        createLock.lock()
-        defer { createLock.unlock() }
         let d: DesktopRecord
         let created: Bool
         if let attached = desktops.physical(displayId: displayId), attached.state != "destroyed" {
@@ -189,37 +194,33 @@ extension RuntimeService {
     }
 
     /// Remove a Desktop from the grants of one client (`only`) or of every
-    /// client: each one's window grants on it end in the same transaction,
-    /// its connections are cut, its Runs and sessions there stop. Shared by
+    /// client, in one transaction (Codex on fdb5477: all or none, and never
+    /// over a newer grant): with `endingWindowGrants` each one's window
+    /// grants on it end in that transaction too. Then its connections are
+    /// cut and its Runs and sessions there stop. Shared by
     /// hub.displays.detach and the owner's desktop.destroy of a physical
     /// Desktop (Codex on a6a9088: no grant keeps a dropped Desktop's id).
-    /// With `endingWindowGrants` false the window grants were already ended
-    /// by the caller (desktop.destroy, reason desktop_destroyed) and keep
-    /// that reason.
+    /// With `endingWindowGrants` false the caller ends the window grants
+    /// itself (desktop.destroy, reason desktop_destroyed).
     func takeDesktopFromGrants(_ id: String, only: String?, by c: ConnectionState, endingWindowGrants: Bool = true)
         -> Result<[HubStore.Grant], RuntimeError> {
-        var touched: [HubStore.Grant] = []
-        for client in hub.clients() where only == nil || client.clientId == only {
-            guard var g = hub.grant(client.clientId), g.desktops.contains(id) else { continue }
-            g.desktops.removeAll { $0 == id }
-            let saved: HubStore.Grant
-            let ended: [(id: String, reason: String)]
-            do {
-                (saved, ended) = try hub.setGrant(g, endingWindowGrants: endingWindowGrants ? { w in w.desktopId == id ? "desktop_removed" : nil } : nil)
-            } catch {
-                return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable; \(client.clientId) still holds desktop \(id)",
-                                             phase: .handler, notSent: true))
-            }
+        let changes: [(grant: HubStore.Grant, ended: [(id: String, reason: String)])]
+        do {
+            changes = try hub.removeDesktop(id, fromGrantsOf: only.map { [$0] }, endingReason: endingWindowGrants ? "desktop_removed" : nil)
+        } catch {
+            return .failure(RuntimeError("audit_unavailable", "the grant store is unavailable; nothing was taken back from desktop \(id)",
+                                         phase: .handler, notSent: true))
+        }
+        for (saved, ended) in changes {
             for e in ended { endedWindowGrants([e.id], state: hub.windowGrant(e.id)?.state ?? "ended", reason: e.reason) }
-            cutConnections(of: client.clientId, reason: "grant_narrowed")
-            for r in activeRuns(of: client.clientId) where r.desktopId == id {
+            cutConnections(of: saved.clientId, reason: "grant_narrowed")
+            for r in activeRuns(of: saved.clientId) where r.desktopId == id {
                 _ = execution.stop(runId: r.runId, reason: "grant_narrowed", endAs: .cancelled)
             }
-            sessions.closeAll(desktopId: id, caller: client.clientId, at: nowString)
-            hub.audit(connectionId: c.connectionId, clientId: client.clientId, method: "hub.displays.detach", decision: "revoked",
+            sessions.closeAll(desktopId: id, caller: saved.clientId, at: nowString)
+            hub.audit(connectionId: c.connectionId, clientId: saved.clientId, method: "hub.displays.detach", decision: "revoked",
                       reason: "\(id) revision \(saved.revision)")
-            touched.append(saved)
         }
-        return .success(touched)
+        return .success(changes.map(\.grant))
     }
 }
