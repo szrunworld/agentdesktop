@@ -57,6 +57,11 @@ public enum EndpointResolver {
             return RuntimeError("permission_denied", "\(path) belongs to uid \(st.st_uid), not this user",
                                 phase: .connect, notSent: true, details: .obj([("endpoint", .string(path))]))
         }
+        // A Runtime socket is owner-only; one open to others is not trusted.
+        if st.st_mode & 0o077 != 0 {
+            return RuntimeError("permission_denied", "\(path) is open to other users (mode \(String(st.st_mode & 0o777, radix: 8)))",
+                                phase: .connect, notSent: true, details: .obj([("endpoint", .string(path))]))
+        }
         return nil
     }
 }
