@@ -198,7 +198,7 @@ public final class RuntimeService: @unchecked Sendable {
     /// Methods that exist only with a desktop platform.
     static let platformMethods: Set<RuntimeMethod> = [
         .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind,
-        .sessionOpen, .sessionShow, .sessionClose, .observe,
+        .sessionOpen, .sessionShow, .sessionClose, .observe, .observeRegionV1,
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
         .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
     ]
@@ -457,7 +457,8 @@ public final class RuntimeService: @unchecked Sendable {
                                           ("accessibility", .string(perms.accessibility.rawValue))])),
                     ("features", .array(backend.features().map(JSONValue.string))),
                 ])),
-            ] + extensions.capabilitySections()))
+            ] + (platform == nil ? [] : [("regionObservation", .obj([("version", .int(1)),
+                 ("method", .string("observe.region")), ("maxWidth", .int(4096))]))]) + extensions.capabilitySections()))
 
         case .desktopList:
             // A paired app sees only the Desktops its grant covers, and of a
@@ -491,7 +492,7 @@ public final class RuntimeService: @unchecked Sendable {
         case .sessionOpen: return openSession(p, connection)
         case .sessionShow: return showSession(p, connection)
         case .sessionClose: return closeSession(p, connection)
-        case .observe: return observe(request, connection)
+        case .observe, .observeRegionV1: return observe(request, connection)
         case .requestShow: return showRequest(p, connection)
         case .act: return act(request, connection)
         case .wait: return wait(request, connection)
