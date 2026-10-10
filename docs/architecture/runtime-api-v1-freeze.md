@@ -245,6 +245,7 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 | GUI 参数 | ai.profiles.list / get / create / update / disable / delete / default.get / setDefault | ✅ PR2b-1 | PR2b |
 | 能力检测 | ai.tests.start；ai.operations.get / cancel | ✅ PR2b-1 | PR2b |
 | 用量 | ai.usage.summary | ✅ PR2b-1 | PR2b |
+| Desktop 控制面 | request.list / export（见下文「动作记录（A5）」） | ✅ | A5 PR③ |
 | Desktop 控制面 | desktop.closePlan / resize；app.quit（见下文「关闭计划、退出应用与调整尺寸（A5）」） | ✅ | A5 PR② |
 | Desktop 控制面 | desktop.stop / takeover / handback；`Desktop.control`（见下文「Desktop 控制面（A5）」） | ✅ | A5 PR① |
 | 身份 | hub.pairing.start / status / approve / deny；hub.clients.list / show / revoke；hub.grants.list / set / revoke；hub.connections.list | 🔖 | PR3 |
@@ -291,6 +292,13 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 | AUDIT_UNAVAILABLE | audit_unavailable（docs/plan/03 §3.5 起独立；同时暂停新输入） |
 | EVENTS_CURSOR_EXPIRED | 新码 `events_cursor_expired` |
 | INTERNAL_ERROR | internal_error |
+
+### 动作记录（A5）
+
+- 记录就是请求账本（7 天）里 Runtime 受理过的每个写请求。每条与 `request.show` 给出的一致，另加可选字段 `clientId`（谁发的）和 `desktopId`（它指向的 Desktop：params.desktopId，否则取它的 session 或 Run 所在的 Desktop；A5 之前的记录和不指向 Desktop 的请求没有这个字段）。`request.show` 同样带这两个字段。
+- `request.list`（`observe`）：按 method、state、desktopId、since 筛选，owner 还可以按 clientId 筛选；owner 看到所有调用者的记录，配对程序只看到自己的，desktopId 也必须在它的授权内。按受理时间倒序，limit 1–100（默认 50），用 `next` 翻页；单页超过 768 KiB 时提前结束这一页。
+- `request.export`（`observe`）：筛选条件与 request.list 相同，最多 10000 条，写成一个 JSON 文档（apiVersion、exportedAt、filter、count、truncated、requests），存为调用者的 `application/json` 产物，用 `artifact.read` 分块读取。和其他产物一样保留 24 小时，计入产物存储限额（`limit_exceeded`）。
+- 读操作不进账本，所以请求列表里只有写请求；observe 等读请求不在其中。
 
 ### 关闭计划、退出应用与调整尺寸（A5）
 

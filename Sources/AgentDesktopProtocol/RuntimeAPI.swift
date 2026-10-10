@@ -76,6 +76,8 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case displaysList = "hub.displays.list"
     case displaysAttach = "hub.displays.attach"
     case displaysDetach = "hub.displays.detach"
+    case requestList = "request.list"
+    case requestExport = "request.export"
     case desktopClosePlan = "desktop.closePlan"
     case appQuit = "app.quit"
     case desktopResize = "desktop.resize"

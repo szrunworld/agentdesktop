@@ -354,10 +354,6 @@ extension RuntimeService {
         guard let r = try? ledger.record(caller: c.clientId, requestId: id) else {
             return .failure(.notFound("no request \(id) within the last \(RequestLedger.retentionDays) days"))
         }
-        var m: [(String, JSONValue)] = [("requestId", .string(r.requestId)), ("method", .string(r.method)),
-                                        ("state", .string(r.state.rawValue)), ("acceptedAt", .string(r.acceptedAt))]
-        if let f = r.finishedAt { m.append(("finishedAt", .string(f))) }
-        if let o = r.outcome { m.append(("outcome", o)) }
-        return .success(.obj(m))
+        return .success(r.json)
     }
 }

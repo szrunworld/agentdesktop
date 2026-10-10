@@ -1414,6 +1414,14 @@ enum RuntimeContractData {
         },
         "outcome": {
           "type": "object"
+        },
+        "clientId": {
+          "type": "string",
+          "description": "the principal that made the request"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id",
+          "description": "the Desktop the request named (absent for records older than A5 or naming none)"
         }
       }
     },
@@ -5376,6 +5384,117 @@ enum RuntimeContractData {
         "exited": {
           "type": "boolean",
           "description": "the process is gone; false: asked to quit, not proof that it will"
+        }
+      }
+    },
+    "request_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "completed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner only: one caller's records; ignored for a paired client, which sees only its own"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "RequestList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requests",
+        "next"
+      ],
+      "properties": {
+        "requests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RequestRecord"
+          }
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "request_export_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "completed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner only: one caller's records; ignored for a paired client, which sees only its own"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "RequestExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "count",
+        "truncated"
+      ],
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "more records matched than one export holds (10000): narrow the filter"
         }
       }
     }
@@ -10873,6 +10992,24 @@ enum RuntimeContractData {
       "result": "Desktop",
       "status": "implemented",
       "note": "desktop.manage; a virtual Desktop's size, changed in place (320x240 up to what the display reserved; beyond: execution_failed); a physical Desktop is invalid_target; a Run of another client holding the Desktop: control_busy (the owner may resize regardless). Every observation of the Desktop is forgotten: act on an older snapshot is stale_observation"
+    },
+    {
+      "method": "request.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "request_list_params",
+      "result": "RequestList",
+      "status": "implemented",
+      "note": "observe; the write requests the Runtime accepted (the request ledger, 7 days), newest first, each exactly as request.show gives it plus clientId and the desktopId it named (params.desktopId, else its session's or Run's Desktop; none for records older than A5 or naming none); filters method, state, desktopId, since, and for the owner clientId (the owner sees every caller's records, a paired client only its own; a paired client's desktopId must be in its grant); limit 1–100 (default 50), cursor from next; a page ends early rather than exceed 768 KiB"
+    },
+    {
+      "method": "request.export",
+      "stage": "P0",
+      "mutation": false,
+      "params": "request_export_params",
+      "result": "RequestExport",
+      "status": "implemented",
+      "note": "observe; the same records and filters as request.list, at most 10000, newest first, written as one JSON document (apiVersion, exportedAt, filter, count, truncated, requests) into an application/json artifact of the caller: read it with artifact.read; kept like any artifact (24 h) and counted against the store's limits (limit_exceeded)"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
@@ -10996,20 +11133,6 @@ enum RuntimeContractData {
       "status": "reserved",
       "pr": "PR7+",
       "stage": "P1"
-    },
-    {
-      "method": "request.list",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "action records: filter and page"
-    },
-    {
-      "method": "request.export",
-      "status": "reserved",
-      "pr": "A5",
-      "stage": "P0",
-      "note": "action records: export"
     }
   ],
   "withdrawn": [

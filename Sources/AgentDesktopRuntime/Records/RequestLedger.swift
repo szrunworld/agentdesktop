@@ -22,6 +22,21 @@ public final class RequestLedger: @unchecked Sendable {
         public var acceptedAt: String
         public var finishedAt: String?
         public var outcome: JSONValue?
+        /// The principal that made it, and the Desktop it named (A5;
+        /// nil for requests recorded before the column existed or naming none).
+        public var caller: String? = nil
+        public var desktopId: String? = nil
+
+        /// The record as request.show, request.list and request.export give it.
+        public var json: JSONValue {
+            var m: [(String, JSONValue)] = [("requestId", .string(requestId)), ("method", .string(method)),
+                                            ("state", .string(state.rawValue)), ("acceptedAt", .string(acceptedAt))]
+            if let finishedAt { m.append(("finishedAt", .string(finishedAt))) }
+            if let outcome { m.append(("outcome", outcome)) }
+            if let caller { m.append(("clientId", .string(caller))) }
+            if let desktopId { m.append(("desktopId", .string(desktopId))) }
+            return .obj(m)
+        }
     }
 
     public enum Begin: Equatable, Sendable {
@@ -62,6 +77,11 @@ public final class RequestLedger: @unchecked Sendable {
         if (try? db.query("SELECT dispatch_started_at FROM requests LIMIT 0")) == nil {
             try db.execute("ALTER TABLE requests ADD COLUMN dispatch_started_at TEXT")
         }
+        // Added with request.list (A5).
+        if (try? db.query("SELECT desktop_id FROM requests LIMIT 0")) == nil {
+            try db.execute("ALTER TABLE requests ADD COLUMN desktop_id TEXT")
+        }
+        try db.execute("CREATE INDEX IF NOT EXISTS requests_by_time ON requests (accepted_at DESC, request_id DESC)")
         // In flight when the previous host stopped. An act that never
         // reached its delivery boundary certainly sent no input; anything
         // else may have taken effect and is unknown.
@@ -89,7 +109,7 @@ public final class RequestLedger: @unchecked Sendable {
 
     /// Record the request as accepted, unless it is already known. A
     /// duplicate that arrives while the original runs waits for it.
-    public func begin(caller: String, _ request: RuntimeRequest) throws -> Begin {
+    public func begin(caller: String, _ request: RuntimeRequest, desktopId: String? = nil) throws -> Begin {
         let key = "\(caller)/\(request.requestId)"
         let digest = Self.digest(request)
         inFlight.lock()
@@ -99,10 +119,10 @@ public final class RequestLedger: @unchecked Sendable {
             return existing.digest == digest ? .existing(existing) : .conflict(existing)
         }
         try db.execute("""
-            INSERT INTO requests (caller, request_id, method, digest, state, accepted_at)
-            VALUES (?, ?, ?, ?, 'accepted', ?)
+            INSERT INTO requests (caller, request_id, method, digest, state, accepted_at, desktop_id)
+            VALUES (?, ?, ?, ?, 'accepted', ?, ?)
             """, [.text(caller), .text(request.requestId), .text(request.method), .text(digest),
-                  .text(Timestamp.string(now()))])
+                  .text(Timestamp.string(now())), desktopId.map { .text($0) } ?? .null])
         running.insert(key)
         return .fresh
     }
@@ -147,17 +167,66 @@ public final class RequestLedger: @unchecked Sendable {
                          .text(caller), .text(requestId)])
     }
 
-    public func record(caller: String, requestId: String) throws -> Record? {
-        let rows = try db.query("""
-            SELECT request_id, method, digest, state, accepted_at, finished_at, outcome
-            FROM requests WHERE caller = ? AND request_id = ?
-            """, [.text(caller), .text(requestId)])
-        guard let r = rows.first else { return nil }
-        return Record(requestId: r[0] as! String, method: r[1] as! String, digest: r[2] as! String,
-                      state: State(rawValue: r[3] as! String) ?? .unknown, acceptedAt: r[4] as! String,
-                      finishedAt: r[5] as? String,
-                      outcome: (r[6] as? String).flatMap { try? StrictJSON.parse($0) })
+    private static let columns = "request_id, method, digest, state, accepted_at, finished_at, outcome, caller, desktop_id"
+
+    private static func row(_ r: [Any?]) -> Record {
+        Record(requestId: r[0] as! String, method: r[1] as! String, digest: r[2] as! String,
+               state: State(rawValue: r[3] as! String) ?? .unknown, acceptedAt: r[4] as! String,
+               finishedAt: r[5] as? String,
+               outcome: (r[6] as? String).flatMap { try? StrictJSON.parse($0) },
+               caller: r[7] as? String, desktopId: r[8] as? String)
     }
+
+    public func record(caller: String, requestId: String) throws -> Record? {
+        try db.query("SELECT \(Self.columns) FROM requests WHERE caller = ? AND request_id = ?",
+                     [.text(caller), .text(requestId)]).first.map(Self.row)
+    }
+
+    /// What request.list and request.export select. Every field narrows.
+    public struct Filter: Sendable {
+        public var caller: String?
+        public var method: String?
+        public var state: State?
+        public var desktopId: String?
+        public var since: Date?
+        public init() {}
+    }
+
+    /// Records newest first, `limit` of them after the cursor
+    /// (acceptedAt|requestId|caller of the last one given); `next` is nil at the end.
+    public func list(_ f: Filter, after: String?, limit: Int) throws -> (records: [Record], next: String?) {
+        var sql = "SELECT \(Self.columns) FROM requests WHERE 1 = 1"
+        var args: [SQLiteDatabase.Value] = []
+        if let c = f.caller { sql += " AND caller = ?"; args.append(.text(c)) }
+        if let m = f.method { sql += " AND method = ?"; args.append(.text(m)) }
+        if let st = f.state { sql += " AND state = ?"; args.append(.text(st.rawValue)) }
+        if let d = f.desktopId { sql += " AND desktop_id = ?"; args.append(.text(d)) }
+        // Compared in the ledger's own spelling (UTC, milliseconds, Z), so any
+        // valid date-time the caller gave compares right (Codex on a0c3211);
+        // never older than the retention, whether or not a restart pruned it.
+        var from = now().addingTimeInterval(-Double(Self.retentionDays) * 86400)
+        if let since = f.since, since > from { from = since }
+        sql += " AND accepted_at >= ?"
+        args.append(.text(Timestamp.string(from)))
+        if let after {
+            let p = after.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            if p.count == 3 {
+                sql += " AND (accepted_at < ? OR (accepted_at = ? AND (request_id < ? OR (request_id = ? AND caller < ?))))"
+                args += [.text(p[0]), .text(p[0]), .text(p[1]), .text(p[1]), .text(p[2])]
+            }
+        }
+        sql += " ORDER BY accepted_at DESC, request_id DESC, caller DESC LIMIT ?"
+        args.append(.int(Int64(limit + 1)))
+        var rows = try db.query(sql, args).map(Self.row)
+        var next: String?
+        if rows.count > limit {
+            rows.removeLast()
+            next = rows.last.map(Self.cursor)
+        }
+        return (rows, next)
+    }
+
+    static func cursor(_ r: Record) -> String { "\(r.acceptedAt)|\(r.requestId)|\(r.caller ?? "")" }
 
     /// What the original request answered, for a duplicate.
     public static func replay(_ record: Record) -> Result<JSONValue, RuntimeError> {

@@ -403,7 +403,7 @@ public final class RuntimeService: @unchecked Sendable {
     private func ledgered(_ request: RuntimeRequest, on connection: ConnectionState) -> Result<JSONValue, RuntimeError> {
         let begin: RequestLedger.Begin
         do {
-            begin = try ledger.begin(caller: connection.clientId, request)
+            begin = try ledger.begin(caller: connection.clientId, request, desktopId: namedDesktop(request, connection))
         } catch {
             execution.auditStorageFailed()
             return .failure(ExecutionCoordinator.auditError(notSent: true))
@@ -582,9 +582,11 @@ public final class RuntimeService: @unchecked Sendable {
         case .displaysList: return listDisplays(connection)
         case .displaysAttach: return attachDisplay(p, connection)
         case .displaysDetach: return detachDisplay(p, connection)
+        case .requestList: return listRequests(p, connection)
+        case .requestExport: return exportRequests(p, connection)
         case .desktopClosePlan: return closePlan(p, connection)
-        case .appQuit: return quitApp(p, connection)
-        case .desktopResize: return resizeDesktop(p, connection)
+        case .appQuit: return quitApp(request, connection)
+        case .desktopResize: return resizeDesktop(request, connection)
         case .desktopStop: return stopDesktop(p, connection)
         case .desktopTakeover: return takeover(request, connection)
         case .desktopHandback: return handback(p, connection)
