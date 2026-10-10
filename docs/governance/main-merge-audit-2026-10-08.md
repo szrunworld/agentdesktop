@@ -1075,3 +1075,19 @@ Kevin 原话：
 - `docs/security/window-grants.md:169` 仍写着产品默认值为 false，与代码不一致。
 - 物理 Desktop 的验收记录（window-grants-acceptance.md）仍是模板；补全它的 PR #244 尚未合并。
 - 被取消的 main CI 是被后续推送按 `cancel-in-progress` 取消的，不是预算问题。
+
+### 2026-10-11 复查（main 0c79b5c）：上轮问题的修复状态
+
+| 问题 | 状态 | 依据 |
+|---|---|---|
+| #248（#239 的光标识别路径不对） | ❌ **未修** | `EnginePlatform.swift:266` 仍然比较不带 Versions/A 的路径；本机 `proc_pidpath` 返回的路径带 Versions/A |
+| #249（#232 带过滤条件的网页观察，后续输入全部被拒） | ❌ **未修** | `Accessibility.swift` 中 `validateWebTarget` 重新抓取时仍然调用 `capture(window, deadline:)`，没有带上 query |
+| #168（物理窗口真机验收） | ❌ 仍然开着 | 受 #248 阻断 |
+| 物理 Desktop 验收记录 | ❌ 仍是模板 | `docs/acceptance/physical-desktop/window-grants-acceptance.md` 的结果栏是空的（#244 补的是窗口级授权的记录，不是这份） |
+| `docs/security/window-grants.md:169` 与代码不一致 | ❌ 未改 | 文档写默认值是 false，代码是 `physicalDesktopsEnabled = true`（`RuntimeService.swift:199`） |
+| #224、#227 合并时未修的 P2 | ✅ 已由 #242、#243 修复 | 两个 PR 都已合并（线程仍未标为已解决） |
+| #238 的两条 P2 | ❌ **未修** | 恢复时旧授权不结束（会推迟临时截图的清理）；确认后不复核候选唯一性。已开 issue **#257** |
+| #229、#235、#236、#237 的 P2 | ⚠️ 没有回复，没有后续 PR | 共 5 条线程未处理 |
+| #183 | 已关闭（10-10 09:32Z） | #233 已合并 |
+
+此外，3b92cb4 之后又有 14 次合并（#242–#256，A5、A6 系列等），这次没有逐个核查授权。
