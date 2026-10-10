@@ -12,7 +12,7 @@
 | `swift test`（全部） | c497ae4 | exit 0，1069 个测试通过（机器负载 24–36） |
 | `RuntimeWindowGrantTests` 等相关目标 | cf965a6 | exit 0 |
 
-新增 `Tests/AgentDesktopRuntimeTests/RuntimeWindowGrantTests.swift`，共 19 个测试：
+新增 `Tests/AgentDesktopRuntimeTests/RuntimeWindowGrantTests.swift`。最初 19 个测试，按 Codex 意见陆续补到 50 个。最初那批覆盖：
 
 - 申请：只授权确认窗口里展示的那一个窗口；授权期限不超过客户端授权的到期时间。
 - 用户拒绝、取消、超时、无法验证身份、digest 不符：都不产生授权；拒绝后有冷却期。
@@ -80,7 +80,15 @@
 
 ## CI
 
-PR #205，提交 cf965a6：`macOS` 与 `windows contracts` 都通过（run 37948499564、37948499566）。
+- PR #205 每轮修复后都跑了 CI：cf965a6 起到 d2dbf96，`macOS` 与 `windows contracts` 都通过。
+- 例外是 8e9eb9d（合入 main 后的那一轮）：有两个测试在 CI 工具链（Swift 6.1.2）上失败，原因是在 `#expect` 里对加括号的表达式取反，被这个版本求值错了。已改写这两个断言，下一轮起恢复通过。
+- d2dbf96：run 38010567629、38010567645 通过。
+
+## Codex 审核
+
+从 7629d6b 到 d2dbf96 共 17 轮，所有意见都已逐条修复并在 PR 上回复。d2dbf96 这一轮 Codex 没有新意见，并给了 👍。
+
+截至 d2dbf96：全量测试 1116 个通过（exit 0），strict 全量测试 exit 0。
 
 ## 真机验收（Touch ID）
 
