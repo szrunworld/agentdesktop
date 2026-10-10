@@ -110,6 +110,12 @@ extension RuntimeService {
         if let h = execution.controlFacts(d.desktopId).holder, h.origin == .user, h.phase == .running {
             return .success(takeoverJSON(d, run: h, stopped: stopped, c))
         }
+        // Superseded first (Codex P2 on 557a0d0): after a handback an agent's
+        // new Run may hold the Desktop, and stop_pending would wrongly say
+        // admission stays closed.
+        guard execution.takeoverStands(d.desktopId, serial: serial) else {
+            return .failure(ExecutionCoordinator.superseded(d.desktopId))
+        }
         if let holder = execution.holder(of: d.desktopId) { return .failure(pending(holder)) }
         let session = sessions.open(desktopId: d.desktopId, caller: c.clientId, at: nowString)
         // The user's Run takes no input through the Runtime: its session

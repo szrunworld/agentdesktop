@@ -355,3 +355,22 @@ private final class Box: @unchecked Sendable { var response: RuntimeResponse? }
     #expect(x.controlFacts(sc.desktop).gate == nil)
     #expect(data(act(sc, clickContinue))?["delivery"]?.stringValue == "dispatched")
 }
+
+@Test func aTakeoverSupersededByAHandbackSaysSoEvenWhenAnAgentRunHoldsTheDesktopAgain() throws {
+    // Codex P2 on 557a0d0: handback, then a new agent Run, while the takeover waited.
+    let sc = try scene()
+    let agent = handshaken(sc.s)
+    let desk = try #require(sc.s.desktops.find(sc.desktop))
+    desk.lock.lock()
+    let box = Box()
+    let taking = onThread { box.response = call(sc.s, sc.c, "desktop.takeover", params: #"{"desktopId":"\#(sc.desktop)"}"#) }
+    let deadline = Date().addingTimeInterval(5)
+    while sc.s.execution.controlFacts(sc.desktop).gate != .manual, Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+    sc.s.execution.openDesktop(sc.desktop)   // the handback
+    let runId = try #require(data(call(sc.s, agent, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
+    desk.lock.unlock()
+    taking.wait()
+    let r = try #require(box.response)
+    #expect(code(r) == "conflict" && reason(r) == "superseded", "not stop_pending: \(r)")
+    #expect(runJSON(sc, runId)?["phase"]?.stringValue == "running", "the agent's new Run is untouched")
+}
