@@ -232,7 +232,8 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 | GUI 参数 | ai.profiles.list / get / create / update / disable / delete / default.get / setDefault | ✅ PR2b-1 | PR2b |
 | 能力检测 | ai.tests.start；ai.operations.get / cancel | ✅ PR2b-1 | PR2b |
 | 用量 | ai.usage.summary | ✅ PR2b-1 | PR2b |
-| Desktop 控制面 | desktop.stop / takeover / handback / closePlan / resize；app.quit；request.list / export | 🔖 | A5 |
+| Desktop 控制面 | desktop.stop / takeover / handback；`Desktop.control`（见下文「Desktop 控制面（A5）」） | ✅ | A5 PR① |
+| Desktop 控制面 | desktop.closePlan / resize；app.quit；request.list / export | 🔖 | A5 |
 | 身份 | hub.pairing.start / status / approve / deny；hub.clients.list / show / revoke；hub.grants.list / set / revoke；hub.connections.list | 🔖 | PR3 |
 | 窗口授权 | hub.windows.request / list / revoke（按窗口的 observe / act / persist，见 docs/security/window-grants.md） | ✅ | 窗口授权前置 PR |
 | 显示器开放 | hub.displays.list / attach / detach（owner 在主窗口把自己的显示器作为物理 Desktop 开放给已配对程序，Touch ID 确认；见 docs/security/owner-display-attach.md） | ✅ | owner 挂接入口 PR |
@@ -277,6 +278,14 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 | AUDIT_UNAVAILABLE | audit_unavailable（docs/plan/03 §3.5 起独立；同时暂停新输入） |
 | EVENTS_CURSOR_EXPIRED | 新码 `events_cursor_expired` |
 | INTERNAL_ERROR | internal_error |
+
+### Desktop 控制面（A5）
+
+- 三个方法都只给 owner（主窗口）；配对程序得到 `permission_denied`，reason `owner_only`。只作用于一个 Desktop，其他 Desktop 不受影响。
+- `desktop.stop {desktopId}`：关闭该 Desktop 的输入准入，停止持有租约的 Run（任何 origin，closingReason `desktop_stop`）。回执 `DesktopStopReceipt` 分开「已受理」与「已静止」：有在途动作时 `run.phase=stopping`、`quiescence=pending`。此后该 Desktop 上新的 Run 被拒（`input_disabled`，reason `desktop_stopped`），直到 `desktop.handback`。
+- `desktop.takeover {desktopId}`：先关闭 Agent 的准入、停止持有租约的 Run（closingReason `takeover`），等它没有在途动作（拿到 Desktop 锁）后，建一个 `origin=user`、`platform/platform_durable`、kind `exec` 的平台 Run 持有租约。其他 Run 一律被拒（`control_busy`，reason `manual_control`）。超过 deadline 仍有在途动作：`stop_pending`（retryable，notSent 不为 true：接管已受理、准入保持关闭），用新的 requestId 再调。已接管时再调返回同一个 Run。
+- `desktop.handback {desktopId}`：结束人工 Run（closingReason `handback`，outcome `success`），重新开放准入，并作废该 Desktop 的全部观察：Agent 必须重新 observe 才能动作，接管前的快照不会被重放。Desktop 既没停止也没接管时什么都不改（`handedBack: false`）。
+- `Desktop.control {state, since, actionCount, controllerRunId?, clientId?, clientName?}` 由租约、Desktop 准入和最后一个 Run 推导，不落盘：running / manual / stopping / stopped / disconnected（上个 Run owner_lost）/ unknown（上个 Run 有未知动作）/ ready；creating、error 预留。stopped、disconnected、unknown 保持到新 Run 开始或 owner handback。配对程序只在控制者是自己时看到 controllerRunId、clientId、clientName。`transport`、`lastActionAt` 仍在 plannedFields。
 
 ## 6.1 已登记的后续增量（docs/plan/03 §3.2–3.5，2026-10-08 纳入）
 

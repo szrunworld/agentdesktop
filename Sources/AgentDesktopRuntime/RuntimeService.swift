@@ -202,6 +202,7 @@ public final class RuntimeService: @unchecked Sendable {
         .sessionOpen, .sessionShow, .sessionClose, .observe, .observeRegionV1, .observeSubscribe, .observeUnsubscribe,
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
         .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
+        .desktopStop, .desktopTakeover, .desktopHandback,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
@@ -541,6 +542,9 @@ public final class RuntimeService: @unchecked Sendable {
         case .displaysList: return listDisplays(connection)
         case .displaysAttach: return attachDisplay(p, connection)
         case .displaysDetach: return detachDisplay(p, connection)
+        case .desktopStop: return stopDesktop(p, connection)
+        case .desktopTakeover: return takeover(request, connection)
+        case .desktopHandback: return handback(p, connection)
         }
     }
 }
