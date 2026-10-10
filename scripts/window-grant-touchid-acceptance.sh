@@ -24,6 +24,12 @@
 #                                                   then 批准 and Touch ID
 #   3. a second window grant                     -> 拒绝
 #   4. wg-cli giving up its window grant         -> 批准, then Touch ID
+# Cleanup: the script records the online displays and your keychain search
+# list first; at the end it destroys the Desktop, quits its own TextEdit and
+# test host, restores the search list and deletes the test keychain, then
+# checks each of these against the record. Any mismatch prints
+# "CLEANUP FAILED (清理失败)" and exits 3, whatever the steps said; only
+# "RESULT: PASS" means both the acceptance steps and the cleanup passed.
 # Usage, from the repository:
 #   scripts/bundle-app.sh && ALLOW_VIRTUAL_DISPLAY=1 scripts/window-grant-touchid-acceptance.sh
 set -u
@@ -46,31 +52,80 @@ for k in sys.argv[2].split("."):
     d = d[int(k)] if isinstance(d, list) else d.get(k) if isinstance(d, dict) else None
 print("" if d is None else d)' "$1" "$2" 2>/dev/null; }
 
-cleanup() {
-    [ -n "${DESK:-}" ] && "$B" desktop destroy "$DESK" --format json > /dev/null 2>&1
-    # Only the very process this script started: same pid and same start
-    # time as recorded at launch (Codex on 8e9eb9d: the pid may be reused).
-    if [ -n "${PROBE:-}" ] && [ -n "${PROBE_START:-}" ] && [ "$(ps -o lstart= -p "$PROBE" 2>/dev/null)" = "$PROBE_START" ]; then
-        kill "$PROBE" 2>/dev/null
-    fi
-    # The test host too, only while its pid still has the recorded start time.
-    if [ -n "${HOST:-}" ] && [ -n "${HOST_START:-}" ] && [ "$(ps -o lstart= -p "$HOST" 2>/dev/null)" = "$HOST_START" ]; then
-        kill "$HOST" 2>/dev/null
-    fi
-    [ -s "$DIR/search-list" ] && restore_search_list
-    security delete-keychain "$KC" 2>/dev/null
-    rm -rf "$DIR"
+# What the machine looked like before the run. Cleanup is checked against it
+# item by item (Kevin's ruling on #205, 1.4/1.5): a cleanup that cannot be
+# shown to have worked fails the run, whatever the acceptance steps said.
+displays() { swift - 2>/dev/null <<'SWIFT'
+import CoreGraphics
+var n: UInt32 = 0
+CGGetOnlineDisplayList(0, nil, &n)
+var ids = [CGDirectDisplayID](repeating: 0, count: Int(n))
+CGGetOnlineDisplayList(n, &ids, &n)
+print(ids.prefix(Int(n)).sorted().map(String.init).joined(separator: " "))
+SWIFT
 }
-trap cleanup EXIT
-
-rm -rf "$DIR"; mkdir -p "$DIR"
-security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//' > "$DIR/search-list"
-[ -s "$DIR/search-list" ] || { echo "cannot read your keychain search list; stopping without touching it"; exit 1; }
+search_list() { security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//'; }
+DISPLAYS_BEFORE=$(displays)
+[ -n "$DISPLAYS_BEFORE" ] || { echo "cannot list the displays; stopping before anything was started"; exit 1; }
+SEARCH_BEFORE=$(search_list)
+[ -n "$SEARCH_BEFORE" ] || { echo "cannot read your keychain search list; stopping before anything was started"; exit 1; }
 restore_search_list() {
     set --
-    while IFS= read -r k; do set -- "$@" "$k"; done < "$DIR/search-list"
+    while IFS= read -r k; do set -- "$@" "$k"; done <<EOF
+$SEARCH_BEFORE
+EOF
     [ $# -gt 0 ] && security list-keychains -d user -s "$@"
 }
+# Whether the process recorded as pid $1 with start time $2 still runs.
+alive() { [ -n "$1" ] && [ -n "$2" ] && [ "$(ps -o lstart= -p "$1" 2>/dev/null)" = "$2" ]; }
+# Stop that very process (same pid, same start time; Codex on 8e9eb9d: the
+# pid may be reused) and wait for it to go.
+stop() {
+    alive "$1" "$2" || return 0
+    kill "$1" 2>/dev/null
+    i=0; while alive "$1" "$2" && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done
+    ! alive "$1" "$2"
+}
+
+cleanup() {
+    rc=$?
+    trap - EXIT
+    cfail=0
+    cbad() { echo "CLEANUP FAILED (清理失败): $*"; cfail=$((cfail + 1)); }
+    echo "== cleanup"
+    if [ -n "${DESK:-}" ]; then
+        "$B" desktop destroy "$DESK" --format json > "$DIR/destroy.json" 2>&1 \
+            || cbad "desktop destroy $DESK: $(cat "$DIR/destroy.json" 2>/dev/null)"
+    fi
+    stop "${PROBE:-}" "${PROBE_START:-}" || cbad "the probe TextEdit (pid $PROBE) is still running"
+    stop "${HOST:-}" "${HOST_START:-}" || cbad "the test Agent Desktop (pid $HOST) is still running"
+    restore_search_list || cbad "restoring the keychain search list failed"
+    if [ -e "$KC" ]; then
+        security delete-keychain "$KC" > "$DIR/kc.err" 2>&1 || cbad "deleting the test keychain: $(cat "$DIR/kc.err")"
+    fi
+    # The virtual display goes with its Desktop, at the latest with the host.
+    i=0; while [ "$(displays)" != "$DISPLAYS_BEFORE" ] && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done
+    now=$(displays)
+    [ "$now" = "$DISPLAYS_BEFORE" ] || cbad "online displays are [$now], before the run [$DISPLAYS_BEFORE]"
+    [ "$(search_list)" = "$SEARCH_BEFORE" ] || cbad "the keychain search list differs from before the run"
+    rm -rf "$DIR"
+    [ ! -e "$DIR" ] || cbad "$DIR could not be removed"
+    if [ $cfail -gt 0 ]; then
+        echo "RESULT: FAIL - cleanup failed ($cfail item(s) above); this run is not an acceptance pass"
+        exit 3
+    fi
+    echo "cleanup verified: displays, the probe TextEdit, the test host and the keychain search list are as before; the test keychain and $DIR are gone"
+    if [ $rc -eq 0 ]; then
+        echo "RESULT: PASS - acceptance steps and cleanup both passed"
+    else
+        echo "RESULT: FAIL - acceptance steps did not pass (exit $rc)"
+    fi
+    exit $rc
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+
+rm -rf "$DIR"; mkdir -p "$DIR"
 security create-keychain -p "$(uuidgen)" "$KC"
 security set-keychain-settings "$KC"
 restore_search_list
@@ -168,5 +223,5 @@ sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT at, client_id, method, 
 sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT count(*) FROM auth_events WHERE reason LIKE '%wg-probe%'" | grep -qx 0 \
     && ok "no window title in the audit" || bad "a window title is in the audit"
 grep "AgentDesktop confirmation" "$DIR/host.log" || true
-echo "passed $pass, failed $fail"
+echo "acceptance steps: passed $pass, failed $fail (the result comes after the cleanup check)"
 [ $fail -eq 0 ] && [ $pass -eq 15 ]

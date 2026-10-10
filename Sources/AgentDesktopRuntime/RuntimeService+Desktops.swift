@@ -77,7 +77,7 @@ extension RuntimeService {
             if let physical = p["physical"] {
                 guard physicalDesktopsEnabled else {
                     return .failure(RuntimeError("permission_denied",
-                                                 "physical Desktops are disabled until per-window grants exist: attaching your screen and binding its windows needs your authorization for each window",
+                                                 "physical Desktops are turned off in this build (#145): your screen cannot be attached, with or without window grants",
                                                  phase: .handler, notSent: true,
                                                  details: .obj([("reason", .string("physical_desktop_requires_grant"))])))
                 }
@@ -254,7 +254,7 @@ extension RuntimeService {
             // whether a process with that pid exists.
             if d.kind == .virtual && bindsOnlyLaunchedProcesses && !d.launched.contains(process) {
                 throw RuntimeError("permission_denied",
-                                   "only an app launched on desktop \(d.desktopId) can be bound until per-window grants exist; launch it there with app.launch",
+                                   "a virtual Desktop binds only apps launched on it, and a window grant does not bring another window onto it (#145); launch the app on desktop \(d.desktopId) with app.launch",
                                    phase: .handler, notSent: true,
                                    details: .obj([("reason", .string("bind_requires_grant"))]))
             }
