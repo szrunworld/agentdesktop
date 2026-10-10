@@ -121,7 +121,7 @@ fi
 DISPLAYS_MID=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -c "Resolution:")
 [ "$DISPLAYS_BEFORE" = "$DISPLAYS_MID" ] && ok "display count unchanged ($DISPLAYS_MID)" || bad "displays $DISPLAYS_BEFORE -> $DISPLAYS_MID"
 
-echo "== 5. in the window the display now shows 已挂接 (cannot be chosen again); still one Desktop"
+echo "== 5. in the window the display now shows 已挂接 (can be shared again); still one Desktop"
 "$B" desktop list --format json > "$DIR/list2.json"
 [ "$(field "$DIR/list2.json" data.desktops.1.desktopId)" = "" ] && ok "still one Desktop" || bad "desktops: $(cat "$DIR/list2.json")"
 

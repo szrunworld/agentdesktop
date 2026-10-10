@@ -13,7 +13,7 @@
 | 2 | 已配对 CLI 自己挂接显示器 | `permission_denied / owner_only`，什么都没挂接；显示器列表对它也是 `owner_only` | |
 | 3 | **你在测试副本主窗口**：Desktops › 开放我的显示器 › 选主显示器与 oa-cli › 开放… › 核对确认窗口（显示器名称、编号、分辨率、"已证实为物理显示器"、程序名、"开放后它看不到任何窗口"）› 批准… › Touch ID | 脚本等到 oa-cli 的 `desktop list` 出现 `kind = physical` 的 Desktop | |
 | 4 | 开放之后 | oa-cli `window list` 为空；绑定你屏幕上的任一窗口被拒 `bind_requires_grant`；系统显示器数不变 | |
-| 5 | **你在主窗口**：同一显示器再开放一次给 oa-cli | 列表里它显示"已挂接"，不可再选（脚本只检查 Desktop 数仍为 1） | |
+| 5 | **你在主窗口**：同一显示器再开放一次给 oa-cli | 列表里它显示"已挂接"，可再次选择并复用同一 Desktop（脚本只检查 Desktop 数仍为 1） | |
 | 6 | **你在主窗口**：Desktops › 该 Desktop 详情 › 开放给的程序 › 全部收回并解除挂接 | 脚本等到 oa-cli 看不到这个 Desktop；审计里有 `hub.displays.detach revoked` 与 `ended` | |
 | 7 | 收尾 | 显示器数不变；审计里没有窗口标题或应用名 | |
 

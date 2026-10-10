@@ -394,3 +394,24 @@ private func attach(_ s: RuntimeService, _ c: ConnectionState, display: Int = 1,
     #expect(window.requests.isEmpty, "a paired client cannot even ask the user for a display")
     #expect(s.desktops.count == 0)
 }
+
+@Test func aDisplayChangedWhileTheUserDecidedIsNotGranted() throws {
+    for reuse in [false, true] {
+        let platform = FakePlatform()
+        let s = displayService(platform, confirmer: FakeConfirmer())
+        let owner = handshaken(s)
+        let (_, id, _) = try pairedClient(s, capabilities: ["observe"], desktops: ["created"])
+        if reuse { _ = attach(s, owner, client: id) }
+        let before = s.hub.grant(id)!
+        let count = s.desktops.count
+        s.confirmer = FakeConfirmer { request in
+            var report = platform.displays()
+            report[0].frame.width += 100
+            platform.displayReport = report
+            return .approved(digest: request.digest)
+        }
+        let response = attach(s, owner, client: id)
+        #expect(code(response) == "conflict" && errorDetails(response)?["reason"]?.stringValue == "display_changed")
+        #expect(s.hub.grant(id)?.revision == before.revision && s.desktops.count == count)
+    }
+}

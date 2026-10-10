@@ -48,6 +48,7 @@ struct DisplayAttachTests {
         #expect(again.displays[0]["desktopId"]?.stringValue == id && AttachDisplayFlow.originText(again.displays[0]).text.hasPrefix("已挂接"))
         // An attached display can still be opened to another app: the Desktop is shared (Codex on a6a9088).
         let b = m.addClient(name: "second")
+        await again.load()
         again.displayId = 1
         again.clientId = b
         #expect(again.canSubmit)
@@ -110,4 +111,16 @@ struct DisplayAttachTests {
         #expect((png?.count ?? 0) > 10_000)
         #expect(m.observations == 0 && !m.callLog.contains("observe"), "no observation for the detail or the sheet")
     }
+}
+
+@MainActor
+@Test func expiredDisplayRecipientsCannotBeSelected() throws {
+    let now = Date(timeIntervalSince1970: 1_791_446_400)
+    func client(_ id: String, expiry: Date) -> JSONValue {
+        .obj([("clientId", .string(id)), ("state", .string("active")),
+              ("grant", .obj([("state", .string("active")), ("expiresAt", .string(Timestamp.string(expiry)))]))])
+    }
+    let clients = [client("expired", expiry: now.addingTimeInterval(-1)),
+                   client("equal", expiry: now), client("active", expiry: now.addingTimeInterval(1))]
+    #expect(AttachDisplayFlow.openable(clients, now: now).map { $0["clientId"]?.stringValue } == ["active"])
 }
