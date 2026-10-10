@@ -115,6 +115,19 @@ extension RuntimeService {
         return beginUnitRun(params, principal: ports.ownerConnection, durable: true)
     }
 
+    /// A paired principal's access to unit.run on this Desktop as it is now:
+    /// the refusal if it is gone (revoked, expired, narrowed, connection cut).
+    func accessLost(_ c: ConnectionState, desktopId: String) -> RuntimeError? {
+        guard c.role == .paired else { return nil }
+        if let reason = c.cutReason { return Self.cutError(c, reason) }
+        if let e = accessError(c, method: RuntimeMethod.unitRun.rawValue) { return e }
+        if !desktopAllowed(c, desktopId) {
+            return RuntimeError("grant_missing", "desktop \(desktopId) is no longer in the grant", phase: .handler, notSent: true,
+                                details: .obj([("reason", .string("grant_narrowed"))]))
+        }
+        return nil
+    }
+
     static func guiExecutionOff() -> RuntimeError {
         RuntimeError("unsupported_backend", "real GUI input is off here: no execution backend has passed G0", phase: .handler,
                      notSent: true, details: .obj([("reason", .string("gui_execution_off"))]))
@@ -171,6 +184,9 @@ extension RuntimeService {
         case let .success(x): plan = x
         }
 
+        // Access may have been withdrawn while the executor admitted (codex
+        // on 49111eb): the revocation's sweep found no Run to stop.
+        if let lost = accessLost(c, desktopId: desktopId) { return .failure(lost) }
         let session = sessions.open(desktopId: desktopId, caller: c.clientId, at: nowString)
         let unit = RunUnit(mode: p["mode"]?.stringValue ?? "auto",
                            goalHash: UnitRun.goalHash(p["goal"]?["description"]?.stringValue ?? ""),
@@ -191,8 +207,12 @@ extension RuntimeService {
         // (codex on 8bcb18c): its Delegated Run ends at once, never driven.
         // connectionClosed marks the connection before stopping its Runs, so
         // either that stop found this Run or this check sees the mark.
-        if !durable, c.isClosed {
-            execution.stop(runId: runId, reason: "owner_lost", endAs: .cancelled)
+        // Likewise a revocation or a narrowed grant: the owner's change is
+        // saved before its sweep, so either the sweep found this Run or
+        // this check sees the change.
+        let lostNow = !durable && c.isClosed ? "owner_lost" : accessLost(c, desktopId: desktopId).map { $0.details?["reason"]?.stringValue ?? $0.code }
+        if let reason = lostNow {
+            execution.stop(runId: runId, reason: reason, endAs: .cancelled)
             execution.releaseExecutor(runId: runId)
             return .success((runs.find(runId) ?? record).json)
         }

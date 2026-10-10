@@ -293,8 +293,10 @@ extension RuntimeService {
             for e in endedWindows { endedWindowGrants([e.id], state: hub.windowGrant(e.id)?.state ?? "ended", reason: e.reason) }
             // Narrowed: its connections are cut, it reconnects under the new grant.
             if hub.policyEpoch != epoch { cutConnections(of: id, reason: "grant_narrowed") }
+            // Each Run needs the capability it was started with: a unit Run
+            // unit.run, the others run (codex on 49111eb).
             for r in activeRuns(of: id)
-            where !desktopAllowed(ConnectionState.paired(id), r.desktopId) || !saved.capabilities.contains("run") {
+            where !desktopAllowed(ConnectionState.paired(id), r.desktopId) || !saved.capabilities.contains(r.kind == "unit" ? "unit.run" : "run") {
                 _ = execution.stop(runId: r.runId, reason: "grant_narrowed", endAs: .cancelled)
             }
             hub.audit(connectionId: c.connectionId, clientId: id, method: "hub.grants.set", decision: "granted",

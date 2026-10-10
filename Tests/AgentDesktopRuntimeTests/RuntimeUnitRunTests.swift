@@ -367,3 +367,50 @@ func eventTypes(_ s: RuntimeService, _ runId: String) -> [String] {
     let after = reopened.actionOutcomes(runIds: ["run_a", "run_b"], from: .distantPast, to: .distantFuture)
     #expect(after.confirmed == 1 && after.unknown == 2, "run_b's lost input counts, as of the restart")
 }
+
+/// A paired app with unit.run on its own Desktop, the Calculator window
+/// bound under a window grant to observe and act.
+func pairedUnitScene(_ capabilities: [String]) throws -> (RuntimeService, owner: ConnectionState, app: ConnectionState, clientId: String,
+                                                          desk: String, FakeUnitExecutor) {
+    let platform = FakePlatform()
+    platform.realImages = true
+    let s = platformService(platform)
+    let owner = handshaken(s)
+    let (c, id, _) = try pairedClient(s, capabilities: capabilities + ["desktop.manage"], desktops: ["created"],
+                                      apps: ["com.apple.calculator"], name: "unit-agent")
+    let d = try created(s, c)
+    _ = try grantWindow(s, clientId: id, desktopId: d, permissions: ["observe", "act"])
+    #expect(data(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101,"windowId":11}"#)) != nil)
+    let executor = FakeUnitExecutor()
+    s.registerUnitExecutor(executor, ports: RuntimeGuiPorts(service: s))
+    return (s, owner, c, id, d, executor)
+}
+
+// Codex on 49111eb: the owner revokes the app while its unit.run is being
+// admitted. No Run is created and nothing is started.
+@Test func aRevocationDuringAdmissionCreatesNoRun() async throws {
+    let (s, owner, app, id, d, executor) = try pairedUnitScene(["observe", "act", "unit.run"])
+    executor.duringAdmit = { _ = call(s, owner, "hub.grants.revoke", params: #"{"clientId":"\#(id)"}"#) }
+    let r = await offPool(s, app, "unit.run", params: unitParams(d))
+    #expect(data(r) == nil, "\(r.json.encoded())")
+    #expect(executor.contexts.isEmpty)
+    #expect(s.runs.list(RunStore.ListFilter(), after: nil, limit: 10).runs.isEmpty)
+}
+
+// Codex on 49111eb: a grant change stops a unit Run when unit.run is taken
+// away, and leaves it alone when only run is.
+@Test func grantChangesStopUnitRunsByTheirOwnCapability() async throws {
+    let (s, owner, app, id, d, executor) = try pairedUnitScene(["observe", "act", "run", "unit.run"])
+    let runId = try #require(data(await offPool(s, app, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    func setGrant(_ caps: [String]) {
+        let list = (caps + ["desktop.manage"]).map { "\"\($0)\"" }.joined(separator: ",")
+        let p = #"{"clientId":"\#(id)","capabilities":[\#(list)],"desktops":["created"],"apps":["com.apple.calculator"]}"#
+        #expect(data(call(s, owner, "hub.grants.set", params: p)) != nil)
+    }
+    setGrant(["observe", "act", "unit.run"])
+    #expect(s.runs.find(runId)?.phase == .running && executor.stopCount == 0, "run alone was taken away")
+    setGrant(["observe", "act", "run"])
+    #expect(executor.stopCount == 1, "unit.run was taken away")
+    executor.lastSink?.finished(.cancelled)
+    #expect(s.runs.find(runId)?.closingReason == "grant_narrowed")
+}
