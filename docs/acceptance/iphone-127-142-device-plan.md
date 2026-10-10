@@ -1,18 +1,22 @@
 # #127 / #142 真机验收计划与记录模板
 
-状态：2026-10-09 已执行，结果见 `iphone-127-142-device-2026-10-09.md`（10 项通过、A6 部分、S4 NOT_RUN）。本表保留为计划原样。
+状态：2026-10-09 已执行，结果见 `iphone-127-142-device-2026-10-09.md`（重测后 10 项通过、A6/S3 部分；后续授权、豁免及补充测试见报告第 7、8 节）。本表保留为计划原样。
 
 ## 1. 准备（不需要 Kevin，不碰设备）
 
 ```bash
-scripts/iphone-acceptance/prepare.sh            # 产物在 ~/orca/.ios-ci/accept-127-142
+scripts/iphone-acceptance/prepare.sh /tmp/iphone-acceptance-new  # 使用新的输出目录
 ```
+
+输出目录已有 checkout 或 harness 时会拒绝覆盖；已有证据不会被删除。
 
 它会建一个合并检出：main 加 #142（`iphone-fix-status-2`）再加 #127（`iphone-fix-paste`）。然后在这个检出上编译以下工具：
 - engine CLI；
 - 验收用宿主 harness：只链接 engine，开放专用的控制 socket，不打进安装包；
 - 时间线记录器 `watch`：每 20 毫秒记录一次鼠标位置和前台应用；
 - 剪贴板工具 `clip`：`clip set text|rtf|image|file` 写入固定测试数据，`clip dump` 输出每个类型的 SHA-256。
+
+`clip set file` 的样本保存在 clip 可执行文件旁边的 `clip-file.txt`，因此跟随自定义 OUT。隔离工具验证可加 `--pasteboard NAME`，使用独立剪贴板。
 
 检出所在的提交写在 `ev/checkout.txt`，验收报告引用这个 SHA。
 

@@ -9,16 +9,21 @@ KIT="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$KIT/../.." && pwd)"
 OUT="${1:-$HOME/orca/.ios-ci/accept-127-142}"
 WT="$OUT/checkout"
+if [[ -e "$WT" || -e "$OUT/harness" ]]; then
+    echo "output already contains checkout or harness; choose a fresh OUT" >&2
+    exit 1
+fi
 mkdir -p "$OUT/ev"
+OUT="$(cd "$OUT" && pwd)"
+WT="$OUT/checkout"
 git -C "$REPO" fetch -q origin
-rm -rf "$WT"
 git -C "$REPO" worktree add -f "$WT" --detach origin/main >/dev/null
 git -C "$WT" merge -q --no-edit origin/iphone-fix-status-2   # #142
 git -C "$WT" merge -q --no-edit origin/iphone-fix-paste      # #127
 git -C "$WT" log --oneline -3 > "$OUT/ev/checkout.txt"
 (cd "$WT/engine" && swift build -c release --product agentdesktop-cli)
 cp "$WT/engine/.build/release/agentdesktop-cli" "$OUT/agentdesktop-cli"
-rm -rf "$OUT/harness"; cp -R "$KIT/harness" "$OUT/harness"
+cp -R "$KIT/harness" "$OUT/harness"
 sed -i '' "s#\.\./\.\./\.\./engine#$WT/engine#" "$OUT/harness/Package.swift"
 (cd "$OUT/harness" && swift build -c release)
 swiftc -O "$KIT/watch.swift" -o "$OUT/watch"
