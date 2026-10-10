@@ -541,6 +541,30 @@
               "const": 1920
             }
           }
+        },
+        "bindingRecovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "statusMethod",
+            "recoveryMethod",
+            "requiresConfirmation"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "statusMethod": {
+              "const": "desktop.bindingStatus"
+            },
+            "recoveryMethod": {
+              "const": "desktop.recoverBinding"
+            },
+            "requiresConfirmation": {
+              "const": true
+            }
+          }
         }
       }
     },
@@ -4307,6 +4331,59 @@
           }
         }
       ]
+    },
+    "BindingStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "state",
+        "reason"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "enum": [
+            "unbound",
+            "valid",
+            "blocked",
+            "invalid",
+            "needs_authorization"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "binding": {
+          "$ref": "#/$defs/Binding"
+        }
+      }
+    },
+    "RecoveredBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desktopId",
+        "binding",
+        "windowGrant"
+      ],
+      "properties": {
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "binding": {
+          "$ref": "#/$defs/Binding"
+        },
+        "windowGrant": {
+          "$ref": "#/$defs/HubWindowGrant"
+        }
+      }
     }
   }
 }

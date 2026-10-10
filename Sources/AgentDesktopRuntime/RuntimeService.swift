@@ -198,7 +198,7 @@ public final class RuntimeService: @unchecked Sendable {
 
     /// Methods that exist only with a desktop platform.
     static let platformMethods: Set<RuntimeMethod> = [
-        .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind,
+        .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind, .bindingStatus, .recoverBinding,
         .sessionOpen, .sessionShow, .sessionClose, .observe, .observeRegionV1, .observeSubscribe, .observeUnsubscribe,
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
         .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
@@ -463,6 +463,8 @@ public final class RuntimeService: @unchecked Sendable {
                 ])),
             ] + (platform == nil ? [] : [("regionObservation", .obj([("version", .int(1)),
                  ("method", .string("observe.region")), ("maxWidth", .int(4096))])),
+                ("bindingRecovery", .obj([("version", .int(1)), ("statusMethod", .string("desktop.bindingStatus")),
+                     ("recoveryMethod", .string("desktop.recoverBinding")), ("requiresConfirmation", .bool(true))])),
                 ("liveObservation", .obj([("version", .int(1)), ("method", .string("observe.subscribe")),
                      ("maxFPS", .int(2)), ("maxWidth", .int(1920))]))]) + extensions.capabilitySections()))
 
@@ -472,6 +474,8 @@ public final class RuntimeService: @unchecked Sendable {
             let visible = desktops.list().filter { desktopAllowed(connection, $0.desktopId) }
             return .success(.obj([("desktops", .array(visible.map { desktopJSON($0, for: connection) }))]))
 
+        case .bindingStatus: return bindingStatus(p, connection)
+        case .recoverBinding: return requestWindowGrant(p, connection, recoverBinding: true)
         case .desktopShow:
             return desktop(p["desktopId"]).map { desktopJSON($0, for: connection) }
 
