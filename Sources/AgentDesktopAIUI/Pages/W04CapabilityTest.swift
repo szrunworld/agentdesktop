@@ -41,7 +41,11 @@ public final class CapabilityTestModel: ObservableObject {
     @Published public private(set) var profiles: [GuiProfileRow] = []
     @Published public private(set) var levels = LevelRow.initial()
     @Published public private(set) var phase: Phase = .idle
-    @Published public private(set) var isPolling = false
+    /// The generation whose status loop is running, if any. Only a loop of
+    /// the current generation counts as polling; an older one is on its way
+    /// out and blocks nothing.
+    @Published private var pollingGeneration: Int?
+    public var isPolling: Bool { pollingGeneration == generation }
     @Published public private(set) var operationId: String?
     @Published public private(set) var problem: UIProblem?
     @Published public private(set) var performedDesktopInput: Bool?
@@ -57,6 +61,10 @@ public final class CapabilityTestModel: ObservableObject {
     /// successful read clears only such a problem, never one from cancel or
     /// from the operation, even when the two look the same.
     private var problemFromPoll = false
+    /// Raised by every start. start/poll/cancel capture it on entry and,
+    /// after each await, write nothing once it moved on: an answer for an
+    /// older test can never touch the page, start a loop, or block one.
+    private var generation = 0
 
     public init(client: ContractClient, guiProfileId: String? = nil, clock: PollClock = SystemPollClock(), pollMs: Int = 500) {
         self.client = client
@@ -80,9 +88,7 @@ public final class CapabilityTestModel: ObservableObject {
     }
 
     public var canStart: Bool {
-        // A loop still reading the previous operation would make a new
-        // operation's poll() return at once and leave it unwatched.
-        guard guiProfileId != nil, !isPolling else { return false }
+        guard guiProfileId != nil else { return false }
         switch phase {
         case .idle, .finished: return true
         default: return false
@@ -92,22 +98,37 @@ public final class CapabilityTestModel: ObservableObject {
     /// Starts once; a retry after a lost answer reuses the same key.
     public func start() async {
         guard canStart, let id = guiProfileId else { return }
+        generation += 1
+        let g = generation
+        operationId = nil
         phase = .starting
         show(nil)
         levels = LevelRow.initial()
+        evidence = [:]
         performedDesktopInput = nil
         do {
             let p = try await client.send("ai.profiles.get", .obj([("guiProfileId", .string(id))]))
+            guard g == generation else { return }
             let rev = p["revision"]?.intValue ?? 1
             guiProfileRevision = rev
             let params = JSONValue.obj([("guiProfileId", .string(id)), ("expectedRevision", .int(rev)),
                                         ("fixtureId", .string("synthetic_gui_v1"))])
             let r = try await client.send("ai.tests.start", params, idempotencyKey: startKey.key(for: params, prefix: "w04-test"))
-            operationId = r["operationId"]?.stringValue
+            // The test exists now; the next start is a new submission.
+            startKey.reset()
+            guard g == generation else { return }
+            // Without an id nothing could be read or cancelled; do not show
+            // a test as running that no loop will ever end.
+            guard let op = r["operationId"]?.stringValue else {
+                show(UIProblem(ContractError(.internalError, "ai.tests.start answered without operationId")))
+                phase = .idle
+                return
+            }
+            operationId = op
             phase = .running
             await poll()
-            startKey.reset()
         } catch {
+            guard g == generation else { return }
             show(UIProblem(error))
             phase = .idle
         }
@@ -115,32 +136,33 @@ public final class CapabilityTestModel: ObservableObject {
 
     /// Reads the operation until it ends. Levels never finished stay unfinished.
     ///
-    /// After every wait the loop re-checks `settled(op)`: once the end is
+    /// After every wait the loop re-checks `settled(g)`: once the end is
     /// known (a terminal cancel answer, say) or a newer test has started,
-    /// nothing this loop read or failed to read may change the phase or the
-    /// problem, so it stops without writing.
+    /// nothing this loop read or failed to read may change the page, so it
+    /// stops without writing.
     public func poll() async {
-        guard let op = operationId, !isPolling, !settled(op) else { return }
-        isPolling = true
-        defer { isPolling = false }
+        let g = generation
+        guard let op = operationId, pollingGeneration != g, !settled(g) else { return }
+        pollingGeneration = g
+        defer { if pollingGeneration == g { pollingGeneration = nil } }
         var failures = 0
-        while !settled(op) {
+        while !settled(g) {
             let o: JSONValue
             do {
                 o = try await client.send("ai.operations.get", .obj([("operationId", .string(op))]))
             } catch is CancellationError {
-                if !settled(op) { phase = .unknown }
+                if !settled(g) { phase = .unknown }
                 return
             } catch {
-                guard !settled(op) else { return }
+                guard !settled(g) else { return }
                 problem = UIProblem(error)
                 problemFromPoll = true
                 failures += 1
                 guard failures < 3 else { phase = .unknown; return }
-                guard await pauseOrMarkUnknown(milliseconds: pollMs * failures, op) else { return }
+                guard await pauseOrMarkUnknown(milliseconds: pollMs * failures, g) else { return }
                 continue
             }
-            guard !settled(op) else { return }
+            guard !settled(g) else { return }
             failures = 0
             if problemFromPoll { show(nil) }
             apply(o)
@@ -150,25 +172,26 @@ public final class CapabilityTestModel: ObservableObject {
             }
             if o["state"]?.stringValue == "cancelling" { phase = .cancelling }
             else if phase == .unknown { phase = .running }
-            guard await pauseOrMarkUnknown(milliseconds: pollMs, op) else { return }
+            guard await pauseOrMarkUnknown(milliseconds: pollMs, g) else { return }
         }
     }
 
-    /// True when the loop for `op` must not write any more: the end is
-    /// already known, or `op` is no longer the test on the page.
-    private func settled(_ op: String) -> Bool {
+    /// True when work of generation `g` must not write any more: a newer
+    /// test has started, or the end of this one is already known.
+    private func settled(_ g: Int) -> Bool {
+        if g != generation { return true }
         if case .finished = phase { return true }
-        return operationId != op
+        return false
     }
 
     /// Waits between reads; a cancelled wait leaves the state unknown
     /// (unless already settled) and stops the loop.
-    private func pauseOrMarkUnknown(milliseconds: Int, _ op: String) async -> Bool {
+    private func pauseOrMarkUnknown(milliseconds: Int, _ g: Int) async -> Bool {
         do {
             try await clock.pause(milliseconds: milliseconds)
             return true
         } catch {
-            if !settled(op) { phase = .unknown }
+            if !settled(g) { phase = .unknown }
             return false
         }
     }
@@ -202,18 +225,18 @@ public final class CapabilityTestModel: ObservableObject {
     /// get. When no status loop is running (status was unknown), cancel
     /// starts one, so "cancelling" always has a loop that can end it.
     public func cancel() async {
-        guard let op = operationId else { return }
+        let g = generation
+        guard let op = operationId, !settled(g) else { return }
         let r: JSONValue
         do {
             r = try await client.send("ai.operations.cancel", .obj([("operationId", .string(op))]),
                                       idempotencyKey: "w04-cancel-\(op)")
         } catch {
-            if operationId == op { show(UIProblem(error)) }
+            if !settled(g) { show(UIProblem(error)) }
             return
         }
         // A late answer must not touch a newer test or an end already read.
-        guard operationId == op else { return }
-        if case .finished = phase { return }
+        guard !settled(g) else { return }
         if r["terminal"]?.boolValue == true {
             phase = .finished(r["state"]?.stringValue ?? "cancelled")
         } else {
