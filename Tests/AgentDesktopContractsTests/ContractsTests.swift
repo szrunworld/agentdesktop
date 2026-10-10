@@ -275,7 +275,11 @@ struct SpecExampleTests {
     }()
 
     @Test func everyExampleMatchesItsParamsAndResult() throws {
-        let pairs = (examples["pairs"]?.arrayValue ?? []).filter { $0["command"]?.stringValue != "runtime.capabilities" }
+        // gui.runs.* examples stay for the Windows ai/1 contract layer
+        // (contracts/ai-gui/v1); runtime/1 withdrew them with A6.
+        let pairs = (examples["pairs"]?.arrayValue ?? []).filter {
+            $0["command"]?.stringValue != "runtime.capabilities" && $0["command"]?.stringValue?.hasPrefix("gui.runs.") != true
+        }
         #expect(pairs.count == 27)
         for p in pairs {
             let command = p["command"]!.stringValue!

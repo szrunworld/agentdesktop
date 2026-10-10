@@ -1358,6 +1358,472 @@
    }
   },
   {
+   "command": "gui.runs.start",
+   "request": {
+    "schemaVersion": "agentdesktop.ai/1",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "command": "gui.runs.start",
+    "params": {
+     "sessionId": "session-test-001",
+     "desktopId": "desktop-test-001",
+     "guiProfileId": "gui-profile-test-001",
+     "expectedProfileRevision": 1,
+     "goal": "在合成表单中填写测试字段，不发送任何外部消息",
+     "verification": {
+      "kind": "element_text_equals",
+      "role": "static_text",
+      "text": "已保存：Ada / MAC-001-A / 提交次数 1"
+     },
+     "allowedActions": [
+      "click",
+      "type",
+      "key",
+      "scroll"
+     ]
+    },
+    "context": {
+     "idempotencyKey": "fixture-028-request"
+    }
+   },
+   "success": {
+    "schemaVersion": "agentdesktop.ai/1",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "ok": true,
+    "result": {
+     "runId": "run-test-001",
+     "state": "queued",
+     "binding": {
+      "runId": "run-test-001",
+      "sessionId": "session-test-001",
+      "desktopId": "desktop-test-001",
+      "goal": "在合成表单中填写测试字段，不发送任何外部消息",
+      "bindingEpoch": 1,
+      "runGeneration": 1,
+      "policyRevision": 1,
+      "boundAt": "2026-10-08T02:00:00+08:00",
+      "primary": {
+       "candidateIndex": 0,
+       "guiProfile": {
+        "guiProfileId": "gui-profile-test-001",
+        "revision": 1,
+        "name": "GUI 合约测试",
+        "state": "enabled",
+        "modelProfileId": "model-profile-test-001",
+        "modelProfileRevision": 1,
+        "adapterId": "fixture_json_v1",
+        "adapterVersion": "1.0.0",
+        "promptVersion": "fixture-1",
+        "parserVersion": "1.0.0",
+        "coordinateProtocol": "normalized_1000",
+        "limits": {
+         "maxSteps": 20,
+         "maxWallTimeMs": 120000,
+         "maxModelAttemptsPerStep": 2,
+         "maxTotalModelAttempts": 30,
+         "maxOutputTokens": 1024,
+         "maxWaitMs": 5000,
+         "maxScreenshots": 5,
+         "maxImageEncodedBytes": 8388608,
+         "requireReportedUsage": false
+        },
+        "allowedFallbackProfileRefs": [],
+        "createdAt": "2026-10-08T02:00:00+08:00",
+        "updatedAt": "2026-10-08T02:00:00+08:00"
+       },
+       "modelProfile": {
+        "modelProfileId": "model-profile-test-001",
+        "revision": 1,
+        "name": "固定测试模型",
+        "state": "enabled",
+        "connectionId": "connection-test-001",
+        "connectionRevision": 1,
+        "modelId": "fixture-gui-v1",
+        "requestOptions": {
+         "temperature": 0
+        },
+        "maxOutputTokens": 1024,
+        "capabilities": {
+         "network": {
+          "status": "verified",
+          "checkedAt": "2026-10-08T02:00:00+08:00",
+          "testOperationId": "operation-test-001",
+          "scope": {
+           "connectionRevision": 1,
+           "modelProfileRevision": 1,
+           "adapterVersion": "1.0.0",
+           "promptVersion": "fixture-1",
+           "parserVersion": "1.0.0"
+          },
+          "reasonCode": null
+         },
+         "authModel": {
+          "status": "verified",
+          "checkedAt": "2026-10-08T02:00:00+08:00",
+          "testOperationId": "operation-test-001",
+          "scope": {
+           "connectionRevision": 1,
+           "modelProfileRevision": 1,
+           "adapterVersion": "1.0.0",
+           "promptVersion": "fixture-1",
+           "parserVersion": "1.0.0"
+          },
+          "reasonCode": null
+         },
+         "imageInput": {
+          "status": "verified",
+          "checkedAt": "2026-10-08T02:00:00+08:00",
+          "testOperationId": "operation-test-001",
+          "scope": {
+           "connectionRevision": 1,
+           "modelProfileRevision": 1,
+           "adapterVersion": "1.0.0",
+           "promptVersion": "fixture-1",
+           "parserVersion": "1.0.0"
+          },
+          "reasonCode": null
+         },
+         "guiContract": {
+          "status": "verified",
+          "checkedAt": "2026-10-08T02:00:00+08:00",
+          "testOperationId": "operation-test-001",
+          "scope": {
+           "connectionRevision": 1,
+           "modelProfileRevision": 1,
+           "adapterVersion": "1.0.0",
+           "promptVersion": "fixture-1",
+           "parserVersion": "1.0.0"
+          },
+          "reasonCode": null
+         }
+        },
+        "createdAt": "2026-10-08T02:00:00+08:00",
+        "updatedAt": "2026-10-08T02:00:00+08:00"
+       },
+       "connection": {
+        "connectionId": "connection-test-001",
+        "revision": 1,
+        "name": "本地测试连接",
+        "protocol": "openai_chat",
+        "baseUrl": "http://127.0.0.1:8765/v1",
+        "credentialRef": "credential-identity-test-001",
+        "state": "enabled",
+        "timeoutMs": 30000,
+        "createdAt": "2026-10-08T02:00:00+08:00",
+        "updatedAt": "2026-10-08T02:00:00+08:00"
+       },
+       "credentialIdentityRef": "credential-identity-test-001",
+       "authorizationScopeRef": "local-user-test",
+       "dataScopeRef": "synthetic-fixture-only"
+      },
+      "fallbackCandidates": [],
+      "verification": {
+       "kind": "element_text_equals",
+       "role": "static_text",
+       "text": "已保存：Ada / MAC-001-A / 提交次数 1"
+      },
+      "allowedActions": [
+       "click",
+       "type",
+       "key",
+       "scroll"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "command": "gui.runs.get",
+   "request": {
+    "schemaVersion": "agentdesktop.ai/1",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "command": "gui.runs.get",
+    "params": {
+     "runId": "run-test-001"
+    }
+   },
+   "success": {
+    "schemaVersion": "agentdesktop.ai/1",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "ok": true,
+    "result": {
+     "runId": "run-test-001",
+     "state": "waiting_user",
+     "currentGeneration": 1,
+     "binding": {
+      "runId": "run-test-001",
+      "sessionId": "session-test-001",
+      "desktopId": "desktop-test-001",
+      "goal": "在合成表单中填写测试字段，不发送任何外部消息",
+      "bindingEpoch": 1,
+      "runGeneration": 1,
+      "policyRevision": 1,
+      "boundAt": "2026-10-08T02:00:00+08:00",
+      "primary": {
+       "candidateIndex": 0,
+       "guiProfile": {
+        "guiProfileId": "gui-profile-test-001",
+        "revision": 1,
+        "name": "GUI 合约测试",
+        "state": "enabled",
+        "modelProfileId": "model-profile-test-001",
+        "modelProfileRevision": 1,
+        "adapterId": "fixture_json_v1",
+        "adapterVersion": "1.0.0",
+        "promptVersion": "fixture-1",
+        "parserVersion": "1.0.0",
+        "coordinateProtocol": "normalized_1000",
+        "limits": {
+         "maxSteps": 20,
+         "maxWallTimeMs": 120000,
+         "maxModelAttemptsPerStep": 2,
+         "maxTotalModelAttempts": 30,
+         "maxOutputTokens": 1024,
+         "maxWaitMs": 5000,
+         "maxScreenshots": 5,
+         "maxImageEncodedBytes": 8388608,
+         "requireReportedUsage": false
+        },
+        "allowedFallbackProfileRefs": [],
+        "createdAt": "2026-10-08T02:00:00+08:00",
+        "updatedAt": "2026-10-08T02:00:00+08:00"
+       },
+       "modelProfile": {
+        "modelProfileId": "model-profile-test-001",
+        "revision": 1,
+        "name": "固定测试模型",
+        "state": "enabled",
+        "connectionId": "connection-test-001",
+        "connectionRevision": 1,
+        "modelId": "fixture-gui-v1",
+        "requestOptions": {
+         "temperature": 0
+        },
+        "maxOutputTokens": 1024,
+        "capabilities": {
+         "network": {
+          "status": "verified",
+          "checkedAt": "2026-10-08T02:00:00+08:00",
+          "testOperationId": "operation-test-001",
+          "scope": {
+           "connectionRevision": 1,
+           "modelProfileRevision": 1,
+           "adapterVersion": "1.0.0",
+           "promptVersion": "fixture-1",
+           "parserVersion": "1.0.0"
+          },
+          "reasonCode": null
+         },
+         "authModel": {
+          "status": "verified",
+          "checkedAt": "2026-10-08T02:00:00+08:00",
+          "testOperationId": "operation-test-001",
+          "scope": {
+           "connectionRevision": 1,
+           "modelProfileRevision": 1,
+           "adapterVersion": "1.0.0",
+           "promptVersion": "fixture-1",
+           "parserVersion": "1.0.0"
+          },
+          "reasonCode": null
+         },
+         "imageInput": {
+          "status": "verified",
+          "checkedAt": "2026-10-08T02:00:00+08:00",
+          "testOperationId": "operation-test-001",
+          "scope": {
+           "connectionRevision": 1,
+           "modelProfileRevision": 1,
+           "adapterVersion": "1.0.0",
+           "promptVersion": "fixture-1",
+           "parserVersion": "1.0.0"
+          },
+          "reasonCode": null
+         },
+         "guiContract": {
+          "status": "verified",
+          "checkedAt": "2026-10-08T02:00:00+08:00",
+          "testOperationId": "operation-test-001",
+          "scope": {
+           "connectionRevision": 1,
+           "modelProfileRevision": 1,
+           "adapterVersion": "1.0.0",
+           "promptVersion": "fixture-1",
+           "parserVersion": "1.0.0"
+          },
+          "reasonCode": null
+         }
+        },
+        "createdAt": "2026-10-08T02:00:00+08:00",
+        "updatedAt": "2026-10-08T02:00:00+08:00"
+       },
+       "connection": {
+        "connectionId": "connection-test-001",
+        "revision": 1,
+        "name": "本地测试连接",
+        "protocol": "openai_chat",
+        "baseUrl": "http://127.0.0.1:8765/v1",
+        "credentialRef": "credential-identity-test-001",
+        "state": "enabled",
+        "timeoutMs": 30000,
+        "createdAt": "2026-10-08T02:00:00+08:00",
+        "updatedAt": "2026-10-08T02:00:00+08:00"
+       },
+       "credentialIdentityRef": "credential-identity-test-001",
+       "authorizationScopeRef": "local-user-test",
+       "dataScopeRef": "synthetic-fixture-only"
+      },
+      "fallbackCandidates": [],
+      "verification": {
+       "kind": "element_text_equals",
+       "role": "static_text",
+       "text": "已保存：Ada / MAC-001-A / 提交次数 1"
+      },
+      "allowedActions": [
+       "click",
+       "type",
+       "key",
+       "scroll"
+      ]
+     },
+     "createdAt": "2026-10-08T02:00:00+08:00",
+     "updatedAt": "2026-10-08T02:00:00+08:00",
+     "stepCount": 1,
+     "modelAttemptCount": 1,
+     "lastSequence": 5,
+     "latestObservationId": "observation-test-001",
+     "latestInferenceReceipt": {
+      "inferenceAttemptId": "attempt-test-001",
+      "requestId": "11111111-1111-4111-8111-111111111111",
+      "upstreamRequestId": "synthetic-upstream-request-001",
+      "snapshotId": "snapshot-test-001",
+      "runId": "run-test-001",
+      "stepIndex": 0,
+      "candidateIndex": 0,
+      "connectionId": "connection-test-001",
+      "connectionRevision": 1,
+      "modelProfileId": "model-profile-test-001",
+      "modelProfileRevision": 1,
+      "guiProfileId": "gui-profile-test-001",
+      "guiProfileRevision": 1,
+      "requestedModelId": "fixture-gui-v1",
+      "actualModelId": "fixture-gui-v1",
+      "credentialIdentityRef": "credential-identity-test-001",
+      "startedAt": "2026-10-08T02:00:00+08:00",
+      "endedAt": "2026-10-08T02:00:00+08:00",
+      "latencyMs": 25,
+      "status": "succeeded",
+      "usage": null,
+      "cost": null,
+      "proposalId": "proposal-test-001",
+      "error": null
+     },
+     "latestActionReceipt": {
+      "actionId": "action-test-001",
+      "proposalId": "proposal-test-001",
+      "runId": "run-test-001",
+      "desktopId": "desktop-test-001",
+      "snapshotId": "snapshot-test-001",
+      "bindingEpoch": 1,
+      "runGeneration": 1,
+      "actionType": "click",
+      "deliveryState": "unknown",
+      "executionTarget": {
+       "appId": "agentdesktop.synthetic.fixture",
+       "processId": 1001,
+       "processStartId": "process-start-test-001",
+       "windowId": "window-test-001",
+       "windowGeometryRevision": 1,
+       "backendId": "synthetic-fixture-backend",
+       "windowFrameDesktopLogical": {
+        "x": 100,
+        "y": 200,
+        "width": 600,
+        "height": 400
+       }
+      },
+      "inputPath": "synthetic-no-input-fixture",
+      "startedAt": "2026-10-08T02:00:00+08:00",
+      "endedAt": "2026-10-08T02:00:00+08:00",
+      "evidenceRefs": [
+       "evidence-fixture-timeout-001"
+      ],
+      "createdAt": "2026-10-08T02:00:00+08:00",
+      "updatedAt": "2026-10-08T02:00:00+08:00",
+      "confirmationObservationId": null,
+      "reasonCode": "ACTION_OUTCOME_UNKNOWN"
+     },
+     "waitingReasonCode": "ACTION_OUTCOME_UNKNOWN",
+     "goalVerification": {
+      "status": "not_run",
+      "observationId": null,
+      "verifierId": null,
+      "checkedAt": null
+     },
+     "error": null
+    }
+   }
+  },
+  {
+   "command": "gui.runs.cancel",
+   "request": {
+    "schemaVersion": "agentdesktop.ai/1",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "command": "gui.runs.cancel",
+    "params": {
+     "runId": "run-test-001"
+    },
+    "context": {
+     "idempotencyKey": "fixture-030-request"
+    }
+   },
+   "success": {
+    "schemaVersion": "agentdesktop.ai/1",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "ok": true,
+    "result": {
+     "runId": "run-test-001",
+     "accepted": true,
+     "state": "cancelling",
+     "terminal": false
+    }
+   }
+  },
+  {
+   "command": "gui.runs.events",
+   "request": {
+    "schemaVersion": "agentdesktop.ai/1",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "command": "gui.runs.events",
+    "params": {
+     "runId": "run-test-001",
+     "afterSequence": 0,
+     "limit": 50
+    }
+   },
+   "success": {
+    "schemaVersion": "agentdesktop.ai/1",
+    "requestId": "11111111-1111-4111-8111-111111111111",
+    "ok": true,
+    "result": {
+     "runId": "run-test-001",
+     "events": [
+      {
+       "sequence": 1,
+       "runId": "run-test-001",
+       "occurredAt": "2026-10-08T02:00:00+08:00",
+       "type": "state_changed",
+       "bindingEpoch": 1,
+       "runGeneration": 1,
+       "summary": "开始合成任务",
+       "state": "observing"
+      }
+     ],
+     "nextAfterSequence": 1,
+     "hasMore": false
+    }
+   }
+  },
+  {
    "command": "ai.usage.summary",
    "request": {
     "schemaVersion": "agentdesktop.ai/1",
