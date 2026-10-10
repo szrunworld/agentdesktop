@@ -28,16 +28,7 @@ extension RuntimeService {
         // act, so no binding reaches the phone, and none to an app that
         // cannot be identified now.
         try refuseMirroring(b.process.pid, notSent: notSent)
-        if d.kind == .physical {
-            // The user may change the display under a physical Desktop
-            // (resolution, arrangement, unplugging it): the recorded
-            // geometry would then map pixels and points wrongly.
-            let now = try? platform.attachDisplay(d.screen.displayId)
-            guard let now, now.frame == d.screen.frame, now.hiDPI == d.screen.hiDPI else {
-                throw refuse("display_changed",
-                             "display \(d.screen.displayId) changed or is gone since desktop \(d.desktopId) attached it; destroy it and attach the display again")
-            }
-        }
+        try refuseChangedDisplay(d, b, notSent: notSent)
         guard let window = platform.window(on: d.screen, pid: b.process.pid, windowId: b.windowId) else {
             throw refuse("window_gone", "window \(b.windowId) is no longer on desktop \(d.desktopId); bind a window again")
         }
@@ -82,6 +73,22 @@ extension RuntimeService {
         // every capture) without changing what was captured.
         return (window, stack.filter { $0.windowId == b.windowId || Self.overlap($0.frame, window.frame) }
             .map { StackEntry(windowId: $0.windowId, frame: $0.frame) })
+    }
+
+    /// The user may change the display under a physical Desktop
+    /// (resolution, arrangement, unplugging it): the recorded geometry would
+    /// then map pixels and points wrongly. Checked wherever the bound window
+    /// is looked at or reached: observe, act and every wait poll.
+    func refuseChangedDisplay(_ d: DesktopRecord, _ b: TargetBinding, notSent: Bool) throws {
+        guard d.kind == .physical, let platform else { return }
+        let now = try? platform.attachDisplay(d.screen.displayId)
+        guard let now, now.frame == d.screen.frame, now.hiDPI == d.screen.hiDPI else {
+            throw RuntimeError("stale_observation",
+                               "display \(d.screen.displayId) changed or is gone since desktop \(d.desktopId) attached it; destroy it and attach the display again",
+                               phase: .handler, notSent: notSent,
+                               details: .obj([("reason", .string("display_changed")), ("generation", .int(b.generation)),
+                                              ("windowId", .int(Int(b.windowId)))]))
+        }
     }
 
     struct StackEntry: Equatable {

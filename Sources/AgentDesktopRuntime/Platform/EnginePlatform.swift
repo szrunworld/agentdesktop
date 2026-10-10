@@ -208,7 +208,9 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
 
     /// The one owner whose display-wide high-layer window is known OS
     /// furniture: the Dock keeps a transparent layer over the whole display.
-    /// Everything else above the normal layer counts, unknown or not.
+    /// Only that layer is left out; the Dock's menus, folder stacks and
+    /// other panels count like any overlay (Codex on 1994bca). Everything
+    /// else above the normal layer counts, unknown or not.
     static let furniture: Set<String> = ["Dock"]
 
     public func overlays(on screen: ScreenHandle) -> [PlatformWindow] {
@@ -240,7 +242,9 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     /// transparent overlay looks exactly like an opaque one in the window
     /// list) counts: what the user sees may not be what is acted on.
     static func isCoveringOverlay(frame f: Rect, owner: String, screen s: Rect, menuBar: Double) -> Bool {
-        if furniture.contains(owner) { return false }
+        let spansDisplay = f.x <= s.x + 1 && f.y <= s.y + 1
+            && f.x + f.width >= s.x + s.width - 1 && f.y + f.height >= s.y + s.height - 1
+        if furniture.contains(owner) && spansDisplay { return false }
         if f.y <= s.y + 1 && f.y + f.height <= s.y + menuBar + 1 { return false }
         if f.width < 4 || f.height < 4 { return false }
         return true

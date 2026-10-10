@@ -379,7 +379,8 @@ final class LockedStrings: @unchecked Sendable {
     #expect(covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Window Server"), "a display-wide Window Server layer counts")
     #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 37), "Window Server"), "the menu bar")
     #expect(!covers(Rect(x: 1010, y: 0, width: 38, height: 37), "WeChat"), "a status item")
-    #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Dock"), "the Dock")
+    #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Dock"), "the Dock's display-wide layer")
+    #expect(covers(Rect(x: 600, y: 500, width: 240, height: 300), "Dock"), "a Dock menu or folder stack counts (Codex on 1994bca)")
     #expect(!covers(Rect(x: 0, y: 38, width: 1, height: 1), "Typeless"), "a 1×1 anchor")
 }
 
@@ -405,4 +406,21 @@ final class LockedStrings: @unchecked Sendable {
     #expect(s.physicalDesktopsEnabled == false)
     #expect(s.bindsOnlyLaunchedProcesses == true)
     #expect(s.refusesScreenCaptureWithoutBinding == true)
+}
+
+@Test func aWaitOnAPhysicalDesktopStopsWhenTheDisplayChanges() throws {
+    // Codex on 1994bca: every wait poll checks the display, not only observe and act.
+    let sc = try physicalScene()
+    sc.platform.physicalDisplays[1] = ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1800, height: 1169), hiDPI: true)
+    let w = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                 context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w)?.details?["reason"]?.stringValue == "display_changed", "\(w.json.encoded())")
+    // A display that changes between the read and the store is refused too.
+    sc.platform.physicalDisplays[1] = ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1512, height: 982), hiDPI: true)
+    let reads = sc.platform.calls.filter { $0.hasPrefix("elements") }.count
+    sc.platform.onElements = { sc.platform.physicalDisplays[1] = nil }
+    let w2 = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                  context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w2)?.details?["reason"]?.stringValue == "display_changed", "\(w2.json.encoded())")
+    #expect(sc.platform.calls.filter { $0.hasPrefix("elements") }.count > reads, "the read happened; the store was refused")
 }
