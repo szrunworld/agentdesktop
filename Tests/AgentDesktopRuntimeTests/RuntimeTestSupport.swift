@@ -372,7 +372,24 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
     var onLaunch: (() -> Void)?
     /// Thrown by the launch after `onLaunch`, as the engine's refusals are.
     var launchError: Error?
-    func quit(pid: Int32) -> Bool { lock.withLock { quit.append(pid) }; return true }
+    /// Runs as an app is asked to quit (a test makes the process exit there).
+    var onQuit: ((Int32) -> Void)?
+    func quit(pid: Int32) -> Bool { lock.withLock { quit.append(pid) }; lock.withLock { onQuit }?(pid); return true }
+
+    /// The screens resized, by name; a size outside 320x240…3840x2160 is refused like the engine does.
+    func resizeScreen(name: String, width: Int, height: Int) throws -> ScreenHandle {
+        note("resize \(name) \(width)x\(height)")
+        return try lock.withLock {
+            guard let old = screens[name] else { throw PlatformError(.notFound, "no agent screen named \(name)") }
+            guard width <= 3840, height <= 2160 else {
+                throw PlatformError(.refused, "this screen can be resized between 320x240 and 3840x2160 points; create a new one for a larger size")
+            }
+            let h = ScreenHandle(name: name, displayId: old.displayId,
+                                 frame: Rect(x: old.frame.x, y: old.frame.y, width: Double(width), height: Double(height)), hiDPI: old.hiDPI)
+            screens[name] = h
+            return h
+        }
+    }
     var performed: [PlatformAction] = []
     /// Fail the next action: before or after dispatch.
     var failNext: PlatformError?
