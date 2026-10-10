@@ -23,7 +23,89 @@ private actor PollingClient: ContractClient {
     }
 }
 
+/// Holds each pause until the test releases it, so a test can act while
+/// the status loop is between reads.
+private actor PauseGate {
+    private(set) var entered = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func pause() async {
+        entered += 1
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func release() {
+        let w = waiters
+        waiters = []
+        w.forEach { $0.resume() }
+    }
+    func waitForPause(_ n: Int) async {
+        while entered < n { try? await Task.sleep(nanoseconds: 1_000_000) }
+    }
+}
+
+private struct GateClock: PollClock {
+    let gate: PauseGate
+    func pause(milliseconds: Int) async throws {
+        await gate.pause()
+        try Task.checkCancellation()
+    }
+}
+
+/// Reads stay "running" for `runningReads`, then end; cancel answers as told.
+private actor CancelClient: ContractClient {
+    var reads = 0
+    let runningReads: Int
+    let cancelFails: Bool
+    init(runningReads: Int, cancelFails: Bool) { self.runningReads = runningReads; self.cancelFails = cancelFails }
+    func guiCapabilities() async throws -> JSONValue { .obj([]) }
+    func send(_ command: String, _ params: JSONValue, idempotencyKey: String?) async throws -> JSONValue {
+        switch command {
+        case "ai.profiles.get": return .obj([("revision", .int(1))])
+        case "ai.tests.start": return .obj([("operationId", .string("op"))])
+        case "ai.operations.get":
+            reads += 1
+            return .obj([("state", .string(reads <= runningReads ? "running" : "cancelled"))])
+        case "ai.operations.cancel":
+            if cancelFails { throw ContractError(.upstreamUnavailable, "cancel not delivered") }
+            return .obj([("terminal", .bool(true)), ("state", .string("cancelled"))])
+        default: throw ContractError(.internalError, "unexpected command")
+        }
+    }
+}
+
 @MainActor struct CapabilityPollingTests {
+    @Test func terminalCancelWaitsForTheOldLoopBeforeStartingAgain() async {
+        let gate = PauseGate()
+        let client = CancelClient(runningReads: 1, cancelFails: false)
+        let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: GateClock(gate: gate))
+        let running = Task { await model.start() }
+        await gate.waitForPause(1)
+        await model.cancel()
+        #expect(model.phase == .finished("cancelled"))
+        #expect(model.isPolling)
+        #expect(!model.canStart)
+        await gate.release()
+        await running.value
+        #expect(!model.isPolling)
+        #expect(model.canStart)
+    }
+    @Test func cancelErrorSurvivesASuccessfulStatusRead() async {
+        let gate = PauseGate()
+        let client = CancelClient(runningReads: 2, cancelFails: true)
+        let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: GateClock(gate: gate))
+        let running = Task { await model.start() }
+        await gate.waitForPause(1)
+        await model.cancel()
+        let cancelProblem = model.problem
+        #expect(cancelProblem?.code == .upstreamUnavailable)
+        await gate.release()
+        await gate.waitForPause(2)
+        #expect(model.problem == cancelProblem)
+        await gate.release()
+        await running.value
+        #expect(model.phase == .finished("cancelled"))
+        #expect(model.problem == cancelProblem)
+    }
+
     @Test func transientReadFailureRecoversWithoutResubmission() async {
         let client = PollingClient(failures: 1)
         let model = CapabilityTestModel(client: client, guiProfileId: "p", clock: FastClock())

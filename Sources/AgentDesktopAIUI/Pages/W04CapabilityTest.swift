@@ -53,6 +53,9 @@ public final class CapabilityTestModel: ObservableObject {
     let clock: PollClock
     let pollMs: Int
     private var startKey = SubmissionKey()
+    /// The problem the status loop itself showed; a successful read clears
+    /// only this one, never an error from cancel or from the operation.
+    private var pollProblem: UIProblem?
 
     public init(client: ContractClient, guiProfileId: String? = nil, clock: PollClock = SystemPollClock(), pollMs: Int = 500) {
         self.client = client
@@ -70,7 +73,9 @@ public final class CapabilityTestModel: ObservableObject {
     }
 
     public var canStart: Bool {
-        guard guiProfileId != nil else { return false }
+        // A loop still reading the previous operation would make a new
+        // operation's poll() return at once and leave it unwatched.
+        guard guiProfileId != nil, !isPolling else { return false }
         switch phase {
         case .idle, .finished: return true
         default: return false
@@ -82,6 +87,7 @@ public final class CapabilityTestModel: ObservableObject {
         guard canStart, let id = guiProfileId else { return }
         phase = .starting
         problem = nil
+        pollProblem = nil
         levels = LevelRow.initial()
         performedDesktopInput = nil
         do {
@@ -111,7 +117,10 @@ public final class CapabilityTestModel: ObservableObject {
             do {
                 let o = try await client.send("ai.operations.get", .obj([("operationId", .string(op))]))
                 failures = 0
-                problem = nil
+                if let p = pollProblem {
+                    if problem == p { problem = nil }
+                    pollProblem = nil
+                }
                 apply(o)
                 if let s = o["state"]?.stringValue, ["succeeded", "failed", "cancelled"].contains(s) {
                     phase = .finished(s)
@@ -124,7 +133,9 @@ public final class CapabilityTestModel: ObservableObject {
                 if case .finished = phase {} else { phase = .unknown }
                 return
             } catch {
-                problem = UIProblem(error)
+                let p = UIProblem(error)
+                problem = p
+                pollProblem = p
                 failures += 1
                 guard failures < 3 else { phase = .unknown; return }
                 do { try await clock.pause(milliseconds: pollMs * failures) }
