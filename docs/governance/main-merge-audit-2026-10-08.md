@@ -1017,3 +1017,14 @@ Kevin 原话：
 - **更正（b9）**：上一条写"ce43f3f（run 38027661607 cancelled）……没有复现失败"，这个结论**不成立**。那次运行被取消了，是 #217 合并后由 concurrency 规则取消的，所以没有任何测试结果。改为：ce43f3f 没有完整的 main CI 结果，以 c39ddae（#217 合并后，run 38027866952，运行中）的结果为准。
 - **#217**（修复 Touch ID 验收超时后的结果查询）：05:32:44Z 合并，head bd95c18，合并提交 c39ddae。执行方是 Codex CLI 会话 `01a1235f`（日志中有 `gh pr merge 217`）。按 Kevin 的裁决，该会话具备最高权限，所以这次合并视为 Kevin 本人授权。
 - **main CI c39ddae**（包含 #210、#212、#211、#217）：run 38027866952 **通过**。此前 7fa1b15 上 RuntimeSealParityTests 的失败没有复现，与"随机 clientId 导致误报"的判断一致。
+- **#215 合并**（Codex CLI 会话 `01a1235f` 执行）：
+  - **经过**：
+    1. Kevin 05:34:17Z 在该会话中说"好，按你建议进行修复"，该会话于是在 #215 分支上推送 f49792b（05:37Z），修复 Codex 在 7c1c7cd 上提出的 P2「Continue traversal from verified foreign members after root exit」，并同步修改两个 sudo 用例。
+    2. Kevin 05:46:34Z 说"合并"。
+    3. 05:47:10Z 以 `--match-head-commit f49792b…` 合并，合并提交 7fc5464。
+  - **审核情况**：
+    - f49792b 的 CI 通过，52 项自测全部通过，包括 sudo 用例。
+    - main 7fc5464 的 CI 通过。
+    - b9 只对 7c1c7cd 做过合并前复审；对 f49792b 的增量（共 21 行，root 被回收后，以 seen / seen_foreign 中身份仍一致的成员为起点继续 `_tree`；只有 root_alive 时才使用进程组）是在合并后补审的，结论是逻辑正确。
+  - **并行冲突**：69 同时在修同一条 P2，推送时被 non-fast-forward 拒绝。69 没有强推，重复的提交另存为本地备份。
+- **#212 / #217 的真机 Touch ID 验收**：Codex 会话日志显示，Kevin 在 05:21–05:31Z 之间亲自完成了批准和拒绝等操作，#217 的记录写明"真机验收 15 项通过"。这是 #205 / #212 的 Touch ID 验收，**不是** #143 物理 Desktop 的真机安全验收，后者仍待进行。
