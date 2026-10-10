@@ -34,13 +34,14 @@ public struct LevelRow: Identifiable, Equatable, Sendable {
 /// a desktop screenshot or gives input.
 @MainActor
 public final class CapabilityTestModel: ObservableObject {
-    public enum Phase: Equatable { case idle, starting, running, cancelling, finished(String) }
+    public enum Phase: Equatable { case idle, starting, running, cancelling, unknown, finished(String) }
 
     @Published public var guiProfileId: String?
     @Published public private(set) var guiProfileRevision: Int?
     @Published public private(set) var profiles: [GuiProfileRow] = []
     @Published public private(set) var levels = LevelRow.initial()
     @Published public private(set) var phase: Phase = .idle
+    @Published public private(set) var isPolling = false
     @Published public private(set) var operationId: String?
     @Published public private(set) var problem: UIProblem?
     @Published public private(set) var performedDesktopInput: Bool?
@@ -52,6 +53,10 @@ public final class CapabilityTestModel: ObservableObject {
     let clock: PollClock
     let pollMs: Int
     private var startKey = SubmissionKey()
+    /// True while `problem` was written by the status loop itself. A
+    /// successful read clears only such a problem, never one from cancel or
+    /// from the operation, even when the two look the same.
+    private var problemFromPoll = false
 
     public init(client: ContractClient, guiProfileId: String? = nil, clock: PollClock = SystemPollClock(), pollMs: Int = 500) {
         self.client = client
@@ -65,11 +70,19 @@ public final class CapabilityTestModel: ObservableObject {
             let r = try await client.send("ai.profiles.list", .obj([("limit", .int(100))]))
             profiles = (r["items"]?.arrayValue ?? []).map(GuiProfileRow.init)
             if guiProfileId == nil { guiProfileId = profiles.first?.id }
-        } catch { problem = UIProblem(error) }
+        } catch { show(UIProblem(error)) }
+    }
+
+    /// Records a problem that did not come from the status loop.
+    private func show(_ p: UIProblem?) {
+        problem = p
+        problemFromPoll = false
     }
 
     public var canStart: Bool {
-        guard guiProfileId != nil else { return false }
+        // A loop still reading the previous operation would make a new
+        // operation's poll() return at once and leave it unwatched.
+        guard guiProfileId != nil, !isPolling else { return false }
         switch phase {
         case .idle, .finished: return true
         default: return false
@@ -80,7 +93,7 @@ public final class CapabilityTestModel: ObservableObject {
     public func start() async {
         guard canStart, let id = guiProfileId else { return }
         phase = .starting
-        problem = nil
+        show(nil)
         levels = LevelRow.initial()
         performedDesktopInput = nil
         do {
@@ -95,30 +108,68 @@ public final class CapabilityTestModel: ObservableObject {
             await poll()
             startKey.reset()
         } catch {
-            problem = UIProblem(error)
+            show(UIProblem(error))
             phase = .idle
         }
     }
 
     /// Reads the operation until it ends. Levels never finished stay unfinished.
+    ///
+    /// After every wait the loop re-checks `settled(op)`: once the end is
+    /// known (a terminal cancel answer, say) or a newer test has started,
+    /// nothing this loop read or failed to read may change the phase or the
+    /// problem, so it stops without writing.
     public func poll() async {
-        guard let op = operationId else { return }
-        while true {
+        guard let op = operationId, !isPolling, !settled(op) else { return }
+        isPolling = true
+        defer { isPolling = false }
+        var failures = 0
+        while !settled(op) {
+            let o: JSONValue
             do {
-                let o = try await client.send("ai.operations.get", .obj([("operationId", .string(op))]))
-                apply(o)
-                if let s = o["state"]?.stringValue, ["succeeded", "failed", "cancelled"].contains(s) {
-                    phase = .finished(s)
-                    return
-                }
-                if o["state"]?.stringValue == "cancelling" { phase = .cancelling }
-                try await clock.pause(milliseconds: pollMs)
+                o = try await client.send("ai.operations.get", .obj([("operationId", .string(op))]))
             } catch is CancellationError {
+                if !settled(op) { phase = .unknown }
                 return
             } catch {
+                guard !settled(op) else { return }
                 problem = UIProblem(error)
+                problemFromPoll = true
+                failures += 1
+                guard failures < 3 else { phase = .unknown; return }
+                guard await pauseOrMarkUnknown(milliseconds: pollMs * failures, op) else { return }
+                continue
+            }
+            guard !settled(op) else { return }
+            failures = 0
+            if problemFromPoll { show(nil) }
+            apply(o)
+            if let s = o["state"]?.stringValue, ["succeeded", "failed", "cancelled"].contains(s) {
+                phase = .finished(s)
                 return
             }
+            if o["state"]?.stringValue == "cancelling" { phase = .cancelling }
+            else if phase == .unknown { phase = .running }
+            guard await pauseOrMarkUnknown(milliseconds: pollMs, op) else { return }
+        }
+    }
+
+    /// True when the loop for `op` must not write any more: the end is
+    /// already known, or `op` is no longer the test on the page.
+    private func settled(_ op: String) -> Bool {
+        if case .finished = phase { return true }
+        return operationId != op
+    }
+
+    /// Waits between reads; a cancelled wait leaves the state unknown
+    /// (unless already settled) and stops the loop.
+    private func pauseOrMarkUnknown(milliseconds: Int, _ op: String) async -> Bool {
+        do {
+            try await clock.pause(milliseconds: milliseconds)
+            return true
+        } catch {
+            if !settled(op) { phase = .unknown }
+            return false
         }
     }
 
@@ -135,23 +186,40 @@ public final class CapabilityTestModel: ObservableObject {
         }
         performedDesktopInput = o["result"]?["performedDesktopInput"]?.boolValue
         if let e = o["error"], !e.isNull {
-            problem = UIProblem(ContractError(ErrorCode(rawValue: e["code"]?.stringValue ?? "") ?? .internalError,
-                                              e["message"]?.stringValue ?? ""))
+            show(UIProblem(ContractError(ErrorCode(rawValue: e["code"]?.stringValue ?? "") ?? .internalError,
+                                              e["message"]?.stringValue ?? "")))
         }
     }
 
-    /// Accepting a cancel shows "cancelling" first; the end state comes from get.
+    /// Cancel stays possible while the end is not confirmed: after lost
+    /// status reads the test may still be running and sending requests.
+    public var canCancel: Bool {
+        guard operationId != nil else { return false }
+        return phase == .running || phase == .unknown
+    }
+
+    /// Accepting a cancel shows "cancelling" first; the end state comes from
+    /// get. When no status loop is running (status was unknown), cancel
+    /// starts one, so "cancelling" always has a loop that can end it.
     public func cancel() async {
         guard let op = operationId else { return }
+        let r: JSONValue
         do {
-            let r = try await client.send("ai.operations.cancel", .obj([("operationId", .string(op))]),
-                                          idempotencyKey: "w04-cancel-\(op)")
-            if r["terminal"]?.boolValue == true {
-                phase = .finished(r["state"]?.stringValue ?? "cancelled")
-            } else {
-                phase = .cancelling
-            }
-        } catch { problem = UIProblem(error) }
+            r = try await client.send("ai.operations.cancel", .obj([("operationId", .string(op))]),
+                                      idempotencyKey: "w04-cancel-\(op)")
+        } catch {
+            if operationId == op { show(UIProblem(error)) }
+            return
+        }
+        // A late answer must not touch a newer test or an end already read.
+        guard operationId == op else { return }
+        if case .finished = phase { return }
+        if r["terminal"]?.boolValue == true {
+            phase = .finished(r["state"]?.stringValue ?? "cancelled")
+        } else {
+            phase = .cancelling
+            await poll()
+        }
     }
 
     public var allPassed: Bool { levels.allSatisfy { $0.status == .passed } }
@@ -171,13 +239,18 @@ public struct CapabilityTestView: View {
                     ForEach(model.profiles) { p in Text("\(p.name) r\(p.revision)").tag(Optional(p.id)) }
                 }.frame(maxWidth: 360)
                 Button("开始测试") { Task { await model.start() } }.disabled(!model.canStart)
-                Button("取消") { Task { await model.cancel() } }.disabled(model.phase != .running)
+                Button("取消") { Task { await model.cancel() } }.disabled(!model.canCancel)
             }
             if let p = model.problem { ProblemBanner(problem: p) }
             switch model.phase {
-            case .cancelling: Text("取消中…未完成的层不会被标为通过。").accessibilityAddTraits(.updatesFrequently)
+            case .cancelling:
+                Text("取消中…未完成的层不会被标为通过。").accessibilityAddTraits(.updatesFrequently)
+                if !model.isPolling { Button("重新查询状态") { Task { await model.poll() } } }
             case let .finished(s): Text("测试结束：\(s == "succeeded" ? "完成" : s == "cancelled" ? "已取消" : "失败")")
             case .running, .starting: ProgressView("测试进行中")
+            case .unknown:
+                Text("测试状态未知，尚未确认结束。")
+                Button("重新查询状态") { Task { await model.poll() } }.disabled(model.isPolling)
             case .idle: EmptyView()
             }
             ForEach(model.levels) { l in
