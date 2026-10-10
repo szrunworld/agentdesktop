@@ -449,7 +449,9 @@ final class LockedStrings: @unchecked Sendable {
     let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                      endpoint: "/tmp/t.sock", buildSource: "unknown"),
                            backend: FixedBackend(), platform: FakePlatform())
-    #expect(s.physicalDesktopsEnabled == false)
+    // Physical Desktops are open since Kevin's ruling of 2026-10-10 (owner
+    // attach with Touch ID + window grants); the other two seals stay.
+    #expect(s.physicalDesktopsEnabled == true)
     #expect(s.bindsOnlyLaunchedProcesses == true)
     #expect(s.refusesScreenCaptureWithoutBinding == true)
 }

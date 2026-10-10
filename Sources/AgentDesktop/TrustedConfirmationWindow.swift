@@ -70,6 +70,9 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         case .pairing: return "允许「\(who)」使用 Agent Desktop"
         case .windowGrant: return "允许「\(who)」访问一个窗口"
         case .adminCall: return "允许「\(who)」执行 \(r.action)"
+        case .displayAttach:
+            let target = inert(r.details["client"]?["agentName"]?.stringValue ?? r.details["client"]?["clientId"]?.stringValue ?? "?", max: 64)
+            return "把显示器「\(inert(r.details["display"]?["name"]?.stringValue, max: 64))」开放给「\(target)」"
         }
     }
 
@@ -83,6 +86,7 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         case .pairing: alert.messageText = "一个程序请求使用 Agent Desktop（自报名称「\(who)」）"
         case .windowGrant: alert.messageText = "一个已配对的程序请求访问一个窗口（自报名称「\(who)」）"
         case .adminCall: alert.messageText = "一个已配对的程序请求执行管理操作（自报名称「\(who)」）"
+        case .displayAttach: alert.messageText = "把你的一块显示器开放给一个已配对的程序"
         }
         alert.informativeText = describe(r)
         // Return and Escape deny; approving is a deliberate second button
@@ -195,9 +199,45 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
         return lines
     }
 
+    /// The display an owner would open to a client, as the Runtime proved it.
+    static func displayLines(_ d: JSONValue) -> [String] {
+        let display = d["display"] ?? .null, desk = d["desktop"] ?? .null, client = d["client"] ?? .null
+        let f = display["frame"]
+        var lines: [String] = []
+        lines.append("显示器：\(inert(display["name"]?.stringValue, max: 80))（编号 \(display["displayId"]?.intValue ?? 0)，\(display["builtin"]?.boolValue == true ? "内建" : "外接")）")
+        lines.append("分辨率：\(Int(f?["width"]?.doubleValue ?? 0))×\(Int(f?["height"]?.doubleValue ?? 0)) 点\(display["hiDPI"]?.boolValue == true ? "（HiDPI）" : "")，位置 (\(Int(f?["x"]?.doubleValue ?? 0)), \(Int(f?["y"]?.doubleValue ?? 0)))")
+        lines.append("来源判定（系统核实）：" + (display["origin"]?.stringValue == "physical" ? "已证实为物理显示器（内建，或与硬件帧缓冲一一对应的外接显示器）" : "⚠️ 未证实为物理显示器（系统会拒绝执行）"))
+        if let id = desk["desktopId"]?.stringValue {
+            lines.append("Desktop：\(inert(desk["name"]?.stringValue, max: 64))（\(inert(id, max: 128))，已挂接；这次只是把它开放给下面的程序）")
+        } else {
+            lines.append("Desktop：\(inert(desk["name"]?.stringValue, max: 64))（新建，物理；不创建、不移动任何东西）")
+        }
+        lines.append("")
+        lines.append("开放给：\(inert(client["agentName"]?.stringValue, max: 64))（\(inert(client["clientId"]?.stringValue, max: 80))）")
+        if let p = client["publisher"]?.stringValue { lines.append("自报发布者：\(inert(p, max: 128))") }
+        lines.append("它的代码身份（系统核实）：" + identityText(client["codeIdentity"]))
+        if let g = client["grant"], g != .null {
+            let apps = (g["apps"]?.arrayValue ?? []).compactMap(\.stringValue)
+            lines.append("它可申请的 App：" + (apps.isEmpty ? "无（没有 App 就申请不了任何窗口）" : apps.map { inert($0, max: 200) }.joined(separator: "、")))
+            lines.append("它的授权到期：\(inert(g["expiresAt"]?.stringValue, max: 40))")
+        }
+        lines.append("⚠️ 这是你自己正在使用的屏幕。开放后它看不到任何窗口：每一个窗口都要再经你用 Touch ID 单独授权（查看 / 操作 / 保存分开）。")
+        return lines
+    }
+
     static func describe(_ r: ConfirmationRequest) -> String {
         var lines: [String] = []
         let q = r.requester
+        if r.kind == .displayAttach {
+            // Asked of the owner, about a client: the requester is this app's
+            // own window, so the lines are about the display and the client.
+            lines.append("发起方：Agent Desktop 主窗口（本机用户）")
+            lines.append("")
+            lines += displayLines(r.details)
+            lines.append("")
+            lines.append("批准需要验证你的身份（Touch ID 或登录密码）。不回答将在 \(max(1, Int(r.deadline.timeIntervalSinceNow))) 秒后自动拒绝。")
+            return lines.joined(separator: "\n")
+        }
         // What the Runtime itself verified first; what the app says about
         // itself after, marked as such.
         lines.append("代码身份（系统核实）：" + identityText(q["codeIdentity"]))
@@ -242,6 +282,8 @@ final class TrustedConfirmationWindow: TrustedConfirmer, @unchecked Sendable {
             }
             // Shown in full: the Runtime refuses anything too large to show.
             lines.append("完整参数：" + inert((r.details["params"] ?? r.details).encoded(), max: 4000))
+        case .displayAttach:
+            lines += displayLines(r.details)
         }
         lines.append("")
         lines.append("批准需要验证你的身份（Touch ID 或登录密码）。不回答将在 \(max(1, Int(r.deadline.timeIntervalSinceNow))) 秒后自动拒绝。")

@@ -39,6 +39,8 @@ agentdesktop session exec --desktop $D -- /bin/zsh ./agent-flow.sh
 - `run show/events/wait/cancel`：`cancel` 立即受理；`--wait` 等到输入确认静止；`wait` 与 Ctrl-C 只停止本地等待，不改变 Run。
 - 退出码：0 完成，2 参数，3 Runtime 不在线，4 权限，5 冲突，6 版本/能力，7 已知失败，8 等待超时，9 结果未知（`ai|gui|rpc` 命令组沿用 AI/GUI 规范的退出码）。
 
+- 物理 Desktop（你自己的显示器）只能由 Agent Desktop 主窗口开放给已配对的程序（Desktops › 开放我的显示器，Touch ID 确认）；`agentdesktop displays list|attach|detach` 映射到同样的 `hub.displays.*` 方法，但 socket 上的 CLI 是已配对客户端，会得到 `permission_denied / owner_only`，只在测试副本里有用。开放之后程序仍看不到任何窗口，每个窗口都要 `agentdesktop windows request` 并由用户 Touch ID 确认。
+
 ## MCP
 
 `agentdesktop mcp` 在 stdio 上提供 MCP 工具（`desktop_create`、`app_launch`、`window_bind`、`session_open`、`observe`、`act_click`/`act_type`/`act_key`/`act_scroll`、`wait_for_element`、`run_show`、`run_cancel`、`request_show` 等）。`observe` 返回缩小后的截图，`act_*` 的 `x,y` 是这张图的像素，服务端换算回快照坐标。整个 MCP 会话用一条 Runtime 连接，客户端退出后它发起的输入全部停止。

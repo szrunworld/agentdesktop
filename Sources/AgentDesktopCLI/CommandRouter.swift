@@ -149,6 +149,24 @@ enum CommandRouter {
              options: ["--request-id": true], positionals: ["windowGrantId"]) { o, p in
             try write(.windowsRevoke, .obj([("windowGrantId", .string(p[0]))]), o)
         },
+        Spec(words: ["displays", "list"],
+             summary: "your displays with the origin the Runtime proved (owner only: in the product the Agent Desktop window does this)",
+             options: [:], positionals: []) { _, _ in .call(RuntimeCall(method: .displaysList)) },
+        Spec(words: ["displays", "attach"],
+             summary: "open one of your displays to a paired app as a physical Desktop (owner only; confirmed with Touch ID); the app still needs a grant per window",
+             options: ["--display": true, "--client": true, "--name": true, "--request-id": true], positionals: []) { o, _ in
+            guard let display = try positive(o, "--display", required: true) else { throw RuntimeError.invalidArgument("--display is required") }
+            var p: [(String, JSONValue)] = [("displayId", .int(display)), ("clientId", .string(try required(o, "--client")))]
+            if let n = o["--name"] { p.append(("name", .string(n))) }
+            return try write(.displaysAttach, .obj(p), o)
+        },
+        Spec(words: ["displays", "detach"],
+             summary: "take a physical Desktop back from one paired app (--client) or from every app and drop it (owner only)",
+             options: ["--client": true, "--request-id": true], positionals: ["desktopId"]) { o, p in
+            var params: [(String, JSONValue)] = [("desktopId", .string(p[0]))]
+            if let c = o["--client"] { params.append(("clientId", .string(c))) }
+            return try write(.displaysDetach, .obj(params), o)
+        },
         Spec(words: ["mcp"], summary: "serve the Runtime as MCP tools on stdio, as the paired app of --profile (default mcp)",
              options: ["--profile": true], positionals: []) { o, _ in .mcp(profile: o["--profile"]) },
         Spec(words: ["version"], summary: "CLI version, API version and build; no connection",

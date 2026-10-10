@@ -7,13 +7,16 @@ import Foundation
 /// decision is bound to `digest`, computed from exactly what will be applied;
 /// an approval for anything else is refused.
 public struct ConfirmationRequest: Sendable {
-    public enum Kind: String, Sendable { case pairing, adminCall, windowGrant }
+    /// displayAttach: the owner opens one of the user's displays to a
+    /// paired client (hub.displays.attach); asked of the user as the
+    /// owner, not of a client.
+    public enum Kind: String, Sendable { case pairing, adminCall, windowGrant, displayAttach }
     public let confirmationId: String
     public let kind: Kind
     /// Who asks: clientId, agentName, publisher, codeIdentity, callerFacts.
     public let requester: JSONValue
     /// `hub.pairing.start` for a pairing, `hub.windows.request` for a window
-    /// grant, else the method to call.
+    /// grant, `hub.displays.attach` for a display, else the method to call.
     public let action: String
     /// The grant a pairing would get, the window, Desktop and permissions a
     /// window grant would cover, or the call's params: shown, and applied

@@ -77,7 +77,7 @@ extension RuntimeService {
             if let physical = p["physical"] {
                 guard physicalDesktopsEnabled else {
                     return .failure(RuntimeError("permission_denied",
-                                                 "physical Desktops are disabled until per-window grants exist: attaching your screen and binding its windows needs your authorization for each window",
+                                                 "physical Desktops are switched off in this Runtime: attaching your screen and binding its windows needs your authorization for each window",
                                                  phase: .handler, notSent: true,
                                                  details: .obj([("reason", .string("physical_desktop_requires_grant"))])))
                 }

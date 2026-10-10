@@ -163,11 +163,14 @@ public final class RuntimeService: @unchecked Sendable {
     /// Tests only: runs on a pushing connection between its access check and
     /// fetching the next frames, to hold a revocation race open.
     var pushCheckpoint: (@Sendable (ConnectionState) -> Void)?
-    /// Physical Desktops attach the user's own screen and bind any window on
-    /// it. Until grants (PR3) let the user authorize observing, acting on and
-    /// keeping each window separately, every caller is refused; nothing in
-    /// the product turns this on. Tests use it to keep covering the logic.
-    var physicalDesktopsEnabled = false
+    /// Physical Desktops attach one of the user's own displays. Open since
+    /// Kevin's ruling of 2026-10-10 (owner-display-attach.md): window grants
+    /// (#205) let the user authorize observing, acting on and keeping each
+    /// window separately, and only the owner attaches a display (A4), from
+    /// the Agent Desktop window with Touch ID. Attaching shows no window:
+    /// every one still needs its own grant. Tests turn it off to keep
+    /// covering the refusal.
+    var physicalDesktopsEnabled = true
     /// Until grants (PR3): window.bind on a virtual Desktop only takes a
     /// process that app.launch started on that Desktop, so no local client
     /// can pull one of the user's windows onto an agent screen and read or
@@ -194,7 +197,7 @@ public final class RuntimeService: @unchecked Sendable {
         .desktopCreate, .desktopDestroy, .appLaunch, .windowBind, .windowUnbind,
         .sessionOpen, .sessionShow, .sessionClose, .observe,
         .act, .wait, .runStart, .runAttach, .runFinish, .runShow, .runEvents, .runWait, .runCancel, .runList,
-        .eventsSubscribe, .eventsUnsubscribe,
+        .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
@@ -517,6 +520,9 @@ public final class RuntimeService: @unchecked Sendable {
         case .windowsRequest: return requestWindowGrant(p, connection)
         case .windowsList: return listWindowGrants(p, connection)
         case .windowsRevoke: return revokeWindowGrant(p, connection)
+        case .displaysList: return listDisplays(connection)
+        case .displaysAttach: return attachDisplay(p, connection)
+        case .displaysDetach: return detachDisplay(p, connection)
         }
     }
 }

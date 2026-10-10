@@ -16,7 +16,7 @@ import Testing
 }
 
 @Test func everySealReasonHasItsOwnAdviceAndOtherReasonsKeepTheCodeText() {
-    for reason in ["bind_requires_grant", "screen_capture_requires_grant", "physical_desktop_requires_grant"] {
+    for reason in ["bind_requires_grant", "screen_capture_requires_grant", "physical_desktop_requires_grant", "owner_only", "display_not_physical"] {
         #expect(RuntimeProblem.reasonAdvice(reason) != nil, "\(reason)")
     }
     let plain = RuntimeProblem(RuntimeError("permission_denied", "x", phase: .handler,

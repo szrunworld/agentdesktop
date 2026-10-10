@@ -42,6 +42,9 @@ struct MockRuntimeTests {
             ("run.show", .obj([("runId", runId)])), ("run.events", .obj([("runId", runId)])),
             ("request.show", .obj([("requestId", .string("req_001"))])),
             ("request.show", .obj([("requestId", .string("req_003"))])),
+            ("hub.clients.list", .obj([])), ("hub.grants.list", .obj([])), ("hub.displays.list", .obj([])),
+            ("hub.displays.attach", .obj([("displayId", .int(1)), ("clientId", .string("app:mock-001"))])),
+            ("hub.displays.detach", .obj([("desktopId", .string("desk_004"))])),
             ("desktop.create", .obj([("name", .string("新 Desktop")), ("width", .int(1440)), ("height", .int(900))])),
             ("run.cancel", .obj([("runId", runId)])),
             ("runtime.stopAll", .obj([("scope", .string("all_platform_runs"))])),
@@ -76,7 +79,7 @@ struct MockRuntimeTests {
     // Only implemented catalog methods exist; reserved and frozen ones do not.
     @Test func reservedAndFrozenMethodsAreMissing() async {
         let m = MockRuntime.sample()
-        for method in ["hub.clients.list", "inbox.list", "run.reconcile", "unit.run", "desktop.stop",
+        for method in ["hub.clients.show", "inbox.list", "run.reconcile", "unit.run", "desktop.stop",
                        "desktop.takeover", "request.list", "ai.connections.list", "no.such.method"] {
             #expect(await code { _ = try await m.call(method) } == "capability_missing", "\(method)")
         }

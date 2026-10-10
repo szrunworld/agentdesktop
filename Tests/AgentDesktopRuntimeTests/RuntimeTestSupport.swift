@@ -222,6 +222,18 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
         1: ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1512, height: 982), hiDPI: true),
     ]
 
+    /// What hub.displays.list reports: by default the physical displays
+    /// above, plus one virtual display of another process (never attachable).
+    var displayReport: [PlatformDisplay]?
+    func displays() -> [PlatformDisplay] {
+        if let displayReport { return displayReport }
+        return lock.withLock { physicalDisplays.values.sorted { $0.displayId < $1.displayId } }.map {
+            PlatformDisplay(displayId: $0.displayId, name: "Built-in Retina Display", frame: $0.frame, hiDPI: $0.hiDPI,
+                            builtin: $0.displayId == 1, origin: .physical)
+        } + [PlatformDisplay(displayId: 9, name: "Virtual Display", frame: Rect(x: 1512, y: 0, width: 1920, height: 1080), hiDPI: false,
+                             builtin: false, origin: .virtual, originDetail: "an engine virtual display (vendor 0x3256, model 2)")]
+    }
+
     func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle {
         let id = displayId ?? 1
         note("attach \(id)")

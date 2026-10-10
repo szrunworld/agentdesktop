@@ -10,17 +10,18 @@
 # background) and quits only that instance at the end; it reads that window
 # and sends it one Escape key, nothing else. No other app is touched.
 #
-# Physical Desktops are OFF in the product (#145 seal) and stay off until
-# Kevin rules otherwise. Attaching a display is also reserved to the owner
-# (A4: a paired app gets permission_denied / owner_only), and the product has
-# no owner entry for it outside the host process yet. So:
-#   - without PD_DESKTOP the script asks for a physical Desktop as the paired
-#     CLI, expects one of those two refusals, reports PENDING and stops at
-#     step 2: nothing is shown, bound or captured;
-#   - with PD_DESKTOP=d_... (a physical Desktop the owner attached in the
-#     test copy, once such an entry exists) the CLI is paired for that
-#     Desktop and steps 3-8 run against it.
-# It creates no virtual display.
+# Attaching a display is reserved to the owner (A4: a paired app gets
+# permission_denied / owner_only); since Kevin's ruling of 2026-10-10 the
+# owner does it in the Agent Desktop window (docs/security/owner-display-attach.md).
+# So, at step 2:
+#   - without PD_DESKTOP the script first checks the paired CLI cannot attach
+#     a display itself, then WAITS for you to open your main display to
+#     "pd-cli" in the test copy's window (Desktops › 开放我的显示器 › 批准… ›
+#     Touch ID), up to WAIT seconds (default 300);
+#   - with PD_DESKTOP=d_... (a physical Desktop you already opened to pd-cli
+#     in the test copy) steps 3-8 run against it straight away.
+# It creates no virtual display. The test copy shows its main window on
+# your main display so you can do the owner's steps there.
 #
 # Finding the probe window needs Screen Recording for the terminal you run
 # this from.
@@ -28,13 +29,15 @@
 # In the Agent Desktop window, with your own Touch ID or password (nothing here
 # clicks or authenticates for you):
 #   1. pairing "pd-cli"                          -> 批准, then Touch ID
+#   2. Desktops › 开放我的显示器 › main display + pd-cli › 开放…
+#                                                 -> check the display and pd-cli, 批准…, then Touch ID
 #   3. window grant for the Chess window          -> check: Chess, "这是你自己屏幕上的真实窗口",
 #                                                    查看 + 操作, no 保存; then 批准 and Touch ID
 #   6. a second window grant                      -> 拒绝
 #   7. pd-cli giving up its window grant          -> 批准, then Touch ID
 # Usage, from the repository:
-#   scripts/bundle-app.sh && scripts/physical-desktop-acceptance.sh                 (today: PENDING at step 2)
-#   PD_DESKTOP=d_... scripts/physical-desktop-acceptance.sh                         (once the owner can attach one)
+#   scripts/bundle-app.sh && scripts/physical-desktop-acceptance.sh                 (step 2 waits for you in the window)
+#   PD_DESKTOP=d_... scripts/physical-desktop-acceptance.sh                         (a Desktop you already opened to pd-cli)
 set -u
 APP="${APP:-build/Agent Desktop.app}"
 DIR=/tmp/adt-pd-acc
@@ -42,6 +45,7 @@ EP="$DIR/side.runtime.sock"
 KC="$DIR/test.keychain-db"
 B="$APP/Contents/Resources/bin/agentdesktop"
 CHESS=com.apple.Chess
+WAIT="${WAIT:-300}"
 pass=0; fail=0
 ok()  { echo "PASS  $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
@@ -84,7 +88,7 @@ export AGENTDESKTOP_ENDPOINT="$EP" AGENTDESKTOP_KEYCHAIN="$KC"
 DISPLAYS_BEFORE=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -c "Resolution:")
 
 echo "== start Agent Desktop (test copy)"
-AGENTDESKTOP_SOCKET="$DIR/side.sock" "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
+AGENTDESKTOP_SOCKET="$DIR/side.sock" AGENTDESKTOP_MAIN_WINDOW=1 "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
 HOST=$!
 HOST_START=$(ps -o lstart= -p "$HOST" 2>/dev/null)
 i=0; while [ ! -S "$EP" ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
@@ -97,29 +101,31 @@ CLI_ID=$(field "$DIR/pair.json" data.clientId)
 [ -n "$CLI_ID" ] && ok "CLI paired as $CLI_ID" || { bad "pairing: $(cat "$DIR/pair.json")"; exit 1; }
 
 echo "== 2. the physical Desktop"
-if [ -n "${PD_DESKTOP:-}" ]; then
-    "$B" desktop show "$PD_DESKTOP" --format json > "$DIR/desk.json"
-    DESK=$(field "$DIR/desk.json" data.desktopId)
-    [ -n "$DESK" ] || { bad "PD_DESKTOP $PD_DESKTOP: $(cat "$DIR/desk.json")"; exit 1; }
-    ok "physical Desktop $DESK (attached by the owner)"
-    OWNED=1   # the owner's: this script never destroys it
-else
-    # A paired app may not attach a display (A4, owner only); with the seal
-    # on, nobody may. Either refusal means nothing was attached.
-    "$B" desktop create --name pd-acc --physical --format json > "$DIR/desk.json"
-    DESK=$(field "$DIR/desk.json" data.desktopId)
-    if [ -z "$DESK" ]; then
-        if grep -q 'owner_only\|physical_desktop_requires_grant' "$DIR/desk.json"; then
-            ok "a paired app cannot attach a display ($(grep -o 'owner_only\|physical_desktop_requires_grant' "$DIR/desk.json" | head -1))"
-            echo "PENDING  steps 3-8 need a physical Desktop the owner attached (PD_DESKTOP=d_...), which needs Kevin's ruling"
-            echo "         on the seal and an owner entry for it. Nothing was shown, bound or captured."
-            echo "passed $pass, failed $fail (stopped before any window)"
-            exit 3
-        fi
-        bad "a paired app attached a display or got another answer: $(cat "$DIR/desk.json")"; exit 1
+if [ -z "${PD_DESKTOP:-}" ]; then
+    # A paired app may not attach a display (A4, owner only): nothing is attached.
+    "$B" desktop create --name pd-acc --physical --format json > "$DIR/create-paired.json"
+    if grep -q owner_only "$DIR/create-paired.json"; then
+        ok "a paired app cannot attach a display (owner_only)"
+    else
+        bad "a paired app attached a display or got another answer: $(cat "$DIR/create-paired.json")"; exit 1
     fi
-    bad "a paired app attached display $DESK: A4 reserves this to the owner"; exit 1
+    echo "      in the test copy's window: Desktops › 开放我的显示器 › your main display + pd-cli › 开放… › 批准… › Touch ID"
+    echo "      (waiting up to $WAIT s for pd-cli to see a physical Desktop)"
+    i=0
+    while [ -z "${PD_DESKTOP:-}" ] && [ $i -lt "$WAIT" ]; do
+        sleep 2; i=$((i + 2))
+        "$B" desktop list --format json > "$DIR/list-wait.json" 2>/dev/null
+        PD_DESKTOP=$(python3 -c 'import json,sys
+for d in json.load(open(sys.argv[1]))["data"]["desktops"]:
+    if d.get("kind") == "physical": print(d["desktopId"]); break' "$DIR/list-wait.json" 2>/dev/null)
+    done
+    [ -n "${PD_DESKTOP:-}" ] || { bad "no physical Desktop reached pd-cli within $WAIT s"; exit 1; }
 fi
+"$B" desktop show "$PD_DESKTOP" --format json > "$DIR/desk.json"
+DESK=$(field "$DIR/desk.json" data.desktopId)
+[ -n "$DESK" ] || { bad "PD_DESKTOP $PD_DESKTOP: $(cat "$DIR/desk.json")"; exit 1; }
+ok "physical Desktop $DESK (opened by you)"
+OWNED=1   # yours: this script never destroys it
 [ "$(field "$DIR/desk.json" data.kind)" = physical ] && ok "kind physical" || bad "kind: $(cat "$DIR/desk.json")"
 
 echo "== the probe window: one Chess instance of this script's own"
@@ -213,4 +219,4 @@ tail -25 "$DIR/audit.json"
 sqlite3 -readonly "$DIR/side.runtime/hub.sqlite" "SELECT count(*) FROM auth_events WHERE reason LIKE '%Chess%' OR reason LIKE '%国际象棋%'" | grep -qx 0 \
     && ok "no window title or app name in the audit" || bad "window content is in the audit"
 echo "passed $pass, failed $fail"
-[ $fail -eq 0 ] && [ $pass -eq 20 ]
+[ $fail -eq 0 ] && [ $pass -ge 20 ]
