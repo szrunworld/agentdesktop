@@ -252,9 +252,6 @@ public final class InputEngine: @unchecked Sendable {
         }
     }
 
-    /// One accessibility press, then an event click only if the press
-    /// certainly did nothing (#172). A press with no clear answer stops
-    /// here: it may have pressed, and a click after it could press twice.
     /// A stale or unreadable AX value cannot prove that posted keys failed.
     static func checkTypedText(before: String?, after: String?) throws {
         guard let before, let after, before != after else {
@@ -263,6 +260,9 @@ public final class InputEngine: @unchecked Sendable {
         }
     }
 
+    /// One accessibility press, then an event click only if the press
+    /// certainly did nothing (#172). A press with no clear answer stops
+    /// here: it may have pressed, and a click after it could press twice.
     static func pressThenClick(press: () -> AXActions.PressOutcome, what: String,
                                click: () throws -> String) throws -> String {
         // Recorded here too, whatever `press` is (#173): noting an outcome
