@@ -36,7 +36,12 @@ public final class DesktopRecord: @unchecked Sendable {
     public let desktopId: String
     public let name: String
     public let createdAt: String
-    public let screen: ScreenHandle
+    /// The surface. Its name and display ID never change; desktop.resize
+    /// replaces its frame (under the Desktop's lock), so it is read through
+    /// a lock of its own.
+    public var screen: ScreenHandle { pidLock.withLock { _screen } }
+    private var _screen: ScreenHandle
+    func resized(to s: ScreenHandle) { pidLock.withLock { _screen = s } }
     public let kind: DesktopKind
     /// Held while the Desktop's state or its surface is read or changed.
     public let lock = NSLock()
@@ -75,7 +80,7 @@ public final class DesktopRecord: @unchecked Sendable {
         self.desktopId = desktopId
         self.name = name
         self.createdAt = createdAt
-        self.screen = screen
+        self._screen = screen
         self.kind = kind
     }
 
