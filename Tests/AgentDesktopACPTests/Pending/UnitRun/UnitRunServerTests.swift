@@ -54,7 +54,8 @@ struct UnitRunServerTests {
         withKnownIssue("UR-G1: no Desktop selection in the prompt path") {
             #expect(rt.count("unit.run") == 1)
         }
-        #expect(ed.text.contains("no Desktop chosen"))
+        #expect(ed.text.contains("invalid_argument"))
+        #expect(rt.count("unit.run") == 0, "missing Desktop must be refused before submission")
         // desktopId in the JSON is refused by the editor-side validator.
         let withDesk = Self.inputJSON.replacingOccurrences(of: #"{"mode""#, with: #"{"desktopId":"desk_A","mode""#)
         let p2 = ed.prompt(sid, "/unit-run \(withDesk)")

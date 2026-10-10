@@ -1,6 +1,6 @@
 # ACP × A6 `unit.run`：差距、测试要求与验收（辅助工作包）
 
-状态：2026-10-08 第二版（按独立审核与 Kevin 裁决返工），基于合入后的 `main`（含 #102 冻结的 A6 契约增量）；行号已按当前 main 更新。作者：ACP 辅助工作包（2ndscreen 会话 997716a3）。
+状态：2026-10-08 第二版（按独立审核与 Kevin 裁决返工），基于合入后的 `main`（含 #102 冻结的 A6 契约增量）；差距表行号以第二版基线 `37c6778` 为准；审查修复已同步 2026-10-10 的 main。作者：ACP 辅助工作包（2ndscreen 会话 997716a3）。
 
 **范围与边界**：Kevin 批准 ACP 为 A6 准备适配器测试与端到端夹具，**不批准** ACP 实现 `unit.run` 或任何第二个执行入口。本文和 `Tests/AgentDesktopACPTests/Pending/UnitRun/` 只做三件事：对照冻结契约列出 ACP 侧的差距；写出 Mock 测试（今天可跑）和真 Runtime 测试（已写、禁用）；给工作线 Q 留下可复用的场景夹具。**Mock 测试全部通过不代表 A6 完成，也不是端到端验收**（README §五附加约束 6）。
 
@@ -74,8 +74,8 @@
 | `UnitRunContractTests.swift` | Mock | 11 个：冻结夹具、越权字段的 Schema 证据、场景输入与事件合法、目录与配置、参数构造与本地拒绝、越权本地码；UR-G2、UR-G3 为 known issue |
 | `UnitRunFlowTests.swift` | Mock | 18 个：五类场景加时限用尽、调用超时、回复丢失、14 行前置检查、越权从不发出、Runtime 侧越权应答、无宣告、`unit.*` 不泄露；UR-G4、UR-G5 为 known issue |
 | `UnitRunServerTests.swift` | Mock（全栈） | 4 个：Ask 模式拒绝 → 不发 `unit.run`；批准后因 UR-G1 仍不发（known issue）；本地拒绝被说成 Runtime 拒绝（UR-G6，known issue）；prompt 里的越权被拒 |
-| `UnitRunRealRuntimeTests.swift` | Real（未运行） | 8 个，全部 `.disabled("waiting for A6 unit.run: …")`：宣告、正常、取消、断连 owner_lost、审批拒绝待实现项（另等 PR4）、结果不明、越权、前置检查落账。需要 `URTEST_DESKTOP_ID`；端点经 `URTestEndpointGuard` 检查 |
-| `URTestEndpointGuard.swift` | Mock | 端点白名单与 2 个测试。照 #141 的 `ACPTestEndpointGuard`（尚未进 main）在本目录实现同样逻辑：绝对路径；所在目录经 realpath(3) 解析后必须在 `/tmp/adt-*`（macOS 上为 `/private/tmp/adt-*`）下；另外比 #141 多一条：socket 本身不能是符号链接；不符即抛错，测试在连接之前就停止。`/tmp/adt-*` 指向 `$HOME` 的符号链接、`..` 路径、指向产品 socket 的链接、相对路径、不存在的目录都被拒绝（测试证明）。**#141 合入后改用共享的 `ACPTestEndpointGuard`，删掉本地副本** |
+| `UnitRunRealRuntimeTests.swift` | Real（未运行） | 8 个，全部 `.disabled("waiting for A6 unit.run: …")`：宣告、正常、取消、断连 owner_lost、审批拒绝待实现项（另等 PR4）、结果不明、越权、前置检查落账。需要 `URTEST_DESKTOP_ID`；端点经共享 `ACPTestEndpointGuard` 检查 |
+| `URTestEndpointGuard.swift` | Mock | 2 个端点回归，复用已合入的共享 `ACPTestEndpointGuard`；不再保留 guard 实现副本 |
 | `Fixtures/ur-*.json` | 夹具 | 见第五节 |
 
 计数：Mock 35 个（今天运行、全部通过，其中 7 处为固定差距的 known issue），Real 8 个（7 个已写步骤、1 个审批拒绝待实现项；全部禁用、未运行）。
@@ -161,3 +161,5 @@
 - Real 正常场景核对 ended/success 与夹具的 planResult；断连核对 unknown、unknownActions=1 及被发出动作的 action.unknown，禁止同动作记录为 completed。
 - `realApprovalRejected` 是待实现项，禁用原因包含 A6 与 PR4；去掉禁用也会明确抛出 approvalDriverNotImplemented。启用前必须接入 pending approval → 拒绝决定 → 终态、无动作执行的真实步骤。现有 ur-approval-rejected Mock 夹具只覆盖通道缺失后取消，不可用于真实审批拒绝验收。
 - Q8 已定：会话 desktop 来自可见 desktop.list，单个默认、多个用户选定；Q9 已定：refused 加可选 reasonCode，仅输出白名单原因码。Q2 未答复前按已决定的临时方案关闭自由文本入口。以上产品改动由后续 ACP 实现 PR 完成。
+
+主分支兼容性：prompt 的本地拒绝仅显示白名单错误码，服务端回归据 `invalid_argument` 和未发出 unit.run 检查，不要求泄露内部错误文字。已同步当前 main，并复用 #141 的共享端点 guard。

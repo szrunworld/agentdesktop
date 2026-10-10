@@ -21,9 +21,8 @@ enum URTestReal {
     static func endpoint() throws -> Endpoint {
         let raw = ProcessInfo.processInfo.environment["AGENTDESKTOP_ENDPOINT"] ?? ""
         // Never the product endpoint (README §四 rule 7): realpath-based
-        // allowlist that throws (URTestEndpointGuard; the shared
-        // ACPTestEndpointGuard after #141).
-        return Endpoint(path: try URTestEndpointGuard.check(raw), source: .environment)
+        // allowlist shared with the other ACP tests (#141).
+        return Endpoint(path: try ACPTestEndpointGuard.check(raw), source: .environment)
     }
 
     static func desktopId() throws -> String {
