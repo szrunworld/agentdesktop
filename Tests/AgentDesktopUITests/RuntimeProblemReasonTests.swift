@@ -38,3 +38,13 @@ import Testing
     #expect(Set(texts.compactMap { $0 }).count == texts.count, "each reason says something different")
     #expect(RuntimeProblem.reasonAdvice("launch_failed")?.contains("不会自动重试") == true)
 }
+
+// #203: a write done before access was withdrawn says so, whatever the
+// code and reason, and is not taken as not performed.
+@Test func aWriteDoneButWithheldIsNotShownAsNotPerformed() {
+    let e = RuntimeError("grant_expired", "the grant expired", phase: .request, notSent: false,
+                         details: .obj([("reason", .string("grant_expired")), ("writeOutcome", .string("completed"))]))
+    let p = RuntimeProblem(e)
+    #expect(p.advice == RuntimeProblem.writeDoneAdvice)
+    #expect(p.notSent == false)
+}

@@ -101,7 +101,8 @@ enum RuntimeContractData {
           "description": "not_performed: true only when the Runtime (or the client, before sending) can prove this request sent no input and made no write with an outside effect, whether or not it reached the Runtime. Never true for a partial send, a timeout, a lost connection, a missing receipt or an unknown outcome. Not a licence to retry: a retry is judged again by authorization, Run state, stops, policy and the request ledger."
         },
         "details": {
-          "type": "object"
+          "type": "object",
+          "description": "Code-specific facts. writeOutcome \"completed\" (#203): a write the service did before the caller lost its access (client_revoked, grant_missing, grant_expired); its answer is withheld, notSent is false, and a new requestId would write again."
         }
       }
     },
@@ -9490,19 +9491,19 @@ enum RuntimeContractData {
       "code": "client_revoked",
       "exitCode": 4,
       "phase": "handler",
-      "description": "The client was removed; its credential no longer works."
+      "description": "The client was removed; its credential no longer works. On a write the service already did, details.writeOutcome is \"completed\" and notSent is false: only the answer is withheld."
     },
     {
       "code": "grant_missing",
       "exitCode": 4,
       "phase": "handler",
-      "description": "The capability, Desktop or app is not in the client's grant."
+      "description": "The capability, Desktop or app is not in the client's grant. On a write the service already did, details.writeOutcome is \"completed\" and notSent is false: only the answer is withheld."
     },
     {
       "code": "grant_expired",
       "exitCode": 4,
       "phase": "handler",
-      "description": "The grant that covered this has expired."
+      "description": "The grant that covered this has expired. On a write the service already did, details.writeOutcome is \"completed\" and notSent is false: only the answer is withheld."
     },
     {
       "code": "permit_expired",

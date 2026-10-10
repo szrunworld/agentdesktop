@@ -31,9 +31,14 @@ public struct RuntimeProblem: Equatable, Sendable {
         }
         let (t, a) = Self.text(e.code)
         // A refusal that names its reason says what the user can do instead.
-        let advice = e.details?["reason"]?.stringValue.flatMap(Self.reasonAdvice) ?? a
+        // A write that was done but whose answer was withheld (#203) says so
+        // first: submitting it again would write again.
+        let advice = e.details?["writeOutcome"]?.stringValue == "completed" ? Self.writeDoneAdvice
+            : e.details?["reason"]?.stringValue.flatMap(Self.reasonAdvice) ?? a
         self.init(code: e.code, title: t, advice: advice, notSent: e.notSent ?? false)
     }
+
+    static let writeDoneAdvice = "这次写入已经完成，只是结果没有返回给这个应用。恢复授权后请用同一个请求查询结果，不要重新提交，否则会再写一次。"
 
     /// Advice for refusals whose `details.reason` changes what to do.
     static func reasonAdvice(_ reason: String) -> String? {

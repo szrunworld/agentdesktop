@@ -506,13 +506,16 @@ public final class RuntimeService: @unchecked Sendable {
 }
 
 extension RuntimeService {
-    /// A write the service did (the ledger holds it completed) whose caller
-    /// lost its access meanwhile (#203): the answer is still withheld, but
-    /// the refusal never says not performed (runtime-api-v1-freeze §1.1).
+    /// A write the service answered as done, whose caller lost its access
+    /// meanwhile (#203): the answer is still withheld, but the refusal never
+    /// says not performed (runtime-api-v1-freeze §1.1). The service's success
+    /// is the evidence; the ledger usually holds it completed too, but its
+    /// write is best effort (b9 on f2d89bf).
     static func writeDone(_ refusal: RuntimeError, _ requestId: String) -> RuntimeError {
         var e = refusal
         e.notSent = false
-        e.message += "; the write was done before access was withdrawn (requestId \(requestId)), only its answer is withheld"
+        e.message += "; the write was done before access was withdrawn (requestId \(requestId)), only its answer is withheld."
+            + " Once access is back, ask again with the same requestId; a new requestId would write again"
         e.details = .obj((refusal.details?.objectMembers ?? []) + [("writeOutcome", .string("completed"))])
         return e
     }
