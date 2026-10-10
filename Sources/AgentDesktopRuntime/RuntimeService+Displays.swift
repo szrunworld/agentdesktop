@@ -148,6 +148,11 @@ extension RuntimeService {
     func detachDisplay(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard platform != nil else { return .failure(.capabilityMissing("no desktop platform")) }
         guard isOwner(c) else { return .failure(Self.ownerOnly("hub.displays.detach")) }
+        // Under the same lock as attach (Codex on b0e2df9): an attach that
+        // chose this Desktop to share cannot add it to a grant once the
+        // detach decided to drop it, and never sees a half-detached one.
+        createLock.lock()
+        defer { createLock.unlock() }
         let id = p["desktopId"]?.stringValue ?? ""
         guard let d = desktops.find(id), d.state != "destroyed" else { return .failure(.notFound("no desktop \(id)")) }
         guard d.kind == .physical else {

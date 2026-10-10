@@ -155,6 +155,40 @@ private func attach(_ s: RuntimeService, _ c: ConnectionState, display: Int = 1,
     #expect(s.hub.grant(aId)?.desktops == ["created"] && s.hub.grant(bId)?.desktops == [])
 }
 
+@Test func aPairedAppIsRefusedBeforeAnythingOfThePhysicalDesktopsStateIsTold() throws {
+    // Codex on b0e2df9: the owner_only refusal comes before the holder and
+    // session checks, so an app learns nothing of others' sessions or Runs.
+    let platform = FakePlatform()
+    let s = displayService(platform)
+    let owner = handshaken(s)
+    let (a, aId, _) = try pairedClient(s, capabilities: ["observe", "act", "desktop.manage"], desktops: ["created"], name: "a")
+    let d = try #require(data(attach(s, owner, client: aId))?["desktop"]?["desktopId"]?.stringValue)
+    _ = try #require(data(call(s, owner, "session.open", params: #"{"desktopId":"\#(d)"}"#)))
+    let r = call(s, a, "desktop.destroy", params: #"{"desktopId":"\#(d)"}"#)
+    #expect(code(r) == "permission_denied" && errorDetails(r)?["reason"]?.stringValue == "owner_only", "\(r.json.encoded())")
+    #expect(errorDetails(r)?["openSessions"] == nil && errorDetails(r)?["holderRunId"] == nil)
+    #expect(!(failure(r)?.message ?? "").contains("session"))
+}
+
+@Test func aGrantStoreThatCannotRecordTheLossKeepsThePhysicalDesktop() throws {
+    // Codex on b0e2df9: destroyed is never reported while a grant still names the Desktop.
+    let platform = FakePlatform()
+    let s = displayService(platform)
+    let owner = handshaken(s)
+    let (_, aId, _) = try pairedClient(s, capabilities: ["observe"], desktops: ["created"], name: "a")
+    let d = try #require(data(attach(s, owner, client: aId))?["desktop"]?["desktopId"]?.stringValue)
+    s.hub.failsGrantWrites = true
+    let r = call(s, owner, "desktop.destroy", params: #"{"desktopId":"\#(d)"}"#)
+    #expect(code(r) == "audit_unavailable", "\(r.json.encoded())")
+    #expect(s.desktops.find(d) != nil && s.hub.grant(aId)?.desktops.contains(d) == true)
+    let r2 = call(s, owner, "hub.displays.detach", params: #"{"desktopId":"\#(d)"}"#)
+    #expect(code(r2) == "audit_unavailable")
+    #expect(s.desktops.find(d) != nil)
+    s.hub.failsGrantWrites = false
+    #expect(data(call(s, owner, "desktop.destroy", params: #"{"desktopId":"\#(d)"}"#))?["destroyed"]?.boolValue == true)
+    #expect(s.hub.grant(aId)?.desktops == ["created"])
+}
+
 @Test func aGrantThatExpiredWhileTheUserDecidedGetsNoDesktop() throws {
     let platform = FakePlatform()
     let s = displayService(platform, confirmer: nil)

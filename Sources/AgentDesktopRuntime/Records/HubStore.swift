@@ -226,7 +226,11 @@ public final class HubStore: @unchecked Sendable {
                      expiresAt: r[4] as! String, revision: Int(r[5] as! Int64), state: r[6] as! String)
     }
 
+    /// Tests: every grant write fails to save.
+    var failsGrantWrites = false
+
     func putGrant(_ g: Grant) throws {
+        if failsGrantWrites { throw RuntimeStoreError("grant store unavailable (test)") }
         func enc(_ a: [String]) -> String { JSONValue.array(a.map(JSONValue.string)).encoded() }
         try db.execute("""
             INSERT OR REPLACE INTO grants (client_id, capabilities, desktops, apps, expires_at, revision, state)
