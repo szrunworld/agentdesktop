@@ -107,9 +107,10 @@ extension RuntimeService {
                 // 9ea0dad); that grant is the one the image then answers to.
                 var keptUnder = windowGrant
                 if let g = windowGrant, let b = d.binding {
-                    let persisting = effectivePermissions(g).contains("persist") ? g
-                        : liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
-                            .first { effectivePermissions($0).contains("persist") }
+                    // Chosen among the grants live now, after the capture
+                    // (Codex on 5e30bb6: one may have run out meanwhile).
+                    let persisting = liveWindowGrants(c, desktopId: d.desktopId, windowId: b.windowId, process: b.process)
+                        .first { effectivePermissions($0).contains("persist") }
                     if let p = persisting {
                         keptUnder = p
                         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "window.persist", decision: "used",

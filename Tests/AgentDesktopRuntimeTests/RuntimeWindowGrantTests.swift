@@ -951,6 +951,20 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     let p = #"{"clientId":"\#(sc.c.clientId)","capabilities":["observe","act","desktop.manage","run"],"desktops":["created"],"apps":[]}"#
     #expect(data(call(sc.s, owner, "hub.grants.set", params: p)) != nil)
     #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "revoked")
+    #expect(sc.s.hub.auditEvents().contains { $0["decision"]?.stringValue == "revoked" && $0["reason"]?.stringValue == "\(g.windowGrantId) app_removed" })
     let (back, _) = socketConnection(sc.s, clientId: sc.c.clientId, token: token)
     #expect(code(call(sc.s, back, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) == "not_found")
+}
+
+@Test func aPersistGrantThatRanOutDuringTheCaptureKeepsNothing() throws {
+    let (sc, _, g, _) = try calculatorScene(["observe"])
+    let p = try grantWindow(sc.s, clientId: sc.c.clientId, desktopId: sc.desktop, permissions: ["persist"])
+    // The persist grant runs out while the window is captured.
+    sc.platform.lock.withLock {
+        sc.platform.onCapture = { [s = sc.s] in _ = try? s.hub.endWindowGrant(p.windowGrantId, state: "ended", reason: "test") }
+    }
+    let image = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"])
+    #expect(image["transient"]?.boolValue == true, "\(image.encoded())")
+    let id = try #require(image["artifactId"]?.stringValue)
+    #expect(sc.s.artifacts.info(id)?.windowGrantId == g.windowGrantId)
 }
