@@ -55,7 +55,15 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
         ? BridgeDiagnostics(onEvent: { [label = (dir as NSString).lastPathComponent] e in
             FileHandle.standardError.write(Data("\(label) \(e)\n".utf8)) })
         : nil
-    if let diagnostics { DiagnosticsAtExit.shared.keep(diagnostics) }
+    if let diagnostics {
+        DiagnosticsAtExit.shared.keep(diagnostics)
+        // #166: AGENTDESKTOP_BRIDGE_STACKS=1 also samples the process when a
+        // bridge task waits more than 2 s to start.
+        if let watch = BridgeStallWatch.shared {
+            watch.watch(diagnostics, label: (dir as NSString).lastPathComponent)
+            watch.start()
+        }
+    }
     runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served, diagnostics: diagnostics))
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
     let server = RuntimeServer(path: path, service: runtime)
