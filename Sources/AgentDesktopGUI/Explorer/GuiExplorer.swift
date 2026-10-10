@@ -218,6 +218,11 @@ public final class GuiRunDriver: Sendable {
                 bundle = try await observe()
                 if try await verifyFresh(bundle) { return }
                 continue
+            } catch {
+                // The model calls failed without a reply to show (upstream
+                // errors through the fallback): they still count.
+                await recorder.inferenceFailed(stepIndex: stepIndex, error: error)
+                throw error
             }
             guard await lifecycle.mayProceed(generation: generation) else {
                 await recorder.inference(output.receipt, discarded: true)

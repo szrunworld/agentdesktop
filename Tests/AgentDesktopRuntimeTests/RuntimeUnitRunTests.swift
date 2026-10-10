@@ -32,11 +32,12 @@ final class FakeUnitExecutor: UnitRunExecutor, @unchecked Sendable {
         return .success(Plan())
     }
 
-    func start(_ plan: any UnitRunPlan, context: UnitRunContext, sink: UnitRunSink) -> @Sendable () -> Void {
-        lock.withLock { contexts.append(context); sinks.append(sink) }
+    func start(_ plan: any UnitRunPlan, context: UnitRunContext, sink: UnitRunSink, stop: UnitRunStopHandle) {
+        lock.withLock { contexts.append(context); sinks.append(sink); handles.append(stop) }
+        stop.arm { [weak self] in self?.lock.withLock { self?.stops += 1 } }
         onStart?(context, sink)
-        return { [weak self] in self?.lock.withLock { self?.stops += 1 } }
     }
+    private(set) var handles: [UnitRunStopHandle] = []
 
     var lastSink: UnitRunSink? { lock.withLock { sinks.last } }
     var lastContext: UnitRunContext? { lock.withLock { contexts.last } }

@@ -7,7 +7,7 @@ import Foundation
 /// inside the Run (runtime-api-v1-freeze §3, a6-unit-run-draft.md).
 final class UnitRunRegistry: @unchecked Sendable {
     struct Entry {
-        let stop: @Sendable () -> Void
+        let stop: UnitRunStopHandle
         let sessionId: String
     }
 
@@ -15,8 +15,7 @@ final class UnitRunRegistry: @unchecked Sendable {
     private var executor: UnitRunExecutor?
     private var ports: RuntimeGuiPorts?
     private var live: [String: Entry] = [:]
-    /// Runs admitted whose executor was not started yet: a stop accepted
-    /// meanwhile is remembered and applied when it starts.
+    /// Stops accepted for Runs whose entry did not exist yet.
     private var stoppedEarly: Set<String> = []
 
     func register(_ executor: UnitRunExecutor, ports: RuntimeGuiPorts) {
@@ -27,21 +26,25 @@ final class UnitRunRegistry: @unchecked Sendable {
         lock.withLock { executor.flatMap { e in ports.map { (e, $0) } } }
     }
 
-    /// Keep the executor's stop; true when a stop already came.
-    func started(_ runId: String, _ entry: Entry) -> Bool {
-        lock.withLock {
-            live[runId] = entry
+    /// The Run's stop handle, created before its executor starts; already
+    /// fired when a stop came first.
+    func track(_ runId: String, sessionId: String) -> UnitRunStopHandle {
+        let handle = UnitRunStopHandle()
+        let early: Bool = lock.withLock {
+            live[runId] = Entry(stop: handle, sessionId: sessionId)
             return stoppedEarly.remove(runId) != nil
         }
+        if early { handle.stop() }
+        return handle
     }
 
     func stopRequested(_ runId: String) {
-        let stop: (@Sendable () -> Void)? = lock.withLock {
+        let handle: UnitRunStopHandle? = lock.withLock {
             if let e = live[runId] { return e.stop }
             stoppedEarly.insert(runId)
             return nil
         }
-        stop?()
+        handle?.stop()
     }
 
     func ended(_ runId: String) -> Entry? {
@@ -182,6 +185,8 @@ extension RuntimeService {
         case let .success(r): record = r
         }
         let runId = record.runId
+        // Its stop exists before anything of it can run.
+        let handle = units.track(runId, sessionId: session.sessionId)
         // The control connection went away while the executor admitted
         // (codex on 8bcb18c): its Delegated Run ends at once, never driven.
         // connectionClosed marks the connection before stopping its Runs, so
@@ -199,8 +204,7 @@ extension RuntimeService {
                           bindingEpoch: UInt64(binding.generation), principal: acting)
         let context = UnitRunContext(runId: runId, sessionId: session.sessionId, desktopId: desktopId,
                                      bindingEpoch: UInt64(binding.generation), callerScope: scope, params: p)
-        let stop = executor.start(plan, context: context, sink: RuntimeUnitSink(runId: runId, service: self))
-        if units.started(runId, .init(stop: stop, sessionId: session.sessionId)) { stop() }
+        executor.start(plan, context: context, sink: RuntimeUnitSink(runId: runId, service: self), stop: handle)
         return .success((runs.find(runId) ?? record).json)
     }
 

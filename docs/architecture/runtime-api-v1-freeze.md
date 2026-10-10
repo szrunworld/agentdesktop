@@ -169,7 +169,7 @@ Runtime 的权威目录是 [`runtime.schema.json` 的 `$defs/PlatformRunEvent`](
 
 ### 4.2 GUI 单元事件目录（A6，2026-10-10）
 
-kind 为 `unit` 的 Run 上，Explorer 经 Runtime 追加 `unit.*` 事件（observation、progress、inference.attempt、step.proposed、step.rejected、action、recovery、verification、needs_input）。类型和 data 的必需字段以 [`runtime.schema.json` 的 `$defs/UnitRunEvent`](../../contracts/runtime/v1/runtime.schema.json) 为准，本页不维护手写副本；`RunEvent` 尚未对 `unit.` 前缀引用它（ACP 的 A6 夹具仍按草案写，对齐后再接上）。`data` 只放 ID、枚举、错误码和数字：不放截图、键入内容、窗口标题、目标描述或参数值、模型回复、密钥。生命周期（phase / outcome）仍只看 `run.*` 事件。`unit.action` 的 `requestId` 是该动作 `act` 的 requestId，回执在同一 Run 的 `action.*` 事件里；`unit.needs_input` 表示 Run 进入 waiting_input，不再接受输入，只能由停止结束。
+kind 为 `unit` 的 Run 上，Explorer 经 Runtime 追加 `unit.*` 事件（observation、progress、inference.attempt、step.proposed、step.rejected、action、recovery、verification、needs_input）。类型和 data 的必需字段以 [`runtime.schema.json` 的 `$defs/UnitRunEvent`](../../contracts/runtime/v1/runtime.schema.json) 为准，本页不维护手写副本；`RunEvent` 尚未对 `unit.` 前缀引用它（ACP 的 A6 夹具仍按草案写，对齐后再接上）。`data` 只放 ID、枚举、错误码和数字：不放截图、键入内容、窗口标题、目标描述或参数值、模型回复、密钥。生命周期（phase / outcome）仍只看 `run.*` 事件。`unit.inference.attempt` 的 `attempts` 是这次推理实际发出的模型调用次数（含回退），`inferenceAttemptId` 指最后一次；调用全部失败、没有回执时不带 `inferenceAttemptId`。`unit.action` 的 `requestId` 是该动作 `act` 的 requestId，回执在同一 Run 的 `action.*` 事件里；`unit.needs_input` 表示 Run 进入 waiting_input，不再接受输入，只能由停止结束。
 
 unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时为服务错误码的小写（如 `limit_exceeded`、`deadline_exceeded`、`stale_observation`、`audit_unavailable`、`action_outcome_unknown`），空回复为 `model_empty_response`；停止类沿用 `stopped`、`owner_lost`、`global_stop`、`client_stop`、`runtime_restarted`。有 unknown 动作时 outcome 恒为 `unknown`。
 
