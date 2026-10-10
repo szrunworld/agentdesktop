@@ -189,7 +189,7 @@ extension RuntimeService {
             guard backend.processIdentity(b.process.pid) == b.process else {
                 throw RuntimeError("stale_observation",
                                    "the bound process \(b.process.pid) has exited or restarted; bind the window again",
-                                   phase: .handler, details: .obj([("generation", .int(b.generation))]))
+                                   phase: .handler, details: .obj([("reason", .string("process_exited")), ("generation", .int(b.generation))]))
             }
             // #139, before anything is captured or read: nothing was done.
             try refuseMirroring(b.process.pid, notSent: true)

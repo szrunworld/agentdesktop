@@ -98,7 +98,8 @@ extension RuntimeService {
                 }
                 guard backend.processIdentity(b.process.pid) == b.process else {
                     throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted; bind again",
-                                       phase: .handler, notSent: true)
+                                       phase: .handler, notSent: true,
+                                       details: .obj([("reason", .string("process_exited")), ("generation", .int(b.generation))]))
                 }
                 // G0: the observed window is still the one input would reach.
                 let window = try exposedTarget(d, b, notSent: true).window
@@ -401,7 +402,8 @@ extension RuntimeService {
                 // Observe on this window, every poll (window-grants.md).
                 _ = try windowUse(c, d, b, "observe", method: "wait", audit: polls == 1)
                 guard backend.processIdentity(b.process.pid) == b.process else {
-                    throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler)
+                    throw RuntimeError("stale_observation", "process \(b.process.pid) exited or restarted", phase: .handler,
+                                       details: .obj([("reason", .string("process_exited")), ("generation", .int(b.generation))]))
                 }
                 try refuseMirroring(b.process.pid)
                 bound = b

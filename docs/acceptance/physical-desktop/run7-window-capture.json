@@ -1,0 +1,42 @@
+{
+  "probe": "physical-desktop window capture",
+  "at": "2026-10-08T21:24:18+0800",
+  "steps": [
+    {
+      "id": "W1",
+      "title": "observe",
+      "result": "failed",
+      "detail": {
+        "error": {
+          "code": "stale_observation",
+          "message": "window 80 covers the bound window 1726; bind the window you mean, or move it away",
+          "phase": "handler",
+          "retryable": false,
+          "notSent": false,
+          "details": {
+            "reason": "occluded",
+            "generation": 1,
+            "windowId": 1726,
+            "coveringWindowId": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "W2",
+      "title": "no whole-screen capture was written (no *.screen.png in the artifact directory)",
+      "result": "passed",
+      "detail": {
+        "artifactFiles": []
+      }
+    },
+    {
+      "id": "W3",
+      "title": "destroyed; display count unchanged",
+      "result": "passed",
+      "detail": {
+        "displays": 1
+      }
+    }
+  ]
+}

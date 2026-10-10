@@ -221,8 +221,16 @@ extension RuntimeService {
     func bindWindow(_ p: JSONValue, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
         return withDesktop(p["desktopId"], as: c, method: "window.bind") { d in
-            guard let pid = p["pid"]?.intValue.map(Int32.init) else { throw RuntimeError.schemaInvalid("pid is required") }
-            let wanted = p["windowId"]?.intValue.map(UInt32.init)
+            // Out of range is refused, never trapped on nor read as absent.
+            guard let rawPid = p["pid"]?.intValue else { throw RuntimeError.schemaInvalid("pid is required") }
+            guard let pid = Int32(exactly: rawPid) else { throw RuntimeError.invalidArgument("pid \(rawPid) is out of range") }
+            var wanted: UInt32?
+            if let value = p["windowId"] {
+                guard let raw = value.intValue, let w = UInt32(exactly: raw) else {
+                    throw RuntimeError.invalidArgument("windowId must fit an unsigned 32-bit window ID")
+                }
+                wanted = w
+            }
             // The app is checked again under the lock, naming nothing (round-four review L2).
             if c.role == .paired,
                !appAllowed(c, bundleId: backend.applications(includeBackground: true).first { $0.process.pid == pid }?.bundleId) {

@@ -28,6 +28,16 @@ extension RuntimeService {
         // act, so no binding reaches the phone, and none to an app that
         // cannot be identified now.
         try refuseMirroring(b.process.pid, notSent: notSent)
+        if d.kind == .physical {
+            // The user may change the display under a physical Desktop
+            // (resolution, arrangement, unplugging it): the recorded
+            // geometry would then map pixels and points wrongly.
+            let now = try? platform.attachDisplay(d.screen.displayId)
+            guard let now, now.frame == d.screen.frame, now.hiDPI == d.screen.hiDPI else {
+                throw refuse("display_changed",
+                             "display \(d.screen.displayId) changed or is gone since desktop \(d.desktopId) attached it; destroy it and attach the display again")
+            }
+        }
         guard let window = platform.window(on: d.screen, pid: b.process.pid, windowId: b.windowId) else {
             throw refuse("window_gone", "window \(b.windowId) is no longer on desktop \(d.desktopId); bind a window again")
         }
@@ -36,7 +46,13 @@ extension RuntimeService {
             throw refuse("not_visible", "window \(b.windowId) is not visible on desktop \(d.desktopId)")
         }
         let front = stack[..<index]
-        if let cover = front.first(where: { Self.overlap($0.frame, window.frame) }) {
+        // On the user's screen, anything above the normal layer over the
+        // window covers it too: a notification, another app's menu, and the
+        // bound app's own sheets and popovers (the window capture does not
+        // show them, yet input posted to the process may land on them).
+        let above = d.kind == .physical ? platform.overlays(on: d.screen) : []
+        if let cover = above.first(where: { Self.overlap($0.frame, window.frame) })
+            ?? front.first(where: { Self.overlap($0.frame, window.frame) }) {
             throw refuse("occluded",
                          "window \(cover.windowId) covers the bound window \(b.windowId); bind the window you mean, or move it away",
                          covering: cover)

@@ -115,8 +115,8 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
         let host = (response.screens ?? []).filter { $0.kind == .primary }
         let wanted = displayId ?? UInt32(CGMainDisplayID())
         guard let s = host.first(where: { $0.displayID == wanted }) else {
-            let known = host.map { String($0.displayID) }.joined(separator: ", ")
-            throw PlatformError(.notFound, "display \(wanted) is not one of the user's physical displays (\(known.isEmpty ? "none" : known))")
+            // Which displays exist is not told to a caller that has no grant.
+            throw PlatformError(.notFound, "display \(wanted) is not a confirmed physical display")
         }
         return ScreenHandle(name: s.name, displayId: s.displayID, frame: Self.rect(s.frame), hiDPI: s.hiDPI)
     }
@@ -204,6 +204,46 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
               let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int
         else { throw PlatformError(.refused, "the window capture at \(path) is unreadable") }
         return (w, h)
+    }
+
+    /// The one owner whose display-wide high-layer window is known OS
+    /// furniture: the Dock keeps a transparent layer over the whole display.
+    /// Everything else above the normal layer counts, unknown or not.
+    static let furniture: Set<String> = ["Dock"]
+
+    public func overlays(on screen: ScreenHandle) -> [PlatformWindow] {
+        let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
+        let menuBar = CGFloat(NSStatusBar.system.thickness)
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return list.compactMap { entry in
+            guard let layer = entry[kCGWindowLayer as String] as? Int, layer > 0,
+                  (entry[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let pid = entry[kCGWindowOwnerPID as String] as? Int32,
+                  let number = entry[kCGWindowNumber as String] as? UInt32,
+                  let b = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let f = CGRect(dictionaryRepresentation: b), f.intersects(bounds)
+            else { return nil }
+            let owner = entry[kCGWindowOwnerName as String] as? String ?? ""
+            let frame = Rect(x: f.minX, y: f.minY, width: f.width, height: f.height)
+            guard Self.isCoveringOverlay(frame: frame, owner: owner, screen: screen.frame, menuBar: Double(menuBar)) else { return nil }
+            return PlatformWindow(windowId: number, pid: pid, appName: owner,
+                                  title: entry[kCGWindowName as String] as? String ?? "", frame: frame)
+        }
+    }
+
+    /// Whether a window above the normal layer counts as covering what is
+    /// under it: fail closed. Only three things are left out: the Dock's
+    /// display-wide layer, anything confined to the menu bar strip (status
+    /// items, the menu bar itself), and anchor windows under 4×4 points.
+    /// An unknown layer spanning the whole display (a gesture utility's
+    /// transparent overlay looks exactly like an opaque one in the window
+    /// list) counts: what the user sees may not be what is acted on.
+    static func isCoveringOverlay(frame f: Rect, owner: String, screen s: Rect, menuBar: Double) -> Bool {
+        if furniture.contains(owner) { return false }
+        if f.y <= s.y + 1 && f.y + f.height <= s.y + menuBar + 1 { return false }
+        if f.width < 4 || f.height < 4 { return false }
+        return true
     }
 
     public func stack(on screen: ScreenHandle) -> [PlatformWindow] {

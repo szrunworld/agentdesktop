@@ -39,7 +39,8 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     #expect(code(call(s, c, "desktop.create", params: #"{"name":"again","physical":{"displayId":1}}"#)) == "conflict")
     // A display that is not one of the user's is not found; sizes are the display's.
     #expect(code(call(s, c, "desktop.create", params: #"{"name":"x","physical":{"displayId":42}}"#)) == "not_found")
-    #expect(code(call(s, c, "desktop.create", params: #"{"name":"y","physical":{},"width":800,"height":600}"#)) == "invalid_argument")
+    // Sizes are the display's: the contract refuses a size with physical.
+    #expect(code(call(s, c, "desktop.create", params: #"{"name":"y","physical":{},"width":800,"height":600}"#)) == "schema_invalid")
     #expect(!platform.calls.contains { $0.hasPrefix("create") })
     // A virtual Desktop still says what it is.
     let v = try #require(data(call(s, c, "desktop.create", params: #"{"name":"virtual"}"#)))
@@ -151,15 +152,27 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
 // MARK: - Review round 1 (Kevin 2026-10-08): target loss, identity, display origin
 
 @Test func displayOriginTrustsOnlyWhatTheHardwareVouchesFor() {
-    // The built-in panel.
-    #expect(DisplayOrigin.classify(builtin: true, vendor: 0x610, model: 0xa05e, hardwareVendors: []) == .physical)
-    // An external display the I/O registry has a framebuffer for.
-    #expect(DisplayOrigin.classify(builtin: false, vendor: 0x10ac, model: 0x4321, hardwareVendors: [0x10ac]) == .physical)
-    // Any engine virtual display, whoever created it — even if it claims to be built in.
-    if case .virtual = DisplayOrigin.classify(builtin: true, vendor: 0x3256, model: 2, hardwareVendors: [0x3256]) {} else { Issue.record("engine virtual display trusted") }
-    // Unknown origin is refused, not assumed physical.
-    if case .unconfirmed = DisplayOrigin.classify(builtin: false, vendor: 0x1234, model: 1, hardwareVendors: [0x10ac]) {} else { Issue.record("display without a framebuffer trusted") }
-    if case .unconfirmed = DisplayOrigin.classify(builtin: false, vendor: 0, model: 0, hardwareVendors: [0]) {} else { Issue.record("vendorless display trusted") }
+    typealias D = DisplayOrigin.Display
+    let builtin = D(id: 1, builtin: true, vendor: 0x610, model: 0xa05e)
+    // The built-in panel uses up its own framebuffer: an external display copying Apple's vendor has none left.
+    let copycat = D(id: 7, builtin: false, vendor: 0x610, model: 0x1234)
+    var o = DisplayOrigin.classify([builtin, copycat], framebufferVendors: [0x610])
+    #expect(o[1] == .physical)
+    if case .unconfirmed = o[7] {} else { Issue.record("a vendor copied from the built-in panel was trusted") }
+    // A real external display has its own framebuffer.
+    let external = D(id: 3, builtin: false, vendor: 0x10ac, model: 0x4321)
+    o = DisplayOrigin.classify([builtin, external], framebufferVendors: [0x610, 0x10ac])
+    #expect(o[3] == .physical)
+    // Two externals of one vendor need two framebuffers.
+    let second = D(id: 4, builtin: false, vendor: 0x10ac, model: 0x4321)
+    o = DisplayOrigin.classify([builtin, external, second], framebufferVendors: [0x610, 0x10ac])
+    #expect(o[3] == .physical)
+    if case .unconfirmed = o[4] {} else { Issue.record("one framebuffer vouched for two displays") }
+    // Any engine virtual display, even one claiming to be built in, and a vendorless display.
+    o = DisplayOrigin.classify([D(id: 9, builtin: true, vendor: 0x3256, model: 2), D(id: 10, builtin: false, vendor: 0, model: 0)],
+                               framebufferVendors: [0x3256, 0])
+    if case .virtual = o[9] {} else { Issue.record("engine virtual display trusted") }
+    if case .unconfirmed = o[10] {} else { Issue.record("vendorless display trusted") }
 }
 
 @Test func whenTheTargetIsLostTheRunStaysButEveryActIsRefusedAndRecorded() throws {
@@ -259,4 +272,137 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     #expect(data(call(s, c, "desktop.list"))?["desktops"]?.arrayValue?.isEmpty == true)
     // Virtual Desktops are unchanged.
     #expect(data(call(s, c, "desktop.create", params: #"{"name":"virtual"}"#))?["kind"]?.stringValue == "virtual")
+}
+
+// MARK: - #143: independent review fixes, on top of window grants (#205)
+
+@Test func onAPhysicalDesktopANotificationOverTheWindowCoversIt() throws {
+    let sc = try physicalScene()
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 501, pid: 600, appName: "NotificationCenter", title: "新消息",
+                                                               frame: Rect(x: 50, y: 30, width: 350, height: 80))]
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(o)?.details?["reason"]?.stringValue == "occluded")
+    #expect(failure(o)?.details?["coveringWindowId"]?.intValue == 501)
+    #expect(code(act(sc, #"{"kind":"key","key":"return"}"#)) == "stale_observation")
+    #expect(sc.platform.performed.isEmpty)
+    // The bound app's own sheet or popover covers it too: input to the process may land on it.
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 502, pid: 101, appName: "Calculator", title: "",
+                                                               frame: Rect(x: 50, y: 30, width: 150, height: 200))]
+    #expect(failure(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?.details?["reason"]?.stringValue == "occluded")
+    // Nothing over it: usable again.
+    sc.platform.overlayWindows["physical-1"] = []
+    #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
+    // Refusals name the covering window by number only, never its app.
+    sc.platform.overlayWindows["physical-1"] = [PlatformWindow(windowId: 503, pid: 600, appName: "SecretApp", title: "机密",
+                                                               frame: Rect(x: 50, y: 30, width: 150, height: 200))]
+    let named = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(!(failure(named)?.message.contains("SecretApp") ?? true))
+    #expect(!(failure(named)?.message.contains("机密") ?? true))
+    #expect(failure(named)?.details?["coveringPid"] == nil)
+}
+
+@Test func overlaysOnlyCountOnAPhysicalDesktop() throws {
+    // A virtual Desktop is the agent's own screen: high-layer windows of the
+    // user's display are not over it, and the platform is not asked.
+    let sc = try scene()
+    sc.platform.overlayWindows[sc.platform.screens.keys.first ?? ""] = [PlatformWindow(windowId: 501, pid: 600, appName: "X", title: "",
+                                                                                       frame: Rect(x: 0, y: 0, width: 5000, height: 5000))]
+    #expect(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)) != nil)
+}
+
+@Test func whenTheUserChangesTheDisplayAPhysicalDesktopStops() throws {
+    let sc = try physicalScene()
+    // "More space": the same display, a different logical size.
+    sc.platform.physicalDisplays[1] = ScreenHandle(name: "physical-1", displayId: 1, frame: Rect(x: 0, y: 0, width: 1800, height: 1169), hiDPI: true)
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(o)?.details?["reason"]?.stringValue == "display_changed")
+    #expect(code(act(sc, #"{"kind":"key","key":"return"}"#)) == "stale_observation")
+    // Unplugged.
+    sc.platform.physicalDisplays[1] = nil
+    #expect(failure(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?.details?["reason"]?.stringValue == "display_changed")
+    #expect(sc.platform.performed.isEmpty)
+}
+
+@Test func onAPhysicalDesktopAnExitedProcessFailsClosed() throws {
+    let backend = FixedBackend()
+    let sc = try physicalScene(backend: backend)
+    backend.opened.lock.withLock { _ = backend.opened.restarted.insert(101) }
+    let o = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(code(o) == "stale_observation")
+    #expect(failure(o)?.details?["reason"]?.stringValue == "process_exited")
+    let a = act(sc, #"{"kind":"key","key":"return"}"#)
+    #expect(code(a) == "stale_observation")
+    #expect(failure(a)?.details?["reason"]?.stringValue == "process_exited")
+    #expect(failure(a)?.notSent == true)
+    #expect(sc.platform.performed.isEmpty)
+}
+
+@Test func idsOutsideTheirRangeAreRefusedNotACrash() throws {
+    let platform = FakePlatform()
+    platform.onScreen[11] = "physical-1"
+    let s = platformService(platform)
+    s.physicalDesktopsEnabled = true
+    let c = handshaken(s)
+    let d = try #require(data(call(s, c, "desktop.create", params: #"{"physical":{}}"#))?["desktopId"]?.stringValue)
+    #expect(["invalid_argument", "schema_invalid"].contains(code(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":101,"windowId":4294967296}"#))))
+    #expect(["invalid_argument", "schema_invalid"].contains(code(call(s, c, "window.bind", params: #"{"desktopId":"\#(d)","pid":2147483648,"windowId":11}"#))))
+    #expect(data(call(s, c, "desktop.show", params: #"{"desktopId":"\#(d)"}"#))?["binding"] == .null)
+}
+
+@Test func twoConnectionsAttachingOneDisplayAtOnceGetOneDesktop() throws {
+    let s = platformService(FakePlatform())
+    s.physicalDesktopsEnabled = true
+    let results = LockedStrings()
+    DispatchQueue.concurrentPerform(iterations: 8) { i in
+        let c = handshaken(s)
+        results.append(code(call(s, c, "desktop.create", params: #"{"name":"race-\#(i)","physical":{"displayId":1}}"#)) ?? "ok")
+    }
+    #expect(results.values.filter { $0 == "ok" }.count == 1)
+    #expect(results.values.filter { $0 == "conflict" }.count == 7)
+}
+
+final class LockedStrings: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+    func append(_ s: String) { lock.withLock { items.append(s) } }
+    var values: [String] { lock.withLock { items } }
+}
+
+@Test func whatCountsAsAnOverlayOverTheUsersWindow() {
+    let screen = Rect(x: 0, y: 0, width: 1512, height: 982)
+    func covers(_ f: Rect, _ owner: String = "App") -> Bool {
+        EnginePlatform.isCoveringOverlay(frame: f, owner: owner, screen: screen, menuBar: 37)
+    }
+    #expect(covers(Rect(x: 1150, y: 40, width: 350, height: 80), "NotificationCenter"), "a banner")
+    #expect(covers(Rect(x: 200, y: 300, width: 220, height: 180), "Other"), "another app's menu")
+    #expect(covers(Rect(x: 0, y: 0, width: 1512, height: 982), "WGestures"), "an unknown layer over the whole display: fail closed")
+    #expect(covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Window Server"), "a display-wide Window Server layer counts")
+    #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 37), "Window Server"), "the menu bar")
+    #expect(!covers(Rect(x: 1010, y: 0, width: 38, height: 37), "WeChat"), "a status item")
+    #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Dock"), "the Dock")
+    #expect(!covers(Rect(x: 0, y: 38, width: 1, height: 1), "Typeless"), "a 1×1 anchor")
+}
+
+@Test func noPathCapturesTheUsersScreenOnAPhysicalDesktop() throws {
+    // Every observation on a physical Desktop: window capture only, across a whole session.
+    let sc = try physicalScene()
+    sc.s.refusesScreenCaptureWithoutBinding = false   // even with the virtual-Desktop seal off
+    for _ in 0..<3 { _ = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#) }
+    _ = call(sc.s, sc.c, "observe", params: #"{"screenshot":false}"#, context: #"{"sessionId":"\#(sc.session)"}"#)
+    sc.platform.dropWindow(11)
+    _ = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    _ = call(sc.s, sc.c, "window.unbind", params: #"{"desktopId":"\#(sc.desktop)"}"#)
+    _ = call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(!sc.platform.calls.contains("screenshot physical-1"), "\(sc.platform.calls)")
+    #expect(sc.platform.calls.filter { $0 == "screenshot physical-1 window" }.count == 4, "\(sc.platform.calls)")
+}
+
+@Test func theSealsStayAsTheProductShipsThem() {
+    // As constructed, before any test helper flips a switch.
+    let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_test", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                     endpoint: "/tmp/t.sock", buildSource: "unknown"),
+                           backend: FixedBackend(), platform: FakePlatform())
+    #expect(s.physicalDesktopsEnabled == false)
+    #expect(s.bindsOnlyLaunchedProcesses == true)
+    #expect(s.refusesScreenCaptureWithoutBinding == true)
 }

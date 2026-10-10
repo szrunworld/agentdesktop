@@ -130,7 +130,7 @@
       "detail": {
         "error": {
           "code": "stale_observation",
-          "message": "window 877 (WeChat) covers the bound window 987; bind the window you mean, or move it away",
+          "message": "window 877 covers the bound window 987; bind the window you mean, or move it away",
           "phase": "handler",
           "retryable": false,
           "notSent": false,
@@ -138,8 +138,7 @@
             "reason": "occluded",
             "generation": 1,
             "windowId": 987,
-            "coveringWindowId": 877,
-            "coveringPid": 21046
+            "coveringWindowId": 877
           }
         }
       }
