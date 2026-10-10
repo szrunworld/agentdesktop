@@ -21,9 +21,10 @@ enum PhysicalDisplays {
         guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return [] }
         let displays = ids.prefix(Int(count)).map {
             DisplayOrigin.Display(id: $0, builtin: CGDisplayIsBuiltin($0) != 0,
-                                  vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0))
+                                  vendor: CGDisplayVendorNumber($0), model: CGDisplayModelNumber($0),
+                                  serial: CGDisplaySerialNumber($0))
         }
-        let origins = DisplayOrigin.classify(displays, framebufferVendors: framebufferVendors())
+        let origins = DisplayOrigin.classify(displays, framebuffers: framebuffers())
         return displays.filter { origins[$0.id] == .physical }.map { d in
             let bounds = CGDisplayBounds(d.id)
             let pixels = CGDisplayCopyDisplayMode(d.id)?.pixelWidth ?? Int(bounds.width)
@@ -33,12 +34,15 @@ enum PhysicalDisplays {
         }
     }
 
-    /// One vendor per display framebuffer the I/O registry lists: Apple
-    /// silicon's IOMobileFramebuffer ("DisplayAttributes" → "ProductAttributes"
-    /// → "LegacyManufacturerID") and Intel's IODisplayConnect ("DisplayVendorID").
+    /// One entry per display framebuffer the I/O registry lists, with the
+    /// EDID identity it reports: Apple silicon's IOMobileFramebuffer
+    /// ("DisplayAttributes" → "ProductAttributes": "LegacyManufacturerID",
+    /// "ProductID", "SerialNumber") and Intel's IODisplayConnect
+    /// ("DisplayVendorID", "DisplayProductID", "DisplaySerialNumber").
     /// A CGVirtualDisplay has no framebuffer here.
-    static func framebufferVendors() -> [UInt32] {
-        var vendors: [UInt32] = []
+    static func framebuffers() -> [DisplayOrigin.Framebuffer] {
+        func number(_ v: Any?) -> UInt64? { (v as? NSNumber).map { $0.uint64Value } }
+        var found: [DisplayOrigin.Framebuffer] = []
         for cls in ["IOMobileFramebuffer", "IODisplayConnect"] {
             var it: io_iterator_t = 0
             guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &it) == KERN_SUCCESS else { continue }
@@ -49,14 +53,14 @@ enum PhysicalDisplays {
                     .takeRetainedValue() as? [String: Any],
                    let product = attrs["ProductAttributes"] as? [String: Any],
                    let v = (product["LegacyManufacturerID"] as? NSNumber)?.uint32Value {
-                    vendors.append(v)  // one entry per framebuffer
+                    found.append(.init(vendor: v, model: number(product["ProductID"]), serial: number(product["SerialNumber"])))
                 } else if let info = IODisplayCreateInfoDictionary(service, IOOptionBits(kIODisplayOnlyPreferredName))?
                     .takeRetainedValue() as? [String: Any],
                    let v = (info[kDisplayVendorID] as? NSNumber)?.uint32Value {
-                    vendors.append(v)
+                    found.append(.init(vendor: v, model: number(info[kDisplayProductID]), serial: number(info[kDisplaySerialNumber])))
                 }
             }
         }
-        return vendors
+        return found
     }
 }

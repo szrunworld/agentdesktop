@@ -153,26 +153,43 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
 
 @Test func displayOriginTrustsOnlyWhatTheHardwareVouchesFor() {
     typealias D = DisplayOrigin.Display
+    typealias F = DisplayOrigin.Framebuffer
     let builtin = D(id: 1, builtin: true, vendor: 0x610, model: 0xa05e)
-    // The built-in panel uses up its own framebuffer: an external display copying Apple's vendor has none left.
+    let builtinFB = F(vendor: 0x610, model: 57_403_046_442_049, serial: nil)   // as Apple silicon reports it
+    // An external display copying Apple's vendor: no framebuffer of its model vouches for it.
     let copycat = D(id: 7, builtin: false, vendor: 0x610, model: 0x1234)
-    var o = DisplayOrigin.classify([builtin, copycat], framebufferVendors: [0x610])
+    var o = DisplayOrigin.classify([builtin, copycat], framebuffers: [builtinFB])
     #expect(o[1] == .physical)
     if case .unconfirmed = o[7] {} else { Issue.record("a vendor copied from the built-in panel was trusted") }
-    // A real external display has its own framebuffer.
-    let external = D(id: 3, builtin: false, vendor: 0x10ac, model: 0x4321)
-    o = DisplayOrigin.classify([builtin, external], framebufferVendors: [0x610, 0x10ac])
+    // A real external display: its framebuffer reports the same vendor, model and serial (as on this Mac).
+    let external = D(id: 3, builtin: false, vendor: 25001, model: 49155, serial: 1)
+    let externalFB = F(vendor: 25001, model: 49155, serial: 1)
+    o = DisplayOrigin.classify([builtin, external], framebuffers: [builtinFB, externalFB])
     #expect(o[3] == .physical)
-    // Two externals of one vendor need two framebuffers.
-    let second = D(id: 4, builtin: false, vendor: 0x10ac, model: 0x4321)
-    o = DisplayOrigin.classify([builtin, external, second], framebufferVendors: [0x610, 0x10ac])
-    #expect(o[3] == .physical)
-    if case .unconfirmed = o[4] {} else { Issue.record("one framebuffer vouched for two displays") }
+    // Same vendor and model, another serial: not vouched for.
+    o = DisplayOrigin.classify([D(id: 4, builtin: false, vendor: 25001, model: 49155, serial: 2)], framebuffers: [externalFB])
+    if case .unconfirmed = o[4] {} else { Issue.record("a framebuffer vouched for another serial") }
+    // A virtual display copying the real monitor's whole identity, in either
+    // display order (Codex on e0be427): neither is trusted, never the first one.
+    let clone = D(id: 9, builtin: false, vendor: 25001, model: 49155, serial: 1)
+    for order in [[clone, external], [external, clone]] {
+        o = DisplayOrigin.classify(order, framebuffers: [externalFB])
+        if case .unconfirmed = o[9] {} else { Issue.record("the clone was trusted in order \(order.map(\.id))") }
+        if case .unconfirmed = o[3] {} else { Issue.record("one framebuffer vouched for two displays") }
+    }
+    // Two identical real monitors with two framebuffers are both trusted.
+    let twin = D(id: 5, builtin: false, vendor: 25001, model: 49155, serial: 1)
+    o = DisplayOrigin.classify([external, twin], framebuffers: [externalFB, externalFB])
+    #expect(o[3] == .physical && o[5] == .physical)
+    // A framebuffer without a serial vouches by vendor and model, but still one display each.
+    let noSerial = F(vendor: 25001, model: 49155, serial: nil)
+    o = DisplayOrigin.classify([external, D(id: 6, builtin: false, vendor: 25001, model: 49155, serial: 7)], framebuffers: [noSerial])
+    if case .unconfirmed = o[3] {} else { Issue.record("one serial-less framebuffer vouched for two displays") }
     // Any engine virtual display, even one claiming to be built in, and a vendorless display.
-    o = DisplayOrigin.classify([D(id: 9, builtin: true, vendor: 0x3256, model: 2), D(id: 10, builtin: false, vendor: 0, model: 0)],
-                               framebufferVendors: [0x3256, 0])
-    if case .virtual = o[9] {} else { Issue.record("engine virtual display trusted") }
-    if case .unconfirmed = o[10] {} else { Issue.record("vendorless display trusted") }
+    o = DisplayOrigin.classify([D(id: 10, builtin: true, vendor: 0x3256, model: 2), D(id: 11, builtin: false, vendor: 0, model: 0)],
+                               framebuffers: [F(vendor: 0x3256, model: 2, serial: nil), F(vendor: 0, model: 0, serial: nil)])
+    if case .virtual = o[10] {} else { Issue.record("engine virtual display trusted") }
+    if case .unconfirmed = o[11] {} else { Issue.record("vendorless display trusted") }
 }
 
 @Test func whenTheTargetIsLostTheRunStaysButEveryActIsRefusedAndRecorded() throws {

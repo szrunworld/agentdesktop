@@ -60,7 +60,7 @@ AgentDesktop Runtime（唯一）
 
 ### 4.2 显示器来源识别
 
-`DisplayOrigin.classify` 一次判定全部显示器：内置屏可信并占用自己的硬件帧缓冲；外接屏必须**一对一**占用一个同厂商、尚未被占用的硬件帧缓冲（Apple 芯片 IOMobileFramebuffer，Intel IODisplayConnect；每个帧缓冲只计一次）；引擎虚拟屏（厂商 0x3256 / 型号 2，无论谁建、即使自称内置）判为虚拟；其余判为"来源未确认"。只有可信显示器登记为宿主屏，其余 `desktop.create {physical}` 返回 `not_found`——**无法确认来源时安全拒绝**。这修正了审核指出的问题：外接虚拟屏抄用内置屏的 Apple 厂商号，不能再借内置屏的帧缓冲通过。真机：另一会话的虚拟屏 9 被拒，内置屏 1 可挂接（run4）。剩余局限：一台真实外接屏在场时，与它同厂商的虚拟屏和它竞争同一个帧缓冲，按显示器顺序先到先得；需要更强信号时可加 EDID 序列号比对。
+`DisplayOrigin.classify` 一次判定全部显示器，结果与显示器顺序无关：内置屏可信；引擎虚拟屏（厂商 0x3256 / 型号 2，无论谁建、即使自称内置）判为虚拟；外接屏必须有硬件帧缓冲（Apple 芯片 IOMobileFramebuffer 的 `LegacyManufacturerID` / `ProductID` / `SerialNumber`，Intel IODisplayConnect 的 `DisplayVendorID` / `DisplayProductID` / `DisplaySerialNumber`）报告**相同的厂商、型号和序列号**，而且声称这个身份的显示器不多于这样的帧缓冲（按厂商 + 型号再查一遍，覆盖不报序列号的帧缓冲）。虚拟屏抄用真实显示器的完整身份时多出一个声称者，**所有**声称这个身份的显示器都判为来源未确认——真实的那块也一起拒绝（fail closed），而不是按枚举顺序先到先得（Codex 在 e0be427 上的意见）。其余判为来源未确认。只有可信显示器登记为宿主屏，其余 `desktop.create {physical}` 返回 `not_found`。真机：另一会话的虚拟屏 9 被拒，内置屏 1 可挂接（run4）；本机外接屏（厂商 25001、型号 49155、序列号 1）与其帧缓冲三项一致（2026-10-10 只读探测）。剩余局限：若虚拟屏抄用了真实显示器的身份，那块真实显示器也无法挂接，直到虚拟屏移除。
 
 ### 4.3 "一块显示器一个物理 Desktop"不阻碍多窗口
 
@@ -126,7 +126,7 @@ AgentDesktop Runtime（唯一）
 
 | 修复 | 失败时 |
 | --- | --- |
-| 显示器来源一对一匹配硬件帧缓冲（4.2） | `desktop.create {physical}` → `not_found`，报错不列出有哪些显示器 |
+| 显示器来源按厂商 + 型号 + 序列号匹配硬件帧缓冲，与顺序无关（4.2） | `desktop.create {physical}` → `not_found`，报错不列出有哪些显示器 |
 | 高层覆盖物（通知横幅、他应用菜单、绑定应用自己的浮层、未知全屏层）盖住绑定窗口 | `stale_observation / occluded`，只给覆盖窗口编号，不给应用名、标题、pid |
 | 显示器几何变化或拔出 | `stale_observation / display_changed` |
 | 绑定进程退出或重启 | `stale_observation / process_exited`，act `notSent=true` |

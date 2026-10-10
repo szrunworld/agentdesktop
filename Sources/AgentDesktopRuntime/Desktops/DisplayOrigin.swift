@@ -4,8 +4,8 @@ import Foundation
 /// attach it. Only displays the hardware vouches for are trusted; anything
 /// the platform cannot place is refused rather than assumed physical.
 public enum DisplayOrigin: Equatable, Sendable {
-    /// The built-in panel, or an external display matched one-to-one with a
-    /// hardware framebuffer of the same vendor.
+    /// The built-in panel, or an external display that a hardware
+    /// framebuffer of the same vendor, model and serial vouches for.
     case physical
     /// A display some process created (the engine's own, or another's).
     case virtual(String)
@@ -22,39 +22,59 @@ public enum DisplayOrigin: Equatable, Sendable {
         public var builtin: Bool
         public var vendor: UInt32
         public var model: UInt32
-        public init(id: UInt32, builtin: Bool, vendor: UInt32, model: UInt32) {
-            self.id = id; self.builtin = builtin; self.vendor = vendor; self.model = model
+        public var serial: UInt32
+        public init(id: UInt32, builtin: Bool, vendor: UInt32, model: UInt32, serial: UInt32 = 0) {
+            self.id = id; self.builtin = builtin; self.vendor = vendor; self.model = model; self.serial = serial
         }
     }
 
-    /// Classify every active display at once.
-    ///
-    /// `framebufferVendors` lists one vendor per hardware display framebuffer
-    /// in the I/O registry (a virtual display has none). Each framebuffer
-    /// vouches for one display only: built-in panels take theirs first, then
-    /// external displays take one each, in display order. An external display
-    /// left without a framebuffer of its vendor is unconfirmed, so a virtual
-    /// display that copies a real vendor number is not trusted on the strength
-    /// of another display's hardware.
-    public static func classify(_ displays: [Display], framebufferVendors: [UInt32]) -> [UInt32: DisplayOrigin] {
-        var unused: [UInt32: Int] = [:]
-        for v in framebufferVendors { unused[v, default: 0] += 1 }
-        var result: [UInt32: DisplayOrigin] = [:]
-        func isEngineVirtual(_ d: Display) -> Bool { d.vendor == engineVirtualVendor && d.model == engineVirtualModel }
-        for d in displays where d.builtin && !isEngineVirtual(d) {
-            result[d.id] = .physical
-            if let n = unused[d.vendor], n > 0 { unused[d.vendor] = n - 1 }
+    /// One hardware display framebuffer in the I/O registry, with the EDID
+    /// identity it reports (a virtual display has no framebuffer). A
+    /// framebuffer that reports no serial matches any serial.
+    public struct Framebuffer: Equatable, Sendable {
+        public var vendor: UInt32
+        public var model: UInt64?
+        public var serial: UInt64?
+        public init(vendor: UInt32, model: UInt64?, serial: UInt64?) {
+            self.vendor = vendor; self.model = model; self.serial = serial
         }
-        for d in displays where result[d.id] == nil {
+        func vouches(for d: Display) -> Bool {
+            vendor == d.vendor && model == UInt64(d.model) && (serial == nil || serial == UInt64(d.serial))
+        }
+    }
+
+    /// Classify every active display at once, independent of display order.
+    ///
+    /// An external display is physical only when hardware framebuffers
+    /// reporting its vendor, model and serial are at least as many as the
+    /// displays claiming that identity (and likewise for vendor and model
+    /// alone). A virtual display that copies a real monitor's identity
+    /// makes one claimant too many: then every display claiming it is
+    /// unconfirmed, the real one included (fail closed), rather than the
+    /// first in display order winning (Codex on e0be427). Built-in panels
+    /// are physical; any engine virtual display, even one claiming to be
+    /// built in, is virtual.
+    public static func classify(_ displays: [Display], framebuffers: [Framebuffer]) -> [UInt32: DisplayOrigin] {
+        func isEngineVirtual(_ d: Display) -> Bool { d.vendor == engineVirtualVendor && d.model == engineVirtualModel }
+        let external = displays.filter { !$0.builtin && !isEngineVirtual($0) && $0.vendor != 0 }
+        var result: [UInt32: DisplayOrigin] = [:]
+        for d in displays {
             if isEngineVirtual(d) {
                 result[d.id] = .virtual("an engine virtual display (vendor 0x3256, model 2)")
+            } else if d.builtin {
+                result[d.id] = .physical
             } else if d.vendor == 0 {
                 result[d.id] = .unconfirmed("the display reports no vendor")
-            } else if let n = unused[d.vendor], n > 0 {
-                unused[d.vendor] = n - 1
-                result[d.id] = .physical
             } else {
-                result[d.id] = .unconfirmed("no unclaimed hardware framebuffer of vendor \(d.vendor); it may be a virtual display")
+                let sameIdentity = external.filter { $0.vendor == d.vendor && $0.model == d.model && $0.serial == d.serial }.count
+                let sameModel = external.filter { $0.vendor == d.vendor && $0.model == d.model }.count
+                let vouching = framebuffers.filter { $0.vouches(for: d) }.count
+                let ofModel = framebuffers.filter { $0.vendor == d.vendor && $0.model == UInt64(d.model) }.count
+                if vouching > 0 && sameIdentity <= vouching && sameModel <= ofModel {
+                    result[d.id] = .physical
+                } else {
+                    result[d.id] = .unconfirmed("no hardware framebuffer of its own vouches for this display; it may be a virtual display")
+                }
             }
         }
         return result
