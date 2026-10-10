@@ -34,13 +34,14 @@ public struct LevelRow: Identifiable, Equatable, Sendable {
 /// a desktop screenshot or gives input.
 @MainActor
 public final class CapabilityTestModel: ObservableObject {
-    public enum Phase: Equatable { case idle, starting, running, cancelling, finished(String) }
+    public enum Phase: Equatable { case idle, starting, running, cancelling, unknown, finished(String) }
 
     @Published public var guiProfileId: String?
     @Published public private(set) var guiProfileRevision: Int?
     @Published public private(set) var profiles: [GuiProfileRow] = []
     @Published public private(set) var levels = LevelRow.initial()
     @Published public private(set) var phase: Phase = .idle
+    @Published public private(set) var isPolling = false
     @Published public private(set) var operationId: String?
     @Published public private(set) var problem: UIProblem?
     @Published public private(set) var performedDesktopInput: Bool?
@@ -102,22 +103,32 @@ public final class CapabilityTestModel: ObservableObject {
 
     /// Reads the operation until it ends. Levels never finished stay unfinished.
     public func poll() async {
-        guard let op = operationId else { return }
+        guard let op = operationId, !isPolling else { return }
+        isPolling = true
+        defer { isPolling = false }
+        var failures = 0
         while true {
             do {
                 let o = try await client.send("ai.operations.get", .obj([("operationId", .string(op))]))
+                failures = 0
+                problem = nil
                 apply(o)
                 if let s = o["state"]?.stringValue, ["succeeded", "failed", "cancelled"].contains(s) {
                     phase = .finished(s)
                     return
                 }
                 if o["state"]?.stringValue == "cancelling" { phase = .cancelling }
+                else if phase == .unknown { phase = .running }
                 try await clock.pause(milliseconds: pollMs)
             } catch is CancellationError {
+                if case .finished = phase {} else { phase = .unknown }
                 return
             } catch {
                 problem = UIProblem(error)
-                return
+                failures += 1
+                guard failures < 3 else { phase = .unknown; return }
+                do { try await clock.pause(milliseconds: pollMs * failures) }
+                catch { if case .finished = phase {} else { phase = .unknown }; return }
             }
         }
     }
@@ -178,6 +189,9 @@ public struct CapabilityTestView: View {
             case .cancelling: Text("取消中…未完成的层不会被标为通过。").accessibilityAddTraits(.updatesFrequently)
             case let .finished(s): Text("测试结束：\(s == "succeeded" ? "完成" : s == "cancelled" ? "已取消" : "失败")")
             case .running, .starting: ProgressView("测试进行中")
+            case .unknown:
+                Text("测试状态未知，尚未确认结束。")
+                Button("重新查询状态") { Task { await model.poll() } }.disabled(model.isPolling)
             case .idle: EmptyView()
             }
             ForEach(model.levels) { l in
