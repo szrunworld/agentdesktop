@@ -151,6 +151,41 @@ public final class AXSnapshot {
 
     public func isWeb(_ index: Int) -> Bool { web.contains(index) }
 
+    /// Coordinate delivery must still name the observed web element. A
+    /// moved element requires a new observation, rather than silently aiming
+    /// at a new position. Strict hit identity may refuse child hit targets.
+    func validateWebTarget(_ index: Int, in window: WindowInfo) throws {
+        guard truncated == nil, let old = handle(index), let info = element(index: index),
+              let point = info.center else { throw AccessibilityError("web target cannot be verified; observe again") }
+        let fresh = try Self.capture(window, deadline: Date().addingTimeInterval(2))
+        guard let current = fresh.handle(index), let currentInfo = fresh.element(index: index) else {
+            throw AccessibilityError("web target disappeared; observe again")
+        }
+        var hit: AXUIElement?
+        let root = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(root, Self.queryTimeout)
+        let hitStatus = AXUIElementCopyElementAtPosition(root, Float(point.x), Float(point.y), &hit)
+        let geometry = WindowMover.frame(of: current)
+        try Self.requireCurrentWebEvidence(
+            oldTree: tree, newTree: fresh.tree, complete: fresh.truncated == nil,
+            sameIdentity: CFEqual(old, current),
+            sameGeometry: Self.sameFrame(info.frame, currentInfo.frame) && Self.sameFrame(info.frame, geometry.map(Frame.init)),
+            hitMatches: hitStatus == .success && hit.map { CFEqual(old, $0) } == true)
+    }
+
+    static func sameFrame(_ a: Frame?, _ b: Frame?) -> Bool {
+        guard let a, let b else { return false }
+        return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height
+    }
+
+    static func requireCurrentWebEvidence(oldTree: String, newTree: String, complete: Bool,
+                                          sameIdentity: Bool, sameGeometry: Bool, hitMatches: Bool) throws {
+        guard complete, oldTree == newTree, sameIdentity, sameGeometry, hitMatches else {
+            throw AccessibilityError("web observation or target changed, is covered, or cannot be verified; observe again before input")
+        }
+    }
+
+
     private static func leadingIndex(_ line: String) -> Int? {
         let trimmed = line.drop { $0 == " " || $0 == "-" }
         guard trimmed.first == "[", let close = trimmed.firstIndex(of: "]") else { return nil }
