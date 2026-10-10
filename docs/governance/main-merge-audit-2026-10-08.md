@@ -804,3 +804,13 @@ Kevin 原话：
     - 回归测试和策略测试一并加入。
   - **产品路径**：目前没有发现同一进程内并发操作剪贴板的情况（ClipboardLease 已在进程内串行；Runtime 不链接 iPhone 代码）。G2 规则另行登记 issue。
   - **b9 要求**：自由模式的复现程序在 Kevin 同意之前暂停运行。原因是 pboard 卡住期间是否影响用户的复制粘贴无法排除。另外，PR 的定位从"定位手段"变成"根因修复"，需要 Kevin 重新确认范围。
+- **#210 合并申请（b9 提交给 Kevin，执行人 42）**：SHA `d5b1838341eab7978eb86cd61ddbc3baf2f4c76c`。
+  - Codex："Didn't find any major issues"（Reviewed commit d5b1838341，01:54:21Z）。
+  - b9 复审：评论 6092410654（之前各轮复审见 PR）。
+  - CI：build、test 均通过。
+  - 讨论：全部已解决，包括 P1。
+  - 合并状态：CLEAN / MERGEABLE；与当前 main 0772aa4 做 merge-tree 无冲突（CI 是在旧 base 上跑的，合并后需要看 main CI）。
+  - 验证结果（42 自述）：full 1077、strict 1077、engine 360 一次通过；此前几个版本的 strict 有几次失败在 SingleEndpoint（#166）。
+  - 状态：未授权。
+- **#211 6482353**：已改用单调时钟，b9 复审通过；等 Codex 和 CI，未授权。
+- **待审计**：main 上新出现三次合并，b9 正在核查授权：#205（0ac22c4）、#136（14f0bba）、#140（0772aa4）。
