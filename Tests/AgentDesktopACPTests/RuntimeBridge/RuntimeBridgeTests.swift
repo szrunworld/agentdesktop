@@ -59,6 +59,33 @@ import Testing
         guard case .accepted = r else { Issue.record("\(r)"); return }
     }
 
+    /// #246: ai.* is the owner's; a paired bridge refused it still offers
+    /// the default-profile unit.run task and can submit it.
+    @Test(arguments: [("permission_denied", "owner_only"), ("permission_denied", "unverified_identity"), ("unverified_identity", "")])
+    func profilesRefusedToThePairedBridgeFallBackToTheDefaultTask(code: String, reason: String) async throws {
+        let server = RTestRuntime()
+        server.methods += ["unit.run", "ai.profiles.list"]
+        server.profiles = [.obj([("guiProfileId", .string("gp_a")), ("revision", .int(3)), ("name", .string("A")), ("state", .string("enabled"))])]
+        server.profilesError = RuntimeError(code, "reserved to the owner", phase: .request, notSent: true,
+                                            details: reason.isEmpty ? nil : .obj([("reason", .string(reason))]))
+        let port = try RTest.port(server)
+        let tasks = try await port.tasks()
+        #expect(tasks.map(\.taskType) == ["unit.run"])
+        let r = try await port.submit(RTest.submission(task: "unit.run"))
+        guard case .accepted = r else { Issue.record("\(r)"); return }
+    }
+
+    /// #246: only a definite refusal falls back; any other failure of
+    /// ai.profiles.list still fails the listing, it is never swallowed.
+    @Test(arguments: ["internal_error", "connection_lost", "schema_invalid"])
+    func otherProfilesFailuresStillFailTheListing(code: String) async throws {
+        let server = RTestRuntime()
+        server.methods += ["unit.run", "ai.profiles.list"]
+        server.profilesError = RuntimeError(code, "boom", phase: .handler)
+        let port = try RTest.port(server)
+        await #expect(throws: (any Error).self) { _ = try await port.tasks() }
+    }
+
     @Test func catalogPinsTheProfileRevisionAndRefusesIdentityFields() throws {
         let catalog = ACPTaskCatalog()
         let entries = catalog.entries(methods: ["unit.run", "ai.profiles.list"], profiles: [

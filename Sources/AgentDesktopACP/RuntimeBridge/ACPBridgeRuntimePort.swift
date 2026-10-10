@@ -84,9 +84,17 @@ public final class ACPBridgeRuntimePort: ACPRuntimePort, @unchecked Sendable {
         let methods = ACPTaskCatalog.methods(caps)
         var profiles: [JSONValue]?
         if methods.contains(ACPTaskCatalog.unitRunMethod), methods.contains(ACPTaskCatalog.profilesMethod) {
-            let r = try c.call(RuntimeRequest(requestId: RuntimeRequest.newId(), method: ACPTaskCatalog.profilesMethod,
-                                              params: .obj([])))
-            profiles = r["items"]?.arrayValue ?? []
+            do {
+                let r = try c.call(RuntimeRequest(requestId: RuntimeRequest.newId(), method: ACPTaskCatalog.profilesMethod,
+                                                  params: .obj([])))
+                profiles = r["items"]?.arrayValue ?? []
+            } catch let e as RuntimeError where ACPTaskCatalog.profilesRefusedToCaller(e) {
+                // ai.* is the owner's (A4 R1): a paired bridge is refused it
+                // for sure. It then offers the one unit.run task on the
+                // Runtime's default profile, as if the method were absent;
+                // any other failure still fails the listing (#246).
+                profiles = nil
+            }
         }
         return catalog.entries(methods: methods, profiles: profiles)
     }

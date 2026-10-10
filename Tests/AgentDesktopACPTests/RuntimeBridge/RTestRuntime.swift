@@ -29,6 +29,8 @@ final class RTestRuntime: @unchecked Sendable {
     let lock = NSLock()
     let instanceId = "inst_test"
     /// A Runtime without a GUI executor: unit.run is not offered.
+    /// Thrown by ai.profiles.list when set (a paired caller is refused ai.*).
+    var profilesError: RuntimeError?
     var methods: [String] = RuntimeMethod.allCases.map(\.rawValue).filter { $0 != "unit.run" }
     var profiles: [JSONValue]?
     var unitRun: UnitRunBehavior = .accept
@@ -126,6 +128,7 @@ final class RTestRuntime: @unchecked Sendable {
             return .obj([("apiVersion", .string(RuntimeAPI.version)),
                          ("interface", .obj([("methods", .array(methods.map { .obj([("method", .string($0))]) }))]))])
         case "ai.profiles.list":
+            if let profilesError { throw profilesError }
             return .obj([("items", .array(profiles ?? [])), ("nextCursor", .null)])
         case "unit.run":
             if let prior = ledger[r.requestId] {

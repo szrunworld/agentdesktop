@@ -6,6 +6,7 @@
 //   AGENTDESKTOP_ENDPOINT=PATH agentdesktop-acp-dev
 //   agentdesktop-acp-dev --demo              stdio ⇄ server ⇄ built-in scripted port (no Runtime)
 //   agentdesktop-acp-dev pair --endpoint PATH   pair this program with the Runtime (A4), once
+//   agentdesktop-acp-dev request-window …       ask the user for the window unit.run works in (#246)
 //
 // Every socket inside the product directory (~/Library/Application Support/
 // AgentDesktop/: control.sock, runtime.sock, ai.sock, …, symlinks resolved)
@@ -24,7 +25,8 @@ func fail(_ message: String) -> Never {
 
 let usage = """
 usage: agentdesktop-acp-dev [--demo | --endpoint PATH [--allow-product-endpoint]] [--state-dir DIR]
-       agentdesktop-acp-dev pair [--endpoint PATH [--allow-product-endpoint]] [--name NAME] [--apps ID,…] [--duration 8h] [--wait-timeout SECONDS]
+       agentdesktop-acp-dev pair --desktops ID,… [--endpoint PATH [--allow-product-endpoint]] [--name NAME] [--apps ID,…] [--duration 8h] [--wait-timeout SECONDS]
+       agentdesktop-acp-dev request-window --desktop ID --bundle-id APP [--window-id N] [--endpoint PATH [--allow-product-endpoint]] [--duration 8h]
   --demo                     built-in scripted port; sessions in a temporary directory
   --endpoint PATH            Runtime socket of a side instance (else AGENTDESKTOP_ENDPOINT)
   --allow-product-endpoint   permit the installed product's own endpoint
@@ -33,10 +35,18 @@ usage: agentdesktop-acp-dev [--demo | --endpoint PATH [--allow-product-endpoint]
   pair                       ask to pair as this program; confirm in the Agent Desktop window.
                              The credential goes to the keychain (profile "acp"; AGENTDESKTOP_KEYCHAIN
                              for a test copy's keychain file), where serving reads it
+  --desktops ID,…            required: the Desktops the bridge may use, created beforehand in the
+                             Agent Desktop main window (explicit ids; `created` is refused)
   --name NAME                name shown in the confirmation window (default ACP)
-  --apps ID,…                bundle ids a task may launch (default none)
+  --apps ID,…                bundle ids whose windows the bridge may later ask for (default none)
   --duration 1h|8h|7d        how long the grant lasts, up to 7d (default: the Runtime's, 1h)
   --wait-timeout SECONDS     how long to wait for the answer (default 180)
+  request-window             as the paired bridge, ask for observe and act on one window of APP on
+                             the Desktop (hub.windows.request; confirm in the Agent Desktop window),
+                             then check it is the window bound there. Never retried
+  --desktop ID               the Desktop (one of the paired --desktops)
+  --bundle-id APP            the app of the window bound on that Desktop
+  --window-id N              that window, when the app has several (else its frontmost)
 """
 
 var pairing = false
@@ -46,17 +56,27 @@ var allowProduct = false
 var stateDir: String?
 var pairName = "ACP"
 var pairApps: [String] = []
+var pairDesktops: [String]?
 var pairDuration: Int?
 var pairTimeout = 180.0
+var requestingWindow = false
+var windowDesktop: String?
+var windowBundle: String?
+var windowId: Int?
 var rest = Array(CommandLine.arguments.dropFirst())
 if rest.first == "pair" { pairing = true; rest.removeFirst() }
-// Options that belong to one mode only; the other mode refuses them.
-let serveOnly: Set<String> = ["--demo", "--state-dir"]
-let pairOnly: Set<String> = ["--name", "--apps", "--duration", "--wait-timeout"]
+else if rest.first == "request-window" { requestingWindow = true; rest.removeFirst() }
+// Options that belong to some modes only; the others refuse them.
+let modeName = pairing ? "to pair" : requestingWindow ? "to request-window" : "when serving"
+let allowed: Set<String> = pairing ? ["--desktops", "--name", "--apps", "--duration", "--wait-timeout"]
+    : requestingWindow ? ["--desktop", "--bundle-id", "--window-id", "--duration"]
+    : ["--demo", "--state-dir"]
+let modal: Set<String> = ["--demo", "--state-dir", "--desktops", "--name", "--apps", "--duration", "--wait-timeout",
+                          "--desktop", "--bundle-id", "--window-id"]
 while !rest.isEmpty {
     let a = rest.removeFirst()
-    if (pairing && serveOnly.contains(a)) || (!pairing && pairOnly.contains(a)) {
-        fail("\(a) does not apply \(pairing ? "to pair" : "when serving")\n\(usage)")
+    if modal.contains(a), !allowed.contains(a) {
+        fail("\(a) does not apply \(modeName)\n\(usage)")
     }
     switch a {
     case "-h", "--help": print(usage); exit(0)
@@ -65,11 +85,23 @@ while !rest.isEmpty {
     case "--endpoint", "--state-dir":
         guard !rest.isEmpty, !rest[0].isEmpty else { fail("\(a) needs a path") }
         if a == "--endpoint" { endpointOption = rest.removeFirst() } else { stateDir = rest.removeFirst() }
-    case "--name", "--apps", "--duration", "--wait-timeout":
+    case "--desktops", "--name", "--apps", "--duration", "--wait-timeout", "--desktop", "--bundle-id", "--window-id":
         guard !rest.isEmpty, !rest[0].isEmpty else { fail("\(a) needs a value") }
         let v = rest.removeFirst()
         switch a {
         case "--name": pairName = v
+        case "--desktop":
+            guard let ids = ACPPairing.desktopIds(v), ids.count == 1 else { fail("--desktop needs one Desktop id, got \(v)") }
+            windowDesktop = ids[0]
+        case "--bundle-id": windowBundle = v
+        case "--window-id":
+            guard let n = Int(v), n > 0, n <= Int(UInt32.max) else { fail("--window-id needs a window number, got \(v)") }
+            windowId = n
+        case "--desktops":
+            guard let ids = ACPPairing.desktopIds(v) else {
+                fail("--desktops needs Desktop ids from the Agent Desktop main window, comma separated (not `created`), got \(v)")
+            }
+            pairDesktops = ids
         case "--apps": pairApps = v.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         case "--duration":
             guard let s = ACPPairing.durationSeconds(v) else { fail("--duration needs 1h, 8h, 7d or the like (1s to 7d), got \(v)") }
@@ -107,6 +139,7 @@ func resolveEndpoint() -> (Endpoint, isProduct: Bool) {
 }
 
 if pairing {
+    guard let pairDesktops else { fail("pair needs --desktops: the Desktop ids the bridge may use, created in the Agent Desktop main window") }
     let (endpoint, _) = resolveEndpoint()
     let credentials: KeychainCredentialStore
     do { credentials = try KeychainCredentialStore(keychainPath: keychainPath) } catch { fail("\(error)") }
@@ -114,7 +147,7 @@ if pairing {
     defer { client.close() }
     do {
         let outcome = try ACPPairing.pair(client: client, store: credentials, endpoint: endpoint.path, name: pairName,
-                                          grant: ACPPairing.grant(apps: pairApps, durationSeconds: pairDuration), timeout: pairTimeout) {
+                                          grant: ACPPairing.grant(desktops: pairDesktops, apps: pairApps, durationSeconds: pairDuration), timeout: pairTimeout) {
             FileHandle.standardError.write(Data("agentdesktop-acp-dev: \($0)\n".utf8))
         }
         switch outcome {
@@ -126,6 +159,33 @@ if pairing {
         }
     } catch {
         fail("pairing failed: \(error)")
+    }
+}
+
+if requestingWindow {
+    guard let windowDesktop, let windowBundle else { fail("request-window needs --desktop and --bundle-id\n\(usage)") }
+    let (endpoint, _) = resolveEndpoint()
+    let stored: ClientCredential?
+    do { stored = try KeychainCredentialStore(keychainPath: keychainPath).load(endpoint: endpoint.path, profile: ACPPairing.profile) } catch {
+        fail("cannot read the bridge's credential: \(error)")
+    }
+    guard let credential = stored else { fail("not paired with \(endpoint.path); run `agentdesktop-acp-dev pair --endpoint \(endpoint.path) --desktops …` first") }
+    let client = ACPPairing.pairedClient(endpoint: endpoint, credential: credential)
+    defer { client.close() }
+    do {
+        let outcome = try ACPWindowRequest.request(client: client, desktopId: windowDesktop, bundleId: windowBundle,
+                                                   windowId: windowId, durationSeconds: pairDuration) {
+            FileHandle.standardError.write(Data("agentdesktop-acp-dev: \($0)\n".utf8))
+        }
+        switch outcome {
+        case let .granted(id, expiresAt):
+            print("window grant \(id) for the window bound on \(windowDesktop)\(expiresAt.map { ", until \($0)" } ?? "")")
+            exit(0)
+        case let .notTheBoundWindow(id):
+            fail("window grant \(id) was approved, but it is not for the window bound on \(windowDesktop) (or nothing is bound there); unit.run will refuse it. Withdraw it in the Agent Desktop window, bind the intended window, and ask again with --window-id")
+        }
+    } catch {
+        fail("window request failed: \(error)")
     }
 }
 

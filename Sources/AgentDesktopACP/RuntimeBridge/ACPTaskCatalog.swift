@@ -16,6 +16,14 @@ public struct ACPTaskCatalog: Sendable {
     public static let unitRunMethod = "unit.run"
     public static let profilesMethod = "ai.profiles.list"
 
+    /// A definite refusal of `ai.profiles.list` to this caller: `ai.*` is
+    /// the owner's, so a paired client gets `permission_denied` (reason
+    /// `owner_only`, or `unverified_identity` under A4 R1). The catalog then
+    /// falls back to the default-profile task. Nothing else counts.
+    public static func profilesRefusedToCaller(_ e: RuntimeError) -> Bool {
+        e.code == "permission_denied" || e.code == "unverified_identity"
+    }
+
     /// Params a caller may never pass: identity and run axes come from the
     /// Runtime's authenticated context (ADR v2.2, A6 F40-06 row 1).
     public static let forbiddenInputKeys: Set<String> = [

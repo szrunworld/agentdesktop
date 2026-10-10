@@ -16,17 +16,32 @@ public enum ACPPairing {
     /// The keychain profile the bridge serves with.
     public static let profile = "acp"
 
-    /// What the bridge calls (RuntimeService.capabilityOf): `observe`, `act`
-    /// and `desktop.manage` for the Desktops it creates, `unit.run` to submit
-    /// a task, and `run` to show, cancel and follow the Runs it started.
-    public static let capabilities = ["observe", "act", "desktop.manage", "unit.run", "run"]
+    /// What the bridge needs (RuntimeService.capabilityOf): `unit.run` to
+    /// submit a task, `run` to show, cancel and follow the Runs it started,
+    /// and `observe` and `act` because A6's executor acts as the Run's
+    /// principal, so each observe and act inside the Run passes the bridge's
+    /// own grant. No `desktop.manage`: the bridge creates no Desktop,
+    /// launches no app and binds no window (#246).
+    public static let capabilities = ["observe", "act", "unit.run", "run"]
 
-    /// The grant to request: the capabilities above on Desktops the bridge
-    /// creates, plus the apps a task may launch (bundle ids, from the caller;
-    /// none by default).
-    public static func grant(apps: [String] = [], durationSeconds: Int? = nil) -> JSONValue {
+    /// `--desktops`: Desktop ids the user created in the Agent Desktop main
+    /// window, comma separated. Never `created` (the bridge creates none, and
+    /// its meaning is not widened, #246); nil unless every id looks like one.
+    public static func desktopIds(_ text: String) -> [String]? {
+        let ids = text.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        guard !ids.isEmpty, ids.allSatisfy({ !$0.isEmpty && $0 != "created" && $0.unicodeScalars.allSatisfy(allowed.contains) }) else {
+            return nil
+        }
+        return ids
+    }
+
+    /// The grant to request: the capabilities above on exactly the Desktops
+    /// named, plus the apps whose windows the bridge may later ask the user
+    /// for (bundle ids; none by default).
+    public static func grant(desktops: [String], apps: [String] = [], durationSeconds: Int? = nil) -> JSONValue {
         var m: [(String, JSONValue)] = [("capabilities", .array(capabilities.map { .string($0) })),
-                                        ("desktops", .array([.string("created")])),
+                                        ("desktops", .array(desktops.map { .string($0) })),
                                         ("apps", .array(apps.map { .string($0) }))]
         if let durationSeconds { m.append(("durationSeconds", .int(durationSeconds))) }
         return .obj(m)
@@ -50,6 +65,13 @@ public enum ACPPairing {
     public static func unpairedClient(endpoint: Endpoint) -> SocketRuntimeClient {
         SocketRuntimeClient(endpoint: endpoint, info: ClientInfo(name: "agentdesktop-acp", version: RuntimeAPI.productVersion),
                             timeout: 10, credential: nil)
+    }
+
+    /// A connection as the paired bridge (its own credential), named like
+    /// the serving bridge.
+    public static func pairedClient(endpoint: Endpoint, credential: ClientCredential) -> SocketRuntimeClient {
+        SocketRuntimeClient(endpoint: endpoint, info: ClientInfo(name: "agentdesktop-acp", version: RuntimeAPI.productVersion),
+                            timeout: 10, credential: credential)
     }
 
     public enum Outcome: Equatable, Sendable {
