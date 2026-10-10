@@ -18,6 +18,8 @@ import Testing
 @Test func everySealReasonHasItsOwnAdviceAndOtherReasonsKeepTheCodeText() {
     for reason in ["bind_requires_grant", "screen_capture_requires_grant", "physical_desktop_requires_grant"] {
         #expect(RuntimeProblem.reasonAdvice(reason) != nil, "\(reason)")
+        // Window grants exist since #205: no advice may still promise them (Codex on 9391a03).
+        #expect(!(RuntimeProblem.reasonAdvice(reason) ?? "").contains("上线前"), "\(reason)")
     }
     let plain = RuntimeProblem(RuntimeError("permission_denied", "x", phase: .handler,
                                             details: .obj([("reason", .string("something_else"))])))

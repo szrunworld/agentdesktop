@@ -48,7 +48,7 @@ public struct RuntimeProblem: Equatable, Sendable {
     static func reasonAdvice(_ reason: String) -> String? {
         switch reason {
         case "bind_requires_grant":
-            return "在逐窗口授权上线前，只能绑定由这个 Desktop 启动的应用。请改用“启动应用”。"
+            return "目前只能绑定由这个 Desktop 启动的应用：你自己打开的窗口即使已获窗口授权，也不会被移到虚拟 Desktop 上，物理 Desktop 也暂未开放。请改用“启动应用”。"
         case "screen_capture_requires_grant":
             return "这个 Desktop 还没有绑定窗口；没有整屏授权时不截整个屏幕。请先绑定窗口。"
         case "no_launch_apps_configured":
@@ -66,7 +66,7 @@ public struct RuntimeProblem: Equatable, Sendable {
         case "iphone_mirroring_blocked":
             return "iPhone 镜像不能通过通用桌面控制操作：输入会直接到达手机，绕开 iPhone 专用的保护。iPhone 设备会话验收之前，它一律被拒绝。"
         case "physical_desktop_requires_grant":
-            return "在逐窗口授权上线前，不能把你的显示器作为 Desktop。请使用虚拟 Desktop。"
+            return "物理 Desktop 在当前版本中暂未开放：即使有窗口授权，也不能把你的显示器作为 Desktop。请使用虚拟 Desktop。"
         default:
             return nil
         }
