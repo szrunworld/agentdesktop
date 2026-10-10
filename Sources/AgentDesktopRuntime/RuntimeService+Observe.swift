@@ -87,7 +87,7 @@ extension RuntimeService {
                 let path = artifacts.path(for: artifactId, ext: "png")
                 // The bound window alone, never the screen cut down afterwards:
                 // no whole-screen image is written, even for a moment.
-                let size: (width: Int, height: Int)
+                var size: (width: Int, height: Int)
                 do {
                     if let b = d.binding, crop != nil {
                         size = try platform.windowScreenshot(d.screen, pid: b.process.pid, windowId: b.windowId, to: path)
@@ -101,8 +101,21 @@ extension RuntimeService {
                     if reserved == nil { artifacts.release(bucket: bucket) }
                     throw error
                 }
-                let origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
-                let scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
+                var origin = crop.map { ($0.x, $0.y) } ?? (d.screen.frame.x, d.screen.frame.y)
+                var scale = Double(size.width) / max(1, crop?.width ?? d.screen.frame.width)
+                if request.method == "observe.region" {
+                    do {
+                        let converted = try RegionObservationImage.convert(path: path, size: size,
+                                                                           origin: origin, scale: scale, params: p)
+                        size = converted.size
+                        origin = converted.origin
+                        scale = converted.scale
+                    } catch {
+                        unlink(path)
+                        if reserved == nil { artifacts.release(bucket: bucket) }
+                        throw error
+                    }
+                }
                 // Kept as usual only with persist; else for a short while,
                 // gone with the grant (window-grants.md).
                 var transientUntil: Date?

@@ -36,6 +36,7 @@ public enum RuntimeMethod: String, CaseIterable, Sendable {
     case sessionShow = "session.show"
     case sessionClose = "session.close"
     case observe
+    case observeRegionV1 = "observe.region"
     case requestShow = "request.show"
     case act
     case wait

@@ -19,7 +19,7 @@ extension RuntimeService {
     /// are the owner's.
     static let capabilityOf: [String: String] = {
         var m: [String: String] = [:]
-        for x in ["desktop.list", "desktop.show", "app.list", "window.list", "observe", "wait", "artifact.show",
+        for x in ["desktop.list", "desktop.show", "app.list", "window.list", "observe", "observe.region", "wait", "artifact.show",
                   "artifact.read", "session.show", "request.show"] { m[x] = "observe" }
         for x in ["act", "session.open", "session.close"] { m[x] = "act" }
         for x in ["desktop.create", "desktop.destroy", "app.launch", "window.bind", "window.unbind"] { m[x] = "desktop.manage" }

@@ -501,6 +501,26 @@ enum RuntimeContractData {
         "gui": {
           "type": "object",
           "description": "what the GUI execution backend supports, as the AI service reports it (ai-gui/v1 runtime_capabilities_result); absent while that service is not running"
+        },
+        "regionObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "method",
+            "maxWidth"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "method": {
+              "const": "observe.region"
+            },
+            "maxWidth": {
+              "const": 4096
+            }
+          }
         }
       }
     },
@@ -4056,6 +4076,41 @@ enum RuntimeContractData {
           "description": "the grants the Desktop was removed from, as they are now"
         }
       }
+    },
+    "observe_region_v1_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "elements": {
+          "type": "boolean",
+          "description": "default true; needs a bound window"
+        },
+        "region": {
+          "$ref": "#/$defs/Rect"
+        },
+        "maxWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "region"
+          ]
+        },
+        {
+          "required": [
+            "maxWidth"
+          ]
+        }
+      ]
     }
   }
 }
@@ -8779,6 +8834,14 @@ enum RuntimeContractData {
       "stage": "P0",
       "mutation": false,
       "params": "observe_params",
+      "result": "Observation",
+      "status": "implemented"
+    },
+    {
+      "method": "observe.region",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_region_v1_params",
       "result": "Observation",
       "status": "implemented"
     },

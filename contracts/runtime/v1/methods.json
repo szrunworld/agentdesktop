@@ -156,6 +156,14 @@
       "status": "implemented"
     },
     {
+      "method": "observe.region",
+      "stage": "P0",
+      "mutation": false,
+      "params": "observe_region_v1_params",
+      "result": "Observation",
+      "status": "implemented"
+    },
+    {
       "method": "request.show",
       "stage": "P0",
       "mutation": false,
