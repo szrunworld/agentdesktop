@@ -443,4 +443,19 @@ struct UnitRunAdmissionTests {
         await h.finished(runId)
         #expect(!units.pins(.guiProfile, gui["guiProfileId"]!.stringValue!))
     }
+
+    // Codex on c702a5f: a Run waiting for a person keeps its pins until it
+    // is stopped, then frees them.
+    @Test func aWaitingRunFreesItsPinsWhenStopped() async throws {
+        let h = try GuiHarness([.text("Thought: login.\nAction: call_user(content='please log in')")])
+        let gui = try await h.setUpProfile()
+        let units = try #require(h.units)
+        let id = try #require(gui["guiProfileId"]?.stringValue)
+        let runId = try await h.start()
+        await h.finished(runId)
+        #expect(h.run(runId).ending == .needsInput(reason: "model_requested_user"))
+        #expect(units.pins(.guiProfile, id), "still waiting: pinned")
+        h.cancel(runId)
+        #expect(!units.pins(.guiProfile, id), "stopped: free")
+    }
 }

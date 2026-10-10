@@ -177,8 +177,9 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         // even before this, keeps the next model call and input from starting.
         let gate = TaskGate()
         stop.arm { [weak self] in
-            // A Run waiting for a person ends with this stop.
-            self?.lock.withLock { if self?.tasks[runId] == nil { _ = self?.pinned.removeValue(forKey: runId) } }
+            // A stopped Run ends: what it pinned is free (codex on c702a5f:
+            // a stop racing the end of a wait must not keep the pins).
+            self?.lock.withLock { _ = self?.pinned.removeValue(forKey: runId) }
             // Visible before this returns: no model call or input starts
             // after the Runtime accepted the stop. A model call already out
             // is cancelled with the task; an input already handed to the
@@ -187,17 +188,25 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
             if !inputOut { gate.cancel() }
             Task { _ = await lifecycle.requestCancel() }
         }
-        let task = Task.detached { [weak self] in
-            await driver.run()
-            let ending = await Self.ending(of: lifecycle, stopped: signal.isStopped)
-            sink.finished(ending)
-            self?.lock.withLock {
-                _ = self?.tasks.removeValue(forKey: runId)
-                if case .needsInput = ending {} else { _ = self?.pinned.removeValue(forKey: runId) }
+        // Made and registered under the lock, so its own cleanup (which
+        // takes the lock) cannot run before it is registered (codex on
+        // 073b96f: a fast Run left its finished task behind).
+        let task: Task<Void, Never> = lock.withLock {
+            let t = Task.detached { [weak self] in
+                await driver.run()
+                let ending = await Self.ending(of: lifecycle, stopped: signal.isStopped)
+                sink.finished(ending)
+                self?.lock.withLock {
+                    _ = self?.tasks.removeValue(forKey: runId)
+                    // A Run left waiting for a person keeps its pins until it
+                    // is stopped; checked under the lock the stop takes too.
+                    if case .needsInput = ending, !signal.isStopped {} else { _ = self?.pinned.removeValue(forKey: runId) }
+                }
             }
+            tasks[runId] = t
+            return t
         }
         gate.set(task)
-        lock.withLock { tasks[runId] = task }
     }
 
     /// Whether a live unit Run pinned this resource (ConfigStore's
