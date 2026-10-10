@@ -539,4 +539,28 @@ final class LockedStrings: @unchecked Sendable {
     #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Panel", executable: server) == false)
     #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: "/tmp/WindowServer") == false)
     #expect(EnginePlatform.isSystemCursor(pid: getpid(), layer: layer, title: "Cursor") == false)
+    // #248: the kernel reports WindowServer through the version directory.
+    let versioned = "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/Resources/WindowServer"
+    #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: versioned))
+    #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: "/tmp/Versions/A/Resources/WindowServer") == false)
+}
+
+/// #248: the running WindowServer, read the way overlays() reads it, is
+/// recognised. Skipped where no WindowServer runs (no GUI session).
+@Test func theRunningWindowServerIsRecognisedByItsKernelPath() throws {
+    let pgrep = Process()
+    pgrep.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+    pgrep.arguments = ["-x", "WindowServer"]
+    let out = Pipe()
+    pgrep.standardOutput = out
+    try pgrep.run()
+    pgrep.waitUntilExit()
+    let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    guard let pid = text.split(separator: "\n").first.flatMap({ Int32($0) }) else { return }
+    var path = [CChar](repeating: 0, count: 4096)
+    guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return }
+    let layer = Int(CGWindowLevelForKey(.cursorWindow))
+    #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: String(cString: path)),
+            "proc_pidpath gave \(String(cString: path))")
+    #expect(EnginePlatform.isSystemCursor(pid: pid, layer: layer, title: "Cursor"))
 }
