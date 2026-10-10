@@ -486,3 +486,12 @@ final class LockedStrings: @unchecked Sendable {
                   context: #"{"sessionId":"\#(sc.session)"}"#)
     #expect(failure(w2)?.details?["reason"]?.stringValue == "occluded", "\(w2.json.encoded())")
 }
+
+@Test func aWaitOnAPhysicalDesktopStopsWhenTheWindowMovesDuringTheRead() throws {
+    // Codex on 86c3dd0: the window read must still be where it was when the poll is stored.
+    let sc = try physicalScene()
+    sc.platform.onElements = { sc.platform.moveWindow(11, by: 40) }
+    let w = call(sc.s, sc.c, "wait", params: #"{"condition":{"kind":"elementPresent","label":"x"},"timeoutMs":300}"#,
+                 context: #"{"sessionId":"\#(sc.session)"}"#)
+    #expect(failure(w)?.details?["reason"]?.stringValue == "changed_during_capture", "\(w.json.encoded())")
+}
