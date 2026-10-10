@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import SecondScreenCore
 
@@ -68,21 +69,39 @@ func scratchLockURL() -> URL {
         holder.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
         holder.arguments = ["-e", """
             use Fcntl qw(:flock); open(F, "+<", $ARGV[0]) or die; flock(F, LOCK_EX) or die;
-            $| = 1; print "locked\\n"; sleep 1;
+            $| = 1; print "locked\\n"; alarm 15; <STDIN>;
             """, url.path]
         let out = Pipe()
+        let release = Pipe()
+        holder.standardInput = release
+        holder.environment = ProcessInfo.processInfo.environment.merging(["LC_ALL": "C", "LC_CTYPE": "C", "LANG": "C"]) { _, new in new }
         holder.standardOutput = out
         try holder.run()
         defer { if holder.isRunning { holder.terminate() } }
-        let line = String(data: out.fileHandleForReading.availableData, encoding: .utf8)
-        #expect(line == "locked\n")
+        let deadline = ContinuousClock().now.advanced(by: .seconds(5))
+        var received = Data()
+        while !received.contains(10), ContinuousClock().now < deadline {
+            var descriptor = pollfd(fd: out.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            guard poll(&descriptor, 1, 100) >= 0 else { throw CocoaError(.fileReadUnknown) }
+            if descriptor.revents & Int16(POLLIN | POLLHUP) != 0 {
+                var bytes = [UInt8](repeating: 0, count: 64)
+                let count = read(descriptor.fd, &bytes, bytes.count)
+                guard count > 0 else { break }
+                received.append(contentsOf: bytes.prefix(count))
+            }
+        }
+        let line = String(data: received, encoding: .utf8)
+        try #require(line == "locked\n", "holder did not confirm its lock before the bounded deadline")
 
         #expect(throws: ClipboardLease.LeaseError.busy(seconds: 0.2)) {
             try ClipboardLease.acquire(at: url, timeout: 0.2)
         }
+        try release.fileHandleForWriting.write(contentsOf: Data("release\n".utf8))
         // Released when the holder exits, without it unlocking.
         let lease = try ClipboardLease.acquire(at: url, timeout: 10)
         lease.release()
-        holder.waitUntilExit()
+        let exitDeadline = ContinuousClock().now.advanced(by: .seconds(5))
+        while holder.isRunning && ContinuousClock().now < exitDeadline { Thread.sleep(forTimeInterval: 0.01) }
+        #expect(!holder.isRunning, "holder exit exceeded the bounded deadline")
     }
 }

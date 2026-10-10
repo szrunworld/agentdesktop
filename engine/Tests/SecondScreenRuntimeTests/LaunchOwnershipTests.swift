@@ -461,7 +461,10 @@ extension Result where Failure == LaunchRefusal {
     sign.arguments = ["--force", "--sign", "-", app.path]
     sign.standardError = FileHandle.nullDevice
     try sign.run()
-    sign.waitUntilExit()
+    defer { if sign.isRunning { sign.terminate() } }
+    let deadline = ContinuousClock().now.advanced(by: .seconds(10))
+    while sign.isRunning && ContinuousClock().now < deadline { Thread.sleep(forTimeInterval: 0.01) }
+    try #require(!sign.isRunning, "codesign exceeded the bounded fixture deadline")
     #expect(sign.terminationStatus == 0)
     #expect(AppIdentity.read(app) == nil, "an ad-hoc copy claiming TextEdit's bundle ID has no identity")
 }
