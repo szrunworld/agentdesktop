@@ -272,7 +272,7 @@ extension RuntimeService {
                     let created = next.desktops.contains("created") && desktops.find(w.desktopId)?.createdBy == id
                     return next.desktops.contains(w.desktopId) || created ? nil : "desktop_removed"
                 })
-            } catch let e as RuntimeStoreError where viaConfirmation {
+            } catch let e as RuntimeStoreError where viaConfirmation && e.isRevisionMismatch {
                 return .failure(RuntimeError("conflict", e.description, phase: .handler, notSent: true,
                                              details: .obj([("reason", .string("target_changed"))])))
             } catch {

@@ -325,7 +325,7 @@ extension RuntimeService {
             createdAt: nowString, expiresAt: min(afterApproval, clientExpiry), confirmationId: confirmation)
         // Checked and recorded under the Desktop's lock (Codex on 48c46a8):
         // a destroy waits, then ends this grant with the rest.
-        guard d.lock.lock(before: now().addingTimeInterval(Self.desktopLockWait)) else {
+        guard d.lock.lock(before: now().addingTimeInterval(desktopLockWait)) else {
             return .failure(RuntimeError("deadline_exceeded", "desktop \(d.desktopId) stayed busy; nothing was granted",
                                          phase: .handler, notSent: true))
         }

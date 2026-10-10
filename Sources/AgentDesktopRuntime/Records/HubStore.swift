@@ -265,7 +265,7 @@ public final class HubStore: @unchecked Sendable {
         let old = grant(g.clientId)
         if let expectedRevision {
             guard old?.revision == expectedRevision, old?.state == "active", client(g.clientId)?.state == "active" else {
-                throw RuntimeStoreError("the grant of \(g.clientId) changed while the user was asked")
+                throw RuntimeStoreError("the grant of \(g.clientId) changed while the user was asked", kind: .revisionMismatch)
             }
         }
         g.revision = (old?.revision ?? 0) + 1
@@ -369,7 +369,7 @@ public final class HubStore: @unchecked Sendable {
         // A client removed, or its grant changed, while the user was asked gets nothing.
         guard client(g.clientId)?.state == "active", let parent = grant(g.clientId), parent.state == "active",
               parent.apps.contains(g.bundleId), parentRevision.map({ $0 == parent.revision }) ?? true else {
-            throw RuntimeStoreError("\(g.clientId) lost its access while the user was asked")
+            throw RuntimeStoreError("\(g.clientId) lost its access while the user was asked", kind: .revisionMismatch)
         }
         try db.execute("""
             INSERT INTO window_grants (window_grant_id, client_id, desktop_id, window_id, pid, process_started_at, bundle_id, app_name,

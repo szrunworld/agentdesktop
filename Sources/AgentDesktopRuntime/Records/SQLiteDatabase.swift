@@ -103,6 +103,12 @@ final class SQLiteDatabase: @unchecked Sendable {
 }
 
 struct RuntimeStoreError: Error, CustomStringConvertible {
+    enum Kind { case storage, revisionMismatch }
     let description: String
-    init(_ d: String) { description = d }
+    /// A write refused because the record is no longer the revision it was
+    /// checked against, as opposed to a store that cannot write at all
+    /// (Codex on bb8a1f8: the two call for different answers).
+    let kind: Kind
+    init(_ d: String, kind: Kind = .storage) { description = d; self.kind = kind }
+    var isRevisionMismatch: Bool { kind == .revisionMismatch }
 }

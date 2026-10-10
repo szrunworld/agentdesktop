@@ -229,6 +229,66 @@ private func attach(_ s: RuntimeService, _ c: ConnectionState, display: Int = 1,
     #expect(window.requests.last?.details["desktop"]?["desktopId"]?.stringValue == r["desktop"]?["desktopId"]?.stringValue)
 }
 
+@Test func aDesktopReplacedWhileTheUserDecidedIsNotTheOneGranted() throws {
+    // Codex on bb8a1f8: detached and attached again during the prompt, the
+    // Desktop is another record than the one shown.
+    let platform = FakePlatform()
+    let s = displayService(platform, confirmer: nil)
+    let owner = handshaken(s)
+    let (_, aId, _) = try pairedClient(s, capabilities: ["observe"], desktops: ["created"], name: "a")
+    let (_, bId, _) = try pairedClient(s, capabilities: ["observe"], desktops: [], name: "b")
+    s.confirmer = FakeConfirmer()
+    let first = try #require(data(attach(s, owner, client: aId))?["desktop"]?["desktopId"]?.stringValue)
+    s.confirmer = FakeConfirmer { r in
+        _ = call(s, owner, "hub.displays.detach", params: #"{"desktopId":"\#(first)"}"#)
+        _ = call(s, owner, "hub.displays.attach", params: #"{"displayId":1,"clientId":"\#(aId)"}"#)   // no confirmer: refused, nothing attached
+        return .approved(digest: r.digest)
+    }
+    let r = attach(s, owner, client: bId)
+    #expect(code(r) == "conflict" && errorDetails(r)?["reason"]?.stringValue == "target_changed", "\(r.json.encoded())")
+    #expect(s.hub.grant(bId)?.desktops == [])
+    // The same when a Desktop appears on the display where none was shown
+    // (another owner path attached it while the prompt was up).
+    s.confirmer = FakeConfirmer { r in
+        let screen = try! platform.attachDisplay(1)
+        s.desktops.add(desktopId: "d_meanwhile", name: "meanwhile", screen: screen, createdAt: Timestamp.string(Date()), kind: .physical,
+                       createdBy: owner.clientId)
+        return .approved(digest: r.digest)
+    }
+    let r2 = attach(s, owner, client: bId)
+    #expect(code(r2) == "conflict" && errorDetails(r2)?["reason"]?.stringValue == "target_changed", "\(r2.json.encoded())")
+    #expect(s.hub.grant(bId)?.desktops == [] && s.desktops.count == 1)
+}
+
+@Test func aStoreThatCannotWriteTheGrantIsNotReportedAsAChangedTarget() throws {
+    // Codex on bb8a1f8: an outage is audit_unavailable, not a reason to ask again.
+    let platform = FakePlatform()
+    let s = displayService(platform)
+    let owner = handshaken(s)
+    let (_, aId, _) = try pairedClient(s, capabilities: ["observe"], desktops: ["created"], name: "a")
+    s.hub.failsGrantWrites = true
+    let r = attach(s, owner, client: aId)
+    #expect(code(r) == "audit_unavailable", "\(r.json.encoded())")
+    #expect(s.desktops.count == 0, "a Desktop made for the attach is dropped again")
+}
+
+@Test func detachingFromEveryoneFailsWholeWhenTheDesktopIsBusy() throws {
+    // Codex on bb8a1f8: a Desktop held past the lock wait is told
+    // deadline_exceeded with nothing taken from any grant.
+    let platform = FakePlatform()
+    let s = displayService(platform)
+    let owner = handshaken(s)
+    let (a, aId, _) = try pairedClient(s, capabilities: ["observe"], desktops: ["created"], name: "a")
+    let d = try #require(data(attach(s, owner, client: aId))?["desktop"]?["desktopId"]?.stringValue)
+    let record = try #require(s.desktops.find(d))
+    s.desktopLockWait = 0.2
+    record.lock.lock()
+    defer { record.lock.unlock() }
+    let r = call(s, owner, "hub.displays.detach", params: #"{"desktopId":"\#(d)"}"#)
+    #expect(code(r) == "deadline_exceeded", "\(r.json.encoded())")
+    #expect(s.hub.grant(aId)?.desktops.contains(d) == true && a.cutReason == nil && s.desktops.find(d) != nil)
+}
+
 @Test func aGrantThatExpiredWhileTheUserDecidedGetsNoDesktop() throws {
     let platform = FakePlatform()
     let s = displayService(platform, confirmer: nil)

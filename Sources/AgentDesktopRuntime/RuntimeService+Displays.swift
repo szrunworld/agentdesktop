@@ -110,9 +110,17 @@ extension RuntimeService {
             return .failure(RuntimeError("conflict", "display \(displayId) changed while the user was asked; ask again", phase: .handler, notSent: true,
                                          details: .obj([("reason", .string("display_changed"))])))
         }
+        // The Desktop the user saw (or was told would be made) must be the
+        // one that is there now (Codex on bb8a1f8): detached and attached
+        // again meanwhile, it is another record.
+        let now = desktops.physical(displayId: displayId).flatMap { $0.state != "destroyed" ? $0 : nil }
+        guard now?.desktopId == existing?.desktopId else {
+            return .failure(RuntimeError("conflict", "the Desktop of display \(displayId) changed while the user was asked; ask again", phase: .handler,
+                                         notSent: true, details: .obj([("reason", .string("target_changed"))])))
+        }
         let d: DesktopRecord
         let created: Bool
-        if let attached = desktops.physical(displayId: displayId), attached.state != "destroyed" {
+        if let attached = now {
             d = attached
             created = false
         } else {
@@ -133,7 +141,7 @@ extension RuntimeService {
         let saved: HubStore.Grant
         do {
             (saved, _) = try hub.setGrant(g, expectedRevision: seenRevision, endingWindowGrants: nil)
-        } catch is RuntimeStoreError {
+        } catch let e as RuntimeStoreError where e.isRevisionMismatch {
             if created { desktops.remove(d.desktopId) }
             return .failure(RuntimeError("conflict", "\(clientId) changed while the user was asked; ask again", phase: .handler, notSent: true,
                                          details: .obj([("reason", .string("target_changed"))])))
@@ -165,32 +173,34 @@ extension RuntimeService {
         }
         let only = p["clientId"]?.stringValue
         if let only, hub.client(only) == nil { return .failure(.notFound("no client \(only)")) }
-        let touched: [HubStore.Grant]
-        switch takeDesktopFromGrants(id, only: only, by: c) {
-        case let .failure(e): return .failure(e)
-        case let .success(g): touched = g
-        }
-        var destroyed = false
-        if only == nil {
-            // The record goes; the display and every window on it are the
-            // user's and are not touched. Whatever still held the Desktop
-            // (the owner's own Run or session) is stopped: the owner asked.
-            let dropped = withDesktop(.string(id)) { d in
-                if let holder = execution.holder(of: id) { _ = execution.stop(runId: holder, reason: "display_detached", endAs: .cancelled) }
-                sessions.closeAll(desktopId: id, at: nowString)
-                d.state = "destroyed"
-                d.generation += 1
-                d.binding = nil
-                desktops.remove(id)
-                observations.forget(desktopId: id)
-                endWindowGrants(onDesktop: id)
-                return .bool(true)
+        if let only {
+            // One client loses it; the record stays, as do the others.
+            return takeDesktopFromGrants(id, only: only, by: c).map { touched in
+                .obj([("desktopId", .string(id)), ("destroyed", .bool(false)), ("grants", .array(touched.map(\.json)))])
             }
-            if case let .failure(e) = dropped { return .failure(e) }
-            destroyed = true
-            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.displays.detach", decision: "ended", reason: "\(id) display_detached")
         }
-        return .success(.obj([("desktopId", .string(id)), ("destroyed", .bool(destroyed)), ("grants", .array(touched.map(\.json)))]))
+        // From everyone: under the Desktop's lock first (Codex on bb8a1f8),
+        // so nothing irreversible happens before the record can go; then
+        // the grants, then the record. The display and every window on it
+        // are the user's and are not touched. Whatever still held the
+        // Desktop (the owner's own Run or session) is stopped: the owner asked.
+        return withDesktop(.string(id)) { d in
+            let touched: [HubStore.Grant]
+            switch takeDesktopFromGrants(id, only: nil, by: c) {
+            case let .failure(e): throw e
+            case let .success(g): touched = g
+            }
+            if let holder = execution.holder(of: id) { _ = execution.stop(runId: holder, reason: "display_detached", endAs: .cancelled) }
+            sessions.closeAll(desktopId: id, at: nowString)
+            d.state = "destroyed"
+            d.generation += 1
+            d.binding = nil
+            desktops.remove(id)
+            observations.forget(desktopId: id)
+            endWindowGrants(onDesktop: id)
+            hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "hub.displays.detach", decision: "ended", reason: "\(id) display_detached")
+            return .obj([("desktopId", .string(id)), ("destroyed", .bool(true)), ("grants", .array(touched.map(\.json)))])
+        }
     }
 
     /// Remove a Desktop from the grants of one client (`only`) or of every

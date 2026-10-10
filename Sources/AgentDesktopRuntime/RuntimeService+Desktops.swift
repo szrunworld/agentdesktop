@@ -32,7 +32,7 @@ extension RuntimeService {
         switch desktop(id) {
         case let .failure(e): return .failure(e)
         case let .success(d):
-            let limit = until ?? now().addingTimeInterval(Self.desktopLockWait)
+            let limit = until ?? now().addingTimeInterval(desktopLockWait)
             guard d.lock.lock(before: limit) else {
                 return .failure(RuntimeError("deadline_exceeded",
                                              "desktop \(d.desktopId) stayed busy past the deadline; nothing was done",
