@@ -296,10 +296,13 @@ func physicalScene(_ platform: FakePlatform = FakePlatform(), backend: FixedBack
     #expect(sc.platform.quit.isEmpty)
 }
 
-@Test func physicalDesktopsAreRefusedToEveryCallerUntilGrantsExist() throws {
+@Test func aRuntimeWithPhysicalDesktopsOffRefusesEveryCallerBeforeLookingUpTheDisplay() throws {
+    // The switch is on in the product since Kevin's ruling of 2026-10-10;
+    // off, the refusal stays as #145 shipped it, for the owner too.
     let platform = FakePlatform()
     platform.onScreen[11] = "physical-1"
     let s = platformService(platform)
+    s.physicalDesktopsEnabled = false
     let c = handshaken(s)
     let r = call(s, c, "desktop.create", params: #"{"name":"main","physical":{}}"#)
     #expect(code(r) == "permission_denied")
