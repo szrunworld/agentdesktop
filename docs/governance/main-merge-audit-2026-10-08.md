@@ -1013,3 +1013,4 @@ Kevin 原话：
   - 拒绝原因（window_discovery_requires_grant）本身是对的；拒绝发生在读取平台之前，没有泄露任何应用名或窗口名。
   - 42 本地跑了 5 次，这个测试全部通过。CI 日志里没有打印 message 原文，所以"clientId 含 101 或 202"属于推断。
   - 42 已开 issue，修法二选一：pid 按完整数字匹配，或者在检查前去掉 clientId。
+- **#211 main CI**：ce43f3f（run 38027661607 cancelled）。RuntimeSealParityTests 在这次运行中没有复现失败。
