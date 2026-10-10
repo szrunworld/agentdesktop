@@ -416,7 +416,9 @@ final class LockedStrings: @unchecked Sendable {
     #expect(covers(Rect(x: 0, y: 0, width: 1512, height: 982), "WGestures"), "an unknown layer over the whole display: fail closed")
     #expect(covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Window Server"), "a display-wide Window Server layer counts")
     #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 37), "Window Server"), "the menu bar")
-    #expect(!covers(Rect(x: 1010, y: 0, width: 38, height: 37), "WeChat"), "a status item")
+    #expect(!covers(Rect(x: 1010, y: 0, width: 38, height: 37), "WeChat"), "another app's status item")
+    #expect(EnginePlatform.isCoveringOverlay(frame: Rect(x: 1010, y: 0, width: 38, height: 37), systemDock: false, boundProcess: true,
+                                             screen: screen, menuBar: 37), "the bound app's own status item counts (Codex on 536bb4d)")
     #expect(!covers(Rect(x: 0, y: 0, width: 1512, height: 982), "Dock"), "the Dock's display-wide layer")
     #expect(covers(Rect(x: 600, y: 500, width: 240, height: 300), "Dock"), "a Dock menu or folder stack counts (Codex on 1994bca)")
     // An app that calls itself "Dock" is not the Dock (Codex on 4c2536b).

@@ -111,7 +111,7 @@ extension DesktopPlatform {
         throw PlatformError(.refused, "this platform cannot attach the user's displays")
     }
 
-    public func overlays(on screen: ScreenHandle) -> [PlatformWindow] { [] }
+    public func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] { [] }
 }
 
 /// A refusal by the platform, already classified for the Runtime API.
@@ -181,9 +181,11 @@ public protocol DesktopPlatform: Sendable {
     func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int)
     /// On-screen windows above the normal layer that overlap the screen
     /// (notification banners, other apps' menus and popovers, system
-    /// dialogs), except the menu bar and the Dock. On a physical Desktop
+    /// dialogs), except the system Dock's display-wide layer and other
+    /// processes' items in the menu bar. Windows of `boundPid` always count:
+    /// input to that process may land on any of them. On a physical Desktop
     /// any of them over the bound window counts as covering it.
-    func overlays(on screen: ScreenHandle) -> [PlatformWindow]
+    func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow]
     /// Read the window's accessibility elements. The read replaces the
     /// backend's numbering for that window. Past `deadline` the backend
     /// reads no further node and returns what it has, marked truncated.

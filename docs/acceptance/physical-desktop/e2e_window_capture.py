@@ -27,8 +27,11 @@ o = c.call("observe", {}, {"sessionId": sid})
 if o.get("ok"):
     img, f = o["data"]["image"], o["data"]["target"]["windowFrame"]
     scale = 2 if scr["hiDPI"] else 1
+    # Smaller than the display too: a window filling the display would let a
+    # whole-display capture pass the size check (Codex on 536bb4d).
     ok = (img["width"], img["height"]) == (int(f["width"] * scale), int(f["height"] * scale)) and \
-         (img["transform"]["originX"], img["transform"]["originY"]) == (f["x"], f["y"])
+         (img["transform"]["originX"], img["transform"]["originY"]) == (f["x"], f["y"]) and \
+         (img["width"] < scr["width"] * scale or img["height"] < scr["height"] * scale)
     step("W1", "the image is the window alone (size = frame × scale, origin = window origin)", ok,
          {"image": {k: img[k] for k in ("width", "height", "sha256", "transform")}, "windowFrame": f, "screen": scr})
 else:

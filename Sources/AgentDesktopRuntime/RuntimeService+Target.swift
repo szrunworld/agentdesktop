@@ -41,7 +41,7 @@ extension RuntimeService {
         // window covers it too: a notification, another app's menu, and the
         // bound app's own sheets and popovers (the window capture does not
         // show them, yet input posted to the process may land on them).
-        let above = d.kind == .physical ? platform.overlays(on: d.screen) : []
+        let above = d.kind == .physical ? platform.overlays(on: d.screen, boundPid: b.process.pid) : []
         if let cover = above.first(where: { Self.overlap($0.frame, window.frame) })
             ?? front.first(where: { Self.overlap($0.frame, window.frame) }) {
             throw refuse("occluded",

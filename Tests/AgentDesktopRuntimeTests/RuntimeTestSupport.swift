@@ -215,7 +215,7 @@ final class FakePlatform: DesktopPlatform, @unchecked Sendable {
 
     /// High-layer windows over a screen (notifications, menus), by screen name.
     var overlayWindows: [String: [PlatformWindow]] = [:]
-    func overlays(on screen: ScreenHandle) -> [PlatformWindow] { lock.withLock { overlayWindows[screen.name] ?? [] } }
+    func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] { lock.withLock { overlayWindows[screen.name] ?? [] } }
 
     /// The user's own displays a physical Desktop may attach, by ID.
     var physicalDisplays: [UInt32: ScreenHandle] = [

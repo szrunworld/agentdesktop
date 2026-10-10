@@ -219,7 +219,7 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
             && app.bundleURL?.standardizedFileURL.path == "/System/Library/CoreServices/Dock.app"
     }
 
-    public func overlays(on screen: ScreenHandle) -> [PlatformWindow] {
+    public func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] {
         let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
         let menuBar = CGFloat(NSStatusBar.system.thickness)
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
@@ -235,8 +235,8 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
             else { return nil }
             let owner = entry[kCGWindowOwnerName as String] as? String ?? ""
             let frame = Rect(x: f.minX, y: f.minY, width: f.width, height: f.height)
-            guard Self.isCoveringOverlay(frame: frame, systemDock: Self.isSystemDock(pid: pid), screen: screen.frame,
-                                         menuBar: Double(menuBar)) else { return nil }
+            guard Self.isCoveringOverlay(frame: frame, systemDock: Self.isSystemDock(pid: pid), boundProcess: pid == boundPid,
+                                         screen: screen.frame, menuBar: Double(menuBar)) else { return nil }
             return PlatformWindow(windowId: number, pid: pid, appName: owner,
                                   title: entry[kCGWindowName as String] as? String ?? "", frame: frame)
         }
@@ -250,11 +250,14 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
     /// An unknown layer spanning the whole display (a gesture utility's
     /// transparent overlay looks exactly like an opaque one in the window
     /// list) counts: what the user sees may not be what is acted on.
-    static func isCoveringOverlay(frame f: Rect, systemDock: Bool, screen s: Rect, menuBar: Double) -> Bool {
+    static func isCoveringOverlay(frame f: Rect, systemDock: Bool, boundProcess: Bool = false, screen s: Rect, menuBar: Double) -> Bool {
         let spansDisplay = f.x <= s.x + 1 && f.y <= s.y + 1
             && f.x + f.width >= s.x + s.width - 1 && f.y + f.height >= s.y + s.height - 1
         if systemDock && spansDisplay { return false }
-        if f.y <= s.y + 1 && f.y + f.height <= s.y + menuBar + 1 { return false }
+        // Another process's item in the menu bar strip cannot take input
+        // posted to the bound process; the bound process's own can (input
+        // routing picks any of its windows), so those count (Codex on 536bb4d).
+        if !boundProcess && f.y <= s.y + 1 && f.y + f.height <= s.y + menuBar + 1 { return false }
         // Left out only what input routing can never pick: BackgroundInput's
         // topWindow takes any window larger than 2 points both ways, so the
         // same cutoff applies here (Codex on 4952c9e, 8c1ebc1).
