@@ -887,7 +887,7 @@
       "params": "desktop_takeover_params",
       "result": "DesktopTakeover",
       "status": "implemented",
-      "note": "owner; manual takeover: closes agents' admission on the Desktop, stops the Run holding it (closingReason takeover) and, once nothing of it is in flight, starts a platform Run of origin user (kind exec, platform_durable) that holds the lease; every other Run is refused (control_busy, details.reason manual_control); Desktop.control.state manual. While the stopped Run still finishes an action past the deadline: stop_pending (retryable, notSent false: the takeover was accepted and admission stays closed), ask again with a new requestId. Taking over a Desktop already taken over answers its Run again; a paired client gets permission_denied, reason owner_only"
+      "note": "owner; manual takeover: closes agents' admission on the Desktop, stops the Run holding it (closingReason takeover) and, once nothing of it is in flight, starts a platform Run of origin user (kind exec, platform_durable) that holds the lease; every other Run is refused (control_busy, details.reason manual_control); Desktop.control.state manual. While the stopped Run still finishes an action past the deadline: stop_pending (retryable, notSent false: the takeover was accepted and admission stays closed), ask again with a new requestId. A takeover that waited while the owner handed the Desktop back or stopped it does nothing (conflict, details.reason superseded). Taking over a Desktop already taken over answers its Run again; a paired client gets permission_denied, reason owner_only"
     },
     {
       "method": "desktop.handback",
@@ -896,7 +896,7 @@
       "params": "desktop_handback_params",
       "result": "DesktopHandback",
       "status": "implemented",
-      "note": "owner; ends the user's Run (closingReason handback, outcome success), reopens the Desktop's admission (after desktop.takeover or desktop.stop) and forgets every observation of the Desktop: an agent observes again before acting and nothing queued before is replayed; on a Desktop neither stopped nor taken over nothing changes (handedBack false); a paired client gets permission_denied, reason owner_only"
+      "note": "owner; ends the user's Run (closingReason handback, outcome success), reopens the Desktop's admission (after desktop.takeover or desktop.stop) and forgets every observation of the Desktop: an agent observes again before acting and nothing queued before is replayed; it also clears a Desktop its last Run left stopped, disconnected or unknown (the Run itself keeps its outcome); on a ready Desktop, one an agent's Run holds, or under a global stop (runtime.enableInput lifts that) nothing changes (handedBack false); a paired client gets permission_denied, reason owner_only"
     },
     {
       "method": "desktop.closePlan",

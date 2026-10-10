@@ -185,9 +185,10 @@ extension RuntimeService {
     /// shows as none, and of the grant behind it only the caller's own
     /// (Codex on 08aefe8: another app's grant id is not its business).
     func desktopJSON(_ d: DesktopRecord, for c: ConnectionState) -> JSONValue {
-        let control = controlJSON(d, for: c)
-        return d.lock.withLock {
-            var json = d.json(openSessions: sessions.openCount(desktopId: d.desktopId)).setting("control", control)
+        d.lock.withLock {
+            // Read after the wait for the lock: an action that held it may
+            // have ended its Run meanwhile (Codex on 2aaf935).
+            var json = d.json(openSessions: sessions.openCount(desktopId: d.desktopId)).setting("control", controlJSON(d, for: c))
             guard c.role == .paired, let b = d.binding else { return json }
             guard mayKnowBinding(c, d, b) else { return json.setting("binding", .null) }
             var binding = b
