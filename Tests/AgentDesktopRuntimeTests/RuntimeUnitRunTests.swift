@@ -512,3 +512,30 @@ func pairedUnitScene(_ capabilities: [String]) throws -> (RuntimeService, owner:
     #expect(s.execution.auditUnavailable)
     #expect(s.execution.inputAdmission != .enabled)
 }
+
+// Codex on e296d08: narrowed from run to unit.run, an app lists only its
+// unit Runs, not the other Runs it kept from the wider grant.
+@Test func aUnitRunOnlyListShowsUnitRunsOnly() async throws {
+    let platform = FakePlatform()
+    platform.realImages = true
+    let s = platformService(platform)
+    let owner = handshaken(s)
+    let (app, id, token) = try pairedClient(s, capabilities: ["observe", "act", "run", "unit.run", "desktop.manage"], desktops: ["created"],
+                                            apps: ["com.apple.calculator"], name: "unit-agent")
+    let d = try created(s, app)
+    _ = try grantWindow(s, clientId: id, desktopId: d, permissions: ["observe", "act"])
+    #expect(data(call(s, app, "window.bind", params: #"{"desktopId":"\#(d)","pid":101,"windowId":11}"#)) != nil)
+    s.registerUnitExecutor(FakeUnitExecutor(), ports: RuntimeGuiPorts(service: s))
+    let sid = try #require(data(call(s, app, "session.open", params: #"{"desktopId":"\#(d)"}"#))?["sessionId"]?.stringValue)
+    let exec = try #require(data(call(s, app, "run.start", context: #"{"sessionId":"\#(sid)"}"#))?["run"]?["runId"]?.stringValue)
+    _ = call(s, app, "run.cancel", params: #"{"runId":"\#(exec)"}"#)
+    let unit = try #require(data(await offPool(s, app, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    let p = #"{"clientId":"\#(id)","capabilities":["observe","act","unit.run","desktop.manage"],"desktops":["created"],"apps":["com.apple.calculator"]}"#
+    #expect(data(call(s, owner, "hub.grants.set", params: p)) != nil)
+    // The narrowing cut the old connection; the app connects again.
+    let again = ConnectionState(socketPeer: getuid(), pid: nil, executable: nil)
+    _ = s.respond(to: Data(#"{"apiVersion":"agentdesktop.runtime/1","requestId":"hs2","method":"runtime.handshake","params":{"apiVersions":["agentdesktop.runtime/1"],"client":{"name":"t","version":"1"},"credential":{"clientId":"\#(id)","token":"\#(token)"}}}"#.utf8), on: again)
+    let listed = data(call(s, again, "run.list"))?["runs"]?.arrayValue?.compactMap { $0["runId"]?.stringValue } ?? []
+    #expect(listed == [unit], "\(listed)")
+    #expect(code(call(s, again, "run.show", params: #"{"runId":"\#(exec)"}"#)) == "grant_missing")
+}

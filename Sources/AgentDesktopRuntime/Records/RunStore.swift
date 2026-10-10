@@ -264,6 +264,8 @@ public final class RunStore: @unchecked Sendable {
         public var origin: RunRecord.Origin?
         public var phase: RunRecord.Phase?
         public var desktopId: String?
+        /// Only Runs of this kind (a unit.run-only caller sees its unit Runs).
+        public var kind: String?
         public var activeOnly = false
         public init() {}
     }
@@ -276,6 +278,7 @@ public final class RunStore: @unchecked Sendable {
         if let o = f.origin { sql += " AND origin = ?"; args.append(.text(o.rawValue)) }
         if let p = f.phase { sql += " AND phase = ?"; args.append(.text(p.rawValue)) }
         if let d = f.desktopId { sql += " AND desktop_id = ?"; args.append(.text(d)) }
+        if let k = f.kind { sql += " AND kind = ?"; args.append(.text(k)) }
         if f.activeOnly { sql += " AND phase != 'ended'" }
         if let after {
             let parts = after.split(separator: "|", maxSplits: 1).map(String.init)
