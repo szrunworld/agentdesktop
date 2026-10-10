@@ -2,7 +2,9 @@
 
 对照来源：2ndscreen@da5677c 的 CLI 命令表与 README（已由 #20 完整保全在本仓提交 49218be，当前树在 main 的 `engine/`）、TS task-runtime 与 Agent Hub、Windows C# 引擎、Android 与 iPhone、旧菜单栏 App；`docs/migration/runtime-semantics-to-port.md` 的七项接缝。
 
-「现状」列：**R** = 新 runtime/1 已有（ai-gui-foundation）；**E** = 只在 main 的 `engine/` 旧实现里（旧 CLI `agentdesktop-cli`，A0 后退出发布路径）；**H** = 只在导入历史；**—** = 没有。
+「现状」列：**R** = 新 runtime/1 已有（原在 ai-gui-foundation，2026-10-08 经 #2 合入 main）；**E** = 只在 main 的 `engine/` 旧实现里（旧 CLI `agentdesktop-cli`，A0 后退出发布路径）；**H** = 只在导入历史；**—** = 没有。
+
+本文逐项差距保留 2026-10-08 的规划基线，用于追溯迁移范围；后续 A4 身份与窗口授权等实现进展以 [02 实施计划 §2.2](02-implementation-plan.md#22-与-2ndscreen-f1-的-pr-编号对照) 为准，不将历史差距列当作当前能力清单。
 
 ## 7.1 桌面与窗口
 

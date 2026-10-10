@@ -292,8 +292,7 @@ final class STestHarness: @unchecked Sendable {
 
     init(version: ACPVersion = .v1, runtime: STestRuntime = STestRuntime(), dir: URL? = nil,
          holdTime: Duration = .seconds(5), realProjector: (any ACPEventProjector)? = nil) {
-        self.dir = dir ?? FileManager.default.temporaryDirectory
-            .appendingPathComponent("acp-s-tests-\(UUID().uuidString)", isDirectory: true)
+        self.dir = dir ?? ACPTestScratch.dir("acp-s-tests")
         connection = STestConnection(version: version)
         self.runtime = runtime
         store = ACPFileSessionStore(directory: self.dir)

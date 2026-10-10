@@ -107,7 +107,7 @@ import Testing
     cli.now = { clock }
     cli.sleep = { clock = clock.addingTimeInterval($0) }
     var calls = 0
-    let inner = cli.makeClient
+    let inner = cli.makeClient!
     cli.makeClient = { e in
         let c = inner(e) as! RecordingClient
         let answer = c.answer
@@ -201,13 +201,15 @@ import Testing
     let platform = TinyPlatform()
     let service = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_exec", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: StubBackend(), platform: platform); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+                                 backend: StubBackend(), platform: platform, testSocketOwnerToken: cliTestOwner.token); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+    try writeOwnerCredential(service, endpoint: path)
     let server = RuntimeServer(path: path, service: service)
     try server.start()
     defer { server.stop() }
 
     func cli(_ env: [String: String], _ out: @escaping (String) -> Void) -> CLI {
         var c = CLI()
+        c.credentials = cliTestCredentials
         c.stdout = out
         c.stderr = { _ in }
         c.environment = env

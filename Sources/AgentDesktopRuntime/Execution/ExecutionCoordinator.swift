@@ -139,18 +139,21 @@ public final class ExecutionCoordinator: @unchecked Sendable {
         return .success(r)
     }
 
-    /// The Run this connection may act in, if it is still running.
+    /// The Run this connection may act in, if it is still running. Every
+    /// refusal comes before anything is sent or captured: notSent, like the
+    /// same refusal from `beginAction` (2ndscreen-af's L2 asserts it).
     func authorized(runId: String, connection: ConnectionState) -> Result<RunRecord, RuntimeError> {
         guard connection.ownedRuns.contains(runId) || connection.attachedRuns.contains(runId) else {
-            return .failure(RuntimeError("permission_denied", "this connection does not own or attach to run \(runId)", phase: .handler))
+            return .failure(RuntimeError("permission_denied", "this connection does not own or attach to run \(runId)",
+                                         phase: .handler, notSent: true))
         }
         return lock.withLock {
             guard let l = live[runId] else {
-                return .failure(RuntimeError("run_not_active", "run \(runId) has ended", phase: .handler))
+                return .failure(RuntimeError("run_not_active", "run \(runId) has ended", phase: .handler, notSent: true))
             }
             guard l.record.phase == .running else {
                 return .failure(RuntimeError("run_not_active", "run \(runId) is \(l.record.phase.rawValue); it takes no new input",
-                                             phase: .handler))
+                                             phase: .handler, notSent: true))
             }
             return .success(l.record)
         }
@@ -250,6 +253,13 @@ public final class ExecutionCoordinator: @unchecked Sendable {
             live.filter { $0.value.owner == ObjectIdentifier(connection) && $0.value.record.lifetime == .connectionScoped }.map(\.key)
         }
         for id in owned { stop(runId: id, reason: "owner_lost", endAs: .cancelled) }
+    }
+
+    /// A client's access is gone (revoked, expired): every live Run it owns
+    /// stops, whatever its lifetime; no further input of it is admitted.
+    func stopRuns(ofClient clientId: String, reason: String) {
+        let owned: [String] = lock.withLock { live.filter { $0.value.record.clientId == clientId }.map(\.key) }
+        for id in owned { stop(runId: id, reason: reason, endAs: .cancelled) }
     }
 
     /// Close input admission for every Run (Delegated and Durable) and stop

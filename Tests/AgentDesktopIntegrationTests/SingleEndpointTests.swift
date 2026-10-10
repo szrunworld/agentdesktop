@@ -1,7 +1,7 @@
 import AgentDesktopAI
 import AgentDesktopClient
 @testable import AgentDesktopProtocol
-import AgentDesktopService
+@testable import AgentDesktopService
 import Foundation
 import Testing
 @testable import AgentDesktopRuntime
@@ -18,21 +18,50 @@ func offPool<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async thro
     }
 }
 
+/// #166: the timelines turned on by AGENTDESKTOP_BRIDGE_DIAG=1, kept until
+/// the test process exits and drained then, so a last call's report is not
+/// lost to the exit (Codex on e7dbe6f).
+private final class DiagnosticsAtExit: @unchecked Sendable {
+    static let shared = DiagnosticsAtExit()
+    private let lock = NSLock()
+    private var recorders: [BridgeDiagnostics] = []
+    private var registered = false
+
+    func keep(_ r: BridgeDiagnostics) {
+        let first = lock.withLock { () -> Bool in
+            recorders.append(r)
+            defer { registered = true }
+            return !registered
+        }
+        if first { atexit { DiagnosticsAtExit.shared.drain() } }
+    }
+
+    func drain() { for r in lock.withLock({ recorders }) { r.waitForReports() } }
+}
+
 private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, RuntimeService, String) {
     var template = Array("/tmp/adt-XXXXXX".utf8CString)
     let dir = String(cString: mkdtemp(&template)!)
     let path = dir + "/runtime.sock"
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_a2", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: path, buildSource: "unknown"),
-                                 backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+                                 backend: Backend(), testSocketOwnerToken: "adt1_test-owner-credential"); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
     let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
         databasePath: dir + "/ai.sqlite", credentials: InMemoryCredentialStore()))
     let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
-    runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
+    // #166: AGENTDESKTOP_BRIDGE_DIAG=1 prints each bridge call's timeline
+    // (test-only; the answers are the same with or without it).
+    let diagnostics = ProcessInfo.processInfo.environment["AGENTDESKTOP_BRIDGE_DIAG"] == "1"
+        ? BridgeDiagnostics(onEvent: { [label = (dir as NSString).lastPathComponent] e in
+            FileHandle.standardError.write(Data("\(label) \(e)\n".utf8)) })
+        : nil
+    if let diagnostics { DiagnosticsAtExit.shared.keep(diagnostics) }
+    runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served, diagnostics: diagnostics))
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
     let server = RuntimeServer(path: path, service: runtime)
     try server.start()
-    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"))
+    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+                                      credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
     return (server, client, runtime, dir)
 }
 
@@ -142,7 +171,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
         // The original request still replays its own answer.
         let replay = try client.call(RuntimeRequest(requestId: "idem-key-0001", method: "ai.connections.create", params: connParams))
         #expect(replay["connectionId"] == first["connectionId"])
-        #expect(try runtime.ledger.record(caller: getuid(), requestId: "idem-key-0001")?.state == .completed)
+        #expect(try runtime.ledger.record(caller: "local:\(getuid())", requestId: "idem-key-0001")?.state == .completed)
     }
 }
 
@@ -157,7 +186,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
                 Issue.record("a missing connection cannot be disabled")
             } catch let e as RuntimeError { #expect(e.code == "not_found") }
             // Nothing happened, so nothing holds the key.
-            #expect(try runtime.ledger.record(caller: getuid(), requestId: "idem-fail-0001") == nil)
+            #expect(try runtime.ledger.record(caller: "local:\(getuid())", requestId: "idem-fail-0001") == nil)
         }
     }
 }
@@ -169,7 +198,8 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
     let ids = try await withThrowingTaskGroup(of: String.self) { group in
         for _ in 0..<6 {
             group.addTask { try await offPool {
-                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"))
+                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+                                      credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
                 defer { c.close() }
                 return try c.call(RuntimeRequest(requestId: "idem-race-0001", method: "ai.connections.create",
                                                  params: connParams))["connectionId"]?.stringValue ?? ""

@@ -47,7 +47,9 @@ let contract = RuntimeContract.shared
         #expect(holds, "\(m.params) missing")
         let writes: Set<String> = ["desktop.create", "desktop.destroy", "app.launch", "window.bind", "window.unbind",
                                    "session.open", "session.close", "act", "run.finish", "run.cancel",
-                                   "runtime.stopAll", "runtime.enableInput"]
+                                   "runtime.stopAll", "runtime.enableInput", "hub.pairing.start", "hub.pairing.approve",
+                                   "hub.pairing.deny", "hub.clients.revoke", "hub.grants.set", "hub.grants.revoke",
+                                   "hub.windows.request", "hub.windows.revoke"]
         #expect(m.mutation == writes.contains(m.method), "\(m.method)")
     }
     // Methods the AI service answers on the same endpoint: every operation

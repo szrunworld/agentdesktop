@@ -487,7 +487,7 @@ struct VerticalSliceTests {
         let out = LinesBox()
         let request = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"cli-caps-0001","method":"runtime.capabilities","params":{}}"#
         let cli = ContractCLI(stdout: out.add, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
-                              environment: ["HOME": NSHomeDirectory()])
+                              environment: ["HOME": NSHomeDirectory()], send: ownerSend)
         let code = await onThread { cli.run(["--json", "--socket", path, "rpc", "--request-file", "r.json"]) }
         #expect(code == .ok)
         let reply = try StrictJSON.parse(try #require(out.lines.first))
@@ -499,7 +499,7 @@ struct VerticalSliceTests {
         let old = #"{"schemaVersion":"agentdesktop.ai/1","requestId":"44444444-4444-4444-8444-444444444444","command":"ai.connections.list","params":{}}"#
         let out3 = LinesBox()
         let cli3 = ContractCLI(stdout: out3.add, stderr: { _ in }, readFile: { _ in Data(old.utf8) },
-                               environment: ["HOME": NSHomeDirectory()])
+                               environment: ["HOME": NSHomeDirectory()], send: ownerSend)
         #expect(await onThread { cli3.run(["--socket", path, "rpc", "--request-file", "r.json"]) } == .localValidation)
         #expect(try StrictJSON.parse(try #require(out3.lines.first))["error"]?["code"]?.stringValue == "invalid_argument")
 
@@ -518,12 +518,12 @@ struct VerticalSliceTests {
         try await Task.sleep(nanoseconds: 100_000_000)
         let out2 = LinesBox()
         let cli2 = ContractCLI(stdout: out2.add, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
-                               environment: ["HOME": NSHomeDirectory()])
+                               environment: ["HOME": NSHomeDirectory()], send: ownerSend)
         #expect(await onThread { cli2.run(["--socket", path, "rpc", "--request-file", "r.json"]) } == .ok)
 
         // Nothing listens: the CLI says the runtime is unavailable (exit 3).
         let cli4 = ContractCLI(stdout: { _ in }, stderr: { _ in }, readFile: { _ in Data(request.utf8) },
-                               environment: ["HOME": NSHomeDirectory()])
+                               environment: ["HOME": NSHomeDirectory()], send: ownerSend)
         let none = s.dir.appendingPathComponent("none.sock").path
         #expect(await onThread { cli4.run(["--socket", none, "rpc", "--request-file", "r.json"]) } == .runtimeUnavailable)
     }

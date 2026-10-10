@@ -199,6 +199,8 @@ final class AppController: NSObject, NSApplicationDelegate {
                 let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)
                 runtime.registerExtensions(RuntimeBridge.handlers(service, methods: served))
                 runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
+                // A4 R4: a revoked client's AI operations stop.
+                runtime.onAccessWithdrawn { clientId in Task { await service.accessWithdrawn(clientId: clientId) } }
                 await MainActor.run {
                     self.aiService = service
                     // The AI/GUI pages live in Settings and keep their
@@ -225,6 +227,9 @@ final class AppController: NSObject, NSApplicationDelegate {
             let records = role.runtimeRecordsDirectory.path
             let service = try RuntimeService.persistent(
                 identity: identity, backend: MacBackend(), platform: EnginePlatform(engine: runtime), records: records)
+            // A4: pairings and owner-only calls from socket clients are
+            // decided by the user in this app's trusted window.
+            service.confirmer = TrustedConfirmationWindow()
             let server = RuntimeServer(path: path, service: service)
             try server.start()
             runtimeServer = server

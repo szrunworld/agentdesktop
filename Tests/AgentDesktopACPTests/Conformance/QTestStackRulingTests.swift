@@ -180,7 +180,7 @@ enum QTestStack {
     }
 
     static func tempDir(_ name: String) -> URL {
-        let u = FileManager.default.temporaryDirectory.appendingPathComponent("qtest-stack-\(name)-\(UUID().uuidString)")
+        let u = ACPTestScratch.dir("qtest-stack-\(name)")
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }

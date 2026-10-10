@@ -39,6 +39,7 @@ private func snapshot(_ dir: String) -> [String: String] {
 @Test func aHealthyRuntimeIsVerifiedAndNothingIsChanged() throws {
     let rt = try LiveRuntime()
     let before = snapshot(rt.dir)
+    let auditBefore = rt.server.service.hub.auditEvents()
     let runsBefore = try StrictJSON.parse(Data(rt.run(["run", "list", "--format", "json"]).1.joined().utf8))["data"]?["runs"]?.arrayValue?.count
     let (code, v, _) = doctor(rt.path)
     #expect(code == 0)
@@ -48,9 +49,10 @@ private func snapshot(_ dir: String) -> [String: String] {
     #expect(d["peerPid"]?.intValue == Int(getpid()))
     // This test Runtime has no desktop platform, so it offers no Runs;
     // asking cost nothing.
-    #expect(d["runsAvailable"] != nil)
+    #expect(d["runsAvailable"] == nil, "protected Run probe is skipped")
     // Read only: no file changed, nothing created, no Run made.
     #expect(snapshot(rt.dir) == before)
+    #expect(rt.server.service.hub.auditEvents() == auditBefore, "diagnosis creates no authorization audit entries")
     let runsAfter = try StrictJSON.parse(Data(rt.run(["run", "list", "--format", "json"]).1.joined().utf8))["data"]?["runs"]?.arrayValue?.count
     #expect(runsAfter == runsBefore)
 }
@@ -244,4 +246,66 @@ private final class SwappingTokenClient: RuntimeClient {
     let plain = EndpointInspector.inspect(endpoint, home: "/nonexistent",
                                           makeClient: { SocketRuntimeClient(endpoint: $0, info: CLI.clientInfo) }, signer: { _ in .same })
     #expect(plain.identity == .verified, "\(plain.identityNotes)")
+}
+
+private struct ForbiddenDoctorCredentialStore: CredentialStore {
+    func load(endpoint: String, profile: String) throws -> ClientCredential? {
+        Issue.record("doctor read a stored credential")
+        return nil
+    }
+    func save(_ credential: ClientCredential, endpoint: String, profile: String) throws {
+        Issue.record("doctor saved a credential")
+    }
+    func delete(endpoint: String, profile: String) throws {
+        Issue.record("doctor deleted a credential")
+    }
+}
+
+@Test func doctorReportsItsUnpairedIdentityWithoutReadingCredentialsOrAuditingARefusal() throws {
+    let rt = try LiveRuntime()
+    let before = rt.server.service.hub.auditEvents()
+    var output: [String] = []
+    var cli = CLI()
+    cli.credentials = ForbiddenDoctorCredentialStore()
+    cli.peerSigner = { _ in .same }
+    cli.stdout = { output.append($0) }
+    cli.stderr = { _ in }
+    cli.environment = [EndpointResolver.environmentKey: rt.path]
+    #expect(cli.run(["doctor", "--format", "json"]) == 0)
+    let result = try StrictJSON.parse(output.joined())
+    let checks = result["data"]?["checks"]?.arrayValue ?? []
+    let auth = checks.first { $0["id"]?.stringValue == "authentication" }
+    #expect(auth?["message"]?.stringValue?.contains("role unpaired") == true)
+    #expect(diagnosis(result)?["runsAvailable"] == nil)
+    #expect(rt.server.service.hub.auditEvents() == before)
+}
+
+private final class FailedCapabilitiesClient: RuntimeClient {
+    let inner: SocketRuntimeClient
+    init(_ inner: SocketRuntimeClient) { self.inner = inner }
+    var endpoint: Endpoint { inner.endpoint }
+    var peer: PeerCredentials? { inner.peer }
+    var principal: JSONValue? { inner.principal }
+    func handshake() throws -> RuntimeIdentity { try inner.handshake() }
+    func peerAuditToken() -> Data? { inner.peerAuditToken() }
+    func close() { inner.close() }
+    func call(_ request: RuntimeRequest) throws -> JSONValue {
+        #expect(request.method == RuntimeMethod.capabilities.rawValue)
+        throw RuntimeError("internal_error", "capabilities probe failed", phase: .request)
+    }
+}
+
+@Test func aFailedCapabilitiesProbeMakesDoctorUnhealthy() throws {
+    let rt = try LiveRuntime()
+    var output: [String] = []
+    var cli = CLI()
+    cli.peerSigner = { _ in .same }
+    cli.makeClient = { FailedCapabilitiesClient(SocketRuntimeClient(endpoint: $0, info: CLI.clientInfo)) }
+    cli.environment = [EndpointResolver.environmentKey: rt.path]
+    cli.stdout = { output.append($0) }
+    cli.stderr = { _ in }
+    #expect(cli.run(["doctor", "--format", "json"]) != 0)
+    let result = try StrictJSON.parse(output.joined())
+    #expect(result["data"]?["healthy"] == .bool(false))
+    #expect(output.joined().contains("capabilities probe failed"))
 }

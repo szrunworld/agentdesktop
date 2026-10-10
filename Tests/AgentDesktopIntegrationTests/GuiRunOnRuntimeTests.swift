@@ -19,6 +19,16 @@ let integrationKey = "sk-canary-runtime-integration"
 
 /// A form window on a 2x screen at x=2000: a 保存 button and a status text.
 final class FormPlatform: DesktopPlatform, @unchecked Sendable {
+    // G2 probes: an ordinary button of window 11, a QWERTY layout, an
+    // empty menu bar.
+    func clipboardHit(at point: (x: Double, y: Double), pid: Int32) -> PlatformHit? {
+        PlatformHit(role: "AXButton", texts: [], windowId: 11)
+    }
+    func menuItems(pid: Int32) -> [PlatformMenuItem]? { [] }
+    func focusedControl(pid: Int32) -> PlatformHit? { PlatformHit(role: "AXNone", texts: [], windowId: 11) }
+    func menuOpen(pid: Int32) -> Bool? { false }
+    func keyCharacter(_ key: String, modifiers: [String]) -> PlatformKeyCharacter { key.count == 1 ? .character(key) : .named }
+
     let lock = NSLock()
     var status = "未保存"
     var inputs: [PlatformAction] = []
@@ -46,10 +56,10 @@ final class FormPlatform: DesktopPlatform, @unchecked Sendable {
     /// Test double: the window alone, as the window's crop of this double's screen.
     func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) {
         guard let w = window(on: screen, pid: pid, windowId: windowId) else { throw PlatformError(.notFound, "window \(windowId) is not on screen") }
-        return try screenshot(screen, cropTo: w.frame, to: path)
+        return try windowImage(screen, frame: w.frame, to: path)
     }
 
-    func screenshot(_ screen: ScreenHandle, cropTo frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
+    func windowImage(_ screen: ScreenHandle, frame: AgentDesktopProtocol.Rect, to path: String) throws -> (width: Int, height: Int) {
         let w = Int(frame.width) * 2, h = Int(frame.height) * 2
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -94,8 +104,16 @@ struct Backend: RuntimeBackend {
     func permissions() -> BackendPermissions { .init(screenRecording: .granted, accessibility: .granted) }
     func features() -> [String] { [] }
     func applications(includeBackground: Bool) -> [AppSummary] { [] }
-    func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [AgentDesktopProtocol.WindowSummary] { [] }
+    /// The bound window is in its app's list, as on a real machine (#163
+    /// refuses input when it is not: the list could not be read).
+    func windows(pid: Int32?, bundleId: String?, includeOffscreen: Bool) -> [AgentDesktopProtocol.WindowSummary] {
+        guard pid == nil || pid == 101 else { return [] }
+        return [WindowSummary(windowId: 11, process: ProcessIdentity(pid: 101, startedAt: nil), appName: "Form",
+                              bundleId: nil, title: "表单", frame: Rect(x: 0, y: 0, width: 400, height: 300), onScreen: true)]
+    }
     func processIdentity(_ pid: Int32) -> ProcessIdentity { ProcessIdentity(pid: pid, startedAt: "2026-10-08T01:00:00.000Z") }
+    /// An executable in no app bundle: known not to be iPhone Mirroring (#139).
+    func executablePath(_ pid: Int32) -> String? { "/test/bin/process" }
 }
 
 /// Ark as the capability tests and this run expect it. The button centre

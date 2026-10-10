@@ -10,10 +10,14 @@ public struct TargetBinding: Equatable, Sendable {
     public var windowId: UInt32
     public var appName: String
     public var boundAt: String
+    /// The window grant a paired app bound this window under, if any.
+    public var windowGrantId: String? = nil
 
     public var json: JSONValue {
-        .obj([("generation", .int(generation)), ("process", process.json), ("windowId", .int(Int(windowId))),
-              ("appName", .string(appName)), ("boundAt", .string(boundAt))])
+        var m: [(String, JSONValue)] = [("generation", .int(generation)), ("process", process.json), ("windowId", .int(Int(windowId))),
+                                        ("appName", .string(appName)), ("boundAt", .string(boundAt))]
+        if let windowGrantId { m.append(("windowGrantId", .string(windowGrantId))) }
+        return .obj(m)
     }
 }
 
@@ -36,11 +40,36 @@ public final class DesktopRecord: @unchecked Sendable {
     public let kind: DesktopKind
     /// Held while the Desktop's state or its surface is read or changed.
     public let lock = NSLock()
-    public internal(set) var binding: TargetBinding?
+    public internal(set) var binding: TargetBinding? {
+        didSet { pidLock.withLock { _boundPID = binding?.process.pid } }
+    }
+    /// The bound process, readable without the Desktop's lock (which an
+    /// action holds for its whole duration): G2 reads the app's menu bar
+    /// before taking it. A hint only; the action re-checks under the lock.
+    var boundPID: Int32? { pidLock.withLock { _boundPID } }
+    private let pidLock = NSLock()
+    private var _boundPID: Int32?
     public internal(set) var generation = 0
     public internal(set) var state = "ready"
     /// Apps app.launch started here: the agent's, closed with the Desktop.
     public internal(set) var launched: [ProcessIdentity] = []
+    /// Who launched each of them: a paired app reaches the windows of a
+    /// launch it made here without a window grant (window-grants.md).
+    /// Readable without the Desktop's lock (window.list must not wait for
+    /// an action holding it).
+    public internal(set) var launchedBy: [ProcessIdentity: Launch] {
+        get { pidLock.withLock { _launchedBy } }
+        set { pidLock.withLock { _launchedBy = newValue } }
+    }
+    private var _launchedBy: [ProcessIdentity: Launch] = [:]
+    /// Who started a process here, and which app it asked for.
+    public struct Launch: Equatable, Sendable {
+        public var clientId: String
+        public var bundleId: String?
+    }
+    /// The principal that created it; a paired app's grant can cover
+    /// "the Desktops I created".
+    public internal(set) var createdBy: String?
 
     init(desktopId: String, name: String, createdAt: String, screen: ScreenHandle, kind: DesktopKind = .virtual) {
         self.desktopId = desktopId
@@ -79,9 +108,16 @@ public final class DesktopRegistry: @unchecked Sendable {
 
     public func names() -> [String] { lock.withLock { desktops.map(\.name) } }
 
+    /// Names of the Desktops one principal created (names are unique per creator).
+    func names(createdBy clientId: String) -> [String] {
+        lock.withLock { desktops.filter { ($0.createdBy ?? "") == clientId }.map(\.name) }
+    }
+
     @discardableResult
-    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual) -> DesktopRecord {
+    func add(desktopId: String, name: String, screen: ScreenHandle, createdAt: String, kind: DesktopKind = .virtual,
+             createdBy: String? = nil) -> DesktopRecord {
         let r = DesktopRecord(desktopId: desktopId, name: name, createdAt: createdAt, screen: screen, kind: kind)
+        r.createdBy = createdBy
         lock.withLock { desktops.append(r) }
         return r
     }

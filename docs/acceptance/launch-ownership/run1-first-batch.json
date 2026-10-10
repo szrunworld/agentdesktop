@@ -1,0 +1,142 @@
+{
+  "at" : "2026-10-09T03:20:35Z",
+  "os" : "Version 15.1 (Build 24B2083)",
+  "probe" : "launch-ownership L1 (launch_token_env)",
+  "results" : [
+    {
+      "app" : "TextEdit.app",
+      "envVarCount" : 0,
+      "identity" : {
+        "build" : "409",
+        "bundleId" : "com.apple.TextEdit",
+        "signatureValid" : true,
+        "signingIdentifier" : "com.apple.TextEdit",
+        "teamId" : null,
+        "version" : "1.20"
+      },
+      "launched" : true,
+      "leftRunning" : [
+
+      ],
+      "newProcessesOfApp" : 1,
+      "quitThroughHandle" : true,
+      "readAttempts" : 10,
+      "result" : "not_provable",
+      "tokenFound" : false
+    },
+    {
+      "app" : "Calculator.app",
+      "envVarCount" : 0,
+      "identity" : {
+        "build" : "224",
+        "bundleId" : "com.apple.calculator",
+        "signatureValid" : true,
+        "signingIdentifier" : "com.apple.calculator",
+        "teamId" : null,
+        "version" : "11.0"
+      },
+      "launched" : true,
+      "leftRunning" : [
+
+      ],
+      "newProcessesOfApp" : 1,
+      "quitThroughHandle" : true,
+      "readAttempts" : 10,
+      "result" : "not_provable",
+      "tokenFound" : false
+    },
+    {
+      "app" : "Terminal.app",
+      "envVarCount" : 0,
+      "identity" : {
+        "build" : "455",
+        "bundleId" : "com.apple.Terminal",
+        "signatureValid" : true,
+        "signingIdentifier" : "com.apple.Terminal",
+        "teamId" : null,
+        "version" : "2.14"
+      },
+      "launched" : true,
+      "leftRunning" : [
+
+      ],
+      "newProcessesOfApp" : 1,
+      "quitThroughHandle" : true,
+      "readAttempts" : 10,
+      "result" : "not_provable",
+      "tokenFound" : false
+    },
+    {
+      "app" : "Safari.app",
+      "identity" : {
+        "build" : "20619.2.8.11.10",
+        "bundleId" : "com.apple.Safari",
+        "signatureValid" : true,
+        "signingIdentifier" : "com.apple.Safari",
+        "teamId" : null,
+        "version" : "18.1"
+      },
+      "launched" : false,
+      "reason" : "already running (the user's instance): not launched, not touched",
+      "result" : "not_verified",
+      "runningInstanceEnvVarCount" : [
+        0
+      ]
+    },
+    {
+      "app" : "Google Chrome.app",
+      "identity" : {
+        "build" : "8037.98",
+        "bundleId" : "com.google.Chrome",
+        "signatureValid" : true,
+        "signingIdentifier" : "com.google.Chrome",
+        "teamId" : "EQHXZ8M8AV",
+        "version" : "154.0.8037.98"
+      },
+      "launched" : false,
+      "reason" : "already running (the user's instance): not launched, not touched",
+      "result" : "not_verified",
+      "runningInstanceEnvVarCount" : [
+        0
+      ]
+    },
+    {
+      "app" : "WeChat.app",
+      "identity" : {
+        "build" : "270102",
+        "bundleId" : "com.tencent.xinWeChat",
+        "signatureValid" : true,
+        "signingIdentifier" : "com.tencent.xinWeChat",
+        "teamId" : "5A4RE8SF68",
+        "version" : "4.1.15"
+      },
+      "launched" : false,
+      "reason" : "already running (the user's instance): not launched, not touched",
+      "result" : "not_verified",
+      "runningInstanceEnvVarCount" : [
+        12
+      ]
+    },
+    {
+      "app" : "TokenProbe.app",
+      "envVarCount" : 91,
+      "identity" : {
+        "build" : null,
+        "bundleId" : "com.rampingup.tokenprobe",
+        "signatureValid" : true,
+        "signingIdentifier" : "com.rampingup.tokenprobe",
+        "teamId" : null,
+        "version" : null
+      },
+      "launched" : true,
+      "leftRunning" : [
+
+      ],
+      "newProcessesOfApp" : 1,
+      "quitThroughHandle" : true,
+      "readAttempts" : 1,
+      "result" : "provable",
+      "tokenFound" : true
+    }
+  ]
+}

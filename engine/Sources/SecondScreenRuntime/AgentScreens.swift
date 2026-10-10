@@ -53,6 +53,8 @@ public final class AgentScreens {
     /// they like, usually on the main display, in front of the user; these
     /// get moved onto the app's screen as they appear.
     private var bindings: [pid_t: Binding] = [:]
+    /// Processes whose windows follow an agent screen (for tests).
+    var boundPIDs: Set<pid_t> { Set(bindings.keys) }
     private var followTimer: Timer?
     private var reapTimer: Timer?
     /// Called after a screen is created or removed, so the app can add or
@@ -64,6 +66,9 @@ public final class AgentScreens {
     /// `serialBase` numbers this instance's displays apart from any other
     /// AgentDesktop instance on the Mac: the usual app starts at 100, a side
     /// instance at 900, and a host app embedding the runtime picks its own.
+    /// The system calls a launch makes (replaced in tests).
+    public var launching: AppLaunching = .system
+
     public init(serialBase: UInt32 = ControlProtocol.isSideInstance ? 900 : 100) {
         firstSerial = serialBase
     }
@@ -229,7 +234,7 @@ public final class AgentScreens {
     /// move that window onto `target`, any screen the app knows.
     public func launch(on target: ScreenInfo, bundleID: String?, path: String?, newInstance: Bool,
                 fill: Bool, fitScreen: Bool = false) async -> ControlResponse {
-        guard WindowMover.isTrusted else { return .failure("Agent Desktop needs the Accessibility permission to place windows") }
+        guard launching.canPlaceWindows() else { return .failure("Agent Desktop needs the Accessibility permission to place windows") }
 
         let url: URL
         if let path {
@@ -241,56 +246,48 @@ public final class AgentScreens {
             return .failure("give a bundle ID of an installed app or a path to an .app")
         }
 
-        // Moving the windows of an app the user already has open would
-        // rearrange their work; require an explicit second instance.
-        if !newInstance, let id = Bundle(url: url)?.bundleIdentifier,
-           !NSRunningApplication.runningApplications(withBundleIdentifier: id).isEmpty {
-            return .failure("\(id) is already running; pass --new-instance, or use window move")
-        }
-
         let previousFront = NSWorkspace.shared.frontmostApplication
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
-        configuration.createsNewApplicationInstance = newInstance
-        let launched: Result<pid_t, Error> = await withCheckedContinuation { continuation in
-            NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
-                if let app {
-                    continuation.resume(returning: .success(app.processIdentifier))
-                } else {
-                    continuation.resume(returning: .failure(error ?? CocoaError(.executableLoad)))
-                }
-            }
+        // Only a process this launch provably created is the agent's;
+        // every refusal comes before anything is moved or bound.
+        let owned: LaunchedProcess
+        switch await LaunchOwnership.openOwnedProcess(url, newInstance: newInstance, using: launching) {
+        case let .success(o): owned = o
+        case let .failure(refusal):
+            var response = ControlResponse.failure(refusal.message)
+            response.reason = refusal.reason
+            return response
         }
-        let pid: pid_t
-        switch launched {
-        case .success(let launchedPID): pid = launchedPID
-        case .failure(let error): return .failure("launch failed: \(error.localizedDescription)")
-        }
+        let pid = owned.pid
 
         // Many apps activate themselves once launched despite `activates`;
         // hand the foreground straight back to whoever had it.
         Self.restoreFront(previousFront, against: pid, for: 5)
 
-        guard let window = await Self.firstWindow(of: pid, timeout: 15) else {
-            var response = ControlResponse.failure("the app launched but showed no window within 15 seconds")
+        guard let window = await launching.firstWindow(pid, 15) else {
+            // Started for the agent but nothing to place: left running it
+            // would stay on the user's display, owned by no Desktop.
+            await launching.quit(owned)
+            // An app that restarted itself into another process: that one
+            // was not started by this launch and is left alone, so say so.
+            let id = launching.bundleInfo(url).id ?? ""
+            let others = id.isEmpty ? [] : launching.processes(id).subtracting([pid])
+            var response = ControlResponse.failure(others.isEmpty
+                ? "the app launched but showed no window within 15 seconds; it was quit"
+                : "the app launched, showed no window and handed over to another process this launch cannot prove it started; its own process was quit, the other was left alone and may show a window on your screen")
             response.pid = pid
             return response
         }
         // A window that just appeared often does not take an accessibility
         // move yet: try for a few seconds.
-        var moved = WindowMover.move(window, to: target.displayID, fill: fill)
+        var moved = launching.move(window, target.displayID, fill)
         for _ in 0..<12 where !moved {
             try? await Task.sleep(nanoseconds: 250_000_000)
-            moved = WindowMover.move(window, to: target.displayID, fill: fill)
+            moved = launching.move(window, target.displayID, fill)
         }
         guard moved else {
             // The app was started for the agent; left running, its window
             // would stay on the user's display. End it instead.
-            if let app = NSRunningApplication(processIdentifier: pid) {
-                app.terminate()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                if !app.isTerminated { app.forceTerminate() }
-            }
+            await launching.quit(owned)
             var response = ControlResponse.failure(
                 "the app refused to move its window to the agent screen; it was quit so it does not stay on the user's display")
             response.pid = pid
@@ -298,15 +295,18 @@ public final class AgentScreens {
         }
         // A new process: every window it opens is the agent's.
         bind(pid, to: target, leaving: [], fit: fitScreen)
+        launching.bound(pid)
         var response = ControlResponse()
         response.pid = pid
         response.screen = target
         response.windows = await Self.settledSummaries(of: pid, on: target.displayID)
         if moved, !fitScreen, let clipped = await Self.keepWithinScreen([window.windowID], of: pid, on: target, fill: fill) {
-            response = .failure(clipped)
+            // A failed launch belongs to no Desktop: quit what it started.
+            await launching.quit(owned)
+            response = .failure(clipped + "; it was quit")
             response.pid = pid
             response.screen = target
-            response.windows = WindowMover.windows(ofPID: pid).map { WindowSummary($0) }
+            response.windows = []
         }
         return response
     }
@@ -813,15 +813,6 @@ public final class AgentScreens {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         return WindowMover.windows(ofPID: pid).map { WindowSummary($0) }
-    }
-
-    private static func firstWindow(of pid: pid_t, timeout: TimeInterval) async -> WindowInfo? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let window = WindowMover.windows(ofPID: pid).first { return window }
-            try? await Task.sleep(nanoseconds: 200_000_000)
-        }
-        return nil
     }
 
     /// Re-activate `previous` whenever `pid` takes the foreground during

@@ -35,7 +35,7 @@ struct Harness {
 
     init(options: ConfigOptions = ConfigOptions(allowLoopbackHTTP: true), creds: InMemoryCredentialStore = InMemoryCredentialStore(),
          dir: URL? = nil, clock: TestClock = TestClock()) throws {
-        let d = dir ?? FileManager.default.temporaryDirectory.appendingPathComponent("adcfg-\(UUID().uuidString)")
+        let d = dir ?? ScratchDirectory.url("adcfg")
         try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         self.dir = d
         self.path = d.appendingPathComponent("config.sqlite").path
@@ -631,7 +631,7 @@ struct ConfigStoreFileModeTests {
     }
 
     @Test func newStoreIsOwnerOnly() async throws {
-        let parent = FileManager.default.temporaryDirectory.appendingPathComponent("adsec-\(UUID().uuidString)")
+        let parent = ScratchDirectory.url("adsec")
         let dir = parent.appendingPathComponent("records")
         defer { try? FileManager.default.removeItem(at: parent) }
         let path = dir.appendingPathComponent("ai.sqlite").path

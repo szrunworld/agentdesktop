@@ -69,7 +69,7 @@ func created(_ s: RuntimeService, _ c: ConnectionState, name: String? = nil) thr
     do {
         let ledger = try RequestLedger(path: path)
         let r = RuntimeRequest(requestId: "act-9", method: "desktop.create", params: .obj([]))
-        #expect(try ledger.begin(caller: getuid(), r) == .fresh)
+        #expect(try ledger.begin(caller: "local:\(getuid())", r) == .fresh)
         // The host dies here: no finish.
     }
     var st = stat()

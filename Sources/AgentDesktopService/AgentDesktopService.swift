@@ -97,6 +97,12 @@ public final class AgentDesktopService: Sendable {
         self.capabilityTests = capabilityTests
     }
 
+    /// A4 R4: a paired client lost its access; what it started here stops.
+    /// `clientId` as the Runtime names it (the service's caller scope).
+    public func accessWithdrawn(clientId: String) async {
+        await aiHandlers.cancelOperations(callerScope: clientId)
+    }
+
     /// Every command of the contract for one caller. `trustedOwner` is the
     /// owner UI/CLI, the only caller that may start a run without a session.
     public func handlers(callerScope: String, trustedOwner: Bool) -> [String: ServiceHandler] {

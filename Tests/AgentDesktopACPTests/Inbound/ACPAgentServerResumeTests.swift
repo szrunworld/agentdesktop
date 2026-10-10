@@ -252,8 +252,8 @@ import Testing
         let sid = await h.newSession()
         _ = await h.connection.waitReply(h.prompt(sid, "write to bob@example.com"))
         let raw = try String(contentsOf: h.dir.appendingPathComponent("\(sid).json"), encoding: .utf8)
-        #expect(!raw.contains("bob@example.com"))
-        #expect(raw.contains(ACPRedactMask.email))
+        #expect(!raw.contains("bob@example.com") && !raw.contains("write to"))
+        #expect(try h.store.load(sessionId: sid)?.title == "对话")
     }
 
     /// With lane E's projector the server holds one ACPProjectorSession per

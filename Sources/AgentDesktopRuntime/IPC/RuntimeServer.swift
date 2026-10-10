@@ -193,21 +193,28 @@ public final class RuntimeServer: @unchecked Sendable {
     /// own stream also ends once that Run has ended and was fully sent.
     private func push(_ channel: LineChannel, _ connection: ConnectionState) -> Bool {
         while connection.isSubscribed {
+            // Access withdrawn mid-stream: no more frames, the connection closes.
+            if service.subscriptionRevoked(connection) { return false }
+            service.pushCheckpoint?(connection)
             let frames = service.pendingEventFrames(connection)
             for f in frames {
-                guard channel.writeLine(f.encodedData()) else { return false }
+                guard connection.send({ channel.writeLine(f.encodedData()) }) else { return false }
             }
             if !frames.isEmpty { continue }
             if service.subscriptionDrained(connection) { return false }
             guard channel.readable(within: Self.pushInterval) else { continue }
             guard case let .line(body) = channel.readLine() else { return false }
-            guard channel.writeLine(service.respond(to: body, on: connection).json.encodedData()) else { return false }
+            let reply = service.respond(to: body, on: connection).json.encodedData()
+            guard connection.send({ channel.writeLine(reply) }) else { return false }
         }
         return true
     }
 
     private func serve(_ fd: Int32) {
-        defer { Darwin.close(fd) }
+        var connection: ConnectionState?
+        defer {
+            if let connection { connection.detach { Darwin.close(fd) } } else { Darwin.close(fd) }
+        }
         // A connection whose writes could raise SIGPIPE is not served.
         guard SocketOptions.noSigPipe(fd) else { return }
         let channel = LineChannel(fd: fd)
@@ -221,14 +228,31 @@ public final class RuntimeServer: @unchecked Sendable {
         }
         lock.withLock { open += 1 }
         defer { lock.withLock { open -= 1 } }
-        let connection = ConnectionState(peerUID: uid)
-        defer { service.connectionClosed(connection) }
+        // Unpaired until its handshake shows a credential (A4). What the
+        // kernel says about the peer is kept as the caller's facts.
+        var pid: pid_t = 0
+        var len = socklen_t(MemoryLayout<pid_t>.size)
+        let gotPid = getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) == 0 && pid > 0
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        let executable = gotPid && proc_pidpath(pid, &path, UInt32(path.count)) > 0 ? String(cString: path) : nil
+        let state = ConnectionState(socketPeer: uid, pid: gotPid ? pid : nil, executable: executable)
+        // S2: who the kernel says is at the other end, for pairing and for
+        // checking a paired client is still the code it paired as.
+        if let token = peerAuditToken(fd) {
+            state.peerAuditToken = token
+            state.codeIdentity = service.codeVerifier.identify(auditToken: token, executable: executable)
+        } else {
+            state.codeIdentity = .unknown
+        }
+        state.attachCloser { _ = shutdown(fd, SHUT_RDWR) }
+        connection = state
+        defer { service.connectionClosed(state) }
         while true {
             switch channel.readLine() {
             case let .line(body):
-                let response = service.respond(to: body, on: connection)
-                guard channel.writeLine(response.json.encodedData()) else { return }
-                if connection.isSubscribed, !push(channel, connection) { return }
+                let response = service.respond(to: body, on: state).json.encodedData()
+                guard state.send({ channel.writeLine(response) }) else { return }
+                if state.isSubscribed, !push(channel, state) { return }
             case .tooLarge:
                 channel.writeLine(RuntimeResponse.failure(nil, RuntimeError(
                     "frame_too_large", "a message exceeds \(RuntimeAPI.maxFrameBytes) bytes", phase: .request)).json.encodedData())

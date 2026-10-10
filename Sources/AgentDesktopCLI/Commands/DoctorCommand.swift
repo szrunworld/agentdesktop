@@ -31,7 +31,7 @@ extension CLI {
         // no Run created (EndpointInspector). A connection that answers is
         // not trusted for that alone.
         let home = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
-        let report = EndpointInspector.inspect(endpoint, home: home, makeClient: makeClient, signer: peerSigner)
+        let report = EndpointInspector.inspect(endpoint, home: home, makeClient: { makeClient?($0) ?? SocketRuntimeClient(endpoint: $0, info: CLI.clientInfo) }, signer: peerSigner)
         let place = ["product": "the installed product's endpoint", "side_instance": "a side instance's endpoint",
                      "custom": "a custom endpoint"][report.environment.rawValue]!
         checks.append(Check(id: "endpoint.environment", status: .ok,
@@ -80,7 +80,7 @@ extension CLI {
             switch report.identity {
             case .verified:
                 checks.append(Check(id: "identity", status: .ok,
-                                    message: "verified: the socket's peer, the handshake and the lock file name the same process, signed as this product"))
+                                    message: "verified: the socket's peer, the handshake and the lock file name the same process; its current signer matches this CLI (diagnostic evidence, not authentication)"))
             case .unverified:
                 checks.append(Check(id: "identity", status: .warn,
                                     message: "unverified: " + report.identityNotes.joined(separator: "; ")))
@@ -89,17 +89,17 @@ extension CLI {
                                     message: "mismatch: " + report.identityNotes.joined(separator: "; "), code: "instance_mismatch"))
             }
             if identity != nil {
-                checks.append(Check(id: "authentication", status: .skip,
-                                    message: "this Runtime treats every connection of this user as the owner (by socket ownership); it does not report the caller's identity yet"))
-                if report.runsAvailable == true {
-                    checks.append(Check(id: "runs", status: .ok, message: "the Run service answers (run.list; nothing was created)"))
-                } else if let e = report.runsError, e.code == "capability_missing" {
-                    // A Runtime without a desktop platform offers no Runs: a fact, not a fault.
-                    checks.append(Check(id: "runs", status: .warn, message: "this Runtime offers no Run service: \(e.message)"))
-                } else if let e = report.runsError {
-                    let kind = report.failures.contains(.authorization) ? "not authorised" : "not available"
-                    checks.append(Check(id: "runs", status: .fail, message: "the Run service is \(kind): \(e.message)", code: e.code))
+                if report.identity == .mismatch {
+                    checks.append(Check(id: "authentication", status: .skip, message: "not trusted: the Runtime's identity is contradicted"))
+                } else if let principal = report.principal {
+                    let role = principal["role"]?.stringValue ?? "unknown"
+                    let clientId = principal["clientId"]?.stringValue ?? "unknown"
+                    checks.append(Check(id: "authentication", status: .warn,
+                                        message: "credential-free diagnosis; Runtime reports caller \(clientId), role \(role); this does not test the CLI's stored pairing"))
+                } else {
+                    checks.append(Check(id: "authentication", status: .warn, message: "Runtime did not report caller identity; no credential was sent"))
                 }
+                checks.append(Check(id: "runs", status: .skip, message: "not probed: credential-free diagnosis does not call protected run.list or create authorization audit entries"))
             }
         }
         if let context = environment[ExecContext.environmentKey], !context.isEmpty {
@@ -121,6 +121,8 @@ extension CLI {
                             message: "\(name) is \(state) for the Runtime" + said + "; grant it to Agent Desktop in System Settings › Privacy & Security",
                             code: "permission_denied"))
             }
+        } else if let error = report.capabilitiesError {
+            checks.append(Check(id: "capabilities", status: .fail, message: error.message, code: error.code))
         } else {
             checks.append(Check(id: "permissions", status: .skip,
                                 message: report.identity == .mismatch ? "not asked: the Runtime's identity is contradicted" : "needs a Runtime to ask"))

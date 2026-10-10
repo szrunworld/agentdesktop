@@ -53,8 +53,8 @@ public enum EndpointInspector {
 
     /// Whether the Runtime's process is signed by the same certificate as
     /// this program (both ship in the same app). Same-user code can write a
-    /// consistent record and answer a consistent handshake; it cannot sign
-    /// as the product.
+    /// consistent record and answer a consistent handshake; the currently matching signer is not proof of the
+    /// executable that sent a reply.
     public enum Signer: String, Sendable {
         case same, different, unknown
     }
@@ -86,8 +86,10 @@ public enum EndpointInspector {
         /// runtime.capabilities, asked on the same connection, only of a
         /// Runtime whose identity is not contradicted.
         public var capabilities: JSONValue?
+        public var capabilitiesError: RuntimeError?
         public var connectError: String?
         public var handshake: RuntimeIdentity?
+        public var principal: JSONValue?
         public var handshakeError: RuntimeError?
         public var identity: Identity
         /// Why the identity is not verified; plain words, no secrets.
@@ -152,6 +154,7 @@ public enum EndpointInspector {
         defer { client.close() }
         do {
             report.handshake = try client.handshake()
+            report.principal = client.principal
         } catch let e as RuntimeError {
             report.handshakeError = e
             if e.phase == .connect || e.code == "runtime_offline" { report.connectError = e.message }
@@ -171,9 +174,9 @@ public enum EndpointInspector {
         } else if case let .success(pid) = peerPID(path) {
             report.peerPID = pid
         }
-        // The signature of the process that wrote the handshake reply, by its
-        // audit token read after the reply: a pid alone could since belong
-        // to a binary exec'd in its place, the token's exec generation not.
+        // Compare the current signer using a token read after the reply.
+        // This does not prove the sender's executable at send time: the same
+        // process may already have exec'd before the token is read.
         // Without a token the signer stays unknown.
         let firstToken = client.peerAuditToken()
         if let token = firstToken {
@@ -192,20 +195,15 @@ public enum EndpointInspector {
 
         do {
             report.capabilities = try client.call(RuntimeRequest(.capabilities))
-        } catch {}
-        do {
-            _ = try client.call(RuntimeRequest(.runList, params: .obj([("limit", .int(1))])))
-            report.runsAvailable = true
-        } catch let e as RuntimeError {
-            report.runsAvailable = false
-            report.runsError = e
-            if e.code != "capability_missing" {
-                report.failures.append(Self.authorizationCodes.contains(e.code) ? .authorization : .service)
-            }
+        } catch let error as RuntimeError {
+            report.capabilitiesError = error
+            report.failures.append(.service)
         } catch {
-            report.runsAvailable = false
+            report.capabilitiesError = RuntimeError("internal_error", "\(error)", phase: .request)
             report.failures.append(.service)
         }
+        // A4: run.list is protected and even its rejection writes an audit
+        // record. Credential-free diagnosis must leave it unprobed.
         // The process answering now must be the one judged: another (or the
         // same pid after an exec) answering the later calls contradicts it,
         // and what it reported is not shown as fact.
@@ -213,6 +211,7 @@ public enum EndpointInspector {
             report.identity = .mismatch
             report.identityNotes.append("another process answered after the handshake")
             report.capabilities = nil
+            report.capabilitiesError = nil
             report.runsAvailable = nil
             report.runsError = nil
             report.failures.removeAll { $0 == .authorization || $0 == .service }
@@ -317,13 +316,14 @@ public enum EndpointInspector {
     /// The pid in an audit token (its sixth word), nil if malformed.
     public static func auditTokenPID(_ token: Data) -> Int32? {
         guard token.count == MemoryLayout<audit_token_t>.size else { return nil }
-        return token.withUnsafeBytes { Int32(bitPattern: $0.load(fromByteOffset: 5 * 4, as: UInt32.self)) }
+        return token.withUnsafeBytes { Int32(bitPattern: $0.loadUnaligned(fromByteOffset: 5 * 4, as: UInt32.self)) }
     }
 
     /// Compare the leaf signing certificate of the process named by an audit
-    /// token with this program's. The token holds the process's exec
-    /// generation: a process that exec'd since is not found (`unknown`).
-    /// Unsigned or ad-hoc code on either side is `unknown`.
+    /// token with this program's. Exec after token capture invalidates it;
+    /// exec before capture is not detected. This is not authentication.
+    /// An unsigned/ad-hoc CLI yields unknown; with a signed CLI, an
+    /// unsigned/ad-hoc peer yields different.
     public static func signer(auditToken: Data) -> Signer {
         func leaf(_ code: SecCode) -> Data? {
             guard SecCodeCheckValidity(code, [], nil) == errSecSuccess else { return nil }

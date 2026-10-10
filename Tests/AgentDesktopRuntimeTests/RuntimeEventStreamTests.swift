@@ -17,7 +17,7 @@ private func served(_ sc: Scene) throws -> (server: RuntimeServer, path: String,
 }
 
 private func client(_ path: String) -> SocketRuntimeClient {
-    SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"), timeout: 5)
+    SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"), timeout: 5, credential: testOwner)
 }
 
 /// Frames until `count` arrived or the stream went quiet for a few seconds.
@@ -125,15 +125,13 @@ private func frames(_ c: SocketRuntimeClient, count: Int) throws -> [JSONValue] 
 
 @Test func aPrincipalSeesOnlyItsOwnRunsAndAStaleCursorIsSaidSo() throws {
     let sc = try scene()
-    let other = handshaken(sc.s)
-    other.clientId = "app:someone-else"
+    let (other, _) = try pairedConnection(sc.s, capabilities: ["run"])
     #expect(data(call(sc.s, other, "events.subscribe")) != nil)
     let run = try durable(sc)
     _ = sc.s.execution.stop(runId: run.runId, reason: "stopped", endAs: .cancelled)
     #expect(sc.s.pendingEventFrames(other).isEmpty)
     // Someone else's Run cannot be subscribed to either.
-    let third = handshaken(sc.s)
-    third.clientId = "app:someone-else"
+    let (third, _) = try pairedConnection(sc.s, capabilities: ["run"])
     #expect(code(call(sc.s, third, "events.subscribe", params: #"{"runId":"\#(run.runId)"}"#)) == "not_found")
     // The owner sees it; a cursor from beyond the store is expired.
     let owner = handshaken(sc.s)
