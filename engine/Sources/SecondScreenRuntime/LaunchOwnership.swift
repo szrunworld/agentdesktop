@@ -109,6 +109,9 @@ public struct AppLaunching: Sendable {
     /// Give the foreground back to `previous` for a few seconds whenever the
     /// process the open returned takes it.
     public var returnFocus: @Sendable (_ previous: pid_t, _ opened: LaunchedProcess) -> Void
+    /// One attempt after a failed open. Recheck the expected foreground at
+    /// activation time; never install a watcher or undo a later user switch.
+    public var restoreFocusOnce: @Sendable (_ previous: pid_t, _ expected: pid_t) async -> Bool = { _, _ in false }
     /// Quit a process this launch created (normal quit, forced after a
     /// second), through the handle the open returned. Only called once the
     /// launch token proved the process ours.
@@ -159,6 +162,15 @@ public struct AppLaunching: Sendable {
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { center.removeObserver(token) }
                 if NSWorkspace.shared.frontmostApplication?.processIdentifier == opened.pid { back.activate() }
+            }
+        },
+        restoreFocusOnce: { previous, expected in
+            await MainActor.run {
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == expected,
+                      let back = NSRunningApplication(processIdentifier: previous), !back.isTerminated
+                else { return false }
+                guard back.activate() else { return false }
+                return NSWorkspace.shared.frontmostApplication?.processIdentifier == previous
             }
         },
         quit: { opened in
@@ -284,7 +296,16 @@ public enum LaunchOwnership {
             // is not known, so this is not reported as opened, nor as refused
             // before opening. Never retried: a second open could have effects
             // of its own.
-            return .failure(LaunchRefusal("the launch call failed (\(error.localizedDescription)); the app may or may not have started, and the launch is not retried",
+            var focus = ""
+            if let previous, let current = system.frontmost(), current != previous,
+               system.processes(id).contains(current),
+               let bundle = system.bundleURL(current), sameBundle(bundle, url) {
+                let restored = await system.restoreFocusOnce(previous, current)
+                focus = restored
+                    ? "; the target took the foreground and the previous foreground was restored"
+                    : "; the target may have taken the foreground; restoring it was not confirmed"
+            }
+            return .failure(LaunchRefusal("the launch call failed (\(error.localizedDescription)); the app may or may not have started, and the launch is not retried" + focus,
                                           opened: false, reason: "launch_failed"))
         }
         let pid = opened.pid
