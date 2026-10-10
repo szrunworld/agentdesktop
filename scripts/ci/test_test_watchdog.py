@@ -535,8 +535,8 @@ class WatchdogTests(unittest.TestCase):
         try:
             real = wd.processes
 
-            def lying(deadline=None, problems=None):
-                procs = real(deadline, problems)
+            def lying(deadline=None, problems=None, foreign=None):
+                procs = real(deadline, problems, foreign)
                 if stranger.pid in procs:  # its parent pid claims the root
                     procs[stranger.pid] = (root.pid,) + procs[stranger.pid][1:]
                 return procs
@@ -574,8 +574,8 @@ class WatchdogTests(unittest.TestCase):
             real = wd.processes
             listed = {}
 
-            def with_the_gone_child(deadline=None, problems=None):
-                procs = real(deadline, problems)
+            def with_the_gone_child(deadline=None, problems=None, foreign=None):
+                procs = real(deadline, problems, foreign)
                 # As listed just before it exited: the root's child.
                 procs[gone.pid] = (root.pid, gone.pid, (int(time.time()), 1), "gone")
                 listed[gone.pid] = True
@@ -777,13 +777,13 @@ class WatchdogTests(unittest.TestCase):
         real = wd.processes
         calls = {"n": 0}
 
-        def flaky(deadline=None, problems=None):
+        def flaky(deadline=None, problems=None, foreign=None):
             calls["n"] += 1
             if calls["n"] <= 2:  # the first snapshots, while the command runs
                 if problems is not None:
                     problems.append("process list: proc_listallpids failed")
                 return {}
-            return real(deadline, problems)
+            return real(deadline, problems, foreign)
         wd.processes = flaky
         out = tempfile.mkdtemp(prefix="watchdog-test-")
         argv = sys.argv
@@ -803,6 +803,177 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual(report["trigger"], "leftover check failed")
         self.assertEqual(report["steps"][0]["status"], "partial")
         self.assertIn("snapshot(s) while the command ran", report["steps"][0]["detail"])
+
+    # ---- #206, #209 and the kernel reader's self-check -------------------
+
+    def test_a_kernel_reader_that_does_not_match_this_process_lists_nothing(self):
+        # b9 on #206: kinfo_proc offsets measured on one macOS; read wrong on
+        # another layout, parents and owners would decide what is signalled.
+        # A mismatch lists nothing, says why, and no process is signalled.
+        wd = self.load()
+        real = wd.kernel_info
+        # Each field read wrong in turn: the parent, the real uid, the start.
+        wrong = {
+            "ppid": lambda r: (r[0] + 1,) + r[1:],
+            "real uid": lambda r: r[:2] + (r[2] + 1,) + r[3:],
+            "start": lambda r: r[:3] + ((r[3][0], r[3][1] + 1),) + r[4:],
+        }
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        calls = []
+        real_kill = wd.os.kill
+        wd.os.kill = lambda *a: calls.append(a)
+        try:
+            for field, corrupt in wrong.items():
+                wd.kernel_info = lambda pid, c=corrupt: (lambda r: None if r is None else c(r))(real(pid))
+                wd._kernel_problem.clear()
+                problems = []
+                self.assertEqual(wd.processes(problems=problems), {}, field)
+                self.assertTrue(any(field in p and "does not match this process" in p for p in problems),
+                                (field, problems))
+                run = wd.Run(bystander.pid, None, uuid.uuid4().hex, time.time())
+                run.root_alive = False
+                run.stop()
+                self.assertEqual(calls, [], field)
+                self.assertTrue(wd.incomplete(run), field)
+        finally:
+            wd.os.kill, wd.kernel_info = real_kill, real
+            wd._kernel_problem.clear()
+            bystander.kill()
+            bystander.wait()
+        self.assertIsNone(wd.kernel_problem(), "the real reader matches this process")
+
+    def test_the_watchdogs_own_ancestors_are_confirmed_by_identity(self):
+        wd = self.load()
+        chain = wd.own_ancestors()
+        self.assertIn(os.getppid(), chain)
+        self.assertEqual(chain[os.getppid()], wd.start_time(os.getppid()))
+
+    def test_the_parent_shell_is_never_reported_as_unverifiable(self):
+        # #209: the shell that starts the watchdog started just before it
+        # and its environment cannot be read; it is the watchdog's own
+        # parent, confirmed by identity, never the run's.
+        tag = f"parent-shell-{uuid.uuid4().hex[:8]}"
+        out = tempfile.mkdtemp(prefix="watchdog-test-")
+        r = subprocess.run(["/bin/sh", "-c", f'"$0" "$1" --stall 20 --out "$2" -- sh -c "echo hi"; : {tag}',
+                            sys.executable, WATCHDOG, out],
+                           capture_output=True, text=True, timeout=90,
+                           env=dict(os.environ, WATCHDOG_NO_SUDO="1", WATCHDOG_NO_SNAPSHOTS="1",
+                                    WATCHDOG_FAKE_UNREADABLE="all"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn(tag, r.stdout + r.stderr)
+
+    def test_a_reused_ancestor_pid_is_not_excused(self):
+        # #209: an ancestor's pid now naming another process is not the
+        # ancestor; that process stays unverifiable (and is not signalled).
+        os.environ["WATCHDOG_FAKE_UNREADABLE"] = "all"
+        os.environ["WATCHDOG_NO_SUDO"] = "1"
+        try:
+            wd = self.load()
+        finally:
+            del os.environ["WATCHDOG_FAKE_UNREADABLE"], os.environ["WATCHDOG_NO_SUDO"]
+        started = time.time()
+        tag = f"reused-{uuid.uuid4().hex[:8]}"
+        # Not a child of this process (that would make it the watchdog's own
+        # helper here): started by a shell that exits at once.
+        subprocess.run(["/bin/sh", "-c", f"{sys.executable} -c 'import time; time.sleep(60) # {tag}' >/dev/null 2>&1 &"],
+                       check=True)
+        time.sleep(0.3)
+        found = subprocess.run(["pgrep", "-f", tag], capture_output=True, text=True).stdout.split()
+        self.assertEqual(len(found), 1, found)
+
+        class Stranger:
+            pid = int(found[0])
+            def kill(self): subprocess.run(["kill", "-9", str(self.pid)])
+            def wait(self): pass
+        stranger = Stranger()
+        try:
+            run = wd.Run(999999, None, uuid.uuid4().hex, started)
+            run.root_alive = False
+            sec, usec = wd.start_time(stranger.pid)
+            run.ancestors = {stranger.pid: (sec, (usec + 1) % 1000000)}  # the ancestor once had this pid
+            run.members()
+            self.assertIn(stranger.pid, run.unverifiable)
+            run.ancestors = {stranger.pid: (sec, usec)}  # the very process: excused
+            run.members()
+            self.assertNotIn(stranger.pid, run.unverifiable)
+        finally:
+            stranger.kill()
+            stranger.wait()
+
+    def test_the_tree_runs_through_another_users_process(self):
+        # #206: root (ours) -> another user's process (as sudo starts) ->
+        # ours again. The middle one is the run's but never signalled; the
+        # one below it is the run's and may be stopped.
+        wd = self.load()
+        start = {1001: (100, 1), 1002: (100, 2), 1003: (100, 3)}
+        kernel = {1001: (1, 1001, os.getuid(), start[1001], os.getuid()),
+                  1002: (1001, 1002, 0, start[1002], 0),
+                  1003: (1002, 1003, os.getuid(), start[1003], os.getuid())}
+        real = wd.kernel_info
+        wd.kernel_info = lambda pid: kernel.get(pid)
+        try:
+            run = wd.Run(1001, None, uuid.uuid4().hex, time.time())
+            procs = {1001: (1, 1001, start[1001], "root"), 1003: (1002, 1003, start[1003], "ours under sudo")}
+            foreign = {1002: (1001, 1002, start[1002], "sudo thing", 0, 0)}
+            members = run._tree(procs, foreign)
+        finally:
+            wd.kernel_info = real
+        self.assertEqual(set(members), {1001, 1003})
+        self.assertEqual(set(run._foreign_linked), {1002})
+        self.assertEqual(run._foreign_linked[1002][2:], (0, 0))
+
+    def test_another_users_leftover_is_running_never_signalled(self):
+        # #206, Kevin: stopped, running and unverified apart; another
+        # user's process still there is running, not stopped.
+        wd = self.load()
+        run = wd.Run(999999, None, uuid.uuid4().hex, time.time())
+        run.root_alive = False
+        alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        calls = []
+        real_kill = wd.os.kill
+        wd.os.kill = lambda *a: calls.append(a)
+        try:
+            ident = wd.start_time(alive.pid)
+
+            def members(deadline=None):
+                run.discovery_problems = []
+                run.foreign_members = {alive.pid: (ident, "a root process sudo started", 0, 0)}
+                return {}
+            run.members = members
+            run.stop()
+        finally:
+            wd.os.kill = real_kill
+        try:
+            self.assertEqual(calls, [])
+            out = tempfile.mkdtemp(prefix="watchdog-test-")
+            import contextlib
+            import io
+            with contextlib.redirect_stdout(io.StringIO()):
+                wd.record_stop(run, out)
+            with open(os.path.join(out, "diagnosis.json")) as f:
+                report = json.load(f)
+            self.assertEqual([s["status"] for s in report["steps"] if s["step"] == "stop"], ["failed"])
+            running = report["outcome"]["running"]
+            self.assertEqual([e["pid"] for e in running], [alive.pid])
+            self.assertIn("another user's process (real uid 0", running[0]["why"])
+            self.assertIsNone(alive.poll())
+        finally:
+            alive.kill()
+            alive.wait()
+
+    @unittest.skipUnless(subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0,
+                         "needs passwordless sudo (CI has it)")
+    def test_a_root_leftover_from_sudo_fails_the_run_and_is_reported_running(self):
+        # #206 end to end: the command leaves a root process (sudo) behind.
+        # Before, it was not seen and the run passed; now it is a leftover
+        # confirmed running, never signalled: exit 124. It ends by itself.
+        code, log, _, out = self.run_watchdog(
+            ["sh", "-c", "sudo -n /bin/sleep 6 & sleep 2; exit 0"], stall=30)
+        self.assertEqual(code, 124, log)
+        with open(os.path.join(out, "diagnosis.json")) as f:
+            report = json.load(f)
+        running = report["outcome"]["running"]
+        self.assertTrue(any("another user's process" in e["why"] for e in running), running)
 
 
 if __name__ == "__main__":
