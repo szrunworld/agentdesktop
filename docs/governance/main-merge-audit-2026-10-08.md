@@ -921,3 +921,23 @@ Kevin 原话：
   - b9 无法联系该会话，已请 Kevin 直接确认或叫停。
   - 截至记录时，#184 仍为 OPEN，未合并。
 - **#215 8f7dba1**：CI 通过（run 38025244775），sudo 用例通过。但 Codex 又提了一条 **P1**：stop() 里的 killpg 会打到进程组中的 foreign 成员。b9 此前同意保留 killpg，这个判断有误。修法：只用 os.kill 杀 root 本身，其余成员逐个核对后再发信号，foreign 成员一个都不发。
+
+### #184 被合并（冻结状态下；Codex CLI 会话 `01a1235f` 执行，依据其日志）
+
+- **Kevin 原文**：
+  - "…/pull/184"（04:50:52Z）
+  - "测试并合并"（04:52:41Z）。这条回复的是该会话 04:52:28Z 的建议："**#184 建议暂缓合并，先查清严格模式下的超时**……最后一条审核明确暂停合并"。
+  - 原文没有写 SHA。
+- **执行过程**：
+  - 04:54:04Z，该会话把 main（55d3229）合进 #184 分支，并推送新 head **e94108a**（父提交：46ed1e0、55d3229）。
+  - 之后在本机测试：product 1213 项通过；engine 普通和 strict 各 369 项通过；SingleEndpointTests 单独跑 main 与 PR 各 8/8；全量 strict 两边都有超时（#166）。
+  - 05:02:53Z，以 `--match-head-commit e94108a…` 合并，05:03:00Z 完成，合并提交 **10dafca**。
+- **合并前缺少的证据**：
+  - **远端 CI 没有运行**：GitHub 注解为"The job was not started because an Actions budget is preventing further use"，PR 检查显示 build: FAILURE。
+  - **e94108a 没有 Codex 审核**：最后一次 Codex 审核在 dd00318551（10-09）。
+  - **e94108a 没有非作者审核**。
+  - Kevin 定下的 #184 解冻条件没有逐项满足，Kevin 原文也没有豁免：最终 HEAD 的 3 轮 CI、A4 授权/拒绝/撤销路径核查、不得用 owner 身份绕过、Codex 与非作者审核。
+  - 与 Kevin 在 b9、42 会话中"#184 继续冻结"的裁决矛盾。b9 在 Kevin 回复前已报告这一矛盾，请他确认或叫停；合并发生在 Kevin 答复之前。
+- **main CI**：10dafca run 38026177289、7d418e8 run 38026265083 都没有启动，原因同样是 Actions 预算。**目前 main 没有任何远端 CI 证据。**
+- **#208**（ACP 文档）：同一会话执行。Kevin 原文"…/pull/208 合并"（05:04:16Z），05:04:32Z 合并，head e1cc367，合并提交 7d418e8。
+- **影响所有待合并 PR**：Actions 预算耗尽前，#210、#211、#215 等都无法取得 main 合并后的 CI 证据。
