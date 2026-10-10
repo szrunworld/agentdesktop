@@ -131,31 +131,36 @@ struct MockRuntimeTests {
         #expect(RunStatusPresentation.make(run: r).text == "已停止")
     }
 
-    // Terminal events carry the Run's current revision and closing reason,
-    // not fixed placeholders (PR #227 review).
-    @Test func cancelEventsCarryRevisionAndReason() async throws {
+    // Stop events mirror production ExecutionCoordinator: `stop.accepted`
+    // with the stop's reason (run.cancel → stopped, stopAll → global_stop),
+    // and the terminal events carry the Run's revision and that reason.
+    @Test(arguments: [("run.cancel", "stopped"), ("runtime.stopAll", "global_stop")])
+    func stopEventsCarryRevisionAndReason(_ method: String, _ reason: String) async throws {
         let m = MockRuntime.sample()
         let active = try await m.call("run.list", .obj([("active", .bool(true))]))["runs"]!.arrayValue!
         let id = active.first!["runId"]!.stringValue!
         let start = m.latestCursor
         let stream = try await m.subscribe(after: start)
-        _ = try await m.call("run.cancel", .obj([("runId", .string(id))]))
+        _ = try await m.call(method, method == "run.cancel" ? .obj([("runId", .string(id))]) : .obj([("scope", .string("all_platform_runs"))]))
         m.confirmQuiescence(id)
         let r = try await m.call("run.show", .obj([("runId", .string(id))]))
         var it = stream.makeAsyncIterator()
         var byType: [String: JSONValue] = [:]
         for _ in 0..<(m.latestCursor - start) {
             let e = try #require(try await it.next())["event"]!
+            guard e["runId"]?.stringValue == id else { continue }
             byType[e["type"]!.stringValue!] = e["data"]
         }
-        let finishing = try #require(byType["run.finishing"])
+        #expect(byType["run.finishing"] == nil)
+        let accepted = try #require(byType["stop.accepted"])
         let quiescent = try #require(byType["run.quiescent"])
         let ended = try #require(byType["run.ended"])
-        #expect(finishing["revision"]?.intValue ?? 0 > 1)
+        #expect(accepted["reason"]?.stringValue == reason)
+        #expect(accepted["revision"]?.intValue ?? 0 > 1)
         #expect(quiescent["revision"] == r["revision"])
-        #expect(quiescent["revision"]?.intValue ?? 0 > finishing["revision"]?.intValue ?? 0)
-        #expect(r["closingReason"]?.stringValue == "cancelled")
-        #expect(ended["reason"]?.stringValue == "cancelled")
+        #expect(quiescent["revision"]?.intValue ?? 0 > accepted["revision"]?.intValue ?? 0)
+        #expect(r["closingReason"]?.stringValue == reason)
+        #expect(ended["reason"]?.stringValue == reason)
         #expect(ended["outcome"]?.stringValue == r["outcome"]?.stringValue)
     }
 

@@ -204,17 +204,19 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     }
 
     /// The execution side confirms a stopping Run is quiet: ended/confirmed.
+    /// The Run keeps the closing reason its stop recorded (as production).
     public func confirmQuiescence(_ runId: String, outcome: String = "cancelled") {
         lock.withLock {
             updateRunLocked(runId) { r in
                 r.setting("phase", .string("ended")).setting("quiescence", .string("confirmed"))
-                    .setting("outcome", .string(outcome)).setting("closingReason", .string("cancelled"))
+                    .setting("outcome", .string(outcome))
+                    .setting("closingReason", r["closingReason"].flatMap { $0 == .null ? nil : $0 } ?? .string("stopped"))
                     .setting("endedAt", .string(stamp()))
             }
             let ended = runs.first(where: { $0["runId"]?.stringValue == runId })
             appendEventLocked(runId, "run.quiescent", .obj([("revision", ended?["revision"] ?? .int(1))]))
             appendEventLocked(runId, "run.ended", .obj([("phase", .string("ended")), ("outcome", .string(outcome)),
-                                                       ("reason", ended?["closingReason"] ?? .string("cancelled"))]))
+                                                       ("reason", ended?["closingReason"] ?? .string("stopped"))]))
         }
     }
 
@@ -386,8 +388,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             var pending: [JSONValue] = []
             for r in runs where r["phase"]?.stringValue != "ended" {
                 let id = r["runId"]!.stringValue!
-                updateRunLocked(id) { $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")) }
-                appendEventLocked(id, "run.finishing", .obj([("reason", .string("cancelled")), ("inFlight", .bool(false)), ("revision", revisionLocked(id))]))
+                stopLocked(id, reason: "global_stop")
                 items.append(.obj([("runId", .string(id)), ("accepted", .bool(true)), ("phase", .string("stopping")),
                                    ("quiescence", .string("pending")), ("outcome", .null)]))
                 pending.append(.string(id))
@@ -588,8 +589,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             var r = try run(id)
             let terminal = r["phase"]?.stringValue == "ended"
             if !terminal {
-                updateRunLocked(id) { $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")) }
-                appendEventLocked(id, "run.finishing", .obj([("reason", .string("cancelled")), ("inFlight", .bool(false)), ("revision", revisionLocked(id))]))
+                stopLocked(id, reason: "stopped")
                 r = try run(id)
             }
             var m: [(String, JSONValue)] = [
@@ -665,6 +665,15 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     private func run(_ id: String) throws -> JSONValue {
         guard let r = runs.first(where: { $0["runId"]?.stringValue == id }) else { throw RuntimeError.notFound("no Run \(id)") }
         return r
+    }
+
+    /// Mirrors `ExecutionCoordinator.stop`: the Run goes stopping/pending,
+    /// records the closing reason, and a `stop.accepted` event follows.
+    private func stopLocked(_ id: String, reason: String) {
+        updateRunLocked(id) {
+            $0.setting("phase", .string("stopping")).setting("quiescence", .string("pending")).setting("closingReason", .string(reason))
+        }
+        appendEventLocked(id, "stop.accepted", .obj([("reason", .string(reason)), ("inFlight", .bool(false)), ("revision", revisionLocked(id))]))
     }
 
     private func revisionLocked(_ id: String) -> JSONValue {
