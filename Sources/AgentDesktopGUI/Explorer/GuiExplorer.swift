@@ -156,11 +156,16 @@ public final class GuiRunDriver: Sendable {
     private func settle(_ bundle: ObservationBundle) async throws -> Bool {
         let v = try verifier.evaluate(bundle, binding: binding, checkedAt: clock.wallNow())
         await recorder.verified(v)
-        if v.status == .passed {
+        // Only matched is success; inconclusive is "not shown yet", never done.
+        switch v.status {
+        case .passed:
             try await move(.succeeded, "goal verified on observation \(bundle.observation.observationId)")
             return true
+        case .inconclusive:
+            try await move(.observing, "goal not confirmed: \(v.reason?.rawValue ?? "inconclusive")")
+        case .failed, .notRun:
+            try await move(.observing, "goal not reached yet")
         }
-        try await move(.observing, "goal not reached yet")
         return false
     }
 
@@ -175,8 +180,13 @@ public final class GuiRunDriver: Sendable {
         var bundle = try await observe()
         // Already satisfied: succeed without any model call (spec §06.3).
         if try await verifyFresh(bundle) { return }
+        var progress = ProgressTracker()
+        progress.start(bundle)
 
         var history: [GuiHistoryTurn] = []
+        // After a stall's recovery: told to the next inference only (X1-3).
+        // Kept across an empty-reply retry, cleared once a reply arrives.
+        var hint: GuiRecoveryHint?
         var stepIndex = 0
         // The step whose empty reply was already recovered from once.
         var recoveredStep: Int?
@@ -192,7 +202,8 @@ public final class GuiRunDriver: Sendable {
             await recorder.inferenceStarted(stepIndex: stepIndex)
 
             let input = GuiInferenceInput(binding: binding, bundle: bundle, history: history, stepIndex: stepIndex,
-                                          budget: budget, deadlineNs: deadlineNs, callerScope: callerScope)
+                                          budget: budget, deadlineNs: deadlineNs, callerScope: callerScope,
+                                          recoveryHint: hint)
             // The last gate before a model call: a stop or a record that
             // could not be written since the step began ends it here.
             try await checkProceed()
@@ -231,6 +242,7 @@ public final class GuiRunDriver: Sendable {
             try await audited { try await ports.audit.recordInference(output.receipt) }
             await recorder.inference(output.receipt, discarded: false)
             history.append(GuiHistoryTurn(image: bundle.currentImage, reply: output.reply))
+            hint = nil
             stepIndex += 1
 
             try await move(.validating, "checking proposal")
@@ -286,6 +298,11 @@ public final class GuiRunDriver: Sendable {
                     try await move(.observing, "re-observing after input")
                     bundle = try await observe()
                     if try await verifyFresh(bundle) { return }
+                    if case let .action(action) = proposal.body,
+                       let stall = progress.afterAction(ProgressTracker.Intent(action), bundle) {
+                        if try await recover(from: stall, stepIndex: proposal.stepIndex, progress: &progress,
+                                             bundle: &bundle, hint: &hint) { return }
+                    }
                 }
             case let .wait(ms):
                 guard ms >= 0, ms <= limits.maxWaitMs else {
@@ -297,6 +314,7 @@ public final class GuiRunDriver: Sendable {
                 try await move(.observing, "waited \(ms) ms")
                 bundle = try await observe()
                 if try await verifyFresh(bundle) { return }
+                progress.afterWait(bundle)
             case .finish:
                 try await move(.verifying, "model reports done; verifying")
                 let previous = bundle.observation.observationId
@@ -311,6 +329,26 @@ public final class GuiRunDriver: Sendable {
                 return
             }
         }
+    }
+
+    /// A stall (X1-2): the first ones the policy allows take one bounded
+    /// recovery (observe the bound target again and verify that newer
+    /// observation; nothing already sent is repeated); one more ends the run
+    /// with closingReason no_progress or loop_detected. True when the
+    /// recovery's observation shows the goal. Otherwise the next inference
+    /// carries `hint` (the stall kind only, X1-3) within the same budgets.
+    private func recover(from stall: ProgressTracker.Stall, stepIndex: Int, progress: inout ProgressTracker,
+                         bundle: inout ObservationBundle, hint: inout GuiRecoveryHint?) async throws -> Bool {
+        guard progress.mayRecover else {
+            throw ContractError(.limitExceeded, "the run stopped making progress (\(stall.rawValue))",
+                                details: .obj([("reasonCode", .string(stall.closingReason))]))
+        }
+        await recorder.recovery(stepIndex: stepIndex, kind: stall.rawValue, count: progress.recoveries + 1)
+        try await checkProceed()
+        bundle = try await observe()
+        progress.recovered(bundle)
+        hint = stall.hint
+        return try await verifyFresh(bundle)
     }
 
     /// The Runtime rechecks everything again before input; this is the

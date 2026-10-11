@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import EngineTestSupport
 @testable import SecondScreenCore
 
 /// Concurrent screen requests against the real DisplayWork wait and the real
@@ -52,7 +53,10 @@ struct AgentScreenAdmissionTests {
         // suite) reached it before the test changed the owner, and the work
         // went on as if released (#156).
         configurator.submit("arrangement") { entered.signal(); _ = release.wait(timeout: .now() + 60) }
-        entered.wait()
+        // The transaction starts on a private serial queue in milliseconds;
+        // 30 s is the limit (#183), and running out fails the test with
+        // evidence instead of hanging the main actor.
+        do { try Bounded.wait(entered, 30, for: "the blocking transaction to start", stage: "busy()") } catch { Issue.record(error) }
         return (configurator, release)
     }
 

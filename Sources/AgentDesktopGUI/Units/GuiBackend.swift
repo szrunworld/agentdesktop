@@ -6,9 +6,12 @@ import Foundation
 /// runtime.capabilities. Nothing is claimed that has no evidence.
 public struct GuiBackendFeatures: Sendable {
     public var actions: [GuiActionKind]
-    /// ["element_text_equals"] only when the backend reads static text of
-    /// the bound window.
+    /// The leaf predicates the backend can verify: `elementPredicates` when
+    /// it reads the bound window's elements (role, label, value), else none.
     public var verificationPredicates: [String]
+
+    /// What a backend that reads the bound window's element tree verifies.
+    public static let elementPredicates = ["element_text_equals", "element_exists", "value_equals_parameter"]
     public var directApiWithoutAi: Bool
     public var deterministicReplayWithoutAi: Bool
     public var independentDesktopConcurrency: Bool
@@ -54,6 +57,8 @@ public protocol GuiRunRecording: Actor {
     func proposed(_ p: GuiProposal) async
     func rejected(stepIndex: Int, reason: String) async
     func recovered(stepIndex: Int) async
+    /// X1-2: a stall took a bounded recovery (`kind` is the stall).
+    func recovery(stepIndex: Int, kind: String, count: Int) async
     func action(_ r: GuiActionReceipt, stepIndex: Int) async
     func verified(_ v: GoalVerification) async
 }

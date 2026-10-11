@@ -539,4 +539,42 @@ final class LockedStrings: @unchecked Sendable {
     #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Panel", executable: server) == false)
     #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: "/tmp/WindowServer") == false)
     #expect(EnginePlatform.isSystemCursor(pid: getpid(), layer: layer, title: "Cursor") == false)
+    // #248: the kernel reports WindowServer through the version directory.
+    let versioned = "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/Resources/WindowServer"
+    #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: versioned))
+    #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: "/tmp/Versions/A/Resources/WindowServer") == false)
+}
+
+/// The pid of the running WindowServer, nil where none runs (no GUI
+/// session). pgrep is waited for at most 10 s (#183's rule).
+private func windowServerPid() throws -> Int32? {
+    let pgrep = Process()
+    pgrep.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+    pgrep.arguments = ["-x", "WindowServer"]
+    let out = Pipe()
+    pgrep.standardOutput = out
+    let done = DispatchSemaphore(value: 0)
+    pgrep.terminationHandler = { _ in done.signal() }
+    try pgrep.run()
+    guard done.wait(timeout: .now() + 10) == .success else {
+        pgrep.terminate()
+        Issue.record("pgrep did not finish within 10 s")
+        return nil
+    }
+    let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    return text.split(separator: "\n").first.flatMap { Int32($0) }
+}
+
+/// #248: the running WindowServer, read the way overlays() reads it, is
+/// recognised. Where no WindowServer runs (no GUI session) the test says it
+/// did not run, rather than passing silently (42 on 8265351).
+@Test(.enabled(if: (try? windowServerPid()) != nil, "no WindowServer runs here (no GUI session)"))
+func theRunningWindowServerIsRecognisedByItsKernelPath() throws {
+    let pid = try #require(try windowServerPid())
+    var path = [CChar](repeating: 0, count: 4096)
+    try #require(proc_pidpath(pid, &path, UInt32(path.count)) > 0, "proc_pidpath failed for WindowServer \(pid)")
+    let layer = Int(CGWindowLevelForKey(.cursorWindow))
+    #expect(EnginePlatform.cursorIdentity(layer: layer, title: "Cursor", executable: String(cString: path)),
+            "proc_pidpath gave \(String(cString: path))")
+    #expect(EnginePlatform.isSystemCursor(pid: pid, layer: layer, title: "Cursor"))
 }
