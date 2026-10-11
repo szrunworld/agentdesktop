@@ -61,7 +61,10 @@ import Testing
     static func topLevelTests(in text: String) -> [(name: String, body: String)] {
         let lines = text.components(separatedBy: "\n")
         var found: [(String, String)] = []
-        for (i, line) in lines.enumerated() where line.hasPrefix("@Test") {
+        // An attribute line at column 0 that carries @Test, alone or after
+        // others on the same line (`@MainActor @Test func …`; Codex and b9
+        // on #264). Members of a suite are indented, so never matched here.
+        for (i, line) in lines.enumerated() where line.hasPrefix("@") && line.contains("@Test") {
             // The declaration is on this line or the next attribute lines.
             var j = i
             while j < lines.count, !lines[j].contains("func ") { j += 1 }
@@ -125,7 +128,7 @@ import Testing
         }
         // Codex on #264: a top-level @Test in an allowed file, outside any
         // suite, is not serialized with them.
-        for attrs in ["@Test", "@MainActor\n@Test"] {
+        for attrs in ["@Test", "@MainActor\n@Test", "@MainActor @Test", "@available(macOS 14, *) @MainActor @Test(.timeLimit(.minutes(1)))"] {
             let text = "func scratchPasteboard() -> NSPasteboard { NSPasteboard(name: .init(\"x\")) }\n\n"
                 + "\(attrs) func looseOne() {\n    _ = scratchPasteboard()\n}\n"
             let found = Self.violations([("PasteboardSnapshotTests.swift", text)])
