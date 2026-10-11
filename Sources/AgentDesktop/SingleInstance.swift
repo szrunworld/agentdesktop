@@ -1,3 +1,4 @@
+import AgentDesktopProtocol
 import AppKit
 import Foundation
 
@@ -39,7 +40,8 @@ enum SingleInstance {
         let fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { return .failed("open \(path): \(String(cString: strerror(errno)))") }
         var st = stat()
-        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_uid == getuid() else {
+        // One link only: a hard link to another file would have it rewritten.
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_uid == getuid(), st.st_nlink == 1 else {
             close(fd)
             return .failed("\(path) is not a file of this user")
         }
@@ -63,16 +65,32 @@ enum SingleInstance {
         return try? JSONDecoder().decode(Holder.self, from: Data(buffer[0..<n]))
     }
 
-    /// A product from before this lock holds none, but its Runtime
-    /// endpoint record (`runtime.sock.lock`) names its pid; the running
-    /// application with that pid gives its bundle, so it can be brought
-    /// forward like any running product.
+    /// A build from before this lock holds none. Two ways to see one that
+    /// is running: any other process of this bundle, launched even if its
+    /// Runtime does not listen yet (a test copy too); and the product's
+    /// Runtime endpoint, whose record (`runtime.sock.lock`, JSON or a bare
+    /// pid) names the process to bring forward.
+    struct RunningApp: Equatable {
+        var pid: Int32
+        var bundlePath: String?
+        /// A Dock app: the product; a test copy is accessory.
+        var regular: Bool
+    }
+
+    static func otherRunning(me: Int32 = getpid(), apps: () -> [RunningApp] = {
+        NSRunningApplication.runningApplications(withBundleIdentifier: HostRole.bundleID)
+            .filter { !$0.isTerminated }
+            .map { RunningApp(pid: $0.processIdentifier, bundlePath: $0.bundleURL?.path, regular: $0.activationPolicy == .regular) }
+    }) -> Holder? {
+        guard let other = apps().first(where: { $0.pid != me }) else { return nil }
+        return Holder(pid: other.pid, role: other.regular ? "product" : "test", bundlePath: other.bundlePath ?? "")
+    }
+
     static func legacyProduct(endpointRecord: String = HostRole.product.runtimeEndpoint.path + ".lock",
                               bundleOf: (Int32) -> String? = { NSRunningApplication(processIdentifier: $0)?.bundleURL?.path }) -> Holder? {
-        guard let data = FileManager.default.contents(atPath: endpointRecord),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let pid = (object["pid"] as? NSNumber)?.int32Value, pid > 0,
-              let bundle = bundleOf(pid) else { return nil }
+        guard let text = EndpointRecord.readFile(endpointRecord) else { return nil }
+        let parsed = EndpointRecord.parse(text)
+        guard let pid = parsed.record?.pid ?? parsed.legacyPID, pid > 0, let bundle = bundleOf(pid) else { return nil }
         return Holder(pid: pid, role: "product", bundlePath: bundle)
     }
 
@@ -111,7 +129,7 @@ enum SingleInstance {
         alert.informativeText = message
         alert.addButton(withTitle: confirmTitle)
         alert.runModal()
-        if let holder, holder.role == "product" {
+        if let holder, holder.role == "product", !holder.bundlePath.isEmpty {
             // Reopen, not just activate: the running one shows its main
             // window even if it was kept in the background.
             let done = DispatchSemaphore(value: 0)

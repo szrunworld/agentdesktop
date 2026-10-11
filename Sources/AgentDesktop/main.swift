@@ -17,8 +17,11 @@ let instanceLock: Int32 = MainActor.assumeIsolated {
                                    bundlePath: Bundle.main.bundlePath)
     switch SingleInstance.acquire(at: SingleInstance.lockPath, as: me) {
     case .acquired(let fd):
-        // A build from before the lock holds none: its Runtime endpoint
-        // still tells it is there.
+        // A build from before the lock holds none: another process of
+        // this bundle, or a listening product Runtime, tells it is there.
+        if let other = SingleInstance.otherRunning() {
+            SingleInstance.refuse(role: role, holder: other)
+        }
         if ControlProtocol.isListening(HostRole.product.runtimeEndpoint) {
             SingleInstance.refuse(role: role, holder: SingleInstance.legacyProduct())
         }

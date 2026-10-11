@@ -44,10 +44,44 @@ import Testing
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
         let record = dir + "/runtime.sock.lock"
-        try Data(#"{"product":"AgentDesktop","pid":70760,"listening":true}"#.utf8).write(to: URL(fileURLWithPath: record))
+        try Data(#"{"product":"AgentDesktop","productVersion":"0.1.0-dev","pid":70760,"instanceId":"rt_1","endpoint":"/x/runtime.sock","listening":true,"since":"2026-10-11T14:56:28.162Z"}"#.utf8).write(to: URL(fileURLWithPath: record))
         let found = SingleInstance.legacyProduct(endpointRecord: record) { $0 == 70760 ? "/old/Agent Desktop.app" : nil }
         #expect(found == .init(pid: 70760, role: "product", bundlePath: "/old/Agent Desktop.app"))
         #expect(SingleInstance.legacyProduct(endpointRecord: record) { _ in nil } == nil, "no running app with that pid")
         #expect(SingleInstance.legacyProduct(endpointRecord: dir + "/missing") { _ in "/x.app" } == nil)
+    }
+
+    // Codex P2s on 8f7d1f9 (#305).
+    @Test func aBarePidRecordStillNamesTheLegacyProduct() throws {
+        let path = try tempLock()
+        let dir = (path as NSString).deletingLastPathComponent
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let record = dir + "/runtime.sock.lock"
+        try Data("4242\n".utf8).write(to: URL(fileURLWithPath: record))
+        #expect(SingleInstance.legacyProduct(endpointRecord: record) { $0 == 4242 ? "/older.app" : nil }
+                == .init(pid: 4242, role: "product", bundlePath: "/older.app"))
+    }
+
+    @Test func aHardLinkedLockIsNotRewritten() throws {
+        let path = try tempLock()
+        let dir = (path as NSString).deletingLastPathComponent
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let target = dir + "/precious"
+        try Data("keep me".utf8).write(to: URL(fileURLWithPath: target))
+        #expect(link(target, path) == 0)
+        guard case .failed = SingleInstance.acquire(at: path, as: .init(pid: 1, role: "product", bundlePath: "/A.app")) else {
+            Issue.record("a hard-linked lock is refused"); return
+        }
+        #expect(try String(contentsOfFile: target, encoding: .utf8) == "keep me")
+    }
+
+    @Test func anotherProcessOfTheBundleIsSeenBeforeItListens() {
+        let apps = [SingleInstance.RunningApp(pid: 10, bundlePath: "/me.app", regular: true),
+                    SingleInstance.RunningApp(pid: 11, bundlePath: "/copy.app", regular: false)]
+        #expect(SingleInstance.otherRunning(me: 10) { apps } == .init(pid: 11, role: "test", bundlePath: "/copy.app"))
+        #expect(SingleInstance.otherRunning(me: 11) { apps } == .init(pid: 10, role: "product", bundlePath: "/me.app"))
+        #expect(SingleInstance.otherRunning(me: 10) { [apps[0]] } == nil, "this process alone")
     }
 }
