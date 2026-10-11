@@ -184,7 +184,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             do {
                 let backend = enabled ? GuiExecutionBackend(
                     ports: GuiExplorerPorts(observation: ports, execution: ports, audit: NoGuiAudit()),
-                    features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"],
+                    features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: GuiBackendFeatures.elementPredicates,
                                                  independentDesktopConcurrency: true)) : nil
                 let credentials: CredentialStore
                 switch credentialBackend {
