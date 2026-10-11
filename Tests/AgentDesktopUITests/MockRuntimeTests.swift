@@ -72,14 +72,16 @@ struct MockRuntimeTests {
             #expect(RuntimeContract.shared.validate(result, spec.result).isEmpty, "\(method)")
             #expect(keys(result).isDisjoint(with: plannedFieldNames), "\(method) carries a planned field")
         }
-        #expect(seen == Set(MockRuntime.modeled))
+        // The lanes' methods are checked by each lane's own tests
+        // (MockRuntime+<Lane>.swift; AgentsTests for UI-C).
+        #expect(seen == Set(MockRuntime.baseModeled))
         #expect(m.contractViolations.isEmpty, "\(m.contractViolations)")
     }
 
     // Only implemented catalog methods exist; reserved and frozen ones do not.
     @Test func reservedAndFrozenMethodsAreMissing() async {
         let m = MockRuntime.sample()
-        for method in ["hub.clients.show", "inbox.list", "run.reconcile", "unit.run", "ai.connections.list", "no.such.method"] {
+        for method in ["hub.pairing.approve", "inbox.list", "run.reconcile", "unit.run", "ai.connections.list", "no.such.method"] {
             #expect(await code { _ = try await m.call(method) } == "capability_missing", "\(method)")
         }
         #expect(Set(MockRuntime.modeled).isSubset(of: RuntimeCatalog.implemented))
