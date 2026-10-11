@@ -47,7 +47,9 @@ Zed 1.23.2 支持自定义 ACP agent（`agent_servers`，`"type": "custom"`）�
 
 **ACP 桥自己配对**（`docs/security/a4-identity.md`：ACP 桥是外部 App，必须自己配对、自己保管凭据）。配对和服务必须是**同一个程序**：确认窗口显示的才是 ACP 桥本身的代码身份；钥匙串条目只信任创建它的程序，换一个程序读取会弹出钥匙串授权框（按 §一，出现就中止测试）。所以 dev 入口用 `agentdesktop-acp-dev pair`，不用 `agentdesktop agents pair`。
 
-**先在主窗口准备 Desktop（#246）。** 桥不创建 Desktop、不启动 App、不绑定窗口，只能用你明确授予的 Desktop 和窗口。配对之前，由 Kevin 在测试副本的 Agent Desktop 主窗口里创建一个 Desktop，在上面启动计算器并绑定它的窗口，记下 Desktop id（例如 `desk_…`），下面记为 `$DESK`。
+**先在主窗口准备配对用 Desktop（#246）。** 桥不创建 Desktop、不启动 App、不绑定窗口。Calculator 已在 `docs/acceptance/launch-ownership/README.md` 中真机验证为无法提供启动归属令牌，因此虚拟 Desktop 的 `app.launch` 会拒绝它；用户自己打开的 Calculator 也不能移入虚拟 Desktop。先由 Kevin 在测试副本主窗口创建一个**空虚拟 Desktop**，记下其 ID 为 `$BOOTSTRAP_DESK`，只用于 W1 配对。W2 在配对前运行。
+
+配对成功后，在主窗口 Desktops › **开放我的显示器**，选择已配对的 ACP 桥和已证实为物理的显示器，Kevin 在可信确认窗口批准并完成 Touch ID。记下返回的物理 Desktop ID 为 `$DESK`。这一步把 `$DESK` 加入桥的授权，不给它任何窗口权限。Kevin 打开一个**专用测试** Calculator 窗口，在物理 Desktop 详情页的“绑定这块显示器上的窗口”选择它并绑定；原窗口不会移动，桥仍看不到它。测试期间避免个人窗口或通知覆盖目标；若 Runtime 返回 `occluded`，记录为按设计拒绝并清除遮挡后重试。W9 另开同一 App 的第二个测试窗口；W11 在详情页改绑到这个窗口。
 
 测试副本要用临时钥匙串，**不要写登录钥匙串**：
 
@@ -58,7 +60,8 @@ security set-keychain-settings /tmp/adt-acp/test.keychain-db       # 测试期�
 # create-keychain 可能把它加进搜索列表；如果加了，按原样恢复（见 scripts/a4-touchid-acceptance.sh）
 export AGENTDESKTOP_KEYCHAIN=/tmp/adt-acp/test.keychain-db
 ACP_DEV="$(git rev-parse --show-toplevel)/.build/debug/agentdesktop-acp-dev"   # 在仓库里执行；echo "$ACP_DEV"，下面 Zed 配置的 command 填这个绝对路径
-"$ACP_DEV" pair --endpoint "$AGENTDESKTOP_ENDPOINT" --desktops "$DESK" --name ACP --apps com.apple.calculator --duration 8h --wait-timeout 180
+"$ACP_DEV" pair --endpoint "$AGENTDESKTOP_ENDPOINT" --desktops "$BOOTSTRAP_DESK" --name ACP --apps com.apple.calculator --duration 8h --wait-timeout 180
+# 此时在主窗口把物理显示器开放给 ACP 桥，绑定专用测试 Calculator 窗口；把返回的物理 Desktop ID 记为 $DESK。
 # 窗口授权（方案 A）：显式申请，Kevin 在确认窗口里核对是计算器那个窗口，再用 Touch ID 批准
 "$ACP_DEV" request-window --endpoint "$AGENTDESKTOP_ENDPOINT" --desktop "$DESK" --bundle-id com.apple.calculator --duration 8h
 ```
@@ -71,7 +74,9 @@ ACP_DEV="$(git rev-parse --show-toplevel)/.build/debug/agentdesktop-acp-dev"   #
   - `unit.run` 要求桥对 Desktop 当前绑定的窗口持有 observe 和 act 的窗口授权（`RuntimeService+Unit.swift` 的 `windowUse`）。`request-window` 用桥自己的凭据，通过 `hub.windows.request` 只申请 `observe`、`act`，由 Kevin 在确认窗口里核对窗口（App、标题、pid、位置）后用 Touch ID 批准。
   - 申请之前，桥看不到 Desktop 上绑定的是哪个窗口（`desktop.show` 会隐去绑定），所以按 `--bundle-id` 申请；这个 App 有多个窗口时，用 `--window-id` 指定。批准之后命令会再调一次 `desktop.show` 核对：授予的不是绑定的那个窗口（或者 Desktop 上没有绑定窗口）时，明确报错退出（退出码 2）。这种授权 `unit.run` 用不了，在主窗口撤销即可。命令**不会**自动撤销，也不会重试。
   - 用户拒绝、App 不在 `--apps` 里、没有配对、授权已撤销，都会原样报出 Runtime 的错误，不重试。桥在提交任务的过程中**不会**自己申请窗口授权（裁决：不采用方案 B）。
+- **物理 Desktop 上的绑定与撤销**：主窗口的物理 Desktop 详情页由 owner 调 `window.bind`，只接受目标显示器上现存的窗口，不移动用户窗口；桥不能用 ACP 命令改绑。详情页的“窗口授权”可对一条授权调用 `hub.windows.revoke`，Runtime 随即切断该桥连接。W10 撤销后重建 Zed 会话再测拒绝；W11 改绑后旧窗口授权不能用于新绑定，须重新申请目标窗口。完成 W11 后重新授权，才执行 W12。
 - **任务列表与默认 profile**：`ai.*` 只有 owner 能调，而 A4 之后 socket 上不存在 owner。所以配对的桥**不调用** `ai.profiles.list`，只提供一个 `unit.run` 任务，使用 Runtime 的默认 profile。如果去调，`verified` 级别的桥会在 owner 的主窗口里弹出管理确认，每次读任务列表都弹一次；桥不得自己触发权限申请。只有握手结果显示为 owner 的连接才会读 profile 列表。万一调用被确定拒绝（`permission_denied`，reason 为 `owner_only` 或 `unverified_identity`），同样退回默认任务；其他错误照常报出，编辑器提示「暂时无法读取可用任务」。
+- **提交时选择 Desktop**：`/unit-run` 的 JSON 参数必须包含 `"desktopId":"<物理 Desktop ID>"`；W8 改用授权外的 ID。桥把这个值交给 Runtime，后者仍按已认证桥的 Desktop 范围和窗口授权核验。ACP 会话没有隐含的 Desktop 选择；省略时编辑器在提交前报必填。
 - **配对之后不要重新编译 dev 入口。** 开发版是 ad-hoc 签名，钥匙串按程序的代码摘要识别它；重新编译后就成了「另一个程序」，读取凭据会弹授权框。重新编译过就删掉临时钥匙串，从建钥匙串那一步重来。
 
 - 配对请求出现在测试副本的 Agent Desktop 窗口里，由 Kevin 本人核对后点「批准」并用 Touch ID 确认。自动化不能代替。
@@ -98,7 +103,7 @@ dev 入口（S 线合入后、CLI `acp` 之前）：
 
 ```sh
 "/tmp/adt-acp/Agent Desktop.app/Contents/Resources/bin/agentdesktop" agents pair --name ACP --profile acp \
-  --capabilities observe,act,unit.run,run --desktops "$DESK" --apps com.apple.calculator --duration 8h --wait-timeout 180
+  --capabilities observe,act,unit.run,run --desktops "$BOOTSTRAP_DESK" --apps com.apple.calculator --duration 8h --wait-timeout 180
 ```
 
 发布形态的窗口授权同样要由这个程序自己申请；`agentdesktop acp` 接入时补上对应的命令，在那之前只走 dev 入口。
@@ -162,7 +167,7 @@ Zed 配置：
 
 ## 四、P1 端到端：计算器中立样本（ACP-T26-*、ACP-P1-*）
 
-计算器只是通用 GUI 能力的验收载体，**只出现在测试数据、本手册与测试 profile 里，不进入产品源码**（原文 §8）。样本任务由 A6 的任务目录或测试夹具登记为一个中立的「registered procedure」，例如「在一个新 Desktop 上启动计算器，依次按 7、+、8、=，读取显示值」。任务名与参数在 A6 合入后填进 `profiles/agentdesktop-*.json` 的 `PROMPT_*` 变量和下表。
+计算器只是通用 GUI 能力的验收载体，**只出现在测试数据、本手册与测试 profile 里，不进入产品源码**（原文 §8）。样本任务由 A6 的任务目录或测试夹具登记为一个中立的「registered procedure」，例如「在已开放且绑定计算器窗口的物理 Desktop 上依次按 7、+、8、=，读取显示值」。任务名与参数在 A6 合入后填进 `profiles/agentdesktop-*.json` 的 `PROMPT_*` 变量和下表。
 
 ### 四.0 #246 验收表（Kevin 2026-10-11 裁决）
 
@@ -170,17 +175,17 @@ Zed 配置：
 
 | # | 场景 | 预期 |
 |---|---|---|
-| W1 | `pair --desktops "$DESK"` | 确认窗口显示 ACP 桥自己的代码身份；批准后配对成功 |
+| W1 | `pair --desktops "$BOOTSTRAP_DESK"`；之后 owner 把物理显示器开放给桥 | 两个确认窗口均核对 ACP 桥自己的代码身份；批准后桥授权含 `$DESK` |
 | W2 | `pair` 不带 `--desktops`，或 `--desktops created` | 命令直接拒绝（退出码 2），没有发出任何请求 |
 | W3 | 配对后在 Zed 里 `/help` | 列出 `unit.run`（默认 profile）；Runtime 宣告了 `ai.profiles.list` 也不调用（审计里没有桥的 `ai.profiles.list` 记录），主窗口不弹任何确认 |
 | W4 | 未获得窗口授权时提交 `unit.run` | 拒绝（`grant_missing`，reason `window_grant_missing`） |
 | W5 | `request-window` | 出现确认窗口，列出计算器窗口和 observe、act |
-| W6 | W5 里点「拒绝」 | 报错 `user_denied`，不重试；随后 `unit.run` 仍被拒 |
+| W6 | W5 里点「拒绝」 | 报错 `permission_denied`（`the user denied hub.windows.request`），不重试；随后 `unit.run` 仍被拒 |
 | W7 | Touch ID 批准 | 输出「window grant … for the window bound on $DESK」；`unit.run` 能执行 |
 | W8 | 对未授权的 Desktop 提交 `unit.run` | `not_found`（授权外的 Desktop 对桥不存在） |
 | W9 | 对同一 App 的另一个窗口申请或使用 | 申请时核对不通过（`notTheBoundWindow`）；使用时被拒 |
-| W10 | 在主窗口撤销窗口授权后再执行 | `grant_missing`（`window_grant_ended`），observe、act 都被拒 |
-| W11 | 主窗口把 Desktop 改绑到另一个窗口 | 原授权不延续到新窗口：`unit.run` 被拒，需要重新申请 |
+| W10 | 在物理 Desktop 详情页撤销窗口授权、重建 Zed 会话后再执行 | `grant_missing`（`window_grant_ended`），observe、act 都被拒 |
+| W11 | 在物理 Desktop 详情页把 Desktop 改绑到另一个 Calculator 窗口 | 原授权不延续到新窗口：`unit.run` 被拒，需要重新申请 |
 | W12 | 正常提交、查询、订阅、取消 Run | 全部正常（ACP-T26-*、ACP-P1-*） |
 | W13 | `same_user` 身份 | 能发起申请，但必须由 Kevin 在确认窗口批准；授权只属于桥自己的 clientId（`agentdesktop` 主窗口或审计里核对） |
 | W14 | W5 的确认窗口出现后等 30 秒以上再批准 | 命令一直等到作答，正常输出授权（回复超时 390 秒：确认窗口全局排队，最多受理 3 个，每个 120 秒，再加余量）；不得先报 `connection_lost` |

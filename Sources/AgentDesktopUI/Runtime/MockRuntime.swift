@@ -33,7 +33,8 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         "observe", "artifact.show", "artifact.read",
         "run.list", "run.show", "run.events", "run.cancel",
         "request.show",
-        "hub.clients.list", "hub.grants.list", "hub.displays.list", "hub.displays.attach", "hub.displays.detach",
+        "hub.clients.list", "hub.grants.list", "hub.windows.list", "hub.windows.revoke",
+        "hub.displays.list", "hub.displays.attach", "hub.displays.detach",
     ]
 
     let lock = NSLock()
@@ -48,6 +49,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     /// paired clients with their grants, for the owner's display entry.
     var displays: [JSONValue] = []
     var clients: [JSONValue] = []
+    var windowGrants: [JSONValue] = []
     /// Windows not on any Desktop (window.list, window.bind), and apps that
     /// app.launch can start; both neutral, never a real user app.
     var freeWindows: [JSONValue] = []
@@ -267,15 +269,33 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
 
     /// A window of a neutral app that is on no Desktop (to bind).
     @discardableResult
-    public func addFreeWindow(app: String = "Probe", title: String = "Probe A", pid: Int = 4242, windowId: Int = 9001) -> Int {
+    public func addFreeWindow(app: String = "Probe", title: String = "Probe A", pid: Int = 4242,
+                              windowId: Int = 9001, x: Int = 100, y: Int = 100) -> Int {
         lock.withLock {
             freeWindows.append(.obj([
                 ("windowId", .int(windowId)), ("process", .obj([("pid", .int(pid)), ("startedAt", .string(Timestamp.string(base)))])),
                 ("appName", .string(app)), ("bundleId", .string("com.example.probe")), ("title", .string(title)),
-                ("frame", .obj([("x", .int(100)), ("y", .int(100)), ("width", .int(400)), ("height", .int(328))])),
+                ("frame", .obj([("x", .int(x)), ("y", .int(y)), ("width", .int(400)), ("height", .int(328))])),
                 ("onScreen", .bool(true)),
             ]))
             return windowId
+        }
+    }
+
+    @discardableResult
+    public func addWindowGrant(desktopId: String, clientId: String = "app:mock-001", windowId: Int = 9001) -> String {
+        lock.withLock {
+            let id = "wg_\(windowGrants.count + 1)"
+            windowGrants.append(.obj([
+                ("windowGrantId", .string(id)), ("clientId", .string(clientId)), ("desktopId", .string(desktopId)),
+                ("window", .obj([("windowId", .int(windowId)),
+                                 ("process", .obj([("pid", .int(4242)), ("startedAt", .string(stamp()))])),
+                                 ("bundleId", .string("com.example.probe")), ("appName", .string("Probe"))])),
+                ("permissions", .array([.string("observe"), .string("act")])),
+                ("state", .string("active")), ("createdAt", .string(stamp())),
+                ("expiresAt", .string(Timestamp.string(base.addingTimeInterval(3600)))),
+            ]))
+            return id
         }
     }
 
@@ -427,6 +447,18 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             return .obj([("clients", .array(clients)), ("pairings", .array([]))])
         case "hub.grants.list":
             return .obj([("grants", .array(clients.compactMap { $0["grant"] }))])
+        case "hub.windows.list":
+            return .obj([("windowGrants", .array(windowGrants.filter {
+                p["includeEnded"]?.boolValue == true || $0["state"]?.stringValue == "active"
+            }))])
+        case "hub.windows.revoke":
+            let id = p["windowGrantId"]!.stringValue!
+            guard let i = windowGrants.firstIndex(where: { $0["windowGrantId"]?.stringValue == id }) else {
+                throw RuntimeError.notFound("no window grant \(id)")
+            }
+            windowGrants[i] = windowGrants[i].setting("state", .string("revoked"))
+                .setting("endedReason", .string("window_grant_revoked"))
+            return windowGrants[i]
         case "hub.displays.list":
             return .obj([("displays", .array(displays.map { d in
                 let attached = desktops.first { $0["kind"]?.stringValue == "physical" && $0["screen"]?["displayId"] == d["displayId"] }

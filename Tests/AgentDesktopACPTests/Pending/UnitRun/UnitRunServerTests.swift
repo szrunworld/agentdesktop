@@ -32,7 +32,8 @@ struct UnitRunServerTests {
         defer { dirs.forEach { try? FileManager.default.removeItem(at: $0) } }
         let commands = try await ed.waitFrame { $0["params"]?["update"]?["sessionUpdate"]?.stringValue == "available_commands_update" }
         #expect(commands.encoded().contains("\"unit-run\""))
-        let p = ed.prompt(sid, "/unit-run \(Self.inputJSON)")
+        let withDesk = Self.inputJSON.replacingOccurrences(of: #"{"mode""#, with: #"{"desktopId":"desk_A","mode""#)
+        let p = ed.prompt(sid, "/unit-run \(withDesk)")
         try await ed.answerPermission(ACPWireV1.rejectOnceId)
         #expect(try await stopReason(ed, p) == "end_turn")
         #expect(ed.text.contains("未获批准，未创建任务"))
@@ -41,26 +42,27 @@ struct UnitRunServerTests {
         #expect(ed.schemaProblems.isEmpty, "\(ed.schemaProblems)")
     }
 
-    /// Gap UR-G1: after the editor allows, the prompt path cannot name a
-    /// Desktop (no session option; desktopId is not accepted in input), so
-    /// the bridge refuses locally and unit.run is never sent. The refusal is
-    /// also worded as the Runtime's (UR-G6).
-    @Test("[Mock] allowedPromptShouldReachUnitRun") func allowedPromptShouldReachUnitRun() async throws {
+    /// The editor supplies an explicit Desktop, and the same value reaches
+    /// Runtime's unit.run after the editor confirmation.
+    @Test("[Mock] allowedPromptReachesUnitRunOnChosenDesktop") func allowedPromptReachesUnitRunOnChosenDesktop() async throws {
+        let (rt, ed, sid, dirs) = try await start()
+        defer { dirs.forEach { try? FileManager.default.removeItem(at: $0) } }
+        let withDesk = Self.inputJSON.replacingOccurrences(of: #"{"mode""#, with: #"{"desktopId":"desk_A","mode""#)
+        let p = ed.prompt(sid, "/unit-run \(withDesk)")
+        try await ed.answerPermission(ACPWireV1.allowOnceId)
+        _ = try await stopReason(ed, p)
+        #expect(rt.count("unit.run") == 1)
+        #expect(rt.with { rt.unitRunParams.first?["desktopId"] } == .string("desk_A"))
+        await ed.disconnect()
+        #expect(ed.schemaProblems.isEmpty, "\(ed.schemaProblems)")
+    }
+
+    @Test("[Mock] missingDesktopIsRefusedBeforeApproval") func missingDesktopIsRefusedBeforeApproval() async throws {
         let (rt, ed, sid, dirs) = try await start()
         defer { dirs.forEach { try? FileManager.default.removeItem(at: $0) } }
         let p = ed.prompt(sid, "/unit-run \(Self.inputJSON)")
-        try await ed.answerPermission(ACPWireV1.allowOnceId)
-        _ = try await stopReason(ed, p)
-        withKnownIssue("UR-G1: no Desktop selection in the prompt path") {
-            #expect(rt.count("unit.run") == 1)
-        }
-        #expect(ed.text.contains("invalid_argument"))
-        #expect(rt.count("unit.run") == 0, "missing Desktop must be refused before submission")
-        // desktopId in the JSON is refused by the editor-side validator.
-        let withDesk = Self.inputJSON.replacingOccurrences(of: #"{"mode""#, with: #"{"desktopId":"desk_A","mode""#)
-        let p2 = ed.prompt(sid, "/unit-run \(withDesk)")
-        #expect(try await stopReason(ed, p2) == "end_turn")
-        #expect(ed.text.contains("不接受字段 desktopId"))
+        #expect(try await stopReason(ed, p) == "end_turn")
+        #expect(ed.text.contains("desktopId") && ed.text.contains("必填"))
         #expect(rt.count("unit.run") == 0)
         await ed.disconnect()
         #expect(ed.schemaProblems.isEmpty, "\(ed.schemaProblems)")
@@ -72,7 +74,7 @@ struct UnitRunServerTests {
     @Test("[Mock] localRefusalShouldNotBeAttributedToTheRuntime") func localRefusalShouldNotBeAttributedToTheRuntime() async throws {
         let (rt, ed, sid, dirs) = try await start()
         defer { dirs.forEach { try? FileManager.default.removeItem(at: $0) } }
-        let input = Self.inputJSON.replacingOccurrences(of: #"{"mode""#, with: #"{"origin":"gui_explorer","mode""#)
+        let input = Self.inputJSON.replacingOccurrences(of: #"{"mode""#, with: #"{"desktopId":"desk_A","origin":"gui_explorer","mode""#)
         let p = ed.prompt(sid, "/unit-run \(input)")
         try await ed.answerPermission(ACPWireV1.allowOnceId)
         #expect(try await stopReason(ed, p) == "refusal")
@@ -91,7 +93,7 @@ struct UnitRunServerTests {
     @Test("[Mock] escalationInThePromptIsRefused") func escalationInThePromptIsRefused() async throws {
         let (rt, ed, sid, dirs) = try await start()
         defer { dirs.forEach { try? FileManager.default.removeItem(at: $0) } }
-        let input = Self.inputJSON.replacingOccurrences(of: #"{"mode""#, with: #"{"lifetime":"platform_durable","mode""#)
+        let input = Self.inputJSON.replacingOccurrences(of: #"{"mode""#, with: #"{"desktopId":"desk_A","lifetime":"platform_durable","mode""#)
         let p = ed.prompt(sid, "/unit-run \(input)")
         try await ed.answerPermission(ACPWireV1.allowOnceId)
         _ = try await stopReason(ed, p)

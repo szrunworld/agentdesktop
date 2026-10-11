@@ -156,7 +156,8 @@ struct UnitRunContractTests {
     @Test("[Mock] editorSchemaShouldNotAdvertiseForbiddenFields") func editorSchemaShouldNotAdvertiseForbiddenFields() throws {
         let task = ACPTaskCatalog().entries(methods: URTestRuntime.withUnitRun, profiles: nil)[0].task
         let props = Set((task.inputSchema["properties"]?.objectMembers ?? []).map(\.key))
-        #expect(!props.contains("desktopId"))
+        #expect(props.contains("desktopId"))
+        #expect((task.inputSchema["required"]?.arrayValue ?? []).contains(.string("desktopId")))
         withKnownIssue("UR-G2: editor schema lists origin/lifetime/ownership") {
             #expect(props.isDisjoint(with: ACPTaskCatalog.forbiddenInputKeys))
             #expect(!(ACPCommandInput.hint(for: task.inputSchema) ?? "").contains("lifetime"))

@@ -94,6 +94,34 @@ struct DisplayAttachTests {
         #expect(m.contractViolations.isEmpty, "\(m.contractViolations)")
     }
 
+    @Test func theOwnerCanBindAVisibleWindowAndRevokeOnlyItsWindowGrant() async throws {
+        let m = MockRuntime.sample()
+        let store = await loaded(m)
+        let clientId = m.addClient(name: "Probe", apps: ["com.example.probe"])
+        let flow = AttachDisplayFlow(runtime: m, now: { Date(timeIntervalSince1970: 1_791_446_400) })
+        await flow.load()
+        flow.clientId = clientId
+        await flow.submit()
+        let id = try #require(flow.desktopId)
+        m.addFreeWindow(windowId: 9001)
+        m.addFreeWindow(windowId: 9002, x: 9000, y: 9000)
+        let access = PhysicalDesktopAccess(runtime: m, desktopId: id)
+        await access.load()
+        #expect(access.windows.map { $0["windowId"]?.intValue } == [9001])
+        access.selectedWindowId = 9001
+        await access.bindSelectedWindow()
+        await store.refreshDesktops()
+        #expect(store.desktops.first { $0["desktopId"]?.stringValue == id }?["binding"]?["windowId"]?.intValue == 9001)
+
+        let grantId = m.addWindowGrant(desktopId: id, clientId: clientId)
+        await access.load()
+        #expect(access.windowGrants.map { $0["windowGrantId"]?.stringValue } == [grantId])
+        await access.revokeWindow(grantId)
+        #expect(access.windowGrants.isEmpty)
+        #expect(access.grants.count == 1, "revoking a window must leave the display grant intact")
+        #expect(m.contractViolations.isEmpty, "\(m.contractViolations)")
+    }
+
     @Test func theSheetAndThePhysicalDetailRender() async throws {
         let m = MockRuntime.sample()
         let store = await loaded(m)
