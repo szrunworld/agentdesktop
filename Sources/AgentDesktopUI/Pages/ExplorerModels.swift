@@ -151,6 +151,9 @@ public struct ExplorerAction: Equatable, Sendable, Identifiable {
 
     /// §6.4 levels from `deliveryState` alone (before request.show answers).
     public var status: StatusText { ExplorerText.delivery(deliveryState) }
+
+    /// Sent or maybe sent, with no confirmed outcome.
+    public var isUnresolved: Bool { deliveryState == "unknown" || deliveryState == "submitted" }
 }
 
 public struct ExplorerVerification: Equatable, Sendable {
@@ -251,8 +254,9 @@ public struct ExplorerTimeline: Equatable, Sendable {
     public var modelAttempts: Int { steps.reduce(0) { $0 + $1.modelAttempts } }
     /// Inputs the Runtime confirmed delivered.
     public var confirmedInputs: Int { allActions.filter { $0.deliveryState == "confirmed" }.count }
-    /// Inputs whose delivery is unknown: only verification, no retry.
-    public var unknownInputs: Int { allActions.filter { $0.deliveryState == "unknown" }.count }
+    /// Inputs whose outcome is not known (unknown, or sent without a
+    /// confirmation): only verification, no retry.
+    public var unknownInputs: Int { allActions.filter(\.isUnresolved).count }
     public var allActions: [ExplorerAction] { steps.flatMap(\.actions) }
     public var latestVerification: ExplorerVerification? { verifications.last }
 
@@ -281,7 +285,9 @@ public enum ExplorerText {
         switch s {
         case "not_sent": return StatusText("未发出", .danger)
         case "rejected": return StatusText("未发出 · 被拒绝", .danger)
-        case "submitted": return StatusText("已受理", .idle)
+        // Sent, but the confirming observation failed (RuntimeGuiPorts:
+        // CONFIRMATION_UNAVAILABLE): the outcome is not known.
+        case "submitted": return StatusText("已发出，结果未确认 · 需要核实", .attention)
         case "confirmed": return StatusText("已执行，未验证", .running)
         case "unknown": return StatusText("结果未知 · 需要核实", .attention)
         default: return StatusText("结果未知 · 需要核实", .attention)

@@ -203,11 +203,28 @@ struct ExplorerTests {
         #expect(t.recoveries.map(\.text) == ["恢复"])
         #expect(t.allActions[0].status.text == "未发出")
         #expect(ExplorerText.delivery("rejected").text.hasPrefix("未发出"))
-        #expect(ExplorerText.delivery("submitted").text == "已受理")
+        #expect(ExplorerText.delivery("submitted").text.hasSuffix("需要核实"))
+        let submitted = ExplorerTimeline(events: [events[2].setting("data", events[2]["data"]!.setting("deliveryState", .string("submitted")))])
+        #expect(submitted.unknownInputs == 1 && submitted.confirmedInputs == 0)
         #expect(ExplorerText.delivery("confirmed").text == "已执行，未验证")
     }
 
     // MARK: Stop and page lifetime
+    @MainActor @Test func overlappingLoadsNeverDuplicateEvents() async throws {
+        let m = MockRuntime.sample()
+        let id = try #require(m.addUnitRun(desktopId: m.desktopIds.last!, scenario: .verified))
+        m.delays = ["run.events": 30_000_000]
+        let loader = ExplorerRunLoader(runtime: m, runId: id)
+        async let a: Void = loader.load()
+        async let b: Void = loader.load()
+        async let c: Void = loader.stop()
+        _ = await (a, b, c)
+        let all = try await m.call("run.events", .obj([("runId", .string(id))]))["events"]!.arrayValue!
+        #expect(loader.events.count == all.count, "no batch appended twice")
+        #expect(Set(loader.events.compactMap { $0["sequence"]?.intValue }).count == loader.events.count)
+        #expect(loader.timeline.modelAttempts == 4 && loader.timeline.confirmedInputs == 2)
+    }
+
 
     @MainActor @Test func stopWaitsForQuiescenceAndKeepsTheDesktop() async throws {
         let m = MockRuntime.sample()

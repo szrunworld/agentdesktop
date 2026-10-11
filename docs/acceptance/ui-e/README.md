@@ -33,7 +33,7 @@
 | P29 | 结果横幅、条件验证结果、计数分离（样例 4 次模型尝试、2 次输入，与线框一致） | 同 P28；“导出证据”未做（等 PR4 `diagnostics.export`） |
 | 一级 GUI Explorer | 运行历史；学习层只放说明 | 线框（G03–G08）属于 L4 学习阶段，本 PR 不做 |
 
-动作结果按 06 §6.4：`confirmed` →“已执行，未验证”，`submitted` →“已受理”，`not_sent` / `rejected` →“未发出”，`unknown` →“结果未知 · 需要核实”，没有重试按钮；有 `request.show` 记录时以回执级别为准。验证 `inconclusive` 显示“无法判定”和原因（X1-1 的五种 reason）。`unit.recovery` 的未知 kind 显示为“恢复”。
+动作结果按 06 §6.4：`confirmed` →“已执行，未验证”，`submitted`（已发出但确认观察失败）→“已发出，结果未确认 · 需要核实”并计入结果未知，`not_sent` / `rejected` →“未发出”，`unknown` →“结果未知 · 需要核实”，没有重试按钮；有 `request.show` 记录时以回执级别为准。验证 `inconclusive` 显示“无法判定”和原因（X1-1 的五种 reason）。`unit.recovery` 的未知 kind 显示为“恢复”。
 
 ## 测试（`Tests/AgentDesktopUITests/ExplorerTests.swift`）
 

@@ -27,6 +27,10 @@ public final class ExplorerRunLoader: ObservableObject {
     @Published public private(set) var stopRequested = false
     private let runtime: RuntimePort
     private var next = 0
+    /// One load at a time: a load asked for while one runs is folded into
+    /// one more pass after it, so two passes never read the same cursor.
+    private var loading = false
+    private var again = false
 
     public init(runtime: RuntimePort, runId: String) {
         self.runtime = runtime
@@ -34,6 +38,16 @@ public final class ExplorerRunLoader: ObservableObject {
     }
 
     public func load() async {
+        if loading { again = true; return }
+        loading = true
+        defer { loading = false }
+        repeat {
+            again = false
+            await loadOnce()
+        } while again
+    }
+
+    private func loadOnce() async {
         do {
             let r = try await runtime.call("run.show", .obj([("runId", .string(runId))]))
             var grew = false
@@ -610,7 +624,7 @@ struct ExplorerRunDetailView: View {
                     Spacer()
                 }
             }
-            if s.actions.contains(where: { $0.deliveryState == "unknown" }) {
+            if s.actions.contains(where: \.isUnresolved) {
                 Text("输入可能已到达应用。不会自动重发；只能重新观察并核实。")
                     .font(ADFont.note).foregroundStyle(StatusTone.attention.foreground)
             }
