@@ -263,8 +263,7 @@ struct StorePushTests {
         let merged = ShellStore.merge(snapshot: [older, other], over: [newer])
         #expect(merged == [newer, other])
         #expect(ShellStore.merge(snapshot: [other], over: [newer]) == [other], "the snapshot decides what is listed")
-        let id = try #require(newer["runId"]?.stringValue)
-        #expect(ShellStore.merge(snapshot: [other], over: [newer], preserving: [id]) == [newer, other],
+        #expect(ShellStore.merge(snapshot: [other], over: [newer], preserving: ["r"]) == [newer, other],
                 "a Run pushed while the list was in flight survives the old snapshot")
     }
 
