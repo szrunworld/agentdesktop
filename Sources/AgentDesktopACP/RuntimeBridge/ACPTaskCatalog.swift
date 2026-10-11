@@ -10,8 +10,9 @@ import Foundation
 ///   - with `ai.profiles.list` also listed, each enabled GUI profile becomes
 ///     one task `unit.run/<guiProfileId>`, pinned to the revision shown;
 ///   - otherwise one task `unit.run` that uses the Runtime's default profile.
-/// The input schema is the contract's `unit_run_params` minus the fields
-/// the bridge fills itself (desktopId, guiProfileId, expectedProfileRevision).
+/// The input schema is the contract's `unit_run_params` minus the profile
+/// fields the bridge fills itself. The caller chooses a Desktop explicitly;
+/// the Runtime checks that Desktop against the authenticated grant.
 public struct ACPTaskCatalog: Sendable {
     public static let unitRunMethod = "unit.run"
     public static let profilesMethod = "ai.profiles.list"
@@ -39,8 +40,9 @@ public struct ACPTaskCatalog: Sendable {
     public static let forbiddenInputKeys: Set<String> = [
         "origin", "lifetime", "ownership", "clientId", "agentId", "trusted", "principal",
     ]
-    /// Filled by the bridge from the session and the catalog entry.
-    public static let bridgeFilledKeys: Set<String> = ["desktopId", "guiProfileId", "expectedProfileRevision"]
+    /// Filled by the bridge from the catalog entry. `desktopId` remains in
+    /// editor input because ACP sessions do not carry a Desktop selection.
+    public static let bridgeFilledKeys: Set<String> = ["guiProfileId", "expectedProfileRevision"]
 
     public struct Entry: Equatable, Sendable {
         public var task: ACPExposedTask
@@ -136,7 +138,7 @@ public struct ACPTaskCatalog: Sendable {
                        dataClassification: "desktop_content")
     }
 
-    /// `unit_run_params` without the bridge-filled fields.
+    /// `unit_run_params` without the profile fields fixed by the task entry.
     func editorSchema() -> JSONValue? {
         guard let s = unitRunParams, let members = s.objectMembers else { return nil }
         var out: [(String, JSONValue)] = []

@@ -2,6 +2,8 @@
 
 状态：2026-10-08 第二版（按独立审核与 Kevin 裁决返工），基于合入后的 `main`（含 #102 冻结的 A6 契约增量）；差距表行号以第二版基线 `37c6778` 为准；审查修复已同步 2026-10-10 的 main。作者：ACP 辅助工作包（2ndscreen 会话 997716a3）。
 
+2026-10-11 更新：UR-G1 已在 ACP 编辑器输入层修复。`/unit-run` 的 JSON 参数现在要求显式 `desktopId`，Runtime 仍按桥的已认证授权范围验证它。以下差距表保留 2026-10-08 的原始调查记录；实际操作以 [真机手册](tests/e2e-runbook.md) 为准。
+
 **范围与边界**：Kevin 批准 ACP 为 A6 准备适配器测试与端到端夹具，**不批准** ACP 实现 `unit.run` 或任何第二个执行入口。本文和 `Tests/AgentDesktopACPTests/Pending/UnitRun/` 只做三件事：对照冻结契约列出 ACP 侧的差距；写出 Mock 测试（今天可跑）和真 Runtime 测试（已写、禁用）；给工作线 Q 留下可复用的场景夹具。**Mock 测试全部通过不代表 A6 完成，也不是端到端验收**（README §五附加约束 6）。
 
 权威顺序沿用 A6 草案：ADR v2.2 > `docs/architecture/runtime-api-v1-freeze.md` > `docs/plan/` > `docs/ai-gui/a6-unit-run-draft.md` > 本文。

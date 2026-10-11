@@ -186,17 +186,19 @@ struct ShellStoreTests {
         let store = ShellStore(runtime: m, clock: StillClock())
         await store.apply(frame: .obj([("cursor", .int(1)), ("event", .obj([]))]))
         #expect(store.eventCursor == 1)
-        m.trimEvents(through: m.latestCursor)
+        // Ensure the stored floor is strictly past cursor 1 even when the
+        // sample has only one event.
+        m.trimEvents(through: max(m.latestCursor, 2))
         await store.start()
-        await waitFor("resubscribed and refreshed snapshot") {
-            let log = m.callLog
-            guard m.subscriberCount == 1,
-                  let subscription = log.firstIndex(of: "events.subscribe"),
+        await waitFor("snapshot after expired cursor") {
+            let log = m.lock.withLock { m.callLog }
+            guard let subscribe = log.firstIndex(of: "events.subscribe"),
                   let snapshot = log.lastIndex(of: "run.list") else { return false }
-            return snapshot > subscription
+            return snapshot > subscribe
         }
+        await waitFor("resubscribed") { m.subscriberCount == 1 }
         #expect(store.eventCursor == nil)
-        let log = m.callLog
+        let log = m.lock.withLock { m.callLog }
         #expect(log.filter { $0 == "events.subscribe" }.count == 2)
         #expect(log.lastIndex(of: "run.list")! > log.firstIndex(of: "events.subscribe")!)
         store.stop()

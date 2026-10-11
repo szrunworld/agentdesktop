@@ -355,7 +355,7 @@ public struct DesktopInspectorView: View {
                             PhysicalDesktopAccessView(access: access, gone: {
                                 Task { await store.refreshDesktops() }
                                 navigation.back()
-                            })
+                            }, bound: { Task { await store.refreshDesktops() } })
                             .task(id: store.tick) { await access.load() }
                         }
                         recent

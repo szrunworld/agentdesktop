@@ -206,7 +206,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
     let ids = try await withThrowingTaskGroup(of: String.self) { group in
         for _ in 0..<6 {
             group.addTask { try await offPool {
-                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"), timeout: 30,
                                       credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
                 defer { c.close() }
                 return try c.call(RuntimeRequest(requestId: "idem-race-0001", method: "ai.connections.create",

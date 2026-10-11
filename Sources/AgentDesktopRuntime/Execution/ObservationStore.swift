@@ -175,7 +175,16 @@ public final class ArtifactStore: @unchecked Sendable {
         let dir = directory
         freeBytes = {
             let values = try? URL(fileURLWithPath: dir).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-            return values?.volumeAvailableCapacityForImportantUsage
+            if let available = values?.volumeAvailableCapacityForImportantUsage { return available }
+            // Some macOS app processes return no value for this optional URL
+            // property even on a local volume. statfs reports the space
+            // available to this user, which is conservative for admission.
+            var volume = statfs()
+            guard statfs(dir, &volume) == 0 else { return nil }
+            let blocks = Int64(clamping: volume.f_bavail)
+            let blockSize = Int64(clamping: volume.f_bsize)
+            let (bytes, overflow) = blocks.multipliedReportingOverflow(by: blockSize)
+            return overflow ? Int64.max : bytes
         }
         sweep(at: lastSweep, startup: true)
         recount()
@@ -203,6 +212,18 @@ public final class ArtifactStore: @unchecked Sendable {
             return (age < 0 || age >= Self.freeSpaceInterval) && !refreshingFree
         }
         if stale { scheduleFreeSpace() }
+        // The first screenshot after an idle minute would otherwise be
+        // refused while the refresh we just requested is still in flight.
+        // Wait only briefly: a hung volume query must still fail closed.
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.25
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            let fresh = lock.withLock { () -> Bool in
+                guard let f = free else { return false }
+                return (0..<60).contains(clock().timeIntervalSince(f.at)) && f.bytes != nil
+            }
+            if fresh { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
         try lock.withLock {
             func refuse(_ reason: String, _ message: String) -> RuntimeError {
                 RuntimeError("limit_exceeded", message + "; observe without a screenshot still works", phase: .handler,
