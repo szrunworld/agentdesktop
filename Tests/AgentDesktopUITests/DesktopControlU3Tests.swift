@@ -567,3 +567,71 @@ struct DesktopControlReviewFixTests3 {
         #expect(flow.dialog == nil)
     }
 }
+
+/// Codex findings on e2fec73.
+@MainActor
+@Suite("Desktop control review fixes 4")
+struct DesktopControlReviewFixTests4 {
+    // P1/P2: a result that turns unknown after a dialog opened blocks
+    // takeover, close, app.quit and resize, even before the page saw it.
+    @Test func unknownAfterTheDialogOpenedBlocksChanges() async throws {
+        let m = MockRuntime()
+        let a = m.addDesktop(name: "A", app: "Safari")
+        let pid = m.addLaunchedApp(a, name: "Probe")
+        let run = m.addRun(desktopId: a)
+        m.enableDesktopControl()
+        let flow = DesktopControlFlow(runtime: m, desktopId: a)
+        flow.dialog = .takeover
+        await flow.loadClosePlan()
+        flow.settle(state: "running")
+        #expect(TakeoverDialog.canSend(flow))
+        // The Run ends unknown; the page has not refreshed yet.
+        m.addAction(runId: run, delivery: "unknown", execution: "unknown")
+        m.endWithUnknownAction(run)
+        let before = m.callLog.filter { ["desktop.takeover", "desktop.destroy", "app.quit", "desktop.resize", "desktop.stop"].contains($0) }
+        await flow.takeover()
+        #expect(flow.problems[.takeover]?.code == "unknown_result_pending")
+        #expect(flow.reviewPending && !TakeoverDialog.canSend(flow))
+        await flow.close()
+        await flow.quit(pid: pid)
+        await flow.resize(width: 1440, height: 900)
+        await flow.stop()
+        let after = m.callLog.filter { ["desktop.takeover", "desktop.destroy", "app.quit", "desktop.resize", "desktop.stop"].contains($0) }
+        #expect(after == before, "nothing that changes the Desktop was sent")
+        // close() stopped earlier still: the plan shown was blocked by the Run.
+        #expect([.quit, .resize, .stop].allSatisfy { flow.problems[$0]?.code == "unknown_result_pending" })
+        // A plan read now is closeable (the unknown Run has ended), yet
+        // closing is refused until the review.
+        flow.settle(state: "ready")
+        await flow.loadClosePlan()
+        #expect(flow.closePlan?["canClose"]?.boolValue == true)
+        await flow.close()
+        #expect(flow.problems[.close]?.code == "unknown_result_pending" && !m.callLog.contains("desktop.destroy"))
+        // After the review's handback, changes go again.
+        await flow.handback()
+        flow.settle(state: "ready")
+        await flow.resize(width: 1440, height: 900)
+        #expect(flow.resized != nil)
+    }
+
+    // P2: without Desktop.control, a stale "已停止" still goes once a Run
+    // holds the Desktop again.
+    @Test func legacyStopNoteGoes() async throws {
+        let m = MockRuntime()
+        let a = m.addDesktop(name: "A")
+        _ = m.addRun(desktopId: a)
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let stops = DesktopStops(store: store)
+        await stops.stop(a)
+        #expect(stops.note(a) == "已停止")
+        _ = try await m.call("desktop.handback", .obj([("desktopId", .string(a))]))
+        _ = try m.agentStartsRun(a)
+        await store.refreshRuns()
+        await store.refreshDesktops()
+        #expect(store.desktops.first?["control"] == nil, "a Runtime without Desktop.control")
+        await stops.refresh()
+        #expect(stops.note(a) == nil)
+    }
+}

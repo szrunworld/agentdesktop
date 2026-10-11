@@ -108,3 +108,14 @@
 修复：结果未知时「关闭」不可用；P17 按 Desktop.control 的 controllerRunId 直接读那次运行的事件来找结果未知的动作（不依赖 Store 截断的 200 条运行快照），找不到时显示原因；只有在 `desktop.handback` 回答 handedBack = true 后才显示「已结束」。新增 `DesktopControlReviewFixTests3`（3 项）。
 
 注：第三轮之后机器负载很高（load 25–175），整套测试里曾出现 Runtime / WDA / UnitRun 测试超时，全部是本 PR 没改的文件；在严格模式下单独重跑都通过，本轮负载下降后也没有再出现。
+
+第五轮（Codex 在 e2fec73 上的 2 个 P1、2 个 P2 修复后）：
+
+| 命令 | 退出码 | 结果 |
+| --- | --- | --- |
+| `swift build --build-tests` | 0 | — |
+| `swift test --skip-build` | 0 | 1429 项通过（7 个原有 known issue） |
+| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` 第 1 次 | 1 | `AgentDesktopTests.MainWindowHostTests.quitDialogDoesNotWaitForTheRuntime` 一次时序失败（宿主测试，本 PR 未改）；单独严格模式重跑 3 次都通过 |
+| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` 第 2 次 | 0 | 1429 项全部通过（这一次 SingleEndpointTests 也没有超时） |
+
+修复：控制模型记住页面最近看到的状态（`observedState`）；结果未知时停止、接管、关闭、退出应用、改尺寸一律不发出，按钮置灰（对话框里的也一样）。每次发出这类变更之前，再用 `desktop.show` 读一次当前状态，处理页面还没刷新的情况。没有 Desktop.control 的 Runtime，按活动运行推出状态，用来撤下过时的「已停止」。新增 `DesktopControlReviewFixTests4`（2 项）。

@@ -378,7 +378,7 @@ public struct DesktopInspectorView: View {
         .task(id: store.tick) {
             await activity.load(runs: store.runs)
             await control.refresh()
-            control.settle(state: desktop.flatMap { DesktopControlInfo.make(desktop: $0, activeRuns: store.activeRuns).state })
+            control.settle(state: desktop.flatMap { DesktopControlInfo.effectiveState(desktop: $0, activeRuns: store.activeRuns) })
         }
         .task {
             control.changed = { [weak store] in

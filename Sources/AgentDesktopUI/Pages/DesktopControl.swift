@@ -62,6 +62,16 @@ public struct DesktopControlInfo: Equatable, Sendable {
                      source: controlSource)
     }
 
+    /// Desktop.control.state, or for a Runtime without Desktop.control the
+    /// state its active Run implies (running / stopping), so stale answers
+    /// are still cleared (Codex P2 on e2fec73). nil: nothing to go by.
+    public static func effectiveState(desktop: JSONValue, activeRuns: [JSONValue]) -> String? {
+        if let s = desktop["control"]?["state"]?.stringValue { return s }
+        guard let run = activeRuns.first(where: { $0["desktopId"] == desktop["desktopId"] }) else { return nil }
+        if run["phase"]?.stringValue == "stopping" { return "stopping" }
+        return run["origin"]?.stringValue == "user" ? "manual" : "running"
+    }
+
     /// Words and tone per Desktop.control.state. "已停止" only for
     /// `stopped`, which the Runtime reports once nothing is in flight.
     public static func status(_ state: String) -> StatusText {
@@ -255,6 +265,7 @@ public final class DesktopControlFlow: ObservableObject {
     // MARK: Stop (P14, P15)
 
     public func stop() async {
+        guard working == nil, await clearOfUnknown(.stop) else { return }
         await perform(.stop) {
             let r = try await runtime.call("desktop.stop", idParams)
             stopReceipt = r
@@ -268,7 +279,7 @@ public final class DesktopControlFlow: ObservableObject {
     /// the Runtime gave it; a stop_pending or superseded answer starts
     /// nothing.
     public func takeover() async {
-        guard working == nil else { return }
+        guard working == nil, await clearOfUnknown(.takeover) else { return }
         working = .takeover
         problems[.takeover] = nil
         do {
@@ -363,6 +374,7 @@ public final class DesktopControlFlow: ObservableObject {
     /// launched, a Run started) the new plan is shown and nothing closes.
     public func close() async {
         guard let shown = closePlan, shown["canClose"]?.boolValue == true else { return }
+        guard working == nil, await clearOfUnknown(.close) else { return }
         await perform(.close) {
             let fresh = try await runtime.call("desktop.closePlan", idParams)
             guard fresh == shown else {
@@ -383,6 +395,7 @@ public final class DesktopControlFlow: ObservableObject {
     }
 
     public func quit(pid: Int) async {
+        guard working == nil, await clearOfUnknown(.quit) else { return }
         await perform(.quit) {
             quitAnswers[pid] = try await runtime.call("app.quit", .obj([("desktopId", .string(desktopId)), ("pid", .int(pid))]))
         }
@@ -394,6 +407,7 @@ public final class DesktopControlFlow: ObservableObject {
     }
 
     public func resize(width: Int, height: Int) async {
+        guard working == nil, await clearOfUnknown(.resize) else { return }
         await perform(.resize) {
             resized = try await runtime.call("desktop.resize", .obj([("desktopId", .string(desktopId)), ("width", .int(width)),
                                                                      ("height", .int(height))]))
@@ -420,11 +434,39 @@ public final class DesktopControlFlow: ObservableObject {
     /// "已交还" never sits over a newer state (called each update round
     /// with the Desktop's current Desktop.control.state).
     public func settle(state: String?) {
+        observedState = state
         guard let state, working == nil else { return }
         if case .quiescent = stopProgress, state != "stopped" { stopReceipt = nil; stoppedRun = nil }
         if case .done = takeoverAnswer, state != "manual" { takeoverAnswer = nil }
         if handbackAnswer != nil, !["ready", "running"].contains(state) { handbackAnswer = nil }
         if resized != nil, state != "ready", state != "running", state != "manual" { resized = nil }
+    }
+
+    /// The Desktop's state as last seen (settle). While it is `unknown`
+    /// nothing that would change the Desktop is sent before the P17 review
+    /// (Codex P1/P2 on e2fec73): stop, takeover, close, app.quit, resize.
+    @Published public private(set) var observedState: String?
+
+    public var reviewPending: Bool { observedState == "unknown" }
+
+    public static let reviewFirst = RuntimeProblem(code: "unknown_result_pending", title: "先核对上一个动作的结果",
+                                                   advice: "上一个动作结果未知。先在「核对动作结果」里重新观察，再决定是否结束；在此之前不停止、不接管、不关闭、不退出应用、不改尺寸。")
+
+    /// The Desktop's current Desktop.control.state, read now (desktop.show):
+    /// the last refusal before a change, in case the page has not seen an
+    /// unknown result yet.
+    func freshlyUnknown() async throws -> Bool {
+        let d = try await runtime.call("desktop.show", idParams)
+        let state = d["control"]?["state"]?.stringValue
+        if let state { observedState = state }
+        return state == "unknown"
+    }
+
+    /// Refuses `op` while an unknown result awaits review; true when it may go.
+    func clearOfUnknown(_ op: Operation) async -> Bool {
+        if reviewPending { problems[op] = Self.reviewFirst; return false }
+        if (try? await freshlyUnknown()) == true { problems[op] = Self.reviewFirst; return false }
+        return true
     }
 
     /// After stop_pending: the holder is quiescent, a new takeover may go.
@@ -530,7 +572,7 @@ public final class DesktopStops: ObservableObject {
         for (id, f) in flows {
             await f.refresh()
             if let d = store.desktops.first(where: { $0["desktopId"]?.stringValue == id }) {
-                f.settle(state: DesktopControlInfo.make(desktop: d, activeRuns: store.activeRuns).state)
+                f.settle(state: DesktopControlInfo.effectiveState(desktop: d, activeRuns: store.activeRuns))
             }
         }
         objectWillChange.send()

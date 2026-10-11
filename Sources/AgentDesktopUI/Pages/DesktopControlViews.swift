@@ -140,6 +140,7 @@ struct TakeoverDialog: View {
                 if let a = flow.takeoverAnswer, let t = DesktopControlFlow.takeoverText(a) {
                     ControlNotice(title: t.title, detail: t.detail, tone: .attention, code: t.code)
                 }
+                if let p = flow.problems[.takeover] { ProblemView(p) }
             }
             .padding(ADSpace.xl)
             HStack {
@@ -159,7 +160,7 @@ struct TakeoverDialog: View {
     /// After stop_pending a new takeover waits for the holder to be quiet
     /// (Codex P2 on 4dc1360).
     static func canSend(_ flow: DesktopControlFlow) -> Bool {
-        guard flow.working == nil else { return false }
+        guard flow.working == nil, !flow.reviewPending else { return false }
         if case .stopPending = flow.takeoverAnswer { return flow.holderQuiescent }
         return true
     }
@@ -211,7 +212,8 @@ struct CloseDesktopDialog: View {
                 }
                 Button { Task { await flow.close() } } label: { Label("关闭 Desktop", systemImage: "xmark") }
                     .buttonStyle(ADButtonStyle(.danger))
-                    .disabled(!methods.has("desktop.destroy") || flow.closePlan?["canClose"]?.boolValue != true || flow.working != nil)
+                    .disabled(!methods.has("desktop.destroy") || flow.closePlan?["canClose"]?.boolValue != true || flow.working != nil
+                              || flow.reviewPending)
                     .help(methods.has("desktop.destroy") ? "" : DesktopControlMethods.missing("desktop.destroy"))
             }
             .padding(ADSpace.xl)
@@ -380,7 +382,7 @@ struct DesktopManagePanel: View {
                         }
                         Spacer()
                         Button("退出") { Task { await flow.quit(pid: pid) } }.buttonStyle(ADButtonStyle(.secondary))
-                            .disabled(!methods.has("app.quit") || flow.working != nil)
+                            .disabled(!methods.has("app.quit") || flow.working != nil || flow.reviewPending)
                             .help(methods.has("app.quit") ? "只结束这个 Desktop 启动的进程" : DesktopControlMethods.missing("app.quit"))
                     }
                 }
@@ -409,7 +411,7 @@ struct DesktopManagePanel: View {
                     }
                 }
                 .frame(width: 90)
-                .disabled(isPhysical || !methods.has("desktop.resize") || flow.working != nil)
+                .disabled(isPhysical || !methods.has("desktop.resize") || flow.working != nil || flow.reviewPending)
                 .help(isPhysical ? "物理 Desktop 的显示器是你的，尺寸不变" : (methods.has("desktop.resize") ? "调整后之前的观察失效" : DesktopControlMethods.missing("desktop.resize")))
             }
         }
