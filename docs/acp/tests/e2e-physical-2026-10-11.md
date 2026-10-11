@@ -28,4 +28,4 @@
 
 基于该连接创建 `UI-TARS v1` 测试 GUI 配置和模型配置。能力测试以 `doubao-seed-2-1-pro-260628` 运行，T1 通过、T2 HTTP 404 / `UPSTREAM_PROTOCOL_ERROR`；改用“获取模型”返回的 `doubao-pro-128k-240515` 后，T2 HTTP 404 / `MODEL_NOT_FOUND`。核对账号开通状态后改用 `doubao-seed-2-1-lite-260915`，真实能力测试 T1 网络、T2 认证/模型、T3 图像输入、T4 GUI 输出全部通过，且未执行桌面输入；该模型的 GUI profile 成为默认（指针 d2）。
 
-续测发现空闲超过一分钟后，首次截图的磁盘剩余容量查询在异步刷新完成前返回 `disk_unknown` / `limit_exceeded`。修补版允许短暂等待刷新，同时在 macOS 可选容量属性缺失时回退到 `statfs`；隔离副本首个真实 Run 越过该检查，后续回归测试 `idleScreenshotWaitsForFreshCapacity` 通过。另一次观察因 Orca 窗口遮挡 Calculator 返回 `stale_observation` / `occluded`，这是窗口隔离检查；临时隐藏遮挡窗口后，`run_958627b54623` 成功观察、推理和执行 2 次点击。该 Run 最终因模型第三步输出 `invalid_action` 失败；结果不算目标完成，且未继续消耗凭据尝试其他模型。
+续测发现空闲超过一分钟后，首次截图的磁盘剩余容量查询在异步刷新完成前返回 `disk_unknown` / `limit_exceeded`。修补版允许短暂等待刷新，同时在 macOS 可选容量属性缺失时回退到 `statfs`；隔离副本首个真实 Run 越过该检查，后续回归测试 `idleScreenshotWaitsForFreshCapacity` 通过。另一次观察因 Orca 窗口遮挡 Calculator 返回 `stale_observation` / `occluded`，这是窗口隔离检查；临时隐藏遮挡窗口后，`run_958627b54623` 成功观察、推理和执行 2 次点击。该 Run 最终因模型第三步输出 `invalid_action` 失败；结果不算目标完成。另一次取消演练在截图前因 Chrome 窗口遮挡 Calculator 被拒绝，未形成有效的取消验收。两次遮挡均未造成额外桌面输入。
