@@ -1,4 +1,5 @@
 import Foundation
+import SecondScreenCore
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -49,6 +50,10 @@ enum MCPServer {
         case "tools/list":
             return result(id, ["tools": tools.map(\.definition)])
         case "tools/call":
+            // No hover tool (#263): a client that still asks gets the engine's reason.
+            if params["name"] as? String == "hover" {
+                return result(id, ["content": [["type": "text", "text": InputAction.hoverRefusal]], "isError": true])
+            }
             guard let name = params["name"] as? String, let tool = tools.first(where: { $0.name == name }) else {
                 return failure(id, code: -32602, "unknown tool")
             }
@@ -228,11 +233,6 @@ enum MCPServer {
                  if a["double"] as? Bool == true { w.append("--double") }
                  return w
              }),
-        Tool(name: "hover",
-             description: "Rest the pointer on an element or global point in the background, without clicking, to open a menu or panel a page shows on hover. Then click its options as usual.",
-             properties: windowTarget.merging(elementTarget) { $1 }.merging(pointTarget) { $1 },
-             required: ["screen", "pid"],
-             words: { a in ["hover"] + targetWords(a) + elementWords(a) + pointWords(a) }),
         Tool(name: "type",
              description: "Type text into an element (by index or text), or into the focused one.",
              properties: windowTarget.merging(elementTarget) { $1 }.merging([
