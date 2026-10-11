@@ -558,10 +558,13 @@ struct ExplorerRunDetailView: View {
     static let stageNames = ["观察", "模型建议", "实际动作", "重新观察", "条件验证"]
 
     var stages: some View {
-        let current = ended ? 6 : loader.timeline.stage
+        let current = ended ? 0 : loader.timeline.stage
+        let reached = loader.timeline.reachedStages
         return HStack(spacing: ADSpace.s) {
             ForEach(0..<5, id: \.self) { i in
-                let done = i + 1 < current || ended
+                // Ended: only the stages the events reached; running: those
+                // before the current one.
+                let done = ended ? reached.contains(i + 1) : i + 1 < current
                 let now = i + 1 == current
                 VStack(alignment: .leading, spacing: ADSpace.xs) {
                     Rectangle().fill(done || now ? ADColor.primary : ADColor.line).frame(height: now ? 3 : 2)
@@ -579,8 +582,8 @@ struct ExplorerRunDetailView: View {
         let t = loader.timeline
         let suffix = ended ? "结束时" : "最近一次进度"
         return HStack(spacing: ADSpace.m) {
-            stat("已用步数", t.stepBudget.map { "\(t.stepsUsed) / \($0)" } ?? "\(t.stepsUsed)", suffix)
-            stat("剩余步数", t.progress.map { "\($0.stepsLeft)" } ?? "—", suffix)
+            stat("已用步数", t.stepBudget.map { "\(t.stepsUsed) / \($0)" } ?? "\(t.stepsUsed)", "已运行的决策步")
+            stat("剩余步数", t.progress.map { "\($0.stepsLeft)" } ?? "—", "最近一步开始时")
             stat("剩余推理次数", t.progress.map { "\($0.attemptsLeft)" } ?? "—", "单次运行合计")
             stat("剩余秒数", t.progress.map { "\($0.secondsLeft)" } ?? "—", suffix)
         }

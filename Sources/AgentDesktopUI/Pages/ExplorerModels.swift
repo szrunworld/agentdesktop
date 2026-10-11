@@ -185,10 +185,14 @@ public struct ExplorerTimeline: Equatable, Sendable {
     public private(set) var needsInput: String?
     /// The five P28 stages: 1 观察, 2 模型建议, 3 实际动作, 4 重新观察, 5 条件验证.
     public private(set) var stage = 0
+    /// Every stage the events show the Run reached (an ended Run marks only
+    /// these complete, never the ones it skipped).
+    public private(set) var reachedStages: Set<Int> = []
 
     public static func == (a: ExplorerTimeline, b: ExplorerTimeline) -> Bool {
         a.steps == b.steps && a.observations == b.observations && a.verifications == b.verifications
             && a.recoveries == b.recoveries && a.needsInput == b.needsInput && a.stage == b.stage
+            && a.reachedStages == b.reachedStages
             && a.progress?.stepIndex == b.progress?.stepIndex && a.progress?.stepsLeft == b.progress?.stepsLeft
             && a.progress?.attemptsLeft == b.progress?.attemptsLeft && a.progress?.secondsLeft == b.progress?.secondsLeft
     }
@@ -240,6 +244,7 @@ public struct ExplorerTimeline: Equatable, Sendable {
             default:
                 break
             }
+            if stage > 0 { reachedStages.insert(stage) }
         }
     }
 
@@ -260,8 +265,13 @@ public struct ExplorerTimeline: Equatable, Sendable {
     public var allActions: [ExplorerAction] { steps.flatMap(\.actions) }
     public var latestVerification: ExplorerVerification? { verifications.last }
 
-    /// "已用步数": the latest progress' stepIndex, else the steps seen.
-    public var stepsUsed: Int { progress?.stepIndex ?? steps.count }
+    /// "已用步数": decision steps that actually ran (a model call, a
+    /// proposal, a rejection or an input). unit.progress' stepIndex is the
+    /// zero-based index of the step about to run, so it would undercount
+    /// a Run that ends inside its current step.
+    public var stepsUsed: Int {
+        steps.filter { $0.modelAttempts > 0 || $0.proposal != nil || $0.rejected != nil || !$0.actions.isEmpty }.count
+    }
     /// The step budget the Run had (used + left), when progress is known.
     public var stepBudget: Int? { progress.map { $0.stepIndex + $0.stepsLeft } }
 }
