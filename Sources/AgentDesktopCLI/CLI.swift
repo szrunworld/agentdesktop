@@ -37,8 +37,24 @@ struct CLI {
         (try? credentialStore().load(endpoint: endpoint.path, profile: profile ?? self.profile)) ?? nil
     }
 
-    func client(_ endpoint: Endpoint) -> RuntimeClient {
-        makeClient?(endpoint) ?? SocketRuntimeClient(endpoint: endpoint, info: CLI.clientInfo, credential: credential(for: endpoint))
+    /// Up to three confirmations are admitted, each with 120 seconds
+    /// once it reaches the trusted UI. Include 30 seconds for dispatch
+    /// and post-confirmation checks, matching ACPWindowRequest.
+    static let confirmationReplyTimeout: Double = 3 * 120 + 30
+    // Keep the admin calls in sync with RuntimeService.confirmableMethods.
+    private static let confirmedMethods: Set<String> = [
+            "desktop.recoverBinding", "hub.windows.request", "hub.windows.revoke",
+            "runtime.enableInput", "hub.clients.list", "hub.clients.show", "hub.clients.revoke",
+            "hub.grants.list", "hub.grants.set", "hub.grants.revoke", "hub.connections.list",
+    ]
+
+    static func replyTimeout(for method: String) -> Double {
+        return confirmedMethods.contains(method) || method.hasPrefix("ai.") ? confirmationReplyTimeout : 10
+    }
+
+    func client(_ endpoint: Endpoint, timeout: Double = 10) -> RuntimeClient {
+        makeClient?(endpoint) ?? SocketRuntimeClient(endpoint: endpoint, info: CLI.clientInfo,
+                                                    timeout: timeout, credential: credential(for: endpoint))
     }
     /// Current signer comparison is diagnostic evidence, not authentication.
     var peerSigner: (Data) -> EndpointInspector.Signer = EndpointInspector.signer(auditToken:)
@@ -184,9 +200,9 @@ struct CLI {
     }
 
     /// Run one Runtime call, mapping a thrown error to output and exit code.
-    func withClient(_ out: ResultWriter, endpoint: Endpoint,
+    func withClient(_ out: ResultWriter, endpoint: Endpoint, timeout: Double = 10,
                     _ body: (RuntimeClient) throws -> Int32) -> Int32 {
-        let client = client(endpoint)
+        let client = client(endpoint, timeout: timeout)
         defer { client.close() }
         do {
             return try body(client)

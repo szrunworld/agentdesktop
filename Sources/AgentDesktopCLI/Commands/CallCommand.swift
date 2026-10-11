@@ -19,7 +19,7 @@ extension CLI {
             }
             if let action = params["action"] { params = params.setting("action", action.setting("text", .string(text))) }
         }
-        return withClient(out, endpoint: endpoint) { client in
+        return withClient(out, endpoint: endpoint, timeout: Self.replyTimeout(for: call.method.rawValue)) { client in
             _ = try client.handshake()
             if let attach, call.context.runId != nil {
                 _ = try client.call(RuntimeRequest(.runAttach, params: .obj([("runId", .string(attach.runId)),
