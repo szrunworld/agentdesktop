@@ -34,6 +34,8 @@
 
 一次按通用 bundle ID 启动测试副本时，LaunchServices 选中了另一份旧 `Agent Desktop.app` 并崩溃；崩溃二进制 UUID 为 `dc82896b-57f2-3a8f-abfc-58f54dacd27b`，本轮构建为 `d23f2e66-7292-3e3e-8a66-ac9eb3af04a6`。随后按测试副本的精确可执行文件路径启动，未将该崩溃计入本轮构建的结果。其他正在运行的 Agent Desktop/ACP 进程未被终止或改动。
 
+收尾时，窗口授权 `wg_2e2bee8206fa` 已从 owner UI 撤销，`hub.sqlite` 显示 `revoked / window_grant_revoked`；物理 Desktop 已解除挂接，空的 bootstrap Desktop 已关闭，测试副本及其独立 Chrome 进程已退出。只删除本轮 endpoint 的 `acp` Keychain 条目；其余正在运行的 Agent Desktop/ACP 进程保持原状。测试记录仍保留在隔离目录，未复制 API 密钥内容。
+
 ## 专用模型连接续测
 
 在第二个隔离测试副本 `/tmp/adt-url-fix` 中，用户亲自输入并保存专用 API 密钥；密钥未进入报告或源码。Base URL 为 `https://ark.cn-beijing.volces.com/api/v3`。旧表单在输入框显示完整 URL 时仍保留“请输入完整的 URL”错误；修补版让保存按钮先结束输入框编辑并等待一次 UI 状态同步，还会在 URL 编辑后清掉旧错误。真机验证中，使用相同 URL、未填写密钥时只出现“需要填写 API 密钥”；用户随后在修补版保存成功。“获取模型”返回的列表含该账号不可调用的旧模型，不能用作权限证明。
