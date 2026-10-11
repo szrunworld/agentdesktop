@@ -124,6 +124,12 @@ public final class RunStore: @unchecked Sendable {
         if let failure = healthLock.withLock({ writeFailure }) { throw failure }
     }
 
+    /// A write outside `write` failed (reconciliations): the store is
+    /// unhealthy from now on, as if `write` had failed.
+    func latchWriteFailure(_ error: Error) {
+        healthLock.withLock { if writeFailure == nil { writeFailure = error } }
+    }
+
     private func write<T>(_ body: () throws -> T) -> T? {
         do {
             try checkWritable()

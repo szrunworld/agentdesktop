@@ -309,3 +309,27 @@ private func storedUnknownRun(_ s: RuntimeService, clientId: String?, desktopId:
     #expect(s.runs.find(runId)?.closingReason == "stopped", "the cancel's own reason stands")
     #expect(s.runs.inboxResolution(q["inboxId"]?.stringValue ?? "") == nil, "no resolution recorded")
 }
+
+@Test func aReconciliationThatCannotBeRecordedStopsInputEverywhere() throws {
+    let sc = try scene()
+    let runId = try unknownAct(sc, id: "lost-5")
+    // The store can no longer take a reconciliation.
+    try sc.s.runs.db.execute("DROP TRIGGER reconciliations_append_only_d")
+    try sc.s.runs.db.execute("DROP TABLE reconciliations")
+    let r = reconcile(sc.s, sc.c, run: runId, action: "lost-5", verdict: "executed", revision: 0)
+    #expect(code(r) == "audit_unavailable")
+    // Fail closed: no further input is admitted (Codex P1 on dbbbc30).
+    let performed = sc.platform.performed.count
+    #expect(code(act(sc, clickContinue, id: "after-failure")) == "audit_unavailable")
+    #expect(sc.platform.performed.count == performed)
+    #expect(sc.s.execution.inputAdmission != .enabled)
+}
+
+@Test func aPageLoadsOnlyItsOwnItems() throws {
+    let sc = try scene()
+    for i in 0..<30 { storedUnknownRun(sc.s, clientId: nil, requestId: "bulk-\(i)") }
+    let page = try #require(data(call(sc.s, sc.c, "inbox.list", params: #"{"limit":5}"#)))
+    #expect(page["items"]?.arrayValue?.count == 5 && page["next"]?.stringValue != nil)
+    // Each item still carries its action as the store holds it.
+    #expect(page["items"]?.arrayValue?.allSatisfy { $0["action"]?["kind"]?.stringValue == "type" } == true)
+}

@@ -90,18 +90,28 @@ extension RunStore {
         ((try? db.query("SELECT 1 FROM (\(Self.unresolvedRunsSQL)) WHERE run_id = ?", [.text(runId)]))?.isEmpty == false)
     }
 
-    struct UnknownActionRow { var runId: String; var requestId: String; var at: String }
+    struct UnknownActionRow {
+        var runId: String; var requestId: String; var at: String
+        /// The latest reconciliation's verdict, if any: settled (open no
+        /// more) when executed or not_executed. Read without loading the item.
+        var latestVerdict: String?
+        var settled: Bool { latestVerdict.map { $0 != "still_unknown" } ?? false }
+    }
 
     /// Actions whose delivery is unknown, of Runs still kept, optionally of
     /// one Run, one client's Runs or one Desktop.
     func unknownActionRows(runId: String?, clientId: String?, desktopId: String?) -> [UnknownActionRow] {
-        var sql = "SELECT o.run_id, o.request_id, o.at FROM action_outcomes o JOIN runs r ON r.run_id = o.run_id WHERE o.outcome = 'unknown'"
+        var sql = """
+            SELECT o.run_id, o.request_id, o.at, (SELECT c.verdict FROM reconciliations c WHERE c.run_id = o.run_id
+              AND c.request_id = o.request_id ORDER BY c.seq DESC LIMIT 1)
+            FROM action_outcomes o JOIN runs r ON r.run_id = o.run_id WHERE o.outcome = 'unknown'
+            """
         var args: [SQLiteDatabase.Value] = []
         if let runId { sql += " AND o.run_id = ?"; args.append(.text(runId)) }
         if let clientId { sql += " AND r.client_id = ?"; args.append(.text(clientId)) }
         if let desktopId { sql += " AND r.desktop_id = ?"; args.append(.text(desktopId)) }
         return ((try? db.query(sql, args)) ?? []).map {
-            UnknownActionRow(runId: $0[0] as! String, requestId: $0[1] as! String, at: $0[2] as! String)
+            UnknownActionRow(runId: $0[0] as! String, requestId: $0[1] as! String, at: $0[2] as! String, latestVerdict: $0[3] as? String)
         }
     }
 
@@ -112,14 +122,14 @@ extension RunStore {
                        [.text(runId), .text(requestId)]).first?[0]) as? String
     }
 
-    struct QuestionRow { var runId: String; var firstAt: String; var reason: String }
+    struct QuestionRow { var runId: String; var firstAt: String; var reason: String; var waiting: Bool }
 
     /// Runs that waited for a person (unit.needs_input), with when they first
     /// did and the latest reason.
     func questionRows(runId: String?, clientId: String?, desktopId: String?) -> [QuestionRow] {
         var sql = """
             SELECT e.run_id, MIN(e.at), (SELECT e2.data FROM events e2 WHERE e2.run_id = e.run_id AND e2.type = 'unit.needs_input'
-              ORDER BY e2.seq DESC LIMIT 1)
+              ORDER BY e2.seq DESC LIMIT 1), r.phase
             FROM events e JOIN runs r ON r.run_id = e.run_id WHERE e.type = 'unit.needs_input'
             """
         var args: [SQLiteDatabase.Value] = []
@@ -130,7 +140,20 @@ extension RunStore {
         return ((try? db.query(sql, args)) ?? []).map { row in
             let data = (row[2] as? String).flatMap { try? StrictJSON.parse($0) }
             return QuestionRow(runId: row[0] as! String, firstAt: row[1] as! String,
-                               reason: String((data?["reason"]?.stringValue ?? "").prefix(128)))
+                               reason: String((data?["reason"]?.stringValue ?? "").prefix(128)),
+                               waiting: (row[3] as? String) == RunRecord.Phase.waitingInput.rawValue)
+        }
+    }
+
+    /// The events of one action of a Run (accepted, dispatched, its
+    /// result), found by its requestId without reading the Run's others.
+    func actionEvents(runId: String, requestId: String) -> [JSONValue] {
+        ((try? db.query("""
+            SELECT seq, at, type, data FROM events WHERE run_id = ? AND type LIKE 'action.%'
+              AND (json_extract(data, '$.requestId') = ? OR json_extract(data, '$.receipt.requestId') = ?) ORDER BY seq
+            """, [.text(runId), .text(requestId), .text(requestId)])) ?? []).map { r in
+            .obj([("runId", .string(runId)), ("sequence", .int(Int(r[0] as! Int64))), ("at", .string(r[1] as! String)),
+                  ("type", .string(r[2] as! String)), ("data", (try? StrictJSON.parse(r[3] as! String)) ?? .obj([]))])
         }
     }
 

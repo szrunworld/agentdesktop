@@ -116,45 +116,62 @@ extension RuntimeService {
                           action: nil, question: .obj([("reason", .string(row.reason))]), resolution: resolution)
     }
 
-    /// Every Inbox item the filters select, newest first. `clientId` narrows
-    /// to one client's Runs (always the caller's own for a paired client).
-    func inboxEntries(kind: String?, runId: String?, clientId: String?, desktopId: String?) -> [InboxEntry] {
-        var out: [InboxEntry] = []
-        var cache: [String: (RunRecord, [JSONValue])] = [:]
-        func run(_ id: String) -> (RunRecord, [JSONValue])? {
-            if let hit = cache[id] { return hit }
-            guard let r = runs.find(id) else { return nil }
-            let v = (r, runs.events(id, after: 0, limit: 100_000))
-            cache[id] = v
-            return v
-        }
+    /// An item before it is loaded: enough to filter, order and page it
+    /// from one row of the store (Codex on dbbbc30: only a page is loaded).
+    struct InboxStub {
+        var inboxId: String
+        var createdAt: String
+        var open: Bool
+        var unknown: RunStore.UnknownActionRow?
+        var question: RunStore.QuestionRow?
+    }
+
+    /// Every Inbox item the filters select, newest first, not yet loaded.
+    /// `clientId` narrows to one client's Runs (always the caller's own for
+    /// a paired client).
+    func inboxStubs(kind: String?, runId: String?, clientId: String?, desktopId: String?) -> [InboxStub] {
+        var out: [InboxStub] = []
         if kind == nil || kind == InboxEntry.Kind.unknownReference.rawValue {
-            for row in runs.unknownActionRows(runId: runId, clientId: clientId, desktopId: desktopId) {
-                guard let hit = run(row.runId) else { continue }
-                out.append(unknownEntry(row, run: hit.0, events: hit.1))
+            out += runs.unknownActionRows(runId: runId, clientId: clientId, desktopId: desktopId).map {
+                InboxStub(inboxId: RunStore.unknownInboxId(runId: $0.runId, requestId: $0.requestId), createdAt: $0.at,
+                          open: !$0.settled, unknown: $0)
             }
         }
         if kind == nil || kind == InboxEntry.Kind.question.rawValue {
-            for row in runs.questionRows(runId: runId, clientId: clientId, desktopId: desktopId) {
-                guard let r = runs.find(row.runId) else { continue }
-                out.append(questionEntry(row, run: r))
+            out += runs.questionRows(runId: runId, clientId: clientId, desktopId: desktopId).map {
+                InboxStub(inboxId: RunStore.questionInboxId(runId: $0.runId), createdAt: $0.firstAt, open: $0.waiting, question: $0)
             }
         }
         return out.sorted { ($0.createdAt, $0.inboxId) > ($1.createdAt, $1.inboxId) }
+    }
+
+    /// Load one item: its Run, the events of its action, its reconciliations.
+    func inboxEntry(_ stub: InboxStub) -> InboxEntry? {
+        if let row = stub.unknown {
+            guard let r = runs.find(row.runId) else { return nil }
+            return unknownEntry(row, run: r, events: runs.actionEvents(runId: row.runId, requestId: row.requestId))
+        }
+        if let row = stub.question {
+            guard let r = runs.find(row.runId) else { return nil }
+            return questionEntry(row, run: r)
+        }
+        return nil
     }
 
     /// The item with this id the caller may see, or not_found (another
     /// client's item does not exist for it; the attempt is audited).
     func visibleInboxEntry(_ inboxId: String, _ c: ConnectionState) -> Result<InboxEntry, RuntimeError> {
         let mine = isOwner(c) ? nil : c.clientId
-        var found: InboxEntry?
+        var stub: InboxStub?
         if inboxId.hasPrefix("inb_q_") {
             let runId = String(inboxId.dropFirst("inb_q_".count))
-            found = inboxEntries(kind: InboxEntry.Kind.question.rawValue, runId: runId, clientId: nil, desktopId: nil).first
+            stub = inboxStubs(kind: InboxEntry.Kind.question.rawValue, runId: runId, clientId: nil, desktopId: nil).first
         } else if inboxId.hasPrefix("inb_u_") {
-            found = inboxEntries(kind: InboxEntry.Kind.unknownReference.rawValue, runId: nil, clientId: nil, desktopId: nil)
+            // Rows only (no Run or event is loaded) until the one that matches.
+            stub = inboxStubs(kind: InboxEntry.Kind.unknownReference.rawValue, runId: nil, clientId: nil, desktopId: nil)
                 .first { $0.inboxId == inboxId }
         }
+        let found = stub.flatMap(inboxEntry)
         guard let found else { return .failure(.notFound("no inbox item \(inboxId)")) }
         if let mine, found.run.clientId != mine {
             hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: "inbox", decision: "denied",
@@ -169,8 +186,8 @@ extension RuntimeService {
         let state = p["state"]?.stringValue ?? "open"
         // A paired client: its own Runs, whatever clientId it names.
         let clientId = isOwner(c) ? p["clientId"]?.stringValue : c.clientId
-        var items = inboxEntries(kind: p["kind"]?.stringValue, runId: p["runId"]?.stringValue, clientId: clientId,
-                                 desktopId: p["desktopId"]?.stringValue)
+        var items = inboxStubs(kind: p["kind"]?.stringValue, runId: p["runId"]?.stringValue, clientId: clientId,
+                               desktopId: p["desktopId"]?.stringValue)
         if state != "all" { items = items.filter { $0.open == (state == "open") } }
         if let cursor = p["cursor"]?.stringValue {
             let parts = cursor.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
@@ -186,7 +203,9 @@ extension RuntimeService {
             next = items.last.map { "\($0.createdAt)|\($0.inboxId)" }
         }
         let full = isOwner(c)
-        return .success(.obj([("items", .array(items.map { $0.json(withReconciliations: false, full: full) })),
+        // Only the page is loaded.
+        let page = items.compactMap(inboxEntry)
+        return .success(.obj([("items", .array(page.map { $0.json(withReconciliations: false, full: full) })),
                               ("next", next.map(JSONValue.string) ?? .null)]))
     }
 
@@ -242,7 +261,13 @@ extension RuntimeService {
         }
         // Who resolved it, beside the Run's own record. The stop stands even
         // if this note cannot be written: the item then reads run_ended.
-        try? runs.recordInboxResolution(entry.inboxId, how: "run_cancelled", by: c.clientId, requestId: request.requestId)
+        do {
+            try runs.recordInboxResolution(entry.inboxId, how: "run_cancelled", by: c.clientId, requestId: request.requestId)
+        } catch {
+            // The stop stands; the store that could not record it is unhealthy.
+            runs.latchWriteFailure(error)
+            execution.auditStorageFailed()
+        }
         let item = visibleInboxEntry(entry.inboxId, c).map { $0.json(withReconciliations: true, full: true) }
         return item.map { .obj([("item", $0), ("stop", stop)]) }
     }
@@ -258,8 +283,8 @@ extension RuntimeService {
         switch runs.actionOutcome(runId: runId, requestId: actionId) {
         case "unknown"?:
             break
-        case nil where !runs.events(runId, after: 0, limit: 100_000).contains(where: {
-            $0["type"]?.stringValue == "action.accepted" && $0["data"]?["requestId"]?.stringValue == actionId
+        case nil where !runs.actionEvents(runId: runId, requestId: actionId).contains(where: {
+            $0["type"]?.stringValue == "action.accepted"
         }):
             return .failure(.notFound("no action \(actionId) in run \(runId)"))
         default:
@@ -288,6 +313,10 @@ extension RuntimeService {
         } catch let e as RuntimeStoreError where e.isRevisionMismatch {
             return .failure(Self.revisionConflict(Int(e.description) ?? 0, expected))
         } catch {
+            // Fail closed, as any other audit write (Codex P1 on dbbbc30): the
+            // store is latched unhealthy and input stops everywhere.
+            runs.latchWriteFailure(error)
+            execution.auditStorageFailed()
             return .failure(RuntimeError("audit_unavailable", "the reconciliation could not be recorded: \(error)", phase: .handler,
                                          notSent: true))
         }
