@@ -6,9 +6,11 @@ import Foundation
 // methods and state. Only that lane edits this file.
 //
 // What it models (A6, docs/ai-gui/a6-unit-run-draft.md; X1-1, X1-2):
-// - `unit.run` on the wire: always a Delegated Run (agent_hub /
-//   external_client / connection_scoped); origin / lifetime / ownership in
-//   params are refused with ownership_escalation_denied.
+// - Delegated unit Runs (what a connection's `unit.run` makes: agent_hub /
+//   external_client / connection_scoped) for sample history, through
+//   `addUnitRun(durable: false)`. `unit.run` itself is not offered on the
+//   mock's wire: the main window never calls it, and the shared mock tests
+//   keep it among the methods the mock does not model.
 // - The main window's in-process entry, `startDurableUnitRun(params:)`, the
 //   same shape as `RuntimeService.startDurableUnitRun`: a Durable Run
 //   (gui_explorer / platform / platform_durable). It is not a runtime/1
@@ -52,16 +54,22 @@ final class MockExplorerLane: @unchecked Sendable {
 
 extension MockRuntime {
     /// Methods lane UI-E models (each must be in RuntimeCatalog.implemented).
-    static let explorerLaneMethods: [String] = ["unit.run"]
+    static let explorerLaneMethods: [String] = []
 
     /// Lane UI-E's answer to one of `explorerLaneMethods` (lock held).
     func explorerLane(_ method: String, _ p: JSONValue, context: RequestContext) throws -> JSONValue {
-        switch method {
-        case "unit.run":
-            // A connection's unit.run: Delegated, never Durable.
-            return try beginUnitRunLocked(p, durable: false).get()
-        default:
-            throw RuntimeError.capabilityMissing("the mock does not model \(method)")
+        throw RuntimeError.capabilityMissing("the mock does not model \(method)")
+    }
+
+    /// A connection's unit Run (Delegated), as `unit.run` on the wire makes
+    /// it; for tests and sample history.
+    public func startDelegatedUnitRun(params: JSONValue) -> Result<JSONValue, RuntimeError> {
+        lock.withLock {
+            let violations = contract.validate(params, "unit_run_params")
+            guard violations.isEmpty else {
+                return .failure(RuntimeError.schemaInvalid("params break unit_run_params", violations: violations))
+            }
+            return beginUnitRunLocked(params, durable: false)
         }
     }
 
@@ -131,7 +139,7 @@ extension MockRuntime {
         defer { explorerScenario = previous }
         let params = Self.sampleUnitParams(desktopId: desktopId, description: description)
         let started: Result<JSONValue, RuntimeError> = durable ? startDurableUnitRun(params: params)
-            : lock.withLock { beginUnitRunLocked(params, durable: false) }
+            : startDelegatedUnitRun(params: params)
         guard case let .success(run) = started, let runId = run["runId"]?.stringValue else { return nil }
         if let steps { advanceUnitRun(runId, steps: steps) } else { finishUnitRun(runId) }
         return runId

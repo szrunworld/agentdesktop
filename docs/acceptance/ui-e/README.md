@@ -39,7 +39,7 @@
 
 | 测试 | 断言 |
 | --- | --- |
-| `wireUnitRunIsAlwaysDelegated` | 线上 `unit.run` 是 agent_hub / external_client / connection_scoped；参数带 origin / lifetime / ownership 一律 `ownership_escalation_denied` |
+| `connectionRunsAreDelegatedAndNeverEscalate` | 连接发起的 unit Run（线上 `unit.run` 的形状）是 agent_hub / external_client / connection_scoped；两种入口的参数带 origin / lifetime / ownership 一律 `ownership_escalation_denied`；Mock 不在线上提供 `unit.run`（共享 Mock 测试要求它不在建模列表里） |
 | `durableStartIsPlatformOwnedAndInTheSameRunList` | 进程内发起是 gui_explorer / platform / platform_durable，出现在同一个 `run.list` 里；`callLog` 里没有 `unit.run` |
 | `admissionRefusalsCreateNoRun` | `control_busy`、`unsupported_backend / gui_execution_off` 时不建 Run |
 | `eventsFollowTheContractAndCarryNoText` | 四种剧本的 unit 事件全部符合 `UnitRunEvent`，事件里没有目标、完成文字或参数值 |

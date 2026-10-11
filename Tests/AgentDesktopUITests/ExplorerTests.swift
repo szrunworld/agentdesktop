@@ -13,22 +13,23 @@ import Testing
 struct ExplorerTests {
     // MARK: Mock: one RunStore, two ways in
 
-    @Test func wireUnitRunIsAlwaysDelegated() async throws {
-        #expect(RuntimeCatalog.implemented.contains("unit.run"))
-        #expect(MockRuntime.modeled.contains("unit.run"))
+    @Test func connectionRunsAreDelegatedAndNeverEscalate() async throws {
+        // The main window has no wire unit.run in the mock at all.
+        #expect(!MockRuntime.modeled.contains("unit.run"))
         let m = MockRuntime.sample()
         let calc = try #require(m.desktopIds.last)
-        let run = try await m.call("unit.run", MockRuntime.sampleUnitParams(desktopId: calc))
+        let run = try m.startDelegatedUnitRun(params: MockRuntime.sampleUnitParams(desktopId: calc)).get()
         #expect(run["kind"]?.stringValue == "unit")
         #expect(run["origin"]?.stringValue == "agent_hub")
         #expect(run["ownership"]?.stringValue == "external_client")
         #expect(run["lifetime"]?.stringValue == "connection_scoped")
-        // origin / lifetime / ownership in params are refused on the wire.
+        // origin / lifetime / ownership in params are refused either way.
         for (k, v) in [("origin", "gui_explorer"), ("lifetime", "platform_durable"), ("ownership", "platform")] {
             let m2 = MockRuntime.sample()
             let p = MockRuntime.sampleUnitParams(desktopId: try #require(m2.desktopIds.last)).setting(k, .string(v))
-            await #expect { try await m2.call("unit.run", p) } throws: { ($0 as? RuntimeError)?.code == "ownership_escalation_denied" }
-            #expect(m2.durableStartCalls.isEmpty)
+            for result in [m2.startDelegatedUnitRun(params: p), m2.startDurableUnitRun(params: p)] {
+                if case let .failure(e) = result { #expect(e.code == "ownership_escalation_denied") } else { Issue.record("\(k) not refused") }
+            }
         }
         #expect(m.contractViolations.isEmpty && m.explorerContractViolations.isEmpty)
     }
