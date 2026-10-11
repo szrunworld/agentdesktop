@@ -195,6 +195,7 @@ public struct DesktopInspectorView: View {
     @StateObject private var control: DesktopControlFlow
     @State private var zoom: PreviewZoom = .fit
     @State private var review: UnknownResultReview?
+    @State private var reviewProblem: RuntimeProblem?
     /// Hiding the picture releases the live frame; it never touches
     /// control or Runs (UC14).
     @State private var showPicture = true
@@ -262,15 +263,38 @@ public struct DesktopInspectorView: View {
     }
 
     /// The newest unknown action of the Run named by Desktop.control.
-    func unknownEntry(_ info: DesktopControlInfo) -> ActionEntry? {
-        let unknown = activity.actions.filter { $0.presentation.level == .unknown }
-        return unknown.first { $0.runId == info.controllerRunId } ?? unknown.first
+    /// Opens P17 for the Run Desktop.control names, read by its runId
+    /// (not from the Store's truncated Run snapshot; Codex P2 on acd2591).
+    func openReview(_ info: DesktopControlInfo) async {
+        guard let runId = info.controllerRunId else { return }
+        reviewProblem = nil
+        do {
+            guard let e = try await Self.unknownEntry(runtime: store.runtime, runId: runId) else {
+                reviewProblem = RuntimeProblem(code: "not_found", title: "找不到结果未知的动作",
+                                               advice: "运行 \(runId) 的事件里没有结果未知的动作；请在 Runs 中查看这个运行。")
+                return
+            }
+            review = UnknownResultReview(runtime: store.runtime, desktopId: desktopId, entry: e)
+            control.dialog = .unknown(requestId: e.requestId)
+        } catch {
+            reviewProblem = RuntimeProblem(error)
+        }
     }
 
-    func openReview(_ info: DesktopControlInfo) {
-        guard let e = unknownEntry(info) else { return }
-        review = UnknownResultReview(runtime: store.runtime, desktopId: desktopId, entry: e)
-        control.dialog = .unknown(requestId: e.requestId)
+    /// The newest unknown action of one Run, from its own events.
+    static func unknownEntry(runtime: RuntimePort, runId: String) async throws -> ActionEntry? {
+        let reader = RunEventReader(runId: runId)
+        _ = try await reader.pull(runtime)
+        return await reader.actions(runtime).first { $0.presentation.level == .unknown }
+    }
+
+    /// Why closing is off, or nil (an unknown result is reviewed first;
+    /// Codex P1 on acd2591).
+    static func closeBlocked(_ info: DesktopControlInfo?, methods: DesktopControlMethods, connected: Bool) -> String? {
+        if !connected { return "Runtime 未连接" }
+        if !methods.has("desktop.closePlan") { return DesktopControlMethods.missing("desktop.closePlan") }
+        if info?.state == "unknown" { return "先核对上一个动作的结果" }
+        return nil
     }
 
     public var body: some View {
@@ -301,8 +325,9 @@ public struct DesktopInspectorView: View {
                               ? "只停止这个 Desktop 的输入；先受理，静止后才显示已停止" : stopWhy)
                     Button { Task { await control.openClose() } } label: { Label("关闭", systemImage: "xmark.circle") }
                         .buttonStyle(ADButtonStyle(.secondary))
-                        .disabled(!connected || !methods.has("desktop.closePlan") || desktop == nil || control.working != nil)
-                        .help(methods.has("desktop.closePlan") ? "先列出将结束与将保留的资源" : DesktopControlMethods.missing("desktop.closePlan"))
+                        .disabled(Self.closeBlocked(info, methods: methods, connected: connected) != nil || desktop == nil
+                                  || control.working != nil)
+                        .help(Self.closeBlocked(info, methods: methods, connected: connected) ?? "先列出将结束与将保留的资源")
                 }
             }
         }) {
@@ -313,6 +338,7 @@ public struct DesktopInspectorView: View {
                             ControlNotice(title: banner.title, detail: banner.detail, tone: banner.tone,
                                           actionTitle: banner.actionTitle, action: bannerAction(banner, info))
                         }
+                        if let p = reviewProblem { ProblemView(p) }
                         DesktopControlAnswers(flow: control, takeoverAgain: takeoverBlocked(info) == nil ? {
                             Task { await control.takeover() }
                         } : nil)
@@ -384,8 +410,8 @@ public struct DesktopInspectorView: View {
             guard connected, methods.has("desktop.handback"), control.working == nil else { return nil }
             return { Task { await control.handback() } }
         case .review:
-            guard unknownEntry(info) != nil else { return nil }
-            return { openReview(info) }
+            guard info.controllerRunId != nil else { return nil }
+            return { Task { await openReview(info) } }
         case nil:
             return nil
         }

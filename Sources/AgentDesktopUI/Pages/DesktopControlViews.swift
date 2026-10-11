@@ -320,8 +320,8 @@ struct UnknownResultDialog: View {
                 Button("稍后处理") { flow.dialog = nil }.buttonStyle(ADButtonStyle(.secondary)).keyboardShortcut(.cancelAction)
                 Button {
                     Task {
-                        await flow.handback()
-                        await review.ended()
+                        // "已结束" only after the Runtime handed back (Codex P2 on acd2591).
+                        if await flow.handback() { await review.ended() }
                     }
                 } label: { Label("结束连接并保留记录", systemImage: "stop") }
                     .buttonStyle(ADButtonStyle(.primary))

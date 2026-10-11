@@ -519,3 +519,51 @@ struct DesktopControlReviewFixTests2 {
         #expect(stops.note(a) == nil)
     }
 }
+
+/// Codex findings on acd2591.
+@MainActor
+@Suite("Desktop control review fixes 3")
+struct DesktopControlReviewFixTests3 {
+    func unknownDesktop() -> (MockRuntime, String, String, String) {
+        let m = MockRuntime()
+        let a = m.addDesktop(name: "A", app: "Safari")
+        let run = m.addRun(desktopId: a)
+        let req = m.addAction(runId: run, delivery: "unknown", execution: "unknown")
+        m.endWithUnknownAction(run)
+        m.enableDesktopControl()
+        return (m, a, run, req)
+    }
+
+    // P1: closing is off while a result is unknown.
+    @Test func closingWaitsForTheReview() async throws {
+        let (m, a, _, _) = unknownDesktop()
+        let d = try await m.call("desktop.show", .obj([("desktopId", .string(a))]))
+        let i = DesktopControlInfo.make(desktop: d, activeRuns: [])
+        #expect(DesktopInspectorView.closeBlocked(i, methods: .all, connected: true) == "先核对上一个动作的结果")
+        let ready = DesktopControlInfo(state: "ready", status: DesktopControlInfo.status("ready"), controller: "", controllerRunId: nil,
+                                       clientId: nil, since: nil, actionCount: 0, transport: "", source: "")
+        #expect(DesktopInspectorView.closeBlocked(ready, methods: .all, connected: true) == nil)
+    }
+
+    // P2: the reviewed action is read from the controller Run itself, even
+    // when that Run is not in any snapshot the page holds.
+    @Test func unknownActionIsReadByRunId() async throws {
+        let (m, _, run, req) = unknownDesktop()
+        let e = try await DesktopInspectorView.unknownEntry(runtime: m, runId: run)
+        #expect(e?.requestId == req && e?.runId == run)
+        let other = m.addRun(desktopId: "desk_001")
+        #expect(try await DesktopInspectorView.unknownEntry(runtime: m, runId: other) == nil)
+    }
+
+    // P2: a failed handback reports nothing as ended.
+    @Test func failedHandbackIsNotReportedAsEnded() async throws {
+        let (m, a, _, _) = unknownDesktop()
+        let flow = DesktopControlFlow(runtime: m, desktopId: a)
+        flow.dialog = .unknown(requestId: "req_001")
+        m.failNext("desktop.handback", code: "internal_error")
+        #expect(await flow.handback() == false)
+        #expect(flow.handbackAnswer == nil && flow.dialog == .unknown(requestId: "req_001"))
+        #expect(await flow.handback() == true)
+        #expect(flow.dialog == nil)
+    }
+}

@@ -317,15 +317,19 @@ public final class DesktopControlFlow: ObservableObject {
 
     /// desktop.handback: ends the user's Run, reopens input, forgets the
     /// Desktop's observations (UC15: nothing queued is replayed).
-    public func handback() async {
+    /// True only when the Runtime answered handedBack true.
+    @discardableResult
+    public func handback() async -> Bool {
+        handbackAnswer = nil
         await perform(.handback) {
             handbackAnswer = try await runtime.call("desktop.handback", idParams)
             takeoverAnswer = nil
             pendingHolder = nil
             stopReceipt = nil
             stoppedRun = nil
-            if case .unknown = dialog { dialog = nil }
+            if case .unknown = dialog, handbackAnswer?["handedBack"]?.boolValue == true { dialog = nil }
         }
+        return problems[.handback] == nil && handbackAnswer?["handedBack"]?.boolValue == true
     }
 
     public var handbackText: (title: String, detail: String)? {
