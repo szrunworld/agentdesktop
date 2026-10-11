@@ -57,10 +57,13 @@ public struct DesktopCard: View {
     let openDetail: (() -> Void)?
     let picture: AnyView?
     let stopUnavailable: String?
+    /// The answer of this card's last stop (accepted / stopped / failed).
+    let stopNote: String?
 
     public init(desktop: JSONValue, control: DesktopControlPresentation,
                 openPreview: (() -> Void)? = nil, stop: (() -> Void)? = nil, openDetail: (() -> Void)? = nil,
-                picture: AnyView? = nil, stopUnavailable: String? = nil) {
+                picture: AnyView? = nil, stopUnavailable: String? = nil, stopNote: String? = nil) {
+        self.stopNote = stopNote
         self.desktop = desktop
         self.control = control
         self.openPreview = openPreview
@@ -109,7 +112,10 @@ public struct DesktopCard: View {
                         .buttonStyle(ADButtonStyle(.secondary)).disabled(openPreview == nil)
                     Button { stop?() } label: { Label("停止", systemImage: "stop.fill") }
                         .buttonStyle(ADButtonStyle(.secondary)).disabled(stop == nil)
-                        .help(stopUnavailable ?? "")
+                        .help(stopUnavailable ?? "只停止这个 Desktop 的输入")
+                }
+                if let stopNote {
+                    Text(stopNote).font(ADFont.note).foregroundStyle(ADColor.muted)
                 }
             }
             .padding(ADSpace.l)
@@ -159,14 +165,23 @@ public struct ConnectionPanel: View {
     @State private var tab: Tab
     let takeover: (() -> Void)?
     let showConnection: (() -> Void)?
+    /// Desktop.control as read (U3); nil in specimens.
+    let info: DesktopControlInfo?
+    let handback: (() -> Void)?
+    /// Why takeover is off, when it is.
+    let takeoverUnavailable: String?
 
     public init(desktop: JSONValue, control: DesktopControlPresentation, initialTab: Tab = .connection,
-                showConnection: (() -> Void)? = nil, takeover: (() -> Void)? = nil) {
+                showConnection: (() -> Void)? = nil, takeover: (() -> Void)? = nil,
+                info: DesktopControlInfo? = nil, handback: (() -> Void)? = nil, takeoverUnavailable: String? = nil) {
         self.desktop = desktop
         self.control = control
         _tab = State(initialValue: initialTab)
         self.showConnection = showConnection
         self.takeover = takeover
+        self.info = info
+        self.handback = handback
+        self.takeoverUnavailable = takeoverUnavailable
     }
 
     public var body: some View {
@@ -211,12 +226,24 @@ public struct ConnectionPanel: View {
                 StateBadge(control.status)
                 Spacer()
             }
+            if let info {
+                LabeledValue(label: "客户端", value: info.clientId ?? "—", monospaced: info.clientId != nil, labelWidth: 100)
+                LabeledValue(label: "传输方式", value: info.transport, labelWidth: 100)
+                LabeledValue(label: "动作次数", value: info.actionCount.map(String.init) ?? "—", labelWidth: 100)
+                LabeledValue(label: "开始时间", value: TimeText.clock(info.since), monospaced: true, labelWidth: 100)
+                LabeledValue(label: "控制运行", value: info.controllerRunId ?? "—", monospaced: info.controllerRunId != nil, labelWidth: 100)
+            }
             LabeledValue(label: "输入范围", value: "仅此 Desktop", labelWidth: 100)
             Button { showConnection?() } label: { Label("连接信息", systemImage: "doc.on.doc").frame(maxWidth: .infinity) }
                 .buttonStyle(ADButtonStyle(.secondary)).disabled(showConnection == nil)
-            Button { takeover?() } label: { Label("我要接管", systemImage: "hand.raised").frame(maxWidth: .infinity) }
-                .buttonStyle(ADButtonStyle(.secondary)).disabled(takeover == nil)
-                .help(takeover == nil ? "接管需要 Runtime 的 desktop.takeover（A5）" : "")
+            if info?.state == "manual" {
+                Button { handback?() } label: { Label("交还控制", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity) }
+                    .buttonStyle(ADButtonStyle(.primary)).disabled(handback == nil)
+            } else {
+                Button { takeover?() } label: { Label("我要接管", systemImage: "hand.raised").frame(maxWidth: .infinity) }
+                    .buttonStyle(ADButtonStyle(.secondary)).disabled(takeover == nil)
+                    .help(takeover == nil ? (takeoverUnavailable ?? "当前不能接管") : "先停止 Agent 的输入，等在途动作确认后再交给你")
+            }
             Text("多个 Desktop 可并行；同一 Desktop 一次只由一个调用者发送输入。")
                 .font(ADFont.note).foregroundStyle(ADColor.muted).fixedSize(horizontal: false, vertical: true)
         }

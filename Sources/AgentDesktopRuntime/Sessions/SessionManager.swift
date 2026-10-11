@@ -64,6 +64,50 @@ public final class SessionManager: @unchecked Sendable {
         }
     }
 
+    /// In-flight acts on implicit sessions not yet exposed by a success.
+    private var pendingImplicit: [String: Int] = [:]
+
+    /// `caller`'s oldest open session on a Desktop, else a new one, in one
+    /// step (act's implicit session); whether it was opened now.
+    func firstOpenOrOpen(desktopId: String, caller: String, at: String) -> (RuntimeSession, Bool) {
+        lock.withLock {
+            if let s = sessions.values.filter({ $0.desktopId == desktopId && $0.caller == caller && $0.state == "open" })
+                .min(by: { ($0.createdAt, $0.sessionId) < ($1.createdAt, $1.sessionId) }) {
+                // Reused: from now on another request may be acting in it.
+                if let count = pendingImplicit[s.sessionId] { pendingImplicit[s.sessionId] = count + 1 }
+                return (s, false)
+            }
+            let s = RuntimeSession(sessionId: DesktopRegistry.newId(prefix: "s"), desktopId: desktopId, caller: caller,
+                                   state: "open", createdAt: at)
+            sessions[s.sessionId] = s
+            pendingImplicit[s.sessionId] = 1
+            return (s, true)
+        }
+    }
+
+    /// Release one implicit act. A successful response exposes the session
+    /// to the caller; otherwise the last failed act closes the hidden session.
+    @discardableResult
+    func finishImplicit(_ id: String, succeeded: Bool, at: String) -> Bool {
+        lock.withLock {
+            guard let count = pendingImplicit[id] else { return false }
+            if succeeded {
+                pendingImplicit.removeValue(forKey: id)
+                return false
+            }
+            if count > 1 {
+                pendingImplicit[id] = count - 1
+                return false
+            }
+            pendingImplicit.removeValue(forKey: id)
+            guard var s = sessions[id], s.state == "open" else { return false }
+            s.state = "closed"
+            s.closedAt = at
+            sessions[id] = s
+            return true
+        }
+    }
+
     /// Whether a session of this id exists at all, whoever's.
     func exists(_ id: String) -> Bool { lock.withLock { sessions[id] != nil } }
 

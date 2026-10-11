@@ -8,9 +8,10 @@ func code(of body: () async throws -> Void) async -> String? {
 }
 
 /// Field names the plan adds later (methods.json plannedFields). None may
-/// appear in a Mock answer before the contract has them.
+/// appear in a Mock answer before the contract has them. Desktop.control
+/// is in since A5; its planned transport and lastActionAt are not.
 let plannedFieldNames: Set<String> = [
-    "control", "targetKind", "businessResult", "elapsedMs", "geometryRevision", "dispatchSequence",
+    "transport", "lastActionAt", "targetKind", "businessResult", "elapsedMs", "geometryRevision", "dispatchSequence",
     "proposalId", "inferenceAttemptId", "reconciliations", "captureSequence", "coverage", "unit",
     "episodeEligible", "excludedReason", "launch", "bind", "principal",
 ]
@@ -72,8 +73,8 @@ struct MockRuntimeTests {
             #expect(RuntimeContract.shared.validate(result, spec.result).isEmpty, "\(method)")
             #expect(keys(result).isDisjoint(with: plannedFieldNames), "\(method) carries a planned field")
         }
-        // The lanes' methods are checked by each lane's own tests
-        // (MockRuntime+<Lane>.swift; AgentsTests for UI-C).
+        // The base methods; each UI lane covers its own in its own tests.
+
         #expect(seen == Set(MockRuntime.baseModeled))
         #expect(m.contractViolations.isEmpty, "\(m.contractViolations)")
     }
@@ -81,11 +82,12 @@ struct MockRuntimeTests {
     // Only implemented catalog methods exist; reserved and frozen ones do not.
     @Test func reservedAndFrozenMethodsAreMissing() async {
         let m = MockRuntime.sample()
-        for method in ["hub.pairing.approve", "inbox.list", "run.reconcile", "unit.run", "ai.connections.list", "no.such.method"] {
+        let unmodeled = RuntimeCatalog.implemented.subtracting(MockRuntime.modeled).sorted().prefix(3)
+        for method in ["inbox.list", "run.reconcile", "unit.run", "no.such.method"] + unmodeled {
             #expect(await code { _ = try await m.call(method) } == "capability_missing", "\(method)")
         }
         #expect(Set(MockRuntime.modeled).isSubset(of: RuntimeCatalog.implemented))
-        #expect(!RuntimeCatalog.implemented.contains("inbox.list"))
+        #expect(!RuntimeCatalog.implemented.contains("gui.knowledge.get"))
     }
 
     @Test func capabilitiesAdvertiseOnlyWhatIsModeled() async throws {

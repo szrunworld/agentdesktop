@@ -111,6 +111,42 @@ enum ACPEventText {
         }
     }
 
+    // MARK: GUI unit (X1)
+
+    /// `unit.verification` status. Not 「已验证」: whether a matched check
+    /// may read as verified is open (docs/acp/12-unit-run.md Q4).
+    static func unitVerification(_ status: String?) -> String? {
+        switch status ?? "" {
+        case "matched": return "已通过"
+        case "contradicted": return "未通过"
+        case "inconclusive": return "无法判定"
+        default: return nil
+        }
+    }
+
+    /// Why an inconclusive verdict could not decide.
+    static func inconclusiveReason(_ reason: String?) -> String? {
+        switch reason ?? "" {
+        case "elements_partial": return "界面元素只读到一部分"
+        case "elements_unavailable": return "没有读到界面元素"
+        case "ambiguous": return "目标控件不止一个"
+        case "target_missing": return "没有找到目标控件"
+        case "value_unreadable": return "目标控件的值读不出"
+        default: return nil
+        }
+    }
+
+    /// `unit.recovery` kind.
+    static func recovery(_ kind: String?) -> String? {
+        switch kind ?? "" {
+        case "reobserve_after_empty_reply": return "模型回复为空，重新观察后再问一次"
+        case "repeated_action": return "重复同一动作没有带来变化，重新观察，换一种做法"
+        case "no_progress": return "连续几步界面没有变化，重新观察，换一种做法"
+        case "state_loop": return "界面回到了之前的状态，重新观察，换一种做法"
+        default: return nil
+        }
+    }
+
     static let unknownHint = "不会自动重试，请在 AgentDesktop 主窗口核实"
     /// Ruling P2: the terminal form after the Run ended.
     static let terminalUnknown = "结果未知 · 需要核实"
@@ -135,6 +171,9 @@ enum ACPEventText {
         case "runtime_restarted": return "Runtime 已重启"
         case "grant_revoked": return "授权已撤销"
         case "deadline_exceeded": return "超过时限"
+        // A GUI unit Run that stopped making progress (X1-2).
+        case "no_progress": return "没有进展"
+        case "loop_detected": return "界面来回循环"
         default:
             // run.finish {exitCode}: "exit <n>" — a number, safe to show.
             if r.range(of: #"^exit -?[0-9]{1,4}$"#, options: .regularExpression) != nil {

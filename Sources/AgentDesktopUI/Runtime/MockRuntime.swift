@@ -182,7 +182,8 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
                 appendEventLocked(runId, "action.dispatched", .obj([("requestId", .string(requestId))]))
             }
             appendEventLocked(runId, "action.\(execution)", .obj([("receipt", receipt)]))
-            var outcome: JSONValue = receipt
+            // As the Runtime's ledger stores it: {data} or {error}.
+            var outcome: JSONValue = .obj([("data", receipt)])
             if let errorCode {
                 outcome = .obj([("error", RuntimeError(errorCode, Self.mockMessage(errorCode), phase: .handler,
                                                         notSent: delivery == "not_dispatched" ? true : nil,
@@ -191,7 +192,8 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             let recordState = state ?? (execution == "completed" ? "completed" : execution == "unknown" ? "unknown" : "failed")
             requests[requestId] = .obj([
                 ("requestId", .string(requestId)), ("method", .string("act")), ("state", .string(recordState)),
-                ("acceptedAt", .string(accepted)), ("finishedAt", .string(stamp())), ("outcome", outcome),
+                ("acceptedAt", .string(accepted)), ("finishedAt", .string(stamp())),
+                ("desktopId", run["desktopId"] ?? .null), ("outcome", outcome),
             ])
             return requestId
         }

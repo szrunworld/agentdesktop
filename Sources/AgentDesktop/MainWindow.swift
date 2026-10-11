@@ -18,7 +18,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     let frames: DesktopFrameHub
     private(set) var previewWindows: PreviewWindows!
     private var pruning: AnyCancellable?
-    private var aiSettings: AISettingsModel?
     private(set) var window: NSWindow?
     /// Times the window was closed; tests read it.
     private(set) var closeCount = 0
@@ -44,13 +43,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             self.navigation.showDesktop(id)
             if self.previewWindows.testDisplay != nil { self.showInBackground(onDisplay: self.previewWindows.testDisplay) } else { self.show() }
         }
-    }
-
-    /// The AI/GUI pages for Settings, once the AI service is up.
-    func attachAISettings(_ model: AISettingsModel) {
-        aiSettings = model
-        // Rebuild the content so Settings picks the pages up.
-        if let window { window.contentView = hosting() }
     }
 
     var isVisible: Bool { window?.isVisible ?? false }
@@ -101,11 +93,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     private func hosting() -> NSView {
-        let ai = aiSettings
-        let nav = navigation
-        return NSHostingView(rootView: MainWindowView(store: store, navigation: nav, previews: previews, settings: { page in
-            ai?.view(for: page, navigation: nav)
-        }).environment(\.desktopFrames, frames))
+        // Settings (U6) draws its own pages over this window's Runtime port:
+        // the AI/GUI entries call ai.* on runtime/1 and appear once
+        // runtime.capabilities lists them, so the host supplies no pages.
+        NSHostingView(rootView: MainWindowView(store: store, navigation: navigation, previews: previews)
+            .environment(\.desktopFrames, frames))
     }
 
     /// Hide, never quit, never stop anything.

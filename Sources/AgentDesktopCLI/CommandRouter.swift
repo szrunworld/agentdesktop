@@ -33,8 +33,8 @@ struct RuntimeInvocation: Equatable {
         case unitRun(params: JSONValue, requestId: String?, timeout: Double)
         /// run cancel, optionally waiting for quiescence.
         case runCancel(runId: String, requestId: String?, wait: Bool, timeout: Double)
-        /// mcp: serve MCP on stdio.
-        case mcp(profile: String?)
+        /// mcp: serve MCP on stdio, optionally limited to one Desktop.
+        case mcp(profile: String?, desktopId: String?)
         /// This CLI pairs: start, wait for the user to confirm in the Agent
         /// Desktop window, keep the credential in the keychain.
         case agentsPair(name: String, publisher: String?, grant: JSONValue, profile: String?, timeout: Double)
@@ -170,8 +170,13 @@ enum CommandRouter {
             if let c = o["--client"] { params.append(("clientId", .string(c))) }
             return try write(.displaysDetach, .obj(params), o)
         },
-        Spec(words: ["mcp"], summary: "serve the Runtime as MCP tools on stdio, as the paired app of --profile (default mcp)",
-             options: ["--profile": true], positionals: []) { o, _ in .mcp(profile: o["--profile"]) },
+        Spec(words: ["mcp"], summary: "serve the Runtime as MCP tools on stdio, as the paired app of --profile (default mcp); --desktop-id limits it to one Desktop",
+             options: ["--profile": true, "--desktop-id": true], positionals: []) { o, _ in
+            if let d = o["--desktop-id"], !RuntimeContract.shared.validate(.string(d), "Id").isEmpty {
+                throw RuntimeError.invalidArgument("--desktop-id must be a Desktop id (1-128 of A-Z a-z 0-9 . _ : -)")
+            }
+            return .mcp(profile: o["--profile"], desktopId: o["--desktop-id"])
+        },
         Spec(words: ["version"], summary: "CLI version, API version and build; no connection",
              options: [:], positionals: []) { _, _ in .version },
         Spec(words: ["runtime", "start"], summary: "start the installed Runtime if needed and wait for its handshake",
@@ -646,12 +651,14 @@ enum CommandRouter {
         return v
     }
 
-    static let actOptions: [String: Bool] = ["--session": true, "--snapshot": true, "--request-id": true]
+    static let actOptions: [String: Bool] = ["--session": true, "--desktop": true, "--snapshot": true, "--request-id": true]
 
     static func act(_ o: [String: String], _ action: [(String, JSONValue)]) throws -> RuntimeInvocation.Command {
         guard case var .call(call) = try write(.act, .obj([("snapshotId", .string(try required(o, "--snapshot"))),
                                                           ("action", .obj(action))]), o) else { fatalError() }
-        call.context = o["--session"].map { RequestContext(sessionId: $0) } ?? RequestContext()
+        // --session, or --desktop alone: the Runtime opens (or reuses) this
+        // client's session there (A7). Neither: session exec's context.
+        call.context = try contextTarget(o)
         call.usesContext = true
         return .call(call)
     }

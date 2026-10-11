@@ -1,0 +1,1 @@
+{"def":"Request","note":"A7: act naming only its Desktop; the Runtime opens (or reuses) the caller's session there","instance":{"apiVersion":"agentdesktop.runtime/1","requestId":"act-desktop-only-001","method":"act","context":{"desktopId":"d_001"},"params":{"snapshotId":"obs_007","action":{"kind":"key","key":"return"}}}}
