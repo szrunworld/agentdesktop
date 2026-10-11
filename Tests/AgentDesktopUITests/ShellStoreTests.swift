@@ -186,7 +186,9 @@ struct ShellStoreTests {
         let store = ShellStore(runtime: m, clock: StillClock())
         await store.apply(frame: .obj([("cursor", .int(1)), ("event", .obj([]))]))
         #expect(store.eventCursor == 1)
-        m.trimEvents(through: m.latestCursor)
+        // Ensure the stored floor is strictly past cursor 1 even when the
+        // sample has only one event.
+        m.trimEvents(through: max(m.latestCursor, 2))
         await store.start()
         await waitFor("resubscribed") { m.subscriberCount == 1 }
         #expect(store.eventCursor == nil)
