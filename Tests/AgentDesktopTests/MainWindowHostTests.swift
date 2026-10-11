@@ -6,6 +6,30 @@ import Foundation
 import Testing
 @testable import AgentDesktop
 
+private final class HeldRunListPort: RuntimePort, @unchecked Sendable {
+    let inner: MockRuntime
+    let isSample = true
+    private let lock = NSLock()
+    private var held = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    init(_ inner: MockRuntime) { self.inner = inner }
+    func hold() { lock.withLock { held = true } }
+    func release() {
+        let pending = lock.withLock { held = false; let p = waiters; waiters = []; return p }
+        for waiter in pending { waiter.resume() }
+    }
+    func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue {
+        if method == "run.list" {
+            await withCheckedContinuation { continuation in
+                let resume = lock.withLock { if held { waiters.append(continuation); return false }; return true }
+                if resume { continuation.resume() }
+            }
+        }
+        return try await inner.call(method, params, context: context)
+    }
+    func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> { try await inner.subscribe(after: after) }
+}
+
 struct EmptyBackend: RuntimeBackend {
     var platform: Platform { Platform(os: "macos", osVersion: "15.1.0", arch: "arm64") }
     func permissions() -> BackendPermissions { BackendPermissions(screenRecording: .granted, accessibility: .granted) }
@@ -208,10 +232,12 @@ struct MainWindowHostTests {
     // Runtime answers; the user can call the quit off throughout.
     @Test func quitDialogDoesNotWaitForTheRuntime() async throws {
         let m = MockRuntime.sample()
-        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        let port = HeldRunListPort(m)
+        let store = ShellStore(runtime: port, clock: StillClock(), allowSubscription: false)
         await store.start()
         store.stop()
-        m.delays = ["run.list": 300_000_000]
+        port.hold()
+        defer { port.release() }
         let q = QuitController(store: store)
         q.clock = FastClock()
         var replies: [Bool] = []
@@ -227,6 +253,7 @@ struct MainWindowHostTests {
         guard case .unavailable(let why) = flow.activeCount else { Issue.record("\(flow.activeCount)"); return }
         #expect(QuitDialogView.activeLine(flow.activeCount).contains("暂时读不到"))
         #expect(!QuitDialogView.activeLine(flow.activeCount).contains("没有进行中的运行"), "\(why)")
+        port.release()
         await q.counting?.value
         #expect(flow.activeCount == .known(2), "the late answer fills the count in")
         #expect(m.callLog.filter { $0 == "run.list" }.count - listsBefore == 1, "a read in flight is not sent again")

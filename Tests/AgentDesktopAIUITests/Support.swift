@@ -269,6 +269,8 @@ final class ScriptedUpstream: HTTPTransport, @unchecked Sendable {
     var colorAnswer = SyntheticGuiFixture.colorAnswer
     var usageReported = true
     var delayMs = 0
+    private var held = false
+    var holdResponses: Bool { get { lock.withLock { held } } set { lock.withLock { held = newValue } } }
     /// Run steps ask for a person instead (call_user).
     var callUser = false
 
@@ -281,6 +283,9 @@ final class ScriptedUpstream: HTTPTransport, @unchecked Sendable {
 
     func send(_ request: URLRequest, maxResponseBytes: Int) async throws -> HTTPResult {
         let body = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
+        // Cancellation tests hold the request until cancel is issued,
+        // instead of depending on a fixed wall-clock delay under CI load.
+        while holdResponses { try await Task.sleep(nanoseconds: 10_000_000) }
         let delay = lock.withLock { delayMs }
         if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000) }
         if request.url?.path.hasSuffix("/models") == true {

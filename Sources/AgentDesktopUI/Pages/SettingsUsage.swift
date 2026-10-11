@@ -75,9 +75,6 @@ struct SettingsUsagePage: View {
                 Spacer()
                 Button { Task { await model.refresh() } } label: { Label("刷新", systemImage: "arrow.clockwise") }
                     .buttonStyle(ADButtonStyle(.secondary))
-                Button {} label: { Label("导出诊断", systemImage: "square.and.arrow.down") }
-                    .buttonStyle(ADButtonStyle(.secondary)).disabled(true)
-                    .help("尚未启用：诊断导出随 U9 提供")
             }
             if let f = model.failure { SettingsFailureView(failure: f, retry: { Task { await model.refresh() } }) }
             HStack(spacing: ADSpace.l) {

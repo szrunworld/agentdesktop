@@ -22,6 +22,7 @@ final class SettingsModels: ObservableObject {
     let profiles: SettingsProfilesModel
     let test: SettingsCapabilityTestModel
     let usage: SettingsUsageModel
+    let diagnostics: DiagnosticsExportModel
     /// The last `runtime.capabilities` this page read itself. The Store
     /// reads them once per connection; the AI service registers its
     /// methods later, so Settings reads them again when an entry opens.
@@ -35,6 +36,7 @@ final class SettingsModels: ObservableObject {
         profiles = SettingsProfilesModel(runtime: store.runtime, gui: store.capabilities?["gui"])
         test = SettingsCapabilityTestModel(runtime: store.runtime, clock: clock)
         usage = SettingsUsageModel(runtime: store.runtime)
+        diagnostics = DiagnosticsExportModel(runtime: store.runtime)
         capabilities = store.capabilities
     }
 
@@ -62,7 +64,10 @@ final class SettingsModels: ObservableObject {
 /// - 权限 (P02/P22): states from `runtime.capabilities`; nothing is requested.
 /// - AI 连接, GUI 配置, 能力测试, 诊断与用量 (P23–P26, P30): `ai.*` over
 ///   runtime/1, offered only when `runtime.capabilities` lists them.
-/// - 核实 (U9): not yet.
+/// - 核实 (U9, Hub W07): actions whose delivery is unknown, reconciled
+///   with `run.reconcile`; offered when the Runtime lists it.
+/// - 诊断与用量 also holds the diagnostics export (U9, `diagnostics.export`),
+///   which does not need the AI service.
 ///
 /// `content` lets a host put its own page in an entry; nil keeps the page
 /// here.
@@ -156,8 +161,19 @@ public struct SettingsPageView: View {
             case .permissions:
                 SettingsPermissionsPage(model: models.permissions, connected: connected, open: openSystemSettings)
             case .verification:
-                notEnabled
-            case .aiConnections, .guiProfiles, .capabilityTest, .usage:
+                if models.offers("run.reconcile") || store.offers("run.reconcile") {
+                    SettingsVerificationPage(store: store, navigation: navigation)
+                } else {
+                    notEnabled
+                }
+            case .usage:
+                VStack(alignment: .leading, spacing: ADSpace.l) {
+                    if models.offers("diagnostics.export") || store.offers("diagnostics.export") {
+                        DiagnosticsExportPanel(model: models.diagnostics, connected: connected)
+                    }
+                    if !aiOffered { aiUnavailable } else { aiEntry(.usage) }
+                }
+            case .aiConnections, .guiProfiles, .capabilityTest:
                 if !aiOffered {
                     aiUnavailable
                 } else {
@@ -214,7 +230,7 @@ public struct SettingsPageView: View {
     var notEnabled: some View {
         VStack(alignment: .leading, spacing: ADSpace.m) {
             StateBadge("尚未启用", tone: .idle)
-            Text("尚未启用：结果未知动作的核实将在后续版本提供").font(ADFont.sectionTitle).foregroundStyle(ADColor.ink)
+            Text("这个 Runtime 没有提供核实（run.reconcile）").font(ADFont.sectionTitle).foregroundStyle(ADColor.ink)
             Text("核实只追加记录，原结果保持「结果未知」，不会重发动作。").font(ADFont.note).foregroundStyle(ADColor.muted)
         }
         .padding(ADSpace.xl).frame(maxWidth: .infinity, alignment: .leading).adPanel()
