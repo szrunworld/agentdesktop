@@ -21,7 +21,7 @@ public struct ActionReceiptView: View {
     public init(record: JSONValue, export: (() -> Void)? = nil) {
         let p = ActionResultPresentation.make(record: record)
         let outcome = record["outcome"]
-        self.receipt = outcome?["error"]?["details"]?["receipt"] ?? (outcome?["receiptId"] != nil ? outcome : nil)
+        self.receipt = outcome?["error"]?["details"]?["receipt"] ?? outcome.flatMap(ActionResultPresentation.receipt(inSuccess:))
         self.requestId = record["requestId"]?.stringValue ?? "—"
         self.presentation = p
         self.export = export
