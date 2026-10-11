@@ -31,6 +31,8 @@ BUNDLE_ID="com.agentdesktop.app"
 VERSION="0.1.0"          # CFBundleShortVersionString: the product's own line, apart from the engine's
 BUILD_LABEL="0.1.0-dev"  # what the product calls this build
 
+if [[ "${AGENTDESKTOP_RELEASE:-0}" == 1 ]]; then BUILD_LABEL="$VERSION"; fi
+
 cd "$ROOT"
 
 # Product and engine share one checkout and one source revision: the engine
@@ -98,6 +100,9 @@ cat > "$APP/Contents/Resources/build.json" <<JSON
 }
 JSON
 
+if [[ "${AGENTDESKTOP_RELEASE:-0}" == 1 ]]; then
+    "$ROOT/scripts/sign-release.sh" "$APP"
+else
 KEYCHAIN="$HOME/Library/Keychains/agentdesktop-signing.keychain-db"
 KEYCHAIN_PASSWORD="agentdesktop-local-signing"  # guards only this throwaway signing key
 CERT_NAME="Agent Desktop Local Signing"
@@ -158,6 +163,8 @@ if ! codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$B
 fi
 restore_keychains
 codesign --verify --strict "$APP"
+
+fi
 
 # What must not be in a product bundle (docs/boundaries.md).
 if find "$APP" \( -name adb -o -name scrcpy-server -o -name 2ndscreen -o -name agentdesktop-cli -o -path '*/Resources/android*' -o -path '*/task-runtime/skills/boss*' \) | grep -q .; then

@@ -1,4 +1,4 @@
-import AgentDesktopClient
+@testable import AgentDesktopClient
 import Foundation
 import Testing
 
@@ -55,4 +55,17 @@ func aCredentialRoundTripsThroughAThrowawayKeychain() throws {
         let bytes = FileManager.default.contents(atPath: dir + "/" + f) ?? Data()
         #expect(bytes.range(of: Data("adt1_first".utf8)) == nil, "\(f) holds the token in the clear")
     }
+}
+
+// S4: a signed release never reads an attacker-planted legacy credential
+// when its provisioning/entitlement setup is absent or belongs to another team.
+@Test func signedCredentialStorageRequiresItsOwnProvisionedGroup() throws {
+    #expect(try KeychainCredentialStore.releaseAccessGroup(team: nil, entitlements: [:]) == nil)
+    #expect(throws: (any Error).self) {
+        try KeychainCredentialStore.releaseAccessGroup(team: "TEAM123456", entitlements: [:])
+    }
+    #expect(throws: (any Error).self) {
+        try KeychainCredentialStore.releaseAccessGroup(team: "TEAM123456", entitlements: ["keychain-access-groups": ["OTHER.com.agentdesktop.client-credential"]])
+    }
+    #expect(try KeychainCredentialStore.releaseAccessGroup(team: "TEAM123456", entitlements: ["keychain-access-groups": ["TEAM123456.com.agentdesktop.client-credential"]]) == "TEAM123456.com.agentdesktop.client-credential")
 }

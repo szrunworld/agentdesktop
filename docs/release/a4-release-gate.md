@@ -21,3 +21,38 @@
 | 7 | 第三方 Agent（BOSS / WeChat）以签名 App 形式分发，配对后显示为 `verified` | 各 Agent 的发布验收 |
 
 `scripts/verify-release-signing.sh` 在当前开发包上会如实失败（无 Team ID、非 Developer ID、hardened runtime 关闭、未公证）。CI 不对开发包运行它；它是发布候选版的门禁。
+
+## 发布候选版构建
+
+开发构建仍用 `scripts/bundle-app.sh`。正式候选版设置以下变量后运行同一脚本：
+
+```sh
+AGENTDESKTOP_RELEASE=1 \
+DEVELOPER_ID_IDENTITY='Developer ID Application: …' \
+TEAM=ABCDE12345 \
+APP_PROVISION_PROFILE=/path/to/app.provisionprofile \
+CLI_PROVISION_PROFILE=/path/to/cli.provisionprofile \
+NOTARY_KEYCHAIN_PROFILE=agentdesktop-notary \
+scripts/bundle-app.sh
+```
+
+两个 Developer ID provisioning profile 分别明确授权 `com.agentdesktop.app`、
+`com.agentdesktop.app.agentdesktop`，并允许 `TEAM.com.agentdesktop.client-credential`。
+`sign-release.sh` 检查 profile 的 Team、App ID、到期日和 access group；签名时启用
+hardened runtime、时间戳，不生成任何注入 entitlement；公证成功并 stapling 后才生成分发 archive / manifest。
+任何阶段失败都会停止，不降级为本地签名。
+
+CLI 放在 `Contents/Helpers/AgentDesktopCLI.app` 中承载自己的 profile，原命令路径
+`Contents/Resources/bin/agentdesktop` 是包内相对链接。CLI 不能脱离该包装单独分发。
+依据：[Apple TN3137](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)
+和 [Apple DTS 的命令行工具说明](https://developer.apple.com/forums/thread/836816)。
+
+带 Team ID 的客户端从有效代码签名读取固定 product access group，使用
+`kSecUseDataProtectionKeychain`，不读取传统钥匙串、不受 `AGENTDESKTOP_KEYCHAIN` 重定向。
+缺少该 group 的签名版本报错。开发版本保留独立测试钥匙串。
+不从传统钥匙串自动迁移凭据（旧条目可能被抢先写入）；候选版需要重新配对。
+
+以上是发布准备，不能替代 S4 真机验收。当前机器无有效 Developer ID 签名身份。
+拿到证书、两个 profile 和公证配置后，仍须运行门禁、验证 CLI 握手为 `verified`、
+配对凭据在 Data Protection 钥匙串中读写及拒绝另一程序读取，并分别验收两种第三方 Agent。
+Electron / Python 入口可能仍被识别为 `shared_interpreter`；仅签名不能把它们变为 `verified`。
