@@ -47,6 +47,9 @@ public struct InboxPage: View {
             content
         }
         .task(id: store.tick) { await loader.reload() }
+        .onChange(of: loader.items.compactMap { $0["inboxId"]?.stringValue }) { ids in
+            if let id = selected, !ids.contains(id) { selected = nil }
+        }
         .onChange(of: filter) { f in selected = nil; Task { await loader.apply(f) } }
     }
 
@@ -515,6 +518,9 @@ struct SettingsVerificationPage: View {
             }
         }
         .task(id: store.tick) { await loader.reload() }
+        .onChange(of: loader.items.compactMap { $0["inboxId"]?.stringValue }) { ids in
+            if let id = selected, !ids.contains(id) { selected = nil }
+        }
         .onChange(of: stateFilter) { s in selected = nil; Task { await loader.apply(.init(state: s, kind: "unknown_reference")) } }
     }
 }
