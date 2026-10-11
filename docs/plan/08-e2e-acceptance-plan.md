@@ -54,7 +54,7 @@
 | RT-18 | request.list 筛选与分页、export | 内容与 request.show 一致；导出 JSON 可读 |
 | RT-19 | run.reconcile | 只追加；原 outcome 仍为 unknown |
 | RT-20 | events.subscribe 游标重连 | 不丢不重；过期返回 events_cursor_expired |
-| RT-21 | hover、drag、press | 各自有回执 |
+| RT-21 | hover、drag、press | press 有回执；macOS 上 runtime/1 的 `act` 对 hover 与 drag 在派发前返回 `unsupported_backend`（`background_hover_activates` / `background_drag_unsupported`），dispatch=0，不以按键事件或前台方式代替（#263 选 B；drag 另行设计） |
 | RT-22 | businessResult | 所有回执为 not_evaluated |
 | RT-23A | 请求超时语义：大型网页（Safari 中立表单）上 observe | 在规定时间内返回成功、降级结果（元素标 partial）或明确错误；不挂起（MAC-001） |
 | RT-23B | 故障隔离与恢复：同一 Desktop 连续制造 20 次 AX 超时 | 期间其他 Desktop 的 observe 与 act、`runtime.status`、该 Desktop 的纯截图都在各自 deadline 内完成；后台 AX 遍历线程数与内存有上限且超时停止后回落；主线程采样无 AX 调用 |

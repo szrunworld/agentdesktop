@@ -21,10 +21,20 @@ public final class MCPServer {
     private var client: RuntimeClient?
     /// Snapshot → factor from returned-image pixels to snapshot pixels.
     private var imageScale: [String: Double] = [:]
+    /// `agentdesktop mcp --desktop-id`: the one Desktop this server may
+    /// reach. Any other desktopId in a tool's arguments, and any session,
+    /// Run or request of another Desktop, is refused before it is used.
+    /// nil: no limit beyond the Runtime's own grant.
+    public let desktopScope: String?
+    /// Session → its Desktop, learned from session_open or session.show.
+    private var sessionDesktop: [String: String] = [:]
 
-    public init(makeClient: @escaping () -> RuntimeClient) {
+    public init(desktopScope: String? = nil, makeClient: @escaping () -> RuntimeClient) {
+        self.desktopScope = desktopScope
         self.makeClient = makeClient
     }
+
+    var tools: [MCPTools.Tool] { desktopScope.map(MCPTools.scoped(to:)) ?? MCPTools.all }
 
     /// Serve until `readLine` returns nil (stdin closed).
     public func serve(readLine: () -> String?, write: (String) -> Void) {
@@ -60,15 +70,20 @@ public final class MCPServer {
                     session_open → observe → act_* (with the snapshotId and element ids from observe) → observe again to check. \
                     Every act is checked against its snapshot and refused without input if the target changed; observe again then. \
                     After an unclear failure of a write, call request_show with its requestId instead of acting again.
-                    """)),
+                    """ + (desktopScope.map { d in
+                        "\nThis server is limited to Desktop \(d): tools use it when desktopId is omitted, refuse any other desktopId, " +
+                        "and observe and wait_for_element work on it without a session. It cannot create Desktops."
+                    } ?? ""))),
             ]))
         case "ping":
             return Self.result(id: id, .obj([]))
         case "tools/list":
-            return Self.result(id: id, .obj([("tools", .array(MCPTools.all.map { t in
+            return Self.result(id: id, .obj([("tools", .array(tools.map { t in
                 .obj([("name", .string(t.name)), ("description", .string(t.description)), ("inputSchema", t.schema)])
             }))]))
         case "tools/call":
+            // A tool the scoped list leaves out is still known: calling it is
+            // a tool error that says why, not an unknown method.
             guard let name = params["name"]?.stringValue, let tool = MCPTools.byName[name] else {
                 return Self.error(id: id, code: -32602, "unknown tool \(params["name"]?.stringValue ?? "")")
             }
@@ -96,11 +111,14 @@ public final class MCPServer {
     /// One tool call: arguments → runtime/1 request → MCP content.
     func call(_ tool: MCPTools.Tool, _ args: JSONValue) -> JSONValue {
         do {
-            let request = try Self.request(tool, args, imageScale: imageScale)
+            var args = args
+            if let scope = desktopScope { args = try Self.scoped(tool, args, to: scope) }
+            let request = try Self.request(tool, args, imageScale: imageScale, desktopScope: desktopScope)
             let c = client ?? makeClient()
             client = c
             _ = try c.handshake()
-            let data: JSONValue
+            if let scope = desktopScope { try checkScope(tool, args, scope, using: c) }
+            var data: JSONValue
             do {
                 data = try c.call(request)
             } catch let e as RuntimeError where e.code == "connection_lost" {
@@ -112,6 +130,12 @@ public final class MCPServer {
                                        phase: .transport, details: .obj([("requestId", .string(request.requestId))]))
                 }
                 throw e
+            }
+            if let scope = desktopScope {
+                data = try Self.limit(tool, data, to: scope)
+                if tool.name == "session_open", let sid = data["sessionId"]?.stringValue {
+                    sessionDesktop[sid] = data["desktopId"]?.stringValue ?? scope
+                }
             }
             var content: [JSONValue] = []
             var shown = data
@@ -135,6 +159,74 @@ public final class MCPServer {
             return Self.toolError(e)
         } catch {
             return Self.toolError(RuntimeError("internal_error", "\(error)", phase: .local))
+        }
+    }
+
+    // MARK: One Desktop (--desktop-id)
+
+    static func outOfScope(_ scope: String, _ what: String) -> RuntimeError {
+        RuntimeError("permission_denied", "this MCP server is limited to desktop \(scope); \(what)", phase: .local, notSent: true,
+                     details: .obj([("reason", .string("desktop_out_of_scope")), ("desktopId", .string(scope))]))
+    }
+
+    /// Before any connection: refuse a tool that makes another Desktop and
+    /// any desktopId argument other than the scope; fill an omitted one.
+    static func scoped(_ tool: MCPTools.Tool, _ a: JSONValue, to scope: String) throws -> JSONValue {
+        if MCPTools.outsideScope.contains(tool.name) {
+            throw outOfScope(scope, "\(tool.name) would reach another Desktop")
+        }
+        if let d = a["desktopId"] {
+            guard d.stringValue == scope else {
+                throw outOfScope(scope, "desktop \(d.stringValue ?? d.encoded()) is outside it")
+            }
+            return a
+        }
+        if tool.schema["properties"]?["desktopId"] != nil { return a.setting("desktopId", .string(scope)) }
+        return a
+    }
+
+    /// After the handshake, before the request: the session, Run or
+    /// request a tool names must be on the scope's Desktop. Looked up
+    /// through the Runtime (fail closed: an error of the lookup is the
+    /// tool's error).
+    func checkScope(_ tool: MCPTools.Tool, _ a: JSONValue, _ scope: String, using c: RuntimeClient) throws {
+        if let sid = a["sessionId"]?.stringValue {
+            let desktop: String
+            if let known = sessionDesktop[sid] {
+                desktop = known
+            } else {
+                let s = try c.call(RuntimeRequest(.sessionShow, params: .obj([("sessionId", .string(sid))])))
+                guard let d = s["desktopId"]?.stringValue else {
+                    throw RuntimeError("invalid_response", "session.show named no desktop", phase: .local)
+                }
+                sessionDesktop[sid] = d
+                desktop = d
+            }
+            guard desktop == scope else { throw Self.outOfScope(scope, "session \(sid) is on another Desktop") }
+        }
+        if let runId = a["runId"]?.stringValue {
+            let r = try c.call(RuntimeRequest(.runShow, params: .obj([("runId", .string(runId))])))
+            guard r["desktopId"]?.stringValue == scope else { throw Self.outOfScope(scope, "run \(runId) is on another Desktop") }
+        }
+    }
+
+    /// What a read returns about other Desktops is left out (desktop_list)
+    /// or refused (request_show of a request not recorded on this Desktop).
+    static func limit(_ tool: MCPTools.Tool, _ data: JSONValue, to scope: String) throws -> JSONValue {
+        switch tool.name {
+        case "desktop_list":
+            let mine = (data["desktops"]?.arrayValue ?? []).filter { $0["desktopId"]?.stringValue == scope }
+            return data.setting("desktops", .array(mine))
+        case "request_show":
+            // Only a record positively tied to the scope: one with no Desktop
+            // (desktop.create, records older than the ledger's desktop
+            // column) may be about any Desktop (Codex P1 on #271).
+            guard data["desktopId"]?.stringValue == scope else {
+                throw outOfScope(scope, "request \(data["requestId"]?.stringValue ?? "") is not recorded on this Desktop")
+            }
+            return data
+        default:
+            return data
         }
     }
 
@@ -164,7 +256,8 @@ public final class MCPServer {
         return bytes
     }
 
-    static func request(_ tool: MCPTools.Tool, _ a: JSONValue, imageScale: [String: Double]) throws -> RuntimeRequest {
+    static func request(_ tool: MCPTools.Tool, _ a: JSONValue, imageScale: [String: Double],
+                        desktopScope: String? = nil) throws -> RuntimeRequest {
         func s(_ k: String) -> String? { a[k]?.stringValue }
         func need(_ k: String) throws -> String {
             guard let v = s(k), !v.isEmpty else { throw RuntimeError.invalidArgument("\(k) is required") }
@@ -177,6 +270,15 @@ public final class MCPServer {
         var r = RuntimeRequest(tool.method, requestId: id)
         var p: [(String, JSONValue)] = []
         func copy(_ keys: [String]) { for k in keys { if let v = a[k] { p.append((k, v)) } } }
+        // The session; limited to one Desktop, also that Desktop (the Runtime
+        // refuses a session of another), and observe and wait may name
+        // the Desktop alone.
+        func sessionContext() throws -> RequestContext {
+            if let scope = desktopScope {
+                return RequestContext(sessionId: s("sessionId").flatMap { $0.isEmpty ? nil : $0 }, desktopId: scope)
+            }
+            return RequestContext(sessionId: try need("sessionId"))
+        }
         func target() throws -> JSONValue? {
             if let e = s("elementRef") { return .obj([("elementRef", .string(e))]) }
             guard let x = a["x"]?.doubleValue, let y = a["y"]?.doubleValue else { return nil }
@@ -193,11 +295,11 @@ public final class MCPServer {
         case "window_bind": copy(["desktopId", "pid", "windowId"])
         case "session_close": copy(["sessionId"])
         case "observe":
-            r.context = RequestContext(sessionId: try need("sessionId"))
+            r.context = try sessionContext()
             copy(["query", "elements"])
             if a["includeImage"]?.boolValue == false { p.append(("screenshot", .bool(false))) }
         case "act_click", "act_type", "act_key", "act_scroll", "act_press":
-            r.context = RequestContext(sessionId: try need("sessionId"))
+            r.context = RequestContext(sessionId: try need("sessionId"), desktopId: desktopScope)
             var action: [(String, JSONValue)] = []
             switch tool.name {
             case "act_click":
@@ -220,7 +322,7 @@ public final class MCPServer {
             }
             p = [("snapshotId", .string(try need("snapshotId"))), ("action", .obj(action))]
         case "wait_for_element":
-            r.context = RequestContext(sessionId: try need("sessionId"))
+            r.context = try sessionContext()
             var cond: [(String, JSONValue)] = [("kind", .string(a["present"]?.boolValue == false ? "elementAbsent" : "elementPresent"))]
             for k in ["role", "label", "labelContains"] { if let v = a[k] { cond.append((k, v)) } }
             p = [("condition", .obj(cond)), ("timeoutMs", a["timeoutMs"] ?? .int(5000))]

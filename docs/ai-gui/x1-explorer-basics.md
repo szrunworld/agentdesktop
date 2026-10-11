@@ -8,7 +8,7 @@ X1 分三个 PR，按顺序合入，各自验收：
 | --- | --- | --- | --- |
 | X1-1 | 三值验证与首批谓词 | GX-13…GX-16 | 本 PR |
 | X1-2 | 进展与循环检测：重复状态、A-B-A 小环、长期无进展、预算统一计数；检测到停滞后一次有界恢复（重新观察并验证），再停滞即结束 | GX-17…GX-20 | 草稿 PR（叠在 X1-1 上） |
-| X1-3 | 恢复时告诉模型上一步无效、换一种做法（提示进入推理上下文），恢复后的局部重新规划 | GX-17…GX-20 的恢复分支 | 未开始 |
+| X1-3 | 恢复时告诉模型上一步无效、换一种做法（提示进入推理上下文）；ACP 投影跟上 X1-1、X1-2 的契约增量 | GX-17…GX-20 的恢复分支 | 草稿 PR（叠在 X1-2 上） |
 
 学习预留字段（05 §5.3）不在 X1 里补，留给 L1 之前的契约增量。
 
@@ -145,7 +145,64 @@ X1 分三个 PR，按顺序合入，各自验收：
 | GX-20 预算统一计数 | `X1ProgressRunTests.gx20_stallEndsTheRunWithinTheSameBudget`（Run 级：1 次恢复，共 4 次输入、4 次推理，结束原因 no_progress，事件按契约校验） |
 | 不误伤 | `progressingRunIsUntouched`、`partialReadsNeverStall`、`waitsResetOnChangeOnly`、`recoveryBudget` |
 
-## X1-3 的设计要点（预告，以 PR 为准）
+## X1-3 恢复提示与 ACP 投影
 
-- 恢复时把“上一步没有带来变化”作为一条系统提示放进下一次推理的上下文。提示只说停滞类型，不带界面文字。
-- 已验证的局部路径属于学习层（L3），X1-3 不做。
+### 恢复提示
+
+X1-2 的恢复只重新观察、重新验证；模型下一次推理看到的上下文和恢复前一样，很可能再提同一个动作。X1-3 在恢复后的下一次推理里加一句提示，让模型换一种做法。
+
+- **内容**：只有停滞类型。`GuiRecoveryHint`（`Provider/GuiAiProvider.swift`）三个取值与 `ProgressTracker.Stall` 一一对应，每个取值是一句固定的英文：
+
+  | kind | 提示 |
+  | --- | --- |
+  | `repeated_action` | `Note (no progress: repeated_action): The same action was repeated and changed nothing in the window. Do not repeat that; try a different approach.` |
+  | `no_progress` | `Note (no progress: no_progress): The last few actions changed nothing in the window. Do not repeat that; try a different approach.` |
+  | `state_loop` | `Note (no progress: state_loop): The last actions brought the window back to an earlier state. Do not repeat that; try a different approach.` |
+
+  提示是常量，不拼接任何运行时的值：没有界面文字、输入文字、窗口标题、目标或参数值，也没有模型写过的内容。
+
+- **位置**：最后一条 user 消息（当前截图那条）里多一个文字段，顺序为任务行、提示、当前截图。系统提示词和历史不变，`uitars-prompt-1` 的模板也不变，所以不升 promptVersion（绑定的配置里记着 promptVersion，升版本会让已有配置失配）。没有提示时，请求与 X1-2 完全相同。
+- **时机**：恢复的观察没有显示目标达成时，下一次推理带上提示（`GuiInferenceInput.recoveryHint`）；拿到模型回复后清掉，之后的推理不再带。如果这一步的回复是空的，按原规则重新观察再问一次，重问仍带提示。
+- **预算**：提示不新增模型调用。带提示的推理就是原来那一步的推理，照常计入每步 2 次、每个 Run 30 次的同一预算。X1-2 的 Run 级用例仍是 4 次输入、4 次推理。
+- **再次停滞**：每个 Run 最多恢复 1 次，所以提示最多出现一次；带提示之后再停滞，Run 照 X1-2 的规则结束。
+- **不做的**：恢复后的局部重新规划（换目标、拆子任务）和已验证的局部路径属于学习层（L3），X1-3 不做。
+
+### ACP 投影
+
+ACP 原来只认冻结目录里的 11 个平台事件，所有 `unit.*` 都显示成一行「收到未识别的运行事件（…），未作处理」。X1-3 让 ACP 认识其中两个：
+
+| 事件 | 显示（agentThought） |
+| --- | --- |
+| `unit.verification` matched | 界面验证：已通过 |
+| `unit.verification` contradicted | 界面验证：未通过 |
+| `unit.verification` inconclusive | 界面验证：无法判定（原因） |
+| `unit.recovery` | 恢复：（类型说明）（第 n 次） |
+
+inconclusive 的原因：`elements_partial` 界面元素只读到一部分；`elements_unavailable` 没有读到界面元素；`ambiguous` 目标控件不止一个；`target_missing` 没有找到目标控件；`value_unreadable` 目标控件的值读不出。
+
+`unit.recovery` 的类型：`reobserve_after_empty_reply` 模型回复为空，重新观察后再问一次；`repeated_action` 重复同一动作没有带来变化；`no_progress` 连续几步界面没有变化；`state_loop` 界面回到了之前的状态（后三种加「重新观察，换一种做法」）。
+
+`run.ended` 的结束原因另认 `no_progress`（没有进展）和 `loop_detected`（界面来回循环）。
+
+隐私规则：
+
+- 这两个事件定义在 `ACPUnitEventType`（`ACPEventCatalog.swift`），不并入冻结的 `ACPEventType`（它仍然恰好是目录里的 11 个）。其余 `unit.*` 仍是中性的一行。
+- 契约规定它们的 data 只有 id、枚举、代码和数字，所以分级为 normal。只有契约枚举里的取值会变成固定中文；不认识的取值只显示「界面验证：未得出结论」或「已进行一次恢复」。观察 id、verifierId、时间和其他字段一概不读。
+- data 标了 withheld / sensitive 时，只显示状态（同上两句）。
+- 不出现「已验证」：matched 能不能算 README §九所说的「验证结果落地」，还是 docs/acp/12-unit-run.md 的 Q4，等 Kevin 决定。所以写「已通过」，unit Run 成功仍显示「已执行（业务结果：未评估）」。
+- `unit.verification` 每次观察都会有一条，所以用 agentThought，不用 agentMessage。
+
+### 测试
+
+| 用例 | 测试 |
+| --- | --- |
+| 提示是每种停滞一句固定文字 | `X1RecoveryHintTests.hintTextIsFixedPerKind` |
+| 请求里的位置，无提示时请求不变 | `hintIsOneTextPartOfTheCurrentMessage` |
+| Run 级：恢复后的那一次推理带提示，前后都不带，共 4 次推理 | `theInferenceAfterRecoveryCarriesTheHint`（检查 StubAiService 收到的请求） |
+| 空回复重问保留提示，拿到回复后清掉 | `hintSurvivesAnEmptyReplyRetryOnly` |
+| 一直有进展就没有提示 | `noStallNoHint` |
+| ACP 取值与契约一致 | `X1UnitEventTests.vocabulariesMatchTheContract` |
+| ACP 文案 | `verificationStatusesAndReasons`、`recoveryKinds`、`stallClosingReasonsAreShown` |
+| ACP 隐私 | `unknownValuesShowNothingOfThemselves`、`payloadStringsNeverLeak`（含 withheld）、`unitEventsLeaveTheContextAlone` |
+
+契约没有改动。

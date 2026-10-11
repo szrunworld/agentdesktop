@@ -41,13 +41,18 @@ let package = Package(
             name: "ScreenCLI",
             dependencies: ["SecondScreenCore", "TarsAgent"]
         ),
+        // Waits with deadlines and evidence for the tests (#183); test-only.
+        .target(
+            name: "EngineTestSupport",
+            path: "Tests/EngineTestSupport"
+        ),
         .testTarget(
             name: "TarsAgentTests",
-            dependencies: ["TarsAgent"]
+            dependencies: ["TarsAgent", "EngineTestSupport"]
         ),
         .testTarget(
             name: "SecondScreenCoreTests",
-            dependencies: ["SecondScreenCore"]
+            dependencies: ["SecondScreenCore", "EngineTestSupport"]
         ),
         .testTarget(
             name: "SecondScreenRuntimeTests",

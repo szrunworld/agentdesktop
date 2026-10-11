@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import EngineTestSupport
 @testable import SecondScreenCore
 
 /// Scheduling of display configuration, with no display: a "transaction" is
@@ -38,6 +39,14 @@ struct DisplayConfiguratorTests {
         func add() { lock.lock(); value += 1; lock.unlock() }
     }
 
+    /// Waits for what was submitted to the configuration queue, with a
+    /// limit (#183): it is a private serial queue, drained in milliseconds
+    /// (the whole suite takes about 2.5 s in a parallel run); 30 s is far
+    /// above that, and a timeout fails with evidence instead of hanging.
+    private func drain(_ queue: DispatchQueue, _ stage: String) throws {
+        try Bounded.sync(queue, 30, for: "the configuration queue to drain", stage: stage)
+    }
+
     private func make() -> (DisplayConfigurator, DispatchQueue, Clock) {
         let queue = DispatchQueue(label: "test.display-configuration")
         let clock = Clock()
@@ -57,7 +66,7 @@ struct DisplayConfiguratorTests {
             release.wait()
         }
         #expect(first == .started, "submit returned while the transaction is still running")
-        entered.wait()
+        try Bounded.wait(entered, 30, for: "the hung transaction to start", stage: "submit")
         clock.advance(5)
         let pending = try #require(configurator.pending)
         #expect(pending.label == "mode for display 352")
@@ -69,22 +78,22 @@ struct DisplayConfiguratorTests {
             #expect(configurator.submit("retry \(k)") { ran.add() } == .busy(pending))
         }
         release.signal()
-        queue.sync {}
+        try drain(queue, "after submitting")
         #expect(ran.count == 0, "nothing refused ran after the hung transaction returned")
         #expect(configurator.pending == nil)
         #expect(configurator.finishedCount == 1)
         #expect(configurator.submit("next") { ran.add() } == .started)
-        queue.sync {}
+        try drain(queue, "after submitting")
         #expect(ran.count == 1)
     }
 
-    @Test func completionRunsAfterTheConfiguratorIsFreeAgain() {
+    @Test func completionRunsAfterTheConfiguratorIsFreeAgain() throws {
         let (configurator, queue, _) = make()
         let busyInCompletion = Counter()
         configurator.submit("one", {}) {
             if configurator.pending == nil { busyInCompletion.add() }
         }
-        queue.sync {}
+        try drain(queue, "after submitting")
         #expect(busyInCompletion.count == 1)
     }
 
@@ -107,7 +116,7 @@ struct DisplayConfiguratorTests {
                       isCurrent: current, after: later.schedule)
     }
 
-    @Test func modeSelectionStopsOnceSettledAndRetriesABoundedNumberOfTimes() {
+    @Test func modeSelectionStopsOnceSettledAndRetriesABoundedNumberOfTimes() throws {
         let (configurator, queue, _) = make()
         let later = Later()
         let reads = Counter(), selects = Counter()
@@ -117,31 +126,31 @@ struct DisplayConfiguratorTests {
         var listed: [ModeSelection.Variant] = []
         let mode = selection(configurator, later: later, reads: reads, selects: selects, listed: { listed }, now: { current })
         mode.start(attempts: 30)
-        queue.sync {}
+        try drain(queue, "after submitting")
         #expect(reads.count == 1 && selects.count == 0 && later.count == 1, "not listed yet: one retry scheduled")
         listed = [hi]
-        later.runNext(); queue.sync {}
+        later.runNext(); try drain(queue, "after a retry")
         #expect(selects.count == 1, "listed: switched once")
         current = 8
-        later.runNext(); queue.sync {}
+        later.runNext(); try drain(queue, "after a retry")
         #expect(reads.count == 3 && later.count == 0, "settled: no further attempt")
 
         // Never listed: exactly the attempt budget, then nothing more.
         let reads2 = Counter(), selects2 = Counter()
         selection(configurator, later: later, reads: reads2, selects: selects2, listed: { [] }, now: { nil }).start(attempts: 4)
-        queue.sync {}
-        while later.runNext() { queue.sync {} }
+        try drain(queue, "after submitting")
+        while later.runNext() { try drain(queue, "after a retry") }
         #expect(reads2.count == 4)
         #expect(selects2.count == 0)
     }
 
-    @Test func whileATransactionHangsModeAttemptsAreSpentWithoutQueueing() {
+    @Test func whileATransactionHangsModeAttemptsAreSpentWithoutQueueing() throws {
         let (configurator, queue, _) = make()
         let release = DispatchSemaphore(value: 0)
         defer { release.signal() }
         let entered = DispatchSemaphore(value: 0)
         configurator.submit("hung") { entered.signal(); release.wait() }
-        entered.wait()
+        try Bounded.wait(entered, 30, for: "the hung transaction to start", stage: "submit")
         let later = Later()
         let reads = Counter(), selects = Counter()
         selection(configurator, later: later, reads: reads, selects: selects, listed: { [] }, now: { nil }).start(attempts: 5)
@@ -150,12 +159,12 @@ struct DisplayConfiguratorTests {
         while later.runNext() { attempts += 1 }
         #expect(attempts == 5)
         release.signal()
-        queue.sync {}
+        try drain(queue, "after submitting")
         #expect(reads.count == 0, "no attempt ran behind the hung transaction")
         #expect(configurator.finishedCount == 1)
     }
 
-    @Test func aNewerRequestOrAReleasedDisplayEndsTheOldSelection() {
+    @Test func aNewerRequestOrAReleasedDisplayEndsTheOldSelection() throws {
         let (configurator, queue, _) = make()
         let later = Later()
         let generation = Generation()
@@ -163,10 +172,10 @@ struct DisplayConfiguratorTests {
         let reads = Counter(), selects = Counter()
         selection(configurator, later: later, generation: first, current: { generation.is($0) },
                   reads: reads, selects: selects, listed: { [] }, now: { nil }).start(attempts: 30)
-        queue.sync {}
+        try drain(queue, "after submitting")
         #expect(reads.count == 1 && later.count == 1)
         generation.bump() // a resize, or deinit
-        while later.runNext() { queue.sync {} }
+        while later.runNext() { try drain(queue, "after a retry") }
         #expect(reads.count == 1, "the stale selection read nothing more")
         #expect(selects.count == 0)
     }

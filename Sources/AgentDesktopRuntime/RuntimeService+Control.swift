@@ -37,7 +37,10 @@ extension RuntimeService {
                 guard let cleared = facts.clearedAt, let ended = r.endedAt.flatMap(Timestamp.date) else { return r }
                 return ended > cleared ? r : nil
             }
-            if let last, last.outcome == .unknown { state = "unknown" }
+            // unknown while an action of it is unreconciled (docs/plan/03
+            // §3.4); a settled reconciliation leaves the outcome unknown but
+            // no longer colours the Desktop (PR4).
+            if let last, last.outcome == .unknown, runs.hasUnresolvedUnknown(last.runId) { state = "unknown" }
             else if let last, last.closingReason == "owner_lost" { state = "disconnected" }
             else if let last, Self.stopReasons.contains(last.closingReason ?? "") { state = "stopped" }
             else { state = "ready" }

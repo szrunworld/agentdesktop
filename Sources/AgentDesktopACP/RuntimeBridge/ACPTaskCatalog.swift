@@ -16,6 +16,24 @@ public struct ACPTaskCatalog: Sendable {
     public static let unitRunMethod = "unit.run"
     public static let profilesMethod = "ai.profiles.list"
 
+    /// Whether this connection may list GUI profiles at all: only when its
+    /// handshake says it is the owner. A paired client (every socket client
+    /// after A4) does not ask.
+    public static func listsProfiles(principal: JSONValue?) -> Bool {
+        principal?["role"]?.stringValue == "owner"
+    }
+
+    /// A definite refusal of `ai.profiles.list` to this caller: `ai.*` is
+    /// the owner's, so a paired client gets `permission_denied` (reason
+    /// `owner_only`, or `unverified_identity` under A4 R1). The catalog then
+    /// falls back to the default-profile task. Nothing else counts.
+    public static func profilesRefusedToCaller(_ e: RuntimeError) -> Bool {
+        guard e.code == "permission_denied" else { return false }
+        // Reasons the Runtime gives for an owner-only method (accessError,
+        // A4 R1); a permission_denied for anything else still fails.
+        return ["owner_only", "unverified_identity"].contains(e.details?["reason"]?.stringValue ?? "")
+    }
+
     /// Params a caller may never pass: identity and run axes come from the
     /// Runtime's authenticated context (ADR v2.2, A6 F40-06 row 1).
     public static let forbiddenInputKeys: Set<String> = [
