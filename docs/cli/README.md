@@ -29,7 +29,7 @@ agentdesktop session close $S && agentdesktop desktop destroy $D
 ```
 
 - 写命令（create/destroy/launch/bind/unbind/session open/close/act/run cancel）都有 requestId；`--request-id` 自定，未给时 CLI 生成并在发送前记到 `~/Library/Application Support/AgentDesktop/cli/requests.jsonl`。不确定是否生效时用 `agentdesktop request show <id>` 回查，或用同一个 `--request-id` 重试——Runtime 只会执行一次。
-- 只给 Desktop 也可以：`agentdesktop observe --desktop $D`、`agentdesktop act click --desktop $D --snapshot $SNAP --element $E7`。act 只给 `--desktop` 时，Runtime 使用本客户端在这个 Desktop 上最早打开、仍未关闭的 Session，没有就按 `session.open` 的规则新开一个（同样要 act 能力、同样的授权检查）；输入始终在某个 Session 里发出。
+- 只给 Desktop 也可以：`agentdesktop observe --desktop $D`、`agentdesktop act click --desktop $D --snapshot $SNAP --element $E7`。act 只给 `--desktop` 时，Runtime 使用本客户端在这个 Desktop 上最早打开、仍未关闭的 Session，没有就按 `session.open` 的规则新开一个（同样要 act 能力、同样的授权检查）；输入始终在某个 Session 里发出。回执里的 `sessionId`（文本输出里的 `session`）就是它；Desktop 上有打开的 Session 时 `desktop destroy` 会被拒绝，需要先 `agentdesktop session close <sessionId>`。这次 act 失败时，为它新开的 Session 会被关掉（除非期间已被别的 act 复用）。
 - 输出格式：`--format text`（默认）、`--format json`（stdout 上恰好一个 JSON 对象，即 Runtime 的响应信封）、`--format jsonl`（只用于 `run events` 和 `events watch` 这类事件流，每行一个事件；其他命令只有一个结果，用 `json`，给 jsonl 会以参数错误拒绝）。
 - `act` 必须带快照，并在一个 Session 内执行（`--session`、`--desktop` 或 `session exec` 的上下文）；目标变化（窗口移动、重新绑定、进程重启、元素被新读取重编号）会被拒绝且不发送输入（`stale_observation`）。
 - 连续脚本用 `session exec`：外壳持有 Run 和控制权，子程序里的 `agentdesktop` 自动加入该 Run；外壳退出或被杀，后续输入被阻断。

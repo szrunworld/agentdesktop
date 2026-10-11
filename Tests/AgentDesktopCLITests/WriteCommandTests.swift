@@ -260,3 +260,13 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
     #expect(run(["desktop", "destroy", desktop]).0 == 0)
     #expect(run(["request", "show", "e2e-create"]).1?["data"]?["state"]?.stringValue == "completed")
 }
+
+/// Codex P2 on #276: the text receipt names the session the act ran in, so
+/// an implicit session can be closed before desktop destroy.
+@Test func theTextReceiptNamesItsSession() {
+    let h = Harness()
+    h.answer = { _ in .obj([("receiptId", .string("rcpt_1")), ("runId", .string("run_1")), ("sessionId", .string("s_9")),
+                            ("delivery", .string("dispatched")), ("execution", .string("completed")), ("route", .string("ax.press"))]) }
+    #expect(h.cli.run(["act", "press", "--desktop", "d_1", "--snapshot", "obs_1", "--element", "el_2"]) == 0)
+    #expect(h.out.joined().contains("session s_9"), "\(h.out)")
+}
