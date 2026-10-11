@@ -81,6 +81,24 @@ import Testing
         return found
     }
 
+    /// Each `extension` at column 0 in `text`: the type it extends and its
+    /// body up to the next declaration at column 0.
+    static func extensions(in text: String) -> [(type: String, body: String)] {
+        let lines = text.components(separatedBy: "\n")
+        var found: [(String, String)] = []
+        for (i, line) in lines.enumerated() where line.hasPrefix("extension ") {
+            let type = String(line.dropFirst("extension ".count).prefix { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "." })
+            var end = i + 1
+            while end < lines.count {
+                let l = lines[end]
+                if let first = l.first, first != "}", first != "/", !first.isWhitespace { break }
+                end += 1
+            }
+            found.append((type, lines[(i + 1)..<end].joined(separator: "\n")))
+        }
+        return found
+    }
+
     /// (files touching a pasteboard outside the serialized files, suites or
     /// top-level tests touching one without the serialized suite's
     /// attributes, serialized suites found). A top-level `@Test` is never
@@ -92,7 +110,19 @@ import Testing
         var serialized = 0
         for (name, text) in files where pasteboardMarkers.contains(where: text.contains) {
             if !serializedFiles.contains(name) { outside.append(name) }
-            for suite in suites(in: text) where touchesPasteboard.contains(where: suite.body.contains) {
+            let allSuites = suites(in: text)
+            let serializedNames = Set(allSuites.filter {
+                let attrs = $0.attributes.joined(separator: " ")
+                return attrs.contains("@MainActor") && attrs.contains("@Suite(.serialized)")
+            }.map(\.name))
+            // Members added in an extension belong to the extended type: one
+            // that touches a pasteboard is refused unless that type is a
+            // serialized suite (Codex on #264).
+            for ext in extensions(in: text) where touchesPasteboard.contains(where: ext.body.contains)
+                && !serializedNames.contains(ext.type) {
+                unserialized.append("\(name): extension \(ext.type)")
+            }
+            for suite in allSuites where touchesPasteboard.contains(where: suite.body.contains) {
                 let attrs = suite.attributes.joined(separator: " ")
                 if attrs.contains("@MainActor"), attrs.contains("@Suite(.serialized)") {
                     serialized += 1
@@ -135,6 +165,13 @@ import Testing
             #expect(found.outside.isEmpty)
             #expect(found.unserialized == ["PasteboardSnapshotTests.swift: top-level @Test looseOne"], "\(attrs)")
         }
+        // Codex on #264: a test added in an extension of an unserialized
+        // suite is refused; in an extension of a serialized one it is not.
+        let loose = "@Suite struct Loose {}\n\nextension Loose {\n    @Test func t() { _ = scratchPasteboard() }\n}\n"
+        #expect(Self.violations([("PasteboardSnapshotTests.swift", loose)]).unserialized
+                == ["PasteboardSnapshotTests.swift: extension Loose"])
+        let tight = "@MainActor\n@Suite(.serialized) struct Tight {}\n\nextension Tight {\n    @Test func t() { _ = scratchPasteboard() }\n}\n"
+        #expect(Self.violations([("PasteboardSnapshotTests.swift", tight)]).unserialized.isEmpty)
         let clean = Self.violations([("PlainTests.swift", "@Suite struct Plain {\n    @Test func t() {}\n}\n")])
         #expect(clean.outside.isEmpty && clean.unserialized.isEmpty)
     }
