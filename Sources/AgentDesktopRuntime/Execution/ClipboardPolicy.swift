@@ -29,7 +29,8 @@ import Foundation
 /// - Typing never uses the clipboard (accessibility value writes or unicode
 ///   key events; a test keeps it so). Scrolling neither. A press
 ///   (accessibility) is checked like a click on its element. Hovering is
-///   refused: the engine's hover is a middle click, a paste in some apps. But typed text goes
+///   refused at every layer (#263): the engine's only background hover was
+///   a middle click, a paste in some apps, and is gone. But typed text goes
 ///   to the focused element, and its target may be clicked first: both are
 ///   checked like a click.
 /// - Return and Space (by name or as a blank character) press the focused
@@ -57,9 +58,10 @@ enum ClipboardPolicy {
         case .scroll:
             return nil
         case .hover:
-            // The macOS engine hovers with a middle-button press, which some
-            // apps take as paste (Codex P1 on #252). act refuses hover before
-            // this; refused here too should a path reach it.
+            // The engine's background hover was a middle-button press, which
+            // some apps take as paste (Codex P1 on #252); the engine refuses
+            // hover itself now (#263 B-2) and act refuses it before this.
+            // Refused here too should a path reach it.
             return "hover_middle_click"
         case .type:
             // The engine sends the text character by character: a tab in it

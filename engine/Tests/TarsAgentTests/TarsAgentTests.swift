@@ -714,6 +714,26 @@ func button(_ index: Int, _ label: String, x: Double, y: Double = 100, value: St
         #expect(screen.performed.count == 2)
     }
 
+    /// #263 follow-up: a procedure learned before the engine refused hover
+    /// hands over at its hover step, before anything is sent, and the
+    /// re-learned procedure has no hover in it.
+    @Test func aStoredHoverStepHandsOverWithoutSendingIt() {
+        let store = MemoryStore()
+        _ = TarsAgent(screen: calculator(), model: ScriptedModel(script), options: options(store)).run("算 7 加 8")
+        var hover = LearnedStep(kind: "hover")
+        hover.target = store.procedures[0].steps[0].target
+        store.procedures[0].steps.insert(hover, at: 0)
+
+        let screen = calculator()
+        let model = ScriptedModel(script)
+        let result = TarsAgent(screen: screen, model: model, options: options(store)).run("算 7 加 8")
+        #expect(result.outcome == .done && result.replayed == 0)
+        #expect(!screen.performed.contains { $0.kind == .hover }, "nothing of the hover step was sent")
+        #expect(model.seen[0].contains { if case .user(let text) = $0 { text.contains("hover is refused") } else { false } })
+        #expect(result.learned == "saved" && store.procedures.count == 1)
+        #expect(!store.procedures[0].steps.contains { $0.kind == "hover" })
+    }
+
     @Test func aMissingControlHandsOverToTheModel() {
         let store = MemoryStore()
         _ = TarsAgent(screen: calculator(), model: ScriptedModel(script), options: options(store)).run("算 7 加 8")
