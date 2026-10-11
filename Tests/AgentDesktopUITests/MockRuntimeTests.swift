@@ -33,6 +33,7 @@ struct MockRuntimeTests {
         let desk = try await m.call("desktop.list")["desktops"]!.arrayValue!.first!["desktopId"]!
         let runs = try await m.call("run.list", .obj([("limit", .int(50))]))["runs"]!.arrayValue!
         let runId = runs.first!["runId"]!
+        let windowGrantId = m.addWindowGrant(desktopId: desk.stringValue!)
         let calls: [(String, JSONValue)] = [
             ("runtime.handshake", .obj([("apiVersions", .array([.string(RuntimeAPI.version)])),
                                         ("client", .obj([("name", .string("t")), ("version", .string("1"))]))])),
@@ -43,7 +44,10 @@ struct MockRuntimeTests {
             ("run.show", .obj([("runId", runId)])), ("run.events", .obj([("runId", runId)])),
             ("request.show", .obj([("requestId", .string("req_001"))])),
             ("request.show", .obj([("requestId", .string("req_003"))])),
-            ("hub.clients.list", .obj([])), ("hub.grants.list", .obj([])), ("hub.displays.list", .obj([])),
+            ("hub.clients.list", .obj([])), ("hub.grants.list", .obj([])),
+            ("hub.windows.list", .obj([])),
+            ("hub.windows.revoke", .obj([("windowGrantId", .string(windowGrantId))])),
+            ("hub.displays.list", .obj([])),
             ("hub.displays.attach", .obj([("displayId", .int(1)), ("clientId", .string("app:mock-001"))])),
             ("hub.displays.detach", .obj([("desktopId", .string("desk_004"))])),
             ("desktop.create", .obj([("name", .string("新 Desktop")), ("width", .int(1440)), ("height", .int(900))])),

@@ -40,7 +40,7 @@ import Testing
         #expect(tasks.map(\.taskType) == ["unit.run"])
         let props = tasks[0].inputSchema["properties"]?.objectMembers?.map(\.key) ?? []
         #expect(props.contains("goal"))
-        #expect(!props.contains("desktopId"))
+        #expect(props.contains("desktopId"))
         #expect(!props.contains("guiProfileId"))
         #expect(tasks[0].requiresApproval)
     }

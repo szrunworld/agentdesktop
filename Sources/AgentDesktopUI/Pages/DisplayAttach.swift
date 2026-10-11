@@ -255,6 +255,9 @@ public struct AttachDisplaySheet: View {
 @MainActor
 public final class PhysicalDesktopAccess: ObservableObject {
     @Published public private(set) var grants: [JSONValue] = []
+    @Published public private(set) var windows: [JSONValue] = []
+    @Published public private(set) var windowGrants: [JSONValue] = []
+    @Published public var selectedWindowId: Int?
     @Published public private(set) var problem: RuntimeProblem?
     @Published public private(set) var working = false
     @Published public private(set) var detachedAll = false
@@ -271,7 +274,67 @@ public final class PhysicalDesktopAccess: ObservableObject {
         do {
             let r = try await runtime.call("hub.grants.list")
             grants = (r["grants"]?.arrayValue ?? []).filter { ($0["desktops"]?.arrayValue ?? []).contains(.string(desktopId)) }
+            let apps = Set(grants.flatMap { ($0["apps"]?.arrayValue ?? []).compactMap(\.stringValue) })
+            let desktop = try await runtime.call("desktop.show", .obj([("desktopId", .string(desktopId))]))
+            let displayFrame = desktop["screen"]?["frame"]
+            let listed = try await runtime.call("window.list")
+            windows = (listed["windows"]?.arrayValue ?? []).filter {
+                $0["onScreen"]?.boolValue == true && $0["bundleId"]?.stringValue.map(apps.contains) == true
+                    && Self.isCentered($0["frame"], within: displayFrame)
+            }
+            if let selectedWindowId, !windows.contains(where: { $0["windowId"]?.intValue == selectedWindowId }) {
+                self.selectedWindowId = nil
+            }
+            let granted = try await runtime.call("hub.windows.list")
+            windowGrants = (granted["windowGrants"]?.arrayValue ?? []).filter { $0["desktopId"]?.stringValue == desktopId }
             problem = nil
+        } catch {
+            problem = RuntimeProblem(error)
+        }
+    }
+
+    /// Match the Runtime's physical window binding rule: the window's center
+    /// must already lie within the display frame in global points.
+    static func isCentered(_ window: JSONValue?, within display: JSONValue?) -> Bool {
+        guard let wx = window?["x"]?.doubleValue, let wy = window?["y"]?.doubleValue,
+              let ww = window?["width"]?.doubleValue, let wh = window?["height"]?.doubleValue,
+              let dx = display?["x"]?.doubleValue, let dy = display?["y"]?.doubleValue,
+              let dw = display?["width"]?.doubleValue, let dh = display?["height"]?.doubleValue else { return false }
+        let x = wx + ww / 2, y = wy + wh / 2
+        return x >= dx && x < dx + dw && y >= dy && y < dy + dh
+    }
+
+    /// Bind one window already on this physical display. The Runtime checks
+    /// its exact window ID and location; no user window is moved.
+    @discardableResult
+    public func bindSelectedWindow() async -> Bool {
+        guard let w = windows.first(where: { $0["windowId"]?.intValue == selectedWindowId }),
+              let pid = w["process"]?["pid"]?.intValue, let windowId = w["windowId"]?.intValue else { return false }
+        working = true
+        defer { working = false }
+        do {
+            _ = try await runtime.call("window.bind", .obj([
+                ("desktopId", .string(desktopId)), ("pid", .int(pid)), ("windowId", .int(windowId)),
+            ]))
+            problem = nil
+            await load()
+            return true
+        } catch {
+            problem = RuntimeProblem(error)
+            return false
+        }
+    }
+
+    /// Owner withdrawal of one window's grant. Runtime confirmation and
+    /// connection cutoff are the same as for any hub.windows.revoke call.
+    public func revokeWindow(_ id: String) async {
+        guard windowGrants.contains(where: { $0["windowGrantId"]?.stringValue == id }) else { return }
+        working = true
+        defer { working = false }
+        do {
+            _ = try await runtime.call("hub.windows.revoke", .obj([("windowGrantId", .string(id))]))
+            problem = nil
+            await load()
         } catch {
             problem = RuntimeProblem(error)
         }
@@ -299,10 +362,12 @@ public struct PhysicalDesktopAccessView: View {
     @ObservedObject var access: PhysicalDesktopAccess
     /// Called once the Desktop was detached from everyone (it is gone).
     let gone: () -> Void
+    let bound: () -> Void
 
-    public init(access: PhysicalDesktopAccess, gone: @escaping () -> Void) {
+    public init(access: PhysicalDesktopAccess, gone: @escaping () -> Void, bound: @escaping () -> Void = {}) {
         self.access = access
         self.gone = gone
+        self.bound = bound
     }
 
     public var body: some View {
@@ -318,6 +383,57 @@ public struct PhysicalDesktopAccessView: View {
             Text("这是你自己的显示器。开放只让程序申请这里的窗口；每个窗口仍要你单独授权。收回后它在这里的窗口授权立即结束。")
                 .font(ADFont.note).foregroundStyle(ADColor.muted).fixedSize(horizontal: false, vertical: true)
             if let p = access.problem { ProblemView(p) }
+            if !access.grants.isEmpty {
+                Text("绑定这块显示器上的窗口").font(ADFont.noteStrong).foregroundStyle(ADColor.ink)
+                Text("选择已开放程序的窗口。绑定只指定输入目标，不移动窗口，也不给程序窗口访问权；程序仍需单独申请并由你批准。")
+                    .font(ADFont.note).foregroundStyle(ADColor.muted)
+                if access.windows.isEmpty {
+                    Text("没有可选的可见窗口。打开目标应用后点刷新。")
+                        .font(ADFont.note).foregroundStyle(ADColor.muted)
+                }
+                ForEach(access.windows.indices, id: \.self) { i in
+                    let w = access.windows[i]
+                    let id = w["windowId"]?.intValue ?? 0
+                    Button {
+                        access.selectedWindowId = id
+                    } label: {
+                        HStack {
+                            Image(systemName: access.selectedWindowId == id ? "largecircle.fill.circle" : "circle")
+                            Text(w["appName"]?.stringValue ?? "—")
+                            Text(w["title"]?.stringValue ?? "（标题不可读）").lineLimit(1)
+                            Spacer()
+                            Text("pid \(w["process"]?["pid"]?.intValue ?? 0) · 窗口 \(id)")
+                                .font(ADFont.identifier)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("选择窗口 \(w["appName"]?.stringValue ?? "") \(id)")
+                }
+                HStack {
+                    Button("刷新窗口") { Task { await access.load() } }.buttonStyle(ADButtonStyle(.secondary))
+                    Button("绑定所选窗口") { Task { if await access.bindSelectedWindow() { bound() } } }
+                        .buttonStyle(ADButtonStyle(.primary))
+                        .disabled(access.working || access.selectedWindowId == nil)
+                }
+            }
+            if !access.windowGrants.isEmpty {
+                Text("窗口授权").font(ADFont.noteStrong).foregroundStyle(ADColor.ink)
+                ForEach(access.windowGrants.indices, id: \.self) { i in
+                    let g = access.windowGrants[i]
+                    let id = g["windowGrantId"]?.stringValue ?? ""
+                    HStack {
+                        Text("\(g["clientId"]?.stringValue ?? "—") · 窗口 \(g["window"]?["windowId"]?.intValue ?? 0) · \((g["permissions"]?.arrayValue ?? []).compactMap(\.stringValue).joined(separator: ", "))")
+                            .font(ADFont.note).lineLimit(1)
+                        Spacer()
+                        Text(g["state"]?.stringValue ?? "—").font(ADFont.identifier)
+                        if g["state"]?.stringValue == "active" {
+                            Button("撤销") { Task { await access.revokeWindow(id) } }
+                                .buttonStyle(ADButtonStyle(.secondary)).disabled(access.working)
+                                .accessibilityLabel("撤销窗口授权 \(id)")
+                        }
+                    }
+                }
+            }
             if access.grants.isEmpty {
                 Text("没有程序被开放这块显示器。").font(ADFont.note).foregroundStyle(ADColor.muted)
             }

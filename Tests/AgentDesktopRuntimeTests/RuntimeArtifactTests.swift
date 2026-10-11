@@ -412,6 +412,21 @@ private func quotaScene(_ configure: (ArtifactStore) -> Void) throws -> (Runtime
     gate.signal(); gate.signal()
 }
 
+// The first screenshot after an idle minute should use the quick refresh
+// that admission itself started, without requiring the caller to retry.
+@Test func idleScreenshotWaitsForFreshCapacity() throws {
+    let dir = NSTemporaryDirectory() + "adt-art-\(UUID().uuidString.prefix(8))"
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    final class Clock: @unchecked Sendable { var now = Date() }
+    let clock = Clock()
+    let store = try ArtifactStore(directory: dir, now: { clock.now })
+    store.freeBytes = { 100 << 30 }
+    store.refreshFreeSpace()
+    clock.now = clock.now.addingTimeInterval(61)
+    try store.admit(bucket: "session:s")
+    store.release(bucket: "session:s")
+}
+
 // b9's review of 9a7657a: a volume that hangs every query does not pile up
 // queries (one retry each 30 s), and a clock set back does not keep an old
 // answer fresh.
