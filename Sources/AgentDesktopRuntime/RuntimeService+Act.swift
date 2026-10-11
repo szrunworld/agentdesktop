@@ -15,7 +15,8 @@ extension RuntimeService {
         // Input still never goes out without a session. A session opened
         // here for an act that then fails is closed again: the failure names
         // no session, so the caller could not close it, and an open session
-        // blocks desktop.destroy (Codex P1 on #276).
+        // blocks desktop.destroy (Codex P1 on #276) — unless another act
+        // reused it meanwhile and may still be acting in it.
         if request.context.sessionId == nil, let desktopId = request.context.desktopId {
             switch implicitSession(desktopId: desktopId, c) {
             case let .failure(e): return .failure(e)
@@ -23,7 +24,11 @@ extension RuntimeService {
                 var scoped = request
                 scoped.context.sessionId = sid
                 let result = act(scoped, c)
-                if opened, case .failure = result { _ = sessions.close(sid, at: nowString) }
+                if opened {
+                    // Closed only if no other act reused it meanwhile
+                    // (Codex P1 on 1c2be21).
+                    if case .failure = result { sessions.closeIfUnshared(sid, at: nowString) } else { sessions.keep(sid) }
+                }
                 return result
             }
         }

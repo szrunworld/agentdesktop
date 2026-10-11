@@ -64,20 +64,45 @@ public final class SessionManager: @unchecked Sendable {
         }
     }
 
+    /// Implicit sessions opened for an act and not yet handed to another
+    /// request: the act that opened one may close it again if it fails.
+    private var unshared: Set<String> = []
+
     /// `caller`'s oldest open session on a Desktop, else a new one, in one
     /// step (act's implicit session); whether it was opened now.
     func firstOpenOrOpen(desktopId: String, caller: String, at: String) -> (RuntimeSession, Bool) {
         lock.withLock {
             if let s = sessions.values.filter({ $0.desktopId == desktopId && $0.caller == caller && $0.state == "open" })
                 .min(by: { ($0.createdAt, $0.sessionId) < ($1.createdAt, $1.sessionId) }) {
+                // Reused: from now on another request may be acting in it.
+                unshared.remove(s.sessionId)
                 return (s, false)
             }
             let s = RuntimeSession(sessionId: DesktopRegistry.newId(prefix: "s"), desktopId: desktopId, caller: caller,
                                    state: "open", createdAt: at)
             sessions[s.sessionId] = s
+            unshared.insert(s.sessionId)
             return (s, true)
         }
     }
+
+    /// Close an implicit session its failed act opened, unless another
+    /// request has reused it meanwhile; whether it was closed. One step, so
+    /// a concurrent act either reused it before (it stays open) or finds it
+    /// closed and opens its own.
+    @discardableResult
+    func closeIfUnshared(_ id: String, at: String) -> Bool {
+        lock.withLock {
+            guard unshared.remove(id) != nil, var s = sessions[id], s.state == "open" else { return false }
+            s.state = "closed"
+            s.closedAt = at
+            sessions[id] = s
+            return true
+        }
+    }
+
+    /// The act that opened it succeeded: an ordinary session from now on.
+    func keep(_ id: String) { lock.withLock { _ = unshared.remove(id) } }
 
     /// Whether a session of this id exists at all, whoever's.
     func exists(_ id: String) -> Bool { lock.withLock { sessions[id] != nil } }

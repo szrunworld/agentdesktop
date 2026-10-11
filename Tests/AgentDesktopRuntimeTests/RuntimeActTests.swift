@@ -378,3 +378,24 @@ func testRun(_ id: String, lifetime: RunRecord.Lifetime) -> RunRecord {
     #expect(seen.count == 1 && created == 1)
     #expect(store.openCount(desktopId: "d_1") == 1)
 }
+
+/// Codex P1 on 1c2be21: a failed act closes the implicit session it opened
+/// only while no other request has reused it.
+@Test func aFailedActDoesNotCloseASessionAnotherActReused() {
+    let store = SessionManager()
+    let (s, opened) = store.firstOpenOrOpen(desktopId: "d_1", caller: "app:x", at: "t0")
+    #expect(opened)
+    let (again, reopened) = store.firstOpenOrOpen(desktopId: "d_1", caller: "app:x", at: "t1")
+    #expect(again.sessionId == s.sessionId && !reopened)
+    #expect(!store.closeIfUnshared(s.sessionId, at: "t2"), "reused: stays open")
+    #expect(store.openCount(desktopId: "d_1") == 1)
+    // Unshared: closed; the next act opens its own.
+    let (b, _) = store.firstOpenOrOpen(desktopId: "d_2", caller: "app:x", at: "t3")
+    #expect(store.closeIfUnshared(b.sessionId, at: "t4"))
+    #expect(store.openCount(desktopId: "d_2") == 0)
+    let (c, openedC) = store.firstOpenOrOpen(desktopId: "d_2", caller: "app:x", at: "t5")
+    #expect(openedC && c.sessionId != b.sessionId)
+    // Kept after a success: no later failure of someone else closes it.
+    store.keep(c.sessionId)
+    #expect(!store.closeIfUnshared(c.sessionId, at: "t6"))
+}
