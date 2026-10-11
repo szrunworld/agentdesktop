@@ -84,9 +84,10 @@ struct ACPWindowRequestTests {
         #expect(c.methods == ["hub.windows.request", "desktop.show"])
     }
 
-    @Test("[Mock] the request waits out the user's decision: longer than the Runtime's 120 s confirmation")
+    @Test("[Mock] the request waits out a full confirmation queue: 3 turns of 120 s, then a margin")
     func replyOutlastsTheConfirmation() {
-        #expect(ACPWindowRequest.replyTimeout >= 130)
+        // Mirrors ConfirmationGate.maxWaiting and RuntimeService.confirmationTimeout.
+        #expect(ACPWindowRequest.replyTimeout > 3 * 120)
         let c = ACPWindowRequest.client(endpoint: Endpoint(path: "/tmp/adt-x/side.runtime.sock", source: .option),
                                         credential: ClientCredential(clientId: "app:acp", token: "t"))
         #expect(c.timeout == ACPWindowRequest.replyTimeout)

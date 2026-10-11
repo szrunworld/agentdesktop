@@ -20,12 +20,16 @@ public enum ACPWindowRequest {
     public static let permissions = ["observe", "act"]
 
     /// How long to wait for the reply to hub.windows.request: the Runtime
-    /// answers only once the user has decided, up to its confirmation
-    /// timeout (120 s, RuntimeService.confirmationTimeout), sending nothing
-    /// meanwhile. A shorter wait would report a lost connection while the
-    /// window stays open and a later approval still grants (2ndscreen-69 on
-    /// #268).
-    public static let replyTimeout: Double = 150
+    /// answers only once the user has decided, sending nothing meanwhile.
+    /// Confirmations take turns (ConfirmationGate admits up to 3, maxWaiting)
+    /// and each one's 120 s deadline (RuntimeService.confirmationTimeout)
+    /// starts only on its turn, so this request may wait for two others and
+    /// then its own: 3 × 120 s, plus a margin. A shorter wait would report a
+    /// lost connection while the request is still queued or shown, and a
+    /// later approval would still grant (2ndscreen-69 and Codex on #268).
+    public static let confirmationTimeout: Double = 120
+    public static let confirmationsAdmitted: Double = 3
+    public static let replyTimeout: Double = confirmationsAdmitted * confirmationTimeout + 30
 
     /// The bridge's connection for this request: its own credential, and a
     /// reply timeout that outlasts the user's decision.
