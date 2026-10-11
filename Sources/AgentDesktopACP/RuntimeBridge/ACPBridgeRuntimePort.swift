@@ -75,7 +75,14 @@ public final class ACPBridgeRuntimePort: ACPRuntimePort, @unchecked Sendable {
     }
 
     public func tasks() async throws -> [ACPExposedTask] {
-        try await onControl { c in try self.catalogEntries(c).map(\.task) }
+        try await onControl { c in
+            let entries = try self.catalogEntries(c)
+            // runtime.capabilities is public before pairing, but that does
+            // not make its unit.run method an editor task for this caller.
+            guard let role = c.principal?["role"]?.stringValue,
+                  role == "owner" || role == "paired" else { return [] }
+            return entries.map(\.task)
+        }
     }
 
     private func catalogEntries(_ c: RuntimeClient) throws -> [ACPTaskCatalog.Entry] {
@@ -83,10 +90,25 @@ public final class ACPBridgeRuntimePort: ACPRuntimePort, @unchecked Sendable {
         let caps = try c.call(RuntimeRequest(.capabilities))
         let methods = ACPTaskCatalog.methods(caps)
         var profiles: [JSONValue]?
-        if methods.contains(ACPTaskCatalog.unitRunMethod), methods.contains(ACPTaskCatalog.profilesMethod) {
-            let r = try c.call(RuntimeRequest(requestId: RuntimeRequest.newId(), method: ACPTaskCatalog.profilesMethod,
-                                              params: .obj([])))
-            profiles = r["items"]?.arrayValue ?? []
+        // ai.* is the owner's. A4 leaves no owner on the socket, so a paired
+        // bridge never asks: a verified one would open a confirmation in the
+        // owner's window on every listing (Codex on d10d83b), which the
+        // bridge must not trigger by itself (Kevin's ruling on #246). Only an
+        // owner connection lists profiles; the bridge offers the
+        // default-profile task.
+        if methods.contains(ACPTaskCatalog.unitRunMethod), methods.contains(ACPTaskCatalog.profilesMethod),
+           ACPTaskCatalog.listsProfiles(principal: c.principal) {
+            do {
+                let r = try c.call(RuntimeRequest(requestId: RuntimeRequest.newId(), method: ACPTaskCatalog.profilesMethod,
+                                                  params: .obj([])))
+                profiles = r["items"]?.arrayValue ?? []
+            } catch let e as RuntimeError where ACPTaskCatalog.profilesRefusedToCaller(e) {
+                // ai.* is the owner's (A4 R1): a paired bridge is refused it
+                // for sure. It then offers the one unit.run task on the
+                // Runtime's default profile, as if the method were absent;
+                // any other failure still fails the listing (#246).
+                profiles = nil
+            }
         }
         return catalog.entries(methods: methods, profiles: profiles)
     }

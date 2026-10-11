@@ -25,7 +25,7 @@ extension RuntimeService {
         for x in ["desktop.create", "desktop.destroy", "desktop.recoverBinding", "app.launch", "window.bind", "window.unbind",
                   "app.quit", "desktop.resize"] { m[x] = "desktop.manage" }
         for x in ["run.start", "run.attach", "run.finish", "run.show", "run.events", "run.wait", "run.cancel", "run.list",
-                  "events.subscribe", "events.unsubscribe"] { m[x] = "run" }
+                  "events.subscribe", "events.unsubscribe", "inbox.list", "inbox.show"] { m[x] = "run" }
         m["unit.run"] = "unit.run"
         // A paired app stops its own Runs (#153's plan); the global stop that
         // closes input admission is the owner's (the host window).

@@ -48,6 +48,11 @@ jobs:
         run: python3 -m unittest -v scripts.ci.test_test_watchdog.WatchdogOwnershipTests
       - name: Native core unit tests
         timeout-minutes: 8
+        env:
+          # A bounded wait that runs out writes its evidence (what it waited
+          # for, the stage, a sample of the process) here, inside the
+          # directory uploaded below, so it reaches the artifact (#264).
+          ENGINE_TEST_EVIDENCE_DIR: ${{ runner.temp }}/engine-test-watchdog/bounded-waits
         run: |
           # On a pseudo-terminal so each result line shows when written, and
           # with a watchdog: after 150 s without output it lists the tests
