@@ -316,6 +316,37 @@ struct MainWindowHostTests {
         #expect(scheduled.count == 1, "after it ran, the next request schedules again")
     }
 
+    // Codex P2 on 17f2b82 (#304): the dialog may open (a quit from the
+    // Dock) between scheduling the terminate and running it; the scheduled
+    // one then only brings the dialog forward, never terminates while it
+    // waits.
+    @Test func aScheduledTerminateYieldsToADialogOpenedMeanwhile() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let q = QuitController(store: store)
+        q.clock = FastClock()
+        var terminations = 0, replies: [Bool] = []
+        var scheduled: [@MainActor () -> Void] = []
+        q.terminate = { terminations += 1 }
+        q.later = { scheduled.append($0) }
+        q.reply = { replies.append($0) }
+        q.requestQuit()
+        q.markAsking()
+        await q.begin(show: false)
+        try #require(scheduled.count == 1)
+        scheduled.removeFirst()()
+        #expect(terminations == 0, "no terminate while the dialog waits for an answer")
+        #expect(scheduled.isEmpty)
+        q.choose(.cancel)
+        #expect(replies == [false])
+        q.requestQuit()
+        try #require(scheduled.count == 1, "once answered, a request schedules again")
+        scheduled.removeFirst()()
+        #expect(terminations == 1)
+    }
+
     // Review of #101: a stop called off while a Runtime answer is in flight
     // never turns quiet afterwards, and a late quiet never approves a later
     // quit (which would then skip the dialog and stop-and-wait).

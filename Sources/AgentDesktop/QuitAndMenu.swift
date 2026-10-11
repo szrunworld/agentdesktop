@@ -61,7 +61,14 @@ final class QuitController: NSObject, NSWindowDelegate {
             later { [weak self] in
                 guard let self else { return }
                 self.terminatePending = false
-                self.terminate()
+                // Another request (the Dock, say) may have opened the
+                // dialog meanwhile: a terminate now would be the second
+                // one while it waits, so only bring it forward.
+                if self.isAsking {
+                    if let window = self.window { self.bringForward(window) }
+                } else {
+                    self.terminate()
+                }
             }
             return
         }
