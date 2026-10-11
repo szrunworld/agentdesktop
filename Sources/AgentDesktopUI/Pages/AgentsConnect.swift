@@ -43,14 +43,14 @@ public enum AgentsConnectExamples {
     }
 
     /// The MCP server entry; one valid JSON object (UC23). The Desktop is
-    /// bound by the pairing above until `mcp --desktop-id` ships (A7).
-    public static func mcpConfig() -> String {
+    /// explicitly selected and limited by the pairing above.
+    public static func mcpConfig(desktopId: String? = nil) -> String {
         """
         {
           "mcpServers": {
             "agentdesktop": {
               "command": "\(binary)",
-              "args": ["mcp", "--profile", "mcp"]
+              "args": ["mcp", "--profile", "mcp", "--desktop-id", "\(safe(desktopId))"]
             }
           }
         }
@@ -187,8 +187,8 @@ struct AgentsConnectView: View {
                 CodeBox(title: "终端 · Shell", code: AgentsConnectExamples.cli(desktopId: desktopId))
             case .mcp:
                 CodeBox(title: "先配对 MCP 宿主（限定到这个 Desktop）", code: AgentsConnectExamples.mcpPair(desktopId: desktopId))
-                CodeBox(title: "MCP 配置 · JSON", code: AgentsConnectExamples.mcpConfig(), json: true)
-                Text("Desktop 范围由上面的配对授权限定；`agentdesktop mcp --desktop-id` 尚未发布（A7）。无需添加 AI 连接，也不会改变外部 Agent 的模型或提示词。")
+                CodeBox(title: "MCP 配置 · JSON", code: AgentsConnectExamples.mcpConfig(desktopId: desktopId), json: true)
+                Text("Desktop 由 --desktop-id 指定，范围由上面的配对授权限定。无需添加 AI 连接，也不会改变外部 Agent 的模型或提示词。")
                     .font(ADFont.note).foregroundStyle(ADColor.muted).fixedSize(horizontal: false, vertical: true)
             case .acp:
                 CodeBox(title: "ACP 桥自己配对（限定到这个 Desktop）", code: AgentsConnectExamples.acpPair(desktopId: desktopId))

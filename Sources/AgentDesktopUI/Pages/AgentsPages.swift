@@ -44,7 +44,7 @@ public struct AgentsConfirmationText: Equatable, Sendable {
                     .map { GrantNarrowing.removed(grant: g, params: $0, now: model.currentNow) }
             } ?? []
             return .init(title: "收紧 \(model.name(of: id)) 的授权？", message: "只能去掉已有的项目或缩短期限，不会扩大或延长授权。",
-                         consequences: removed + ["新范围从下一个请求、下一个动作起生效", "新范围之外的平台运行由 Runtime 停止；它的连接被切断，需要重连"],
+                         consequences: removed + ["本次提交也会略微缩短期限，以保证不会延长授权；所有既有窗口授权（含已关闭窗口）将永久撤销，旧截图不再可读，恢复能力或续期也不会恢复；使用窗口需重新申请授权", "新范围从下一个请求、下一个动作起生效", "新范围之外的平台运行由 Runtime 停止；它的连接被切断，需要重连"],
                          preserved: ["保留的能力、Desktop 和 App 不变", "外部应用本身继续运行"],
                          confirmTitle: "收紧授权")
         case let .revokeWindowGrant(w):
@@ -349,8 +349,8 @@ struct AgentDetailView: View {
     }
 
     var connectionIds: [String] {
-        let fromShow = (client?["connections"]?.arrayValue ?? []).compactMap(\.stringValue)
-        return fromShow.isEmpty ? model.connections(of: clientId).compactMap { $0["connectionId"]?.stringValue } : fromShow
+        if let fromShow = client?["connections"]?.arrayValue { return fromShow.compactMap(\.stringValue) }
+        return model.connections(of: clientId).compactMap { $0["connectionId"]?.stringValue }
     }
 
     func axis(_ label: String, _ status: StatusText, _ raw: String, _ foot: String) -> some View {
@@ -414,8 +414,8 @@ struct AgentDetailView: View {
             HStack(spacing: ADSpace.s) {
                 Spacer()
                 Button("收紧授权…") { startEditing(g) }.buttonStyle(ADButtonStyle(.secondary))
-                    .disabled(!model.canChange("hub.grants.set") || GrantNarrowing.remaining(g, now: model.currentNow) == nil || revoked)
-                    .help(model.offers("hub.grants.set") ? "只能去掉已有项目或缩短期限" : "Runtime 未提供 hub.grants.set")
+                    .disabled(!model.canChange("hub.grants.set") || !model.offers("hub.grants.list") || GrantNarrowing.remaining(g, now: model.currentNow) == nil || revoked)
+                    .help(!model.offers("hub.grants.set") ? "Runtime 未提供 hub.grants.set" : !model.offers("hub.grants.list") ? "Runtime 未提供 hub.grants.list，无法核对当前授权" : "只能去掉已有项目或缩短期限")
                 Button("撤销授权…") { confirm(.revokeGrant(clientId)) }.buttonStyle(ADButtonStyle(.danger))
                     .disabled(!model.canChange("hub.grants.revoke") || !grantActive)
             }

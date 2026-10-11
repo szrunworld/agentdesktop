@@ -83,7 +83,10 @@ extension MockRuntime {
                 if let reason { lane.windowGrants[w] = g.setting("state", .string("ended")).setting("endedReason", .string(reason)) }
             }
             if narrowed { agentsCut(id) }
-            agentsStopRuns(of: id, reason: "grant_narrowed") { run in !deskSet.contains(run["desktopId"]?.stringValue ?? "") }
+            agentsStopRuns(of: id, reason: "grant_narrowed") { run in
+                !deskSet.contains(run["desktopId"]?.stringValue ?? "")
+                    || !Set((caps.arrayValue ?? []).compactMap(\.stringValue)).contains(run["kind"]?.stringValue == "unit" ? "unit.run" : "run")
+            }
             return grant
         case "hub.grants.revoke":
             let id = p["clientId"]?.stringValue ?? ""

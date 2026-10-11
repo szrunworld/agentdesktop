@@ -216,6 +216,7 @@ public final class AgentsModel: ObservableObject {
         var desktop: JSONValue?
         var entries: [AgentsConnectionCheck.Entry] = []
         do {
+            guard offers("desktop.show") else { throw RuntimeError.capabilityMissing("desktop.show") }
             if offers("desktop.show") {
                 desktop = try await runtime.call("desktop.show", .obj([("desktopId", .string(desktopId))]))
             }
@@ -267,7 +268,11 @@ public final class AgentsModel: ObservableObject {
     /// removed meanwhile, and a duration computed before the dialog would
     /// count from the later call (Codex P1 on e38c3d6).
     public func narrowGrant(_ id: String, intent: GrantNarrowing.Intent) async {
-        guard canChange("hub.grants.set"), offers("hub.grants.list") else { return }
+        guard canChange("hub.grants.set") else { return }
+        guard offers("hub.grants.list") else {
+            lastResult = AgentsActionResult(title: "没有发送：Runtime 未提供 hub.grants.list", facts: [], problem: RuntimeProblem(RuntimeError.capabilityMissing("hub.grants.list")))
+            return
+        }
         let current: JSONValue?
         do {
             current = (try await runtime.call("hub.grants.list"))["grants"]?.arrayValue?.first { $0["clientId"]?.stringValue == id }
@@ -322,10 +327,10 @@ public final class AgentsModel: ObservableObject {
 
     public func client(_ id: String) -> JSONValue? { clients.first { $0["clientId"]?.stringValue == id } }
 
-    /// The grant as hub.grants.list reports it, else the one on the client record.
+    /// Prefer the refreshed client record, including an explicit absent grant.
     public func grant(of id: String) -> JSONValue? {
+        if let g = (detail?["clientId"]?.stringValue == id ? detail : client(id))?["grant"] { return g.isNull ? nil : g }
         if let g = grants.first(where: { $0["clientId"]?.stringValue == id }) { return g }
-        if let g = (detail?["clientId"]?.stringValue == id ? detail : client(id))?["grant"], !g.isNull { return g }
         return nil
     }
 

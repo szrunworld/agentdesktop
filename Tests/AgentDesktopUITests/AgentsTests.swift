@@ -40,6 +40,23 @@ struct AgentsTests {
         return (store, model)
     }
 
+    @Test func missingDesktopShowDoesNotReportConnectionCheckSuccess() async throws {
+        let m = MockRuntime.agentsSample()
+        let (_, model) = await loaded(NarrowCapabilitiesRuntime(m, hiding: ["desktop.show"]))
+        await model.checkConnection(desktopId: "desk_mock")
+        #expect(model.check?.problem != nil)
+    }
+
+    @Test func refreshedClientGrantWinsWhenTheGrantListFails() async throws {
+        let m = MockRuntime.agentsSample()
+        let (_, model) = await loaded(m)
+        let id = "app:mock-001"
+        _ = try await m.call("hub.grants.revoke", .obj([("clientId", .string(id))]))
+        m.failNext("hub.grants.list", code: "deadline_exceeded")
+        await model.load()
+        #expect(model.grant(of: id)?["state"]?.stringValue == "revoked")
+    }
+
     @Test func theLaneMethodsAreOfferedAndAnswerWithinTheContract() async throws {
         let m = MockRuntime.agentsSample()
         let (store, model) = await loaded(m)
