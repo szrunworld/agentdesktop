@@ -26,12 +26,15 @@ cd ~/orca/agentdesktop               # 被测提交；记下 git rev-parse HEAD
 scripts/bundle-app.sh                # 产物 build/Agent Desktop.app
 rm -rf /tmp/adt-acp && mkdir -m 700 /tmp/adt-acp
 cp -R "build/Agent Desktop.app" /tmp/adt-acp/
-open -n --env AGENTDESKTOP_SOCKET=/tmp/adt-acp/side.sock "/tmp/adt-acp/Agent Desktop.app"
+open -n --env AGENTDESKTOP_SOCKET=/tmp/adt-acp/side.sock --env AGENTDESKTOP_GUI_EXECUTION=1 "/tmp/adt-acp/Agent Desktop.app"
 export AGENTDESKTOP_ENDPOINT=/tmp/adt-acp/side.runtime.sock
 CLI="/tmp/adt-acp/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
 "$CLI" runtime status --endpoint "$AGENTDESKTOP_ENDPOINT" --json
 ```
 
+- **`unit.run` 的前提（A6）**：
+  - 测试副本要带 `AGENTDESKTOP_GUI_EXECUTION=1`（`HostRole.guiExecutionEnabled`），否则 Runtime 不宣告 `unit.run`，桥的任务列表为空。
+  - 执行器在受理时会检查 GUI profile、它的模型和凭据，以及这个 GUI profile 是否已经和这一版模型 profile 一起通过 GUI 契约测试（`UnitRunService.admit`）。在测试副本的主窗口里配置好默认 GUI profile 和模型，填入 Kevin 提供的专用测试凭据（O1：存钥匙串或受控存储，不进 Git 和日志），再跑一次 `ai.tests.start` 并通过。缺任何一项，`unit.run` 都会在 Run 创建之前被拒绝。
 - 测试副本的 Runtime 端点是 `<socket>.runtime.sock`（`HostRole.runtimeEndpoint`）。A2 之后端点会改名（04-gap-analysis C-19），以 `lsof -U -a -p $(pgrep -f "/tmp/adt-acp/Agent Desktop.app")` 列出的那一个为准，并同步修改 `scripts/acp/fake-editor/profiles/agentdesktop-*.json` 的 `AGENTDESKTOP_ENDPOINT`。按监听进程判断，不按文件名。
 - 记录：宿主 pid、监听 socket 列表、文件权限（`ls -la /tmp/adt-acp`；socket 与数据库应为 0600、目录 0700）。
 - 收尾（每轮结束都做）：关闭会话、销毁测试 Desktop、退出计算器、`kill -TERM <宿主 pid>`、`rm -rf /tmp/adt-acp`。
