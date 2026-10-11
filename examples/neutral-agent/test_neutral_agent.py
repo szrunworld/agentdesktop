@@ -215,5 +215,34 @@ class NeutralAgentTests(unittest.TestCase):
             rt.close()
 
 
+class EndpointTests(unittest.TestCase):
+    """The same order as the CLI (ContractCLI.defaultSocket)."""
+
+    def test_resolution_order(self):
+        r = neutral_agent.runtime_endpoint
+        env = {"HOME": "/Users/t", "AGENTDESKTOP_ENDPOINT": "/tmp/e.sock", "AGENTDESKTOP_SOCKET": "/tmp/adt-a7/side.sock"}
+        self.assertEqual(r("/tmp/opt.sock", env), "/tmp/opt.sock")
+        self.assertEqual(r(None, env), "/tmp/e.sock")
+        self.assertEqual(r(None, {"HOME": "/Users/t", "AGENTDESKTOP_SOCKET": "/tmp/adt-a7/side.sock"}), "/tmp/adt-a7/side.runtime.sock")
+        self.assertEqual(r(None, {"HOME": "/Users/t"}), "/Users/t/Library/Application Support/AgentDesktop/runtime.sock")
+
+    def test_environment_endpoint_is_used_without_an_option(self):
+        rt = FakeRuntime()
+        cred = os.path.join(tempfile.mkdtemp(prefix="adt-na-env-"), "c.json")
+        old = os.environ.get("AGENTDESKTOP_ENDPOINT")
+        os.environ["AGENTDESKTOP_ENDPOINT"] = rt.path
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = neutral_agent.main(["--credential-file", cred, "--list-only", "--poll", "0.01", "--pair-timeout", "5"])
+            self.assertEqual(code, 0)
+            self.assertIn("desktop.list", rt.methods())
+        finally:
+            if old is None:
+                os.environ.pop("AGENTDESKTOP_ENDPOINT", None)
+            else:
+                os.environ["AGENTDESKTOP_ENDPOINT"] = old
+            rt.close()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -16,20 +16,21 @@ handshake → 配对（pair）→ 等主人在 Agent Desktop 窗口批准 → �
 AGENTDESKTOP_SOCKET=/tmp/adt-a7/side.sock \
   python3 examples/neutral-agent/neutral_agent.py --list-only
 
-# 完整流程：观察授权里的第一个 Desktop，不发送任何输入
-python3 examples/neutral-agent/neutral_agent.py --desktops created
+# 完整流程：请求一个已有 Desktop 的授权并观察它，不发送任何输入
+# （"created" 只覆盖这个 Agent 自己创建的 Desktop；示例不创建 Desktop，新配对时它是空的）
+python3 examples/neutral-agent/neutral_agent.py --desktops d_123 --desktop-id d_123
 
 # 显式要求一个动作（只发一次，不重试）
 python3 examples/neutral-agent/neutral_agent.py --desktop-id d_123 --act click:el_3 --request-id demo-click-1
 ```
 
-Runtime 的位置依次取：`--endpoint`、`AGENTDESKTOP_SOCKET`、`AGENTDESKTOP_ENDPOINT`、已安装产品的 `~/Library/Application Support/AgentDesktop/runtime.sock`。
+Runtime 的位置与 CLI 相同，依次取：`--endpoint`、`AGENTDESKTOP_ENDPOINT`、测试副本的 `AGENTDESKTOP_SOCKET`（那是宿主的控制 socket，Runtime 在旁边的 `<名字>.runtime.sock`，例如 `/tmp/adt-a7/side.sock` → `/tmp/adt-a7/side.runtime.sock`）、已安装产品的 `~/Library/Application Support/AgentDesktop/runtime.sock`。
 
 | 参数 | 含义 |
 | --- | --- |
 | `--credential-file` | 凭据文件，默认当前目录下的 `neutral-agent.credential.json`。不存在时先配对，批准后以 0600 写入；存在时直接使用，不再配对 |
 | `--name` / `--publisher` | 配对时在确认窗口里显示的名字（自报，窗口会如实标注） |
-| `--capabilities` / `--desktops` / `--apps` | 配对请求的授权范围，逗号分隔；默认只要 `observe,act` |
+| `--capabilities` / `--desktops` / `--apps` | 配对请求的授权范围，逗号分隔；默认只要 `observe,act`。`--desktops` 写已有 Desktop 的 id；`created` 只覆盖本 Agent 自己创建的 Desktop，而示例不创建 Desktop |
 | `--desktop-id` | 观察哪个 Desktop；默认授权里可见的第一个。不在授权里的 Desktop 不会被触碰 |
 | `--act` | 可选的一个动作：`key:escape`、`click:el_3`、`press:el_3`。**不给就不发送任何输入** |
 | `--request-id` | 动作的 requestId。结果不确定时用它查询（`request.show`），不要重发 |

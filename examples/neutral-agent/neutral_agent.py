@@ -178,9 +178,25 @@ def reconnect(args, cred: dict) -> int:
         again.close()
 
 
+def runtime_endpoint(option: Optional[str], env) -> str:
+    """The Runtime socket, in the CLI's order (ContractCLI.defaultSocket):
+    --endpoint; AGENTDESKTOP_ENDPOINT; a side instance's AGENTDESKTOP_SOCKET,
+    whose Runtime listens beside it as <name>.runtime.sock; else the
+    installed product's."""
+    if option:
+        return os.path.expanduser(option)
+    if env.get("AGENTDESKTOP_ENDPOINT"):
+        return os.path.expanduser(env["AGENTDESKTOP_ENDPOINT"])
+    if env.get("AGENTDESKTOP_SOCKET"):
+        base, _ = os.path.splitext(os.path.expanduser(env["AGENTDESKTOP_SOCKET"]))
+        return base + ".runtime.sock"
+    home = env.get("HOME") or os.path.expanduser("~")
+    return f"{home}/Library/Application Support/AgentDesktop/runtime.sock"
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="中性示例 Agent：配对、列 Desktop、观察、动作、断开、重连")
-    p.add_argument("--endpoint", help="Runtime socket；默认 AGENTDESKTOP_SOCKET / AGENTDESKTOP_ENDPOINT，再默认已安装产品的")
+    p.add_argument("--endpoint", help="Runtime socket；默认 AGENTDESKTOP_ENDPOINT，再看测试副本的 AGENTDESKTOP_SOCKET（其 Runtime 在 <名字>.runtime.sock），最后是已安装产品的")
     p.add_argument("--credential-file", default="neutral-agent.credential.json", help="凭据文件（0600）；没有就先配对")
     p.add_argument("--name", default="neutral-agent", help="配对时显示的 Agent 名")
     p.add_argument("--publisher", default=None)
@@ -196,8 +212,7 @@ def main(argv=None) -> int:
     p.add_argument("--poll", type=float, default=1.0)
     p.add_argument("--timeout", type=float, default=10.0)
     args = p.parse_args(argv)
-    if not args.endpoint:
-        args.endpoint = os.environ.get("AGENTDESKTOP_SOCKET") or None
+    args.endpoint = runtime_endpoint(args.endpoint, os.environ)
     return run(args)
 
 
