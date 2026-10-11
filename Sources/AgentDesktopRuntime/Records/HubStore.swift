@@ -111,7 +111,8 @@ public final class HubStore: @unchecked Sendable {
         }
     }
 
-    private let db: SQLiteDatabase
+    /// Internal so tests can make it unreadable.
+    let db: SQLiteDatabase
     private let now: @Sendable () -> Date
     private let lock = NSLock()
     /// Credentials issued and not yet collected, by pairingId.
@@ -204,11 +205,19 @@ public final class HubStore: @unchecked Sendable {
 
     public func clients() -> [Client] { clients(where: "1 = 1", []) }
 
+    /// Every client, or the read's failure (diagnostics must not show an
+    /// unreadable store as no clients).
+    func clientsChecked() throws -> [Client] { try clientsOrThrow(where: "1 = 1", []) }
+
     private func clients(where clause: String, _ args: [SQLiteDatabase.Value]) -> [Client] {
-        ((try? db.query("""
+        (try? clientsOrThrow(where: clause, args)) ?? []
+    }
+
+    private func clientsOrThrow(where clause: String, _ args: [SQLiteDatabase.Value]) throws -> [Client] {
+        try db.query("""
             SELECT client_id, agent_name, publisher, caller_facts, state, registered_at, revoked_at, code_identity FROM clients
             WHERE \(clause) ORDER BY registered_at DESC
-            """, args)) ?? []).map { r in
+            """, args).map { r in
             var c = Client(clientId: r[0] as! String, agentName: r[1] as! String, publisher: r[2] as? String,
                    callerFacts: (try? StrictJSON.parse(r[3] as! String)) ?? .obj([]), state: r[4] as! String,
                    registeredAt: r[5] as! String, revokedAt: r[6] as? String)
@@ -631,6 +640,39 @@ public final class HubStore: @unchecked Sendable {
     var auditKeptRefusals = 100_000
     var auditPruneEvery = 500
     private var auditWrites = 0
+
+    /// Refusals (denied, withheld) since a time, counted by method, decision
+    /// and reason, optionally of one client (diagnostics.export). Only the
+    /// reason's leading code is kept: what follows it may quote what a
+    /// caller claimed.
+    func refusalCounts(since: String, clientId: String?) throws -> [(method: String, decision: String, reason: String, count: Int)] {
+        let rows = try db.query("""
+            SELECT method, decision, reason FROM auth_events WHERE at >= ? AND decision IN ('denied', 'withheld')
+              AND (? IS NULL OR client_id = ?)
+            """, [.text(since), clientId.map { .text($0) } ?? .null, clientId.map { .text($0) } ?? .null])
+        var counts: [String: (String, String, String, Int)] = [:]
+        for r in rows {
+            let raw = r[2] as? String ?? ""
+            let code = String(raw.prefix { $0.isLetter || $0.isNumber || $0 == "_" || $0 == ":" || $0 == "." }.prefix(64))
+            let method = String((r[0] as? String ?? "").prefix(64)), decision = r[1] as? String ?? ""
+            let key = "\(method)|\(decision)|\(code)"
+            counts[key, default: (method, decision, code, 0)].3 += 1
+        }
+        return counts.values.map { ($0.0, $0.1, $0.2, $0.3) }.sorted { ($0.method, $0.reason) < ($1.method, $1.reason) }
+    }
+
+    /// Whether retention may have removed refusals recorded since this time:
+    /// a capped class of them is full and its oldest kept one is newer.
+    func refusalsPrunedSince(_ since: String) -> Bool {
+        func full(_ clause: String, cap: Int) -> Bool {
+            guard let r = try? db.query("SELECT COUNT(*), MIN(at) FROM auth_events WHERE \(clause)").first,
+                  let n = r[0] as? Int64 else { return true }
+            return Int(n) >= cap && (r[1] as? String).map { $0 > since } == true
+        }
+        return full("client_id LIKE 'unpaired:%' AND decision IN ('denied', 'requested')", cap: auditKeptUnpaired)
+            || full("decision IN ('denied', 'withheld')", cap: auditKeptRefusals)
+            || full("1 = 1", cap: auditKept)
+    }
 
     public func auditEvents(limit: Int = 200) -> [JSONValue] {
         ((try? db.query("""

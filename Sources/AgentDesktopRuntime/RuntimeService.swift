@@ -595,6 +595,7 @@ public final class RuntimeService: @unchecked Sendable {
         case .inboxShow: return showInbox(p, connection)
         case .inboxResolve: return resolveInbox(request, connection)
         case .runReconcile: return reconcileAction(request, connection)
+        case .diagnosticsExport: return exportDiagnostics(p, connection)
         }
     }
 }

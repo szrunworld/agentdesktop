@@ -6208,6 +6208,168 @@
           "description": "as it is: its outcome stays what it was (unknown)"
         }
       }
+    },
+    "diagnostics_export_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "runtime",
+              "capabilities",
+              "connections",
+              "clients",
+              "desktops",
+              "runs",
+              "requests",
+              "authorization"
+            ]
+          },
+          "description": "default all; authorization is the owner's (a paired client gets its own refusals only)"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "runs, requests and refusals from this time on; default 24 h ago, never more than 7 days"
+        },
+        "preview": {
+          "type": "boolean",
+          "description": "true: say what an export would hold (the manifest), write nothing"
+        }
+      }
+    },
+    "DiagnosticsManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "since",
+        "sections",
+        "excluded"
+      ],
+      "properties": {
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "clientId"
+          ],
+          "properties": {
+            "role": {
+              "enum": [
+                "owner",
+                "paired"
+              ]
+            },
+            "clientId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "items"
+            ],
+            "properties": {
+              "name": {
+                "enum": [
+                  "runtime",
+                  "capabilities",
+                  "connections",
+                  "clients",
+                  "desktops",
+                  "runs",
+                  "requests",
+                  "authorization"
+                ]
+              },
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "a limit cut the section short (Runs: 500; requests: 100000 scanned), or retention already removed refusals inside the window: narrow since"
+              },
+              "unavailable": {
+                "type": "boolean",
+                "description": "the section could not be read (the request ledger is unreadable); its contents say why"
+              }
+            }
+          }
+        },
+        "excluded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "what an export never holds"
+        }
+      }
+    },
+    "DiagnosticsExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preview",
+        "manifest"
+      ],
+      "properties": {
+        "preview": {
+          "type": "boolean"
+        },
+        "manifest": {
+          "$ref": "#/$defs/DiagnosticsManifest"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "preview": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "artifact"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "preview": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "artifact"
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }
