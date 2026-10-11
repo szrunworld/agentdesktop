@@ -253,3 +253,12 @@ import Testing
             == .eventsWatch(runId: "run_1", after: 3))
     #expect(try CommandRouter.parse(["events", "watch", "--format", "jsonl"]).format == .jsonl)
 }
+
+/// A7: `agentdesktop mcp --desktop-id` limits the server to one Desktop;
+/// without it nothing changes; a malformed id is refused before serving.
+@Test func mcpTakesAnOptionalDesktopId() throws {
+    #expect(try CommandRouter.parse(["mcp"]).command == .mcp(profile: nil, desktopId: nil))
+    #expect(try CommandRouter.parse(["mcp", "--desktop-id", "d_1", "--profile", "zed"]).command == .mcp(profile: "zed", desktopId: "d_1"))
+    #expect(throws: RuntimeError.self) { try CommandRouter.parse(["mcp", "--desktop-id", "has space"]) }
+    #expect(throws: RuntimeError.self) { try CommandRouter.parse(["mcp", "--desktop-id"]) }
+}
