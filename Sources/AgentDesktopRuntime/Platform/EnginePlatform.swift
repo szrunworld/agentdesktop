@@ -263,8 +263,20 @@ public final class EnginePlatform: DesktopPlatform, @unchecked Sendable {
 
     static func cursorIdentity(layer: Int, title: String, executable: String) -> Bool {
         layer == Int(CGWindowLevelForKey(.cursorWindow)) && title == "Cursor"
-            && executable == "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+            && windowServerPaths.contains(executable)
     }
+
+    /// WindowServer's executable as `proc_pidpath` reports it: the kernel
+    /// gives the file's own path, through the framework's version directory
+    /// (`Versions/A/Resources/WindowServer`), not the `Resources` symlink
+    /// spelling (#248). Both spellings are accepted, the symlink one resolved
+    /// once here; any other path, a copy or a link elsewhere included, is not
+    /// WindowServer.
+    static let windowServerPaths: Set<String> = {
+        let spelled = "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer"
+        return [spelled, "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/Resources/WindowServer",
+                URL(fileURLWithPath: spelled).resolvingSymlinksInPath().path]
+    }()
 
     public func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] {
         let bounds = CGRect(x: screen.frame.x, y: screen.frame.y, width: screen.frame.width, height: screen.frame.height)
