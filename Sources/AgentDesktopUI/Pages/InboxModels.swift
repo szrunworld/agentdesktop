@@ -152,8 +152,8 @@ public final class InboxListLoader: ObservableObject {
         await reload()
     }
 
-    /// The first page again, as many items as are shown (at most 100, the
-    /// contract's page limit); pages beyond stay as they were.
+    /// Refresh up to the contract's 100-item limit, then restart pagination.
+    /// Older tail rows may have resolved or stopped matching the filter.
     public func reload() async {
         ticket += 1
         let mine = ticket
@@ -162,9 +162,8 @@ public final class InboxListLoader: ObservableObject {
             let r = try await runtime.call("inbox.list", .obj(filter.params + [("limit", .int(limit))]))
             guard mine == ticket else { return }
             let first = r["items"]?.arrayValue ?? []
-            let rest = items.count > limit ? RunListLoader.tail(after: first, of: items, key: "inboxId") ?? [] : []
-            items = first + rest
-            if rest.isEmpty { next = r["next"]?.stringValue }
+            items = first
+            next = r["next"]?.stringValue
             syncedAt = Date()
             state = items.isEmpty ? .empty : .loaded
         } catch {

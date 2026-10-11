@@ -256,6 +256,30 @@ struct InboxU9Tests {
         #expect(model.draft.note == "保留草稿")
     }
 
+    @Test func refreshDropsUnvalidatedPaginationTail() async {
+        final class Pages: RuntimePort, @unchecked Sendable {
+            let isSample = true
+            var rows = (0..<101).map { JSONValue.obj([("inboxId", .string("inb_\($0)"))]) }
+            func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue {
+                let start = params["cursor"]?.stringValue.flatMap(Int.init) ?? 0
+                let end = min(rows.count, start + (params["limit"]?.intValue ?? 50))
+                return .obj([("items", .array(Array(rows[start..<end]))),
+                             ("next", end < rows.count ? .string(String(end)) : .null)])
+            }
+            func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> { throw RuntimeError.capabilityMissing("events.subscribe") }
+        }
+        let runtime = Pages()
+        let loader = InboxListLoader(runtime: runtime)
+        await loader.reload()
+        await loader.loadMore()
+        await loader.loadMore()
+        #expect(loader.items.count == 101)
+        runtime.rows.removeLast()
+        await loader.reload()
+        #expect(loader.items.count == 100 && loader.next == nil)
+        #expect(!loader.items.contains { $0["inboxId"]?.stringValue == "inb_100" })
+    }
+
     @Test func words() {
         #expect(InboxText.verdict("not_executed") == "未执行")
         #expect(InboxText.source("operator_attestation") == "本人确认")
