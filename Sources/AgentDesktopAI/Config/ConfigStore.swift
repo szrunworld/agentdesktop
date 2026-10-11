@@ -88,8 +88,8 @@ public enum CapabilityLayer: String, Sendable, CaseIterable {
 /// default GUI profile, with immutable revisions, CAS updates, tombstones,
 /// idempotent mutations and the credential create/rotate outbox (§04,
 /// §05.4, §10). Secrets live only in `CredentialStore`.
-public actor ConfigStore {
-    public static let schemaVersion = 3
+public actor ConfigStore: GuiContractEvidence {
+    public static let schemaVersion = 4
 
     let db: SQLiteDatabase
     let credentials: CredentialStore
@@ -184,6 +184,23 @@ public actor ConfigStore {
         if current < 1 { try migrateV1(db, now: now, defaultScope: defaultScope) }
         if current < 2 { try migrateV2(db, now: now) }
         if current < 3 { try migrateV3(db, now: now) }
+        if current < 4 { try migrateV4(db, now: now) }
+    }
+
+    /// GUI contract evidence per tested scope (codex on bedbff7): a primary
+    /// and a fallback GUI profile on one model profile revision, with
+    /// different adapters or coordinate protocols, each keep their own.
+    private static func migrateV4(_ db: SQLiteDatabase, now: String) throws {
+        try db.transaction {
+            try db.exec("""
+            CREATE TABLE gui_contract_evidence(model_profile_id TEXT NOT NULL, model_profile_revision INTEGER NOT NULL,
+              connection_revision INTEGER NOT NULL, adapter_id TEXT NOT NULL, adapter_version TEXT NOT NULL,
+              prompt_version TEXT NOT NULL, parser_version TEXT NOT NULL, coordinate_protocol TEXT NOT NULL, body TEXT NOT NULL,
+              PRIMARY KEY(model_profile_id, model_profile_revision, connection_revision, adapter_id, adapter_version,
+                          prompt_version, parser_version, coordinate_protocol))
+            """)
+            try db.run("INSERT INTO schema_migrations VALUES(4, ?)", [.text(now)])
+        }
     }
 
     private static func migrateV1(_ db: SQLiteDatabase, now: String, defaultScope: String) throws {
@@ -844,7 +861,8 @@ public actor ConfigStore {
     /// `unknown` again, and one layer never sets another (CFG-008).
     public func recordCapabilityEvidence(modelProfileId: String, revision: Int, layer: CapabilityLayer,
                                          status: String, operationId: String?, reasonCode: String?,
-                                         adapter: (version: String, prompt: String, parser: String)? = nil) throws {
+                                         adapter: (version: String, prompt: String, parser: String)? = nil,
+                                         gui: (adapterId: String, coordinateProtocol: String)? = nil) throws {
         guard let body = try revisionBody(.modelProfile, modelProfileId, revision) else {
             throw ContractError(.notFound, "model profile revision not found")
         }
@@ -853,6 +871,9 @@ public actor ConfigStore {
             scope += [("adapterVersion", .string(adapter.version)), ("promptVersion", .string(adapter.prompt)),
                       ("parserVersion", .string(adapter.parser))]
         }
+        // What the GUI contract test proved is tied to how coordinates were
+        // asked for and read (codex on 817221a).
+        if let gui { scope += [("adapterId", .string(gui.adapterId)), ("coordinateProtocol", .string(gui.coordinateProtocol))] }
         let evidence = JSONValue.obj([
             ("status", .string(status)), ("checkedAt", .string(now)),
             ("testOperationId", operationId.map(JSONValue.string) ?? .null), ("scope", .obj(scope)),
@@ -863,6 +884,29 @@ public actor ConfigStore {
         }
         try db.run("INSERT OR REPLACE INTO capability_evidence VALUES(?,?,?,?)",
                    [.text(modelProfileId), .int(Int64(revision)), .text(layer.rawValue), .text(evidence.encoded())])
+        // The GUI contract also per tested scope, so one test never voids another's.
+        if layer == .guiContract, let adapter, let gui, let connectionRevision = body["connectionRevision"]?.intValue {
+            try db.run("INSERT OR REPLACE INTO gui_contract_evidence VALUES(?,?,?,?,?,?,?,?,?)",
+                       [.text(modelProfileId), .int(Int64(revision)), .int(Int64(connectionRevision)), .text(gui.adapterId),
+                        .text(adapter.version), .text(adapter.prompt), .text(adapter.parser), .text(gui.coordinateProtocol),
+                        .text(evidence.encoded())])
+        }
+    }
+
+    /// F40-06 row 12: verified guiContract evidence for exactly this
+    /// candidate's model profile and connection revisions and the codec
+    /// provenance the run will use (adapter id and version, prompt, parser,
+    /// coordinate protocol). Anything else is not passed.
+    public func guiContractPassed(_ c: GuiCandidate, provenance p: AdapterProvenance) throws -> Bool {
+        let model = c.resolvedModel.model
+        guard let row = try db.row("""
+            SELECT body FROM gui_contract_evidence WHERE model_profile_id=? AND model_profile_revision=? AND connection_revision=?
+              AND adapter_id=? AND adapter_version=? AND prompt_version=? AND parser_version=? AND coordinate_protocol=?
+            """, [.text(model.modelProfileId), .int(Int64(model.revision)), .int(Int64(c.resolvedModel.connection.revision)),
+                  .text(p.adapterId.rawValue), .text(p.adapterVersion), .text(p.promptVersion), .text(p.parserVersion),
+                  .text(p.coordinateProtocol.rawValue)]),
+              let text = row[0].text else { return false }
+        return try StrictJSON.parse(text)["status"]?.stringValue == "verified"
     }
 
     // MARK: GUI profiles

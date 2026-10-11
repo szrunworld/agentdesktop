@@ -264,6 +264,8 @@ public final class RunStore: @unchecked Sendable {
         public var origin: RunRecord.Origin?
         public var phase: RunRecord.Phase?
         public var desktopId: String?
+        /// Only Runs of this kind (a unit.run-only caller sees its unit Runs).
+        public var kind: String?
         public var activeOnly = false
         public init() {}
     }
@@ -276,6 +278,7 @@ public final class RunStore: @unchecked Sendable {
         if let o = f.origin { sql += " AND origin = ?"; args.append(.text(o.rawValue)) }
         if let p = f.phase { sql += " AND phase = ?"; args.append(.text(p.rawValue)) }
         if let d = f.desktopId { sql += " AND desktop_id = ?"; args.append(.text(d)) }
+        if let k = f.kind { sql += " AND kind = ?"; args.append(.text(k)) }
         if f.activeOnly { sql += " AND phase != 'ended'" }
         if let after {
             let parts = after.split(separator: "|", maxSplits: 1).map(String.init)
@@ -317,14 +320,15 @@ public final class RunStore: @unchecked Sendable {
 
     /// Inputs of these Runs in [from, to): executed (action.completed) and
     /// with an unknown outcome (action.unknown, or lost in a restart).
-    public func actionOutcomes(runIds: [String], from: Date, to: Date) -> (confirmed: Int, unknown: Int) {
+    public func actionOutcomes(runIds: [String], from: Date, to: Date) throws -> (confirmed: Int, unknown: Int) {
         var confirmed = 0, unknown = 0
         let ids = Array(Set(runIds))
         for chunk in stride(from: 0, to: ids.count, by: 400).map({ Array(ids[$0..<min($0 + 400, ids.count)]) }) {
             let marks = chunk.map { _ in "?" }.joined(separator: ", ")
-            let rows = (try? db.query("""
+            // A failed read is an error, never zero inputs (codex on c702a5f).
+            let rows = try db.query("""
                 SELECT outcome, COUNT(*) FROM action_outcomes WHERE run_id IN (\(marks)) AND at >= ? AND at < ? GROUP BY outcome
-                """, chunk.map { .text($0) } + [.text(Timestamp.string(from)), .text(Timestamp.string(to))])) ?? []
+                """, chunk.map { .text($0) } + [.text(Timestamp.string(from)), .text(Timestamp.string(to))])
             for r in rows {
                 let n = Int(r[1] as! Int64)
                 if (r[0] as? String) == "completed" { confirmed += n } else { unknown += n }

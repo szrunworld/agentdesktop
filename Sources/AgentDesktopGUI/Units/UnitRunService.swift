@@ -40,6 +40,7 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     }
 
     let resolver: GuiBindingResolver
+    let evidence: GuiContractEvidence
     let ports: GuiExplorerPorts
     let features: GuiBackendFeatures
     let aiService: AiService
@@ -52,9 +53,13 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     /// them until it is stopped.
     private var pinned: [String: [(ConfigResourceKind, String)]] = [:]
 
-    public init(resolver: GuiBindingResolver, ports: GuiExplorerPorts, features: GuiBackendFeatures, aiService: AiService,
+    /// `evidence` decides F40-06 row 12 (GUI contract test passed); there
+    /// is deliberately no default that lets everything through.
+    public init(resolver: GuiBindingResolver, evidence: GuiContractEvidence, ports: GuiExplorerPorts, features: GuiBackendFeatures,
+                aiService: AiService,
                 codecs: GuiCodecRegistry = GuiCodecRegistry(), clock: MonotonicClock = SystemMonotonicClock()) {
         self.resolver = resolver
+        self.evidence = evidence
         self.ports = ports
         self.features = features
         self.aiService = aiService
@@ -67,7 +72,7 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
     }
 
     public func admit(params p: JSONValue, callerScope: String) async -> Result<any UnitRunPlan, RuntimeError> {
-        // 7–12 first (F40-06 order): the GUI profile, its model and credential.
+        // 7–11 first (F40-06 order): the GUI profile, its model and credential.
         let profileId = p["guiProfileId"]?.stringValue
         let resolved: (primary: GuiCandidate, fallback: [GuiCandidate], policyRevision: Int)
         do {
@@ -77,6 +82,24 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
             return .failure(Self.admissionError(e, explicitProfile: profileId != nil))
         } catch {
             return .failure(RuntimeError("internal_error", "the GUI profile could not be read", phase: .handler, notSent: true))
+        }
+        // 12. The GUI contract test passed for every candidate as bound.
+        for candidate in [resolved.primary] + resolved.fallback {
+            let passed: Bool
+            do {
+                // The codec the run will use, as the capability test recorded it.
+                let provenance = try codecs.codec(adapterId: candidate.adapterId, coordinateProtocol: candidate.coordinateProtocol).provenance
+                passed = try await evidence.guiContractPassed(candidate, provenance: provenance)
+            } catch {
+                return .failure(RuntimeError("internal_error", "the GUI contract evidence could not be read", phase: .handler, notSent: true))
+            }
+            guard passed else {
+                return .failure(Self.refusal("capability_mismatch",
+                                             "GUI profile \(candidate.guiProfileId) r\(candidate.guiProfileRevision) has not passed the GUI contract test with this model profile revision; run ai.tests.start",
+                                             "gui_contract_not_passed",
+                                             details: [("guiProfileId", .string(candidate.guiProfileId)),
+                                                       ("guiProfileRevision", .int(candidate.guiProfileRevision))]))
+            }
         }
         // 13. Every allowed action is one the backend executes ("wait" is
         // the explorer's own and always available).
@@ -91,24 +114,27 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         }
         // 14. Every predicate is one the backend can verify (combinators
         // are the verifier's own); a value_equals_parameter takes its value
-        // from goal.params here, so a missing one ends before any Run.
-        var verifications: [GuiVerification] = []
-        for predicate in p["verification"]?["all"]?.arrayValue ?? [] {
-            let v: GuiVerification
-            do {
-                v = try GuiVerification(json: predicate, params: p["goal"]?["params"])
-            } catch let e as ContractError where e.code == .capabilityMismatch {
-                return .failure(Self.refusal("capability_mismatch", "this backend cannot verify that predicate", "predicate_unsupported"))
-            } catch let e as ContractError {
-                return .failure(RuntimeError("schema_invalid", e.message, phase: .handler, notSent: true,
-                                             details: .obj([("reason", .string("verification_invalid"))])))
-            } catch {
-                return .failure(RuntimeError("schema_invalid", "the verification could not be read", phase: .handler, notSent: true))
-            }
+        // from goal.params here, so a missing one ends before any Run. The
+        // run's predicates are one conjunction: its bounds count them all
+        // together (Codex on b39c9b4). A kind the contract does not know
+        // never gets here: the wire check refuses it as schema_invalid
+        // first (F40-06 row 2); predicate_unsupported is for contract kinds
+        // this backend cannot verify (row 14).
+        let verifications: [GuiVerification]
+        do {
+            verifications = try GuiVerification.conjunction(p["verification"]?["all"]?.arrayValue ?? [], params: p["goal"]?["params"])
+        } catch let e as ContractError where e.code == .capabilityMismatch {
+            return .failure(Self.refusal("capability_mismatch", "this backend cannot verify that predicate", "predicate_unsupported"))
+        } catch let e as ContractError {
+            return .failure(RuntimeError("schema_invalid", e.message, phase: .handler, notSent: true,
+                                         details: .obj([("reason", .string("verification_invalid"))])))
+        } catch {
+            return .failure(RuntimeError("schema_invalid", "the verification could not be read", phase: .handler, notSent: true))
+        }
+        for v in verifications {
             if let kind = v.leafKinds.sorted().first(where: { !features.verificationPredicates.contains($0) }) {
                 return .failure(Self.refusal("capability_mismatch", "this backend cannot verify \(kind)", "predicate_unsupported"))
             }
-            verifications.append(v)
         }
         guard !verifications.isEmpty else {
             return .failure(Self.refusal("capability_mismatch", "unit.run needs a predicate this backend verifies", "predicate_unsupported"))
@@ -189,27 +215,38 @@ public final class UnitRunService: UnitRunExecutor, @unchecked Sendable {
         // even before this, keeps the next model call and input from starting.
         let gate = TaskGate()
         stop.arm { [weak self] in
-            // A Run waiting for a person ends with this stop.
-            self?.lock.withLock { if self?.tasks[runId] == nil { _ = self?.pinned.removeValue(forKey: runId) } }
             // Visible before this returns: no model call or input starts
             // after the Runtime accepted the stop. A model call already out
             // is cancelled with the task; an input already handed to the
             // Runtime finishes and reports.
             let inputOut = signal.stop()
+            // A Run whose driver already exited (left waiting for a person)
+            // frees its pins now; a driver still running frees them when it
+            // exits (codex on 89d4596). The signal is set first and the end
+            // checks it under the same lock, so neither side misses.
+            self?.lock.withLock { if self?.tasks[runId] == nil { _ = self?.pinned.removeValue(forKey: runId) } }
             if !inputOut { gate.cancel() }
             Task { _ = await lifecycle.requestCancel() }
         }
-        let task = Task.detached { [weak self] in
-            await driver.run()
-            let ending = await Self.ending(of: lifecycle, stopped: signal.isStopped)
-            sink.finished(ending)
-            self?.lock.withLock {
-                _ = self?.tasks.removeValue(forKey: runId)
-                if case .needsInput = ending {} else { _ = self?.pinned.removeValue(forKey: runId) }
+        // Made and registered under the lock, so its own cleanup (which
+        // takes the lock) cannot run before it is registered (codex on
+        // 073b96f: a fast Run left its finished task behind).
+        let task: Task<Void, Never> = lock.withLock {
+            let t = Task.detached { [weak self] in
+                await driver.run()
+                let ending = await Self.ending(of: lifecycle, stopped: signal.isStopped)
+                sink.finished(ending)
+                self?.lock.withLock {
+                    _ = self?.tasks.removeValue(forKey: runId)
+                    // A Run left waiting for a person keeps its pins until it
+                    // is stopped; checked under the lock the stop takes too.
+                    if case .needsInput = ending, !signal.isStopped {} else { _ = self?.pinned.removeValue(forKey: runId) }
+                }
             }
+            tasks[runId] = t
+            return t
         }
         gate.set(task)
-        lock.withLock { tasks[runId] = task }
     }
 
     /// Whether a live unit Run pinned this resource (ConfigStore's

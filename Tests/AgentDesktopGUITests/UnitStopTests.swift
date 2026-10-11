@@ -53,7 +53,7 @@ func unitParams() -> JSONValue {
 
 func stopTestService(_ h: GuiHarness, observation: GuiObservationPort) -> UnitRunService {
     let codecs = GuiCodecRegistry()
-    return UnitRunService(resolver: ConfigBindingResolver(store: h.store, codecs: codecs),
+    return UnitRunService(resolver: ConfigBindingResolver(store: h.store, codecs: codecs), evidence: h.evidence,
                           ports: GuiExplorerPorts(observation: observation, execution: h.executor, audit: h.audit),
                           features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]),
                           aiService: h.ai, codecs: codecs, clock: h.clock)
@@ -162,4 +162,18 @@ struct UnitStopTests {
         #expect(h.ai.callCount == 1)
         #expect(sink.ending == .cancelled)
     }
+}
+
+// Codex on 073b96f: a Run that ends at once (stopped before it started)
+// leaves no task behind in the long-lived service.
+@Test func aRunThatEndsAtOnceLeavesNoTask() async throws {
+    let h = try GuiHarness([])
+    try await h.setUpProfile()
+    let units = stopTestService(h, observation: h.observation)
+    for i in 0..<20 {
+        let handle = UnitRunStopHandle()
+        handle.stop()
+        try await startUnit(units, StopTestSink(), runId: "run-fast-\(i)", stop: handle)
+    }
+    await eventually("every task cleaned up") { (0..<20).allSatisfy { units.task(for: "run-fast-\($0)") == nil } }
 }

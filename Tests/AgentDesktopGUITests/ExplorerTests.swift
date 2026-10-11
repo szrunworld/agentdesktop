@@ -404,10 +404,81 @@ struct UnitRunAdmissionTests {
         #expect(h.ai.callCount == 0)
     }
 
+    // F40-06 row 12: a profile that has not passed the GUI contract test is
+    // refused after the profile checks and before the action checks.
+    @Test func row12_guiContractNotPassedIsRefused() async throws {
+        let h = try GuiHarness([])
+        let gui = try await h.setUpProfile()
+        h.evidence.passed = false
+        let r = await h.admit(h.startParams().setting("allowedActions", .array([.string("click")])))
+        #expect(refusal(r)! == ("capability_mismatch", "gui_contract_not_passed"))
+        if case let .failure(e) = r { #expect(e.details?["guiProfileId"] == gui["guiProfileId"]) }
+        #expect(refusal(await h.admit(h.startParams().setting("mode", .string("replay_only"))))?.1 == "gui_contract_not_passed",
+                "row 12 comes before row 15")
+        h.evidence.passed = true
+        #expect(refusal(await h.admit()) == nil)
+    }
+
+    // Codex on 817221a: GUI contract evidence holds for the coordinate
+    // protocol (and adapter) it was tested with only.
+    @Test func row12_evidenceIsBoundToTheCoordinateProtocol() async throws {
+        let h = try GuiHarness([])
+        try await h.setUpProfile()   // uitars_v1 with image_pixels
+        let c = try await ConfigBindingResolver(store: h.store, codecs: h.codecs)
+            .resolve(guiProfileId: nil, expectedProfileRevision: nil, callerScope: "owner").primary
+        let model = c.resolvedModel.model
+        let pixels = try h.codecs.codec(adapterId: "uitars_v1", coordinateProtocol: "image_pixels").provenance
+        let normalized = try h.codecs.codec(adapterId: "uitars_v1", coordinateProtocol: "normalized_1000").provenance
+        func record(_ p: AdapterProvenance?) async throws {
+            try await h.store.recordCapabilityEvidence(
+                modelProfileId: model.modelProfileId, revision: Int(model.revision), layer: .guiContract, status: "verified",
+                operationId: nil, reasonCode: nil,
+                adapter: (p ?? pixels).map { ($0.adapterVersion, $0.promptVersion, $0.parserVersion) },
+                gui: p.map { ($0.adapterId.rawValue, $0.coordinateProtocol.rawValue) })
+        }
+        #expect(try await h.store.guiContractPassed(c, provenance: pixels) == false, "never tested")
+        try await record(normalized)
+        #expect(try await h.store.guiContractPassed(c, provenance: pixels) == false, "tested with another coordinate protocol")
+        try await record(nil)
+        #expect(try await h.store.guiContractPassed(c, provenance: pixels) == false, "evidence that does not say which protocol")
+        try await record(pixels)
+        #expect(try await h.store.guiContractPassed(c, provenance: pixels) == true)
+        // Codex on bedbff7: testing another scope on the same model profile
+        // revision (a fallback with another protocol) keeps this one.
+        try await record(normalized)
+        #expect(try await h.store.guiContractPassed(c, provenance: pixels) == true)
+    }
+
+    // Codex on 89d4596: a profile declaring versions other than its codec's
+    // is judged by the codec the run uses, as the capability test records.
+    @Test func row12_usesTheCodecsProvenanceNotTheDeclaredVersions() async throws {
+        let h = try GuiHarness([])
+        let first = try await h.setUpProfile()
+        // The same model profile, a profile that declares other versions.
+        let model0 = try await h.ok("ai.modelProfiles.get", .obj([("modelProfileId", first["modelProfileId"]!)]))
+        let odd = try await h.ok("ai.profiles.create", .obj([
+            ("name", .string("Odd")), ("modelProfileId", model0["modelProfileId"]!), ("modelProfileRevision", model0["revision"]!),
+            ("adapterId", .string("uitars_v1")), ("adapterVersion", .string("9.9.9")), ("promptVersion", .string("other-prompt")),
+            ("parserVersion", .string("other-parser")), ("coordinateProtocol", .string("image_pixels")), ("limits", GuiLimits.ceiling.json),
+            ("allowedFallbackProfileRefs", .array([]))]), key: "odd-profile-1")
+        let c = try await ConfigBindingResolver(store: h.store, codecs: h.codecs)
+            .resolve(guiProfileId: odd["guiProfileId"]!.stringValue!, expectedProfileRevision: odd["revision"]!.intValue!,
+                     callerScope: "owner").primary
+        let real = try h.codecs.codec(adapterId: c.adapterId, coordinateProtocol: c.coordinateProtocol).provenance
+        #expect(c.guiProfile["adapterVersion"]?.stringValue != real.adapterVersion
+                || c.guiProfile["promptVersion"]?.stringValue != real.promptVersion, "the harness profile declares other versions")
+        let model = c.resolvedModel.model
+        try await h.store.recordCapabilityEvidence(
+            modelProfileId: model.modelProfileId, revision: Int(model.revision), layer: .guiContract, status: "verified",
+            operationId: nil, reasonCode: nil, adapter: (real.adapterVersion, real.promptVersion, real.parserVersion),
+            gui: (real.adapterId.rawValue, real.coordinateProtocol.rawValue))
+        #expect(try await h.store.guiContractPassed(c, provenance: real) == true)
+    }
+
     @Test func anActionTheBackendCannotExecuteIsRefused() async throws {
         let h = try GuiHarness([])
         try await h.setUpProfile()
-        let clicksOnly = UnitRunService(resolver: ConfigBindingResolver(store: h.store, codecs: h.codecs),
+        let clicksOnly = UnitRunService(resolver: ConfigBindingResolver(store: h.store, codecs: h.codecs), evidence: h.evidence,
                                         ports: GuiExplorerPorts(observation: h.observation, execution: h.executor, audit: h.audit),
                                         features: GuiBackendFeatures(actions: [.click], verificationPredicates: ["element_text_equals"]),
                                         aiService: h.ai, codecs: h.codecs, clock: h.clock)
@@ -448,5 +519,37 @@ struct UnitRunAdmissionTests {
         h.cancel(runId)
         await h.finished(runId)
         #expect(!units.pins(.guiProfile, gui["guiProfileId"]!.stringValue!))
+    }
+
+    // Codex on 89d4596: a stop accepted while an input is out keeps the
+    // pins until the driver exits; nothing it uses can be deleted under it.
+    @Test func aStoppedRunKeepsItsPinsUntilItsDriverExits() async throws {
+        let h = try GuiHarness([click(200, 300), click(200, 300)])
+        let gui = try await h.setUpProfile()
+        let units = try #require(h.units)
+        let id = try #require(gui["guiProfileId"]?.stringValue)
+        await h.executor.set(mode: .hang)
+        let runId = try await h.start()
+        await eventually("the input") { await h.executor.isHanging }
+        h.cancel(runId)
+        #expect(units.pins(.guiProfile, id), "the driver still runs: pinned")
+        await h.executor.release()
+        await h.finished(runId)
+        #expect(!units.pins(.guiProfile, id))
+    }
+
+    // Codex on c702a5f: a Run waiting for a person keeps its pins until it
+    // is stopped, then frees them.
+    @Test func aWaitingRunFreesItsPinsWhenStopped() async throws {
+        let h = try GuiHarness([.text("Thought: login.\nAction: call_user(content='please log in')")])
+        let gui = try await h.setUpProfile()
+        let units = try #require(h.units)
+        let id = try #require(gui["guiProfileId"]?.stringValue)
+        let runId = try await h.start()
+        await h.finished(runId)
+        #expect(h.run(runId).ending == .needsInput(reason: "model_requested_user"))
+        #expect(units.pins(.guiProfile, id), "still waiting: pinned")
+        h.cancel(runId)
+        #expect(!units.pins(.guiProfile, id), "stopped: free")
     }
 }
