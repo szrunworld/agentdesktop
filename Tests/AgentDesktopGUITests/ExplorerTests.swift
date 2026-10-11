@@ -154,9 +154,16 @@ struct ExplorerTests {
         #expect(unitEventsClean(run.events))
     }
 
+    /// Inputs that change the window every step (focus the name field, then
+    /// one more letter each time), so stall detection (X1-2) never ends the
+    /// run before the budget does.
+    static func progressingInputs(_ n: Int) -> [StubAiService.Reply] {
+        [click(200, 100)] + Array(repeating: typeText("x"), count: n - 1)
+    }
+
     // GUI-006: the 21st step never starts; attempts per step and in total are capped.
     @Test func gui006_stepBudget() async throws {
-        let h = try GuiHarness(Array(repeating: click(600, 600), count: 25))
+        let h = try GuiHarness(Self.progressingInputs(25))
         try await h.setUpProfile()
         let runId = try await h.start()
         await h.finished(runId)
@@ -179,8 +186,7 @@ struct ExplorerTests {
     }
 
     @Test func gui006_totalAttemptsCapped() async throws {
-        let h = try GuiHarness(Array(repeating: click(600, 600), count: 40),
-                               limits: [("maxTotalModelAttempts", .int(5))])
+        let h = try GuiHarness(Self.progressingInputs(40), limits: [("maxTotalModelAttempts", .int(5))])
         try await h.setUpProfile()
         let runId = try await h.start()
         await h.finished(runId)
@@ -513,6 +519,57 @@ struct UnitRunAdmissionTests {
         h.cancel(runId)
         await h.finished(runId)
         #expect(!units.pins(.guiProfile, gui["guiProfileId"]!.stringValue!))
+    }
+
+    // Codex on ed056dc: admission pins what it resolved, so nothing it will
+    // use can be deleted before the Run starts; a plan never started gives
+    // its pins back.
+    @Test func admissionPinsUntilStartedOrDiscarded() async throws {
+        let h = try GuiHarness([])
+        let gui = try await h.setUpProfile()
+        let units = try #require(h.units)
+        let id = try #require(gui["guiProfileId"]?.stringValue)
+        let plan = try await h.admit().get()
+        #expect(units.pins(.guiProfile, id), "pinned at admission")
+        units.discard(plan)
+        #expect(!units.pins(.guiProfile, id), "given back")
+        let kept = try await h.admit().get()
+        let stop = UnitRunStopHandle()
+        units.start(kept, context: UnitRunContext(runId: "run-pin-1", sessionId: "sess-a", desktopId: "desk-a", bindingEpoch: 1,
+                                                  callerScope: "owner", params: h.startParams()),
+                    sink: RecordingSink(runId: "run-pin-1"), stop: stop)
+        units.discard(kept)
+        #expect(units.pins(.guiProfile, id), "a started plan's pins belong to its Run")
+        stop.stop()
+        await units.task(for: "run-pin-1")?.value
+        #expect(!units.pins(.guiProfile, id), "freed when the Run ends")
+    }
+
+    // A change that slips in between resolving and pinning is caught.
+    @Test func admissionResolvesAgainAfterPinning() async throws {
+        final class ChangingResolver: GuiBindingResolver, @unchecked Sendable {
+            let inner: GuiBindingResolver
+            let lock = NSLock()
+            var calls = 0
+            init(_ inner: GuiBindingResolver) { self.inner = inner }
+            func resolve(guiProfileId: String?, expectedProfileRevision: Int?, callerScope: String) async throws
+                -> (primary: GuiCandidate, fallback: [GuiCandidate], policyRevision: Int) {
+                let n = lock.withLock { calls += 1; return calls }
+                if n == 2 { throw ContractError(.notFound, "the GUI profile was deleted") }
+                return try await inner.resolve(guiProfileId: guiProfileId, expectedProfileRevision: expectedProfileRevision,
+                                               callerScope: callerScope)
+            }
+        }
+        let h = try GuiHarness([])
+        let gui = try await h.setUpProfile()
+        let units = UnitRunService(resolver: ChangingResolver(ConfigBindingResolver(store: h.store, codecs: h.codecs)),
+                                   evidence: h.evidence,
+                                   ports: GuiExplorerPorts(observation: h.observation, execution: h.executor, audit: h.audit),
+                                   features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]),
+                                   aiService: h.ai, codecs: h.codecs, clock: h.clock)
+        let r = await units.admit(params: h.startParams(), callerScope: "owner")
+        #expect(refusal(r)?.0 == "not_found")
+        #expect(!units.pins(.guiProfile, gui["guiProfileId"]!.stringValue!), "nothing stays pinned")
     }
 
     // Codex on 89d4596: a stop accepted while an input is out keeps the
