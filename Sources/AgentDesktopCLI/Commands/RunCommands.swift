@@ -109,10 +109,19 @@ extension CLI {
             var stopped = false
             while final == nil {
                 if !stopped, interrupted() || now() >= deadline {
-                    stopped = true
                     stderr(interrupted() ? "stopping unit run \(runId)" : "unit run \(runId) ran past the wait timeout; stopping it")
-                    _ = try? client.call(RuntimeRequest(.runCancel, requestId: RuntimeRequest.newId(prefix: "unit-stop"),
-                                                        params: .obj([("runId", .string(runId))])))
+                    do {
+                        _ = try client.call(RuntimeRequest(.runCancel, requestId: RuntimeRequest.newId(prefix: "unit-stop"),
+                                                           params: .obj([("runId", .string(runId))])))
+                        stopped = true
+                    } catch let e as RuntimeError {
+                        // Never wait on a stop that was not accepted (codex on
+                        // ed056dc). Leaving closes this control connection, which
+                        // ends the Delegated Run as owner_lost.
+                        stderr("could not stop unit run \(runId) (\(e.code)); closing the connection ends it")
+                        out.failure(requestId: start.requestId, e)
+                        return interrupted() ? 130 : ExitStatus.of(e)
+                    }
                 }
                 do {
                     final = try client.call(RuntimeRequest(.runWait, params: .obj([("runId", .string(runId)), ("timeoutMs", .int(2000))])))

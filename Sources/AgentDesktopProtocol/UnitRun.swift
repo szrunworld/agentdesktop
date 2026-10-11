@@ -76,6 +76,9 @@ public protocol UnitRunExecutor: Sendable {
     /// before start). No model call or input may start after it; the
     /// executor still reports `finished`.
     func start(_ plan: any UnitRunPlan, context: UnitRunContext, sink: UnitRunSink, stop: UnitRunStopHandle)
+    /// The admitted plan will not be started (a later check refused, or the
+    /// Run could not be created): give back what admission took.
+    func discard(_ plan: any UnitRunPlan)
 }
 
 /// A unit Run's stop, created by the Runtime before its executor starts
