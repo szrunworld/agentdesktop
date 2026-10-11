@@ -83,7 +83,14 @@ public final class ACPBridgeRuntimePort: ACPRuntimePort, @unchecked Sendable {
         let caps = try c.call(RuntimeRequest(.capabilities))
         let methods = ACPTaskCatalog.methods(caps)
         var profiles: [JSONValue]?
-        if methods.contains(ACPTaskCatalog.unitRunMethod), methods.contains(ACPTaskCatalog.profilesMethod) {
+        // ai.* is the owner's. A4 leaves no owner on the socket, so a paired
+        // bridge never asks: a verified one would open a confirmation in the
+        // owner's window on every listing (Codex on d10d83b), which the
+        // bridge must not trigger by itself (Kevin's ruling on #246). Only an
+        // owner connection lists profiles; the bridge offers the
+        // default-profile task.
+        if methods.contains(ACPTaskCatalog.unitRunMethod), methods.contains(ACPTaskCatalog.profilesMethod),
+           ACPTaskCatalog.listsProfiles(principal: c.principal) {
             do {
                 let r = try c.call(RuntimeRequest(requestId: RuntimeRequest.newId(), method: ACPTaskCatalog.profilesMethod,
                                                   params: .obj([])))

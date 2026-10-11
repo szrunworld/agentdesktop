@@ -71,7 +71,7 @@ ACP_DEV="$(git rev-parse --show-toplevel)/.build/debug/agentdesktop-acp-dev"   #
   - `unit.run` 要求桥对 Desktop 当前绑定的窗口持有 observe 和 act 的窗口授权（`RuntimeService+Unit.swift` 的 `windowUse`）。`request-window` 用桥自己的凭据，通过 `hub.windows.request` 只申请 `observe`、`act`，由 Kevin 在确认窗口里核对窗口（App、标题、pid、位置）后用 Touch ID 批准。
   - 申请之前，桥看不到 Desktop 上绑定的是哪个窗口（`desktop.show` 会隐去绑定），所以按 `--bundle-id` 申请；这个 App 有多个窗口时，用 `--window-id` 指定。批准之后命令会再调一次 `desktop.show` 核对：授予的不是绑定的那个窗口（或者 Desktop 上没有绑定窗口）时，明确报错退出（退出码 2）。这种授权 `unit.run` 用不了，在主窗口撤销即可。命令**不会**自动撤销，也不会重试。
   - 用户拒绝、App 不在 `--apps` 里、没有配对、授权已撤销，都会原样报出 Runtime 的错误，不重试。桥在提交任务的过程中**不会**自己申请窗口授权（裁决：不采用方案 B）。
-- **任务列表与默认 profile**：Runtime 同时宣告 `unit.run` 和 `ai.profiles.list` 时，桥会先读 profile 列表。`ai.*` 只有 owner 能调，配对的桥会被拒（`permission_denied`；S4 之前的 `same_user` 级别为 `unverified_identity`）。遇到这两种确定拒绝，桥只提供一个 `unit.run` 任务，使用 Runtime 的默认 profile；其他错误照常报出，编辑器提示「暂时无法读取可用任务」。
+- **任务列表与默认 profile**：`ai.*` 只有 owner 能调，而 A4 之后 socket 上不存在 owner。所以配对的桥**不调用** `ai.profiles.list`，只提供一个 `unit.run` 任务，使用 Runtime 的默认 profile。如果去调，`verified` 级别的桥会在 owner 的主窗口里弹出管理确认，每次读任务列表都弹一次；桥不得自己触发权限申请。只有握手结果显示为 owner 的连接才会读 profile 列表。万一调用被确定拒绝（`permission_denied`，reason 为 `owner_only` 或 `unverified_identity`），同样退回默认任务；其他错误照常报出，编辑器提示「暂时无法读取可用任务」。
 - **配对之后不要重新编译 dev 入口。** 开发版是 ad-hoc 签名，钥匙串按程序的代码摘要识别它；重新编译后就成了「另一个程序」，读取凭据会弹授权框。重新编译过就删掉临时钥匙串，从建钥匙串那一步重来。
 
 - 配对请求出现在测试副本的 Agent Desktop 窗口里，由 Kevin 本人核对后点「批准」并用 Touch ID 确认。自动化不能代替。
@@ -172,7 +172,7 @@ Zed 配置：
 |---|---|---|
 | W1 | `pair --desktops "$DESK"` | 确认窗口显示 ACP 桥自己的代码身份；批准后配对成功 |
 | W2 | `pair` 不带 `--desktops`，或 `--desktops created` | 命令直接拒绝（退出码 2），没有发出任何请求 |
-| W3 | 配对后在 Zed 里 `/help` | 列出 `unit.run`；若 Runtime 宣告了 `ai.profiles.list`，它被拒绝，但任务列表仍正常 |
+| W3 | 配对后在 Zed 里 `/help` | 列出 `unit.run`（默认 profile）；Runtime 宣告了 `ai.profiles.list` 也不调用（审计里没有桥的 `ai.profiles.list` 记录），主窗口不弹任何确认 |
 | W4 | 未获得窗口授权时提交 `unit.run` | 拒绝（`grant_missing`，reason `window_grant_missing`） |
 | W5 | `request-window` | 出现确认窗口，列出计算器窗口和 observe、act |
 | W6 | W5 里点「拒绝」 | 报错 `user_denied`，不重试；随后 `unit.run` 仍被拒 |

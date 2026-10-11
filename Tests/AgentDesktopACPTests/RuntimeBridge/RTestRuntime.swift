@@ -31,6 +31,8 @@ final class RTestRuntime: @unchecked Sendable {
     /// A Runtime without a GUI executor: unit.run is not offered.
     /// Thrown by ai.profiles.list when set (a paired caller is refused ai.*).
     var profilesError: RuntimeError?
+    /// The role the handshake reports (principal.role); nil: no principal.
+    var principalRole: String? = "owner"
     var methods: [String] = RuntimeMethod.allCases.map(\.rawValue).filter { $0 != "unit.run" }
     var profiles: [JSONValue]?
     var unitRun: UnitRunBehavior = .accept
@@ -220,6 +222,10 @@ class RTestClient: RuntimeClient {
     init(server: RTestRuntime, role: ACPBridgeConnectionRole) {
         self.server = server
         self.role = role
+    }
+
+    var principal: JSONValue? {
+        server.with { server.principalRole.map { JSONValue.obj([("role", .string($0))]) } }
     }
 
     func handshake() throws -> RuntimeIdentity {

@@ -75,6 +75,21 @@ import Testing
         guard case .accepted = r else { Issue.record("\(r)"); return }
     }
 
+    /// Codex on d10d83b / Kevin's ruling on #246: a paired bridge never asks
+    /// for ai.profiles.list (a verified one would open a confirmation in the
+    /// owner's window on every listing); it offers the default-profile task.
+    @Test(arguments: ["paired", nil] as [String?])
+    func aPairedBridgeNeverAsksForProfiles(role: String?) async throws {
+        let server = RTestRuntime()
+        server.methods += ["unit.run", "ai.profiles.list"]
+        server.principalRole = role
+        server.profiles = [.obj([("guiProfileId", .string("gp_a")), ("revision", .int(3)), ("name", .string("A")), ("state", .string("enabled"))])]
+        let port = try RTest.port(server)
+        let tasks = try await port.tasks()
+        #expect(tasks.map(\.taskType) == ["unit.run"])
+        #expect(!server.with { server.calls.map(\.method) }.contains("ai.profiles.list"))
+    }
+
     /// #246: only a definite refusal falls back; any other failure of
     /// ai.profiles.list still fails the listing, it is never swallowed.
     @Test(arguments: [("internal_error", ""), ("connection_lost", ""), ("schema_invalid", ""),

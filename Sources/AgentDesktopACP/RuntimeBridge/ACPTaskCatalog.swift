@@ -16,6 +16,13 @@ public struct ACPTaskCatalog: Sendable {
     public static let unitRunMethod = "unit.run"
     public static let profilesMethod = "ai.profiles.list"
 
+    /// Whether this connection may list GUI profiles at all: only when its
+    /// handshake says it is the owner. A paired client (every socket client
+    /// after A4) does not ask.
+    public static func listsProfiles(principal: JSONValue?) -> Bool {
+        principal?["role"]?.stringValue == "owner"
+    }
+
     /// A definite refusal of `ai.profiles.list` to this caller: `ai.*` is
     /// the owner's, so a paired client gets `permission_denied` (reason
     /// `owner_only`, or `unverified_identity` under A4 R1). The catalog then
