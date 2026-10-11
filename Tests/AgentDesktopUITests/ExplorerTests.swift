@@ -395,7 +395,7 @@ private final class SubmittedReceiptRuntime: RuntimePort, @unchecked Sendable {
             ("kind", .string("success")), ("data", .obj([("delivery", .string("dispatched")),
                 ("execution", .string("completed")), ("verification", .obj([("status", .string("not_requested"))]))]))
         ]))])
-        default: throw RuntimeError("not_found", method)
+        default: throw RuntimeError("not_found", method, phase: .handler)
         }
     }
 }
