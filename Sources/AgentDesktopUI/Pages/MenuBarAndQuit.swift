@@ -176,10 +176,24 @@ public final class QuitFlow: ObservableObject {
 public struct QuitDialogView: View {
     @ObservedObject var flow: QuitFlow
     let choose: (QuitChoice) -> Void
+    /// 「停止输入并退出」asks once more: nothing stops until 确认退出.
+    @State private var confirming: Bool
 
-    public init(flow: QuitFlow, choose: @escaping (QuitChoice) -> Void) {
+    /// `confirming` opens on the confirmation step (snapshots).
+    public init(flow: QuitFlow, confirming: Bool = false, choose: @escaping (QuitChoice) -> Void) {
         self.flow = flow
         self.choose = choose
+        _confirming = State(initialValue: confirming)
+    }
+
+    /// The confirmation step's text: what 确认退出 will do.
+    public static func confirmLine(_ count: QuitFlow.ActiveCount) -> String {
+        let how = "将停止所有输入，等所有运行静止后退出 Agent Desktop，不会强制结束。"
+        switch count {
+        case .known(0): return "确认退出？" + how
+        case .known(let n): return "确认退出？现在有 \(n) 个运行进行中，它们会被停止。" + how
+        case .reading, .unavailable: return "确认退出？可能仍有运行在进行，它们会被停止。" + how
+        }
     }
 
     public static func activeLine(_ count: QuitFlow.ActiveCount) -> String {
@@ -197,12 +211,21 @@ public struct QuitDialogView: View {
             Text("退出 Agent Desktop？").font(ADFont.sectionTitle).foregroundStyle(ADColor.ink)
             switch flow.phase {
             case .choosing, .cancelled:
+              if confirming {
+                Text(Self.confirmLine(flow.activeCount))
+                    .font(ADFont.body).foregroundStyle(ADColor.ink).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("返回") { confirming = false }.buttonStyle(ADButtonStyle(.secondary)).keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("确认退出") { choose(.stopAndQuit) }.buttonStyle(ADButtonStyle(.danger)).keyboardShortcut(.defaultAction)
+                }
+              } else {
                 Text(Self.activeLine(flow.activeCount))
                     .font(ADFont.body).foregroundStyle(ADColor.ink).fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: ADSpace.xs) {
                     Text("· 隐藏主窗口：只关窗口，Dock 和菜单栏入口保留").font(ADFont.note)
                     Text("· 保留后台：关闭所有窗口并离开 Dock，只留菜单栏；Desktop 与运行继续").font(ADFont.note)
-                    Text("· 停止输入并退出：调用全局停止，确认所有运行静止后才退出").font(ADFont.note)
+                    Text("· 停止输入并退出：确认后调用全局停止，所有运行静止后才退出").font(ADFont.note)
                 }
                 .foregroundStyle(ADColor.muted)
                 HStack {
@@ -210,8 +233,9 @@ public struct QuitDialogView: View {
                     Spacer()
                     Button("隐藏主窗口") { choose(.hideWindow) }.buttonStyle(ADButtonStyle(.secondary))
                     Button("保留后台") { choose(.keepInBackground) }.buttonStyle(ADButtonStyle(.secondary))
-                    Button("停止输入并退出") { choose(.stopAndQuit) }.buttonStyle(ADButtonStyle(.danger))
+                    Button("停止输入并退出") { confirming = true }.buttonStyle(ADButtonStyle(.danger))
                 }
+              }
             case .stopping:
                 HStack(spacing: ADSpace.m) {
                     ProgressView().controlSize(.small)
