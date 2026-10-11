@@ -62,18 +62,28 @@ public final class ShellStore: ObservableObject {
     @Published public private(set) var lastStop: JSONValue?
     @Published public private(set) var stopProblem: RuntimeProblem?
 
+    /// True while an event stream is open and being read.
+    @Published public private(set) var pushLive = false
+    /// Why Runs are polled although the Runtime lists `events.subscribe`
+    /// (the code its subscription failed with); nil otherwise.
+    @Published public private(set) var pushFallback: RuntimeProblem?
+
     public private(set) var runtime: RuntimePort
     public private(set) var generation = 0
     public var isSample: Bool { runtime.isSample }
 
     private var desktopTicket = 0
     private var runTicket = 0
-    private var tasks: [Task<Void, Never>] = []
+    private var pollTask: Task<Void, Never>?
+    private var pushTask: Task<Void, Never>?
+    /// Identifies the current push loop, so an old loop that ends late
+    /// never clears a newer one.
+    private var pushId = 0
     private let clock: PollClock
     private let pollMs: Int
     private let now: () -> Date
     /// When false, Runs are polled even if the Runtime offers
-    /// `events.subscribe` (U1b-1: the in-process port has no push yet).
+    /// `events.subscribe`.
     public let allowSubscription: Bool
 
     public init(runtime: RuntimePort, clock: PollClock = SystemPollClock(), pollMs: Int = 2000,
@@ -85,10 +95,10 @@ public final class ShellStore: ObservableObject {
         self.now = now
     }
 
-    public var isRunning: Bool { !tasks.isEmpty }
+    public var isRunning: Bool { pollTask != nil || pushTask != nil }
     /// Update loops running now (tests: one poll loop, plus one
     /// subscription loop when Runs are pushed).
-    var loopCount: Int { tasks.count }
+    var loopCount: Int { (pollTask == nil ? 0 : 1) + (pushTask == nil ? 0 : 1) }
 
     /// Runs whose phase is not `ended`.
     public var activeRuns: [JSONValue] { runs.filter { $0["phase"]?.stringValue != "ended" } }
@@ -106,11 +116,9 @@ public final class ShellStore: ObservableObject {
         stop()
         let gen = generation
         await connect(gen)
-        guard gen == generation, tasks.isEmpty else { return }
-        tasks.append(Task { [weak self] in await self?.pollLoop(gen) })
-        if runUpdates == .subscription {
-            tasks.append(Task { [weak self] in await self?.subscriptionLoop(gen) })
-        }
+        guard gen == generation, pollTask == nil else { return }
+        pollTask = Task { [weak self] in await self?.pollLoop(gen) }
+        startPush(gen)
     }
 
     /// One connection attempt: handshake, capabilities, status, snapshots.
@@ -137,7 +145,13 @@ public final class ShellStore: ObservableObject {
         await refreshRuns()
         guard gen == generation else { return }
         desktopUpdates = .polling
-        runUpdates = allowSubscription && offers("events.subscribe") ? .subscription : .polling
+        // Every (re)connection tries the push again, even after a fallback.
+        if allowSubscription && offers("events.subscribe") {
+            runUpdates = .subscription
+            pushFallback = nil
+        } else {
+            runUpdates = .polling
+        }
         tick += 1
     }
 
@@ -149,8 +163,11 @@ public final class ShellStore: ObservableObject {
 
     /// Stop updating (window closed). Ends the event stream; never a Run.
     public func stop() {
-        tasks.forEach { $0.cancel() }
-        tasks.removeAll()
+        pollTask?.cancel()
+        pollTask = nil
+        pushTask?.cancel()
+        pushTask = nil
+        pushLive = false
         desktopUpdates = .none
         runUpdates = .none
     }
@@ -168,6 +185,7 @@ public final class ShellStore: ObservableObject {
         desktopsSyncedAt = nil
         runsSyncedAt = nil
         eventCursor = nil
+        pushFallback = nil
         desktopsState = .loading
         runsState = .loading
         await start()
@@ -204,7 +222,7 @@ public final class ShellStore: ObservableObject {
         do {
             let r = try await runtime.call("run.list", .obj([("limit", .int(200))]))
             guard gen == generation, ticket == runTicket else { return }
-            runs = r["runs"]?.arrayValue ?? []
+            runs = Self.merge(snapshot: r["runs"]?.arrayValue ?? [], over: runs)
             runsSyncedAt = now()
             runsState = runs.isEmpty ? .empty : .loaded
         } catch {
@@ -261,15 +279,29 @@ public final class ShellStore: ObservableObject {
         tick += 1
     }
 
-    /// One frame from `events.subscribe`: move the cursor and re-read the
-    /// Run it names from `run.show` (the authoritative state), never infer
-    /// the state from the event type.
+    /// One frame from `events.subscribe`: re-read the Run it names from
+    /// `run.show` (the authoritative state), never infer the state from the
+    /// event type. Tests and the push loop use it; a failed read is dropped.
     public func apply(frame: JSONValue) async {
-        let gen = generation
+        try? await applyPushed(frame, generation)
+    }
+
+    /// The push loop's step. The cursor moves only once the Run was read,
+    /// so after a lost connection the same frame comes again (resume after
+    /// the last applied cursor). A Run that cannot be read for any other
+    /// reason (gone, not visible) is skipped.
+    private func applyPushed(_ frame: JSONValue, _ gen: Int) async throws {
+        if let runId = frame["event"]?["runId"]?.stringValue {
+            do {
+                let run = try await runtime.call("run.show", .obj([("runId", .string(runId))]))
+                guard gen == generation else { return }
+                upsert(run)
+            } catch {
+                if RuntimeProblem(error).isDisconnection { throw error }
+            }
+        }
+        guard gen == generation else { return }
         if let c = frame["cursor"]?.intValue { eventCursor = max(eventCursor ?? 0, c) }
-        guard let runId = frame["event"]?["runId"]?.stringValue else { return }
-        guard let run = try? await runtime.call("run.show", .obj([("runId", .string(runId))])), gen == generation else { return }
-        upsert(run)
         tick += 1
     }
 
@@ -285,8 +317,24 @@ public final class ShellStore: ObservableObject {
         runsState = .loaded
     }
 
+    /// A `run.list` snapshot over what is shown: the snapshot decides which
+    /// Runs are listed and in what order, but a Run already shown at a
+    /// newer revision (an event applied while the snapshot was in flight)
+    /// is kept, so a slow snapshot never moves a Run back.
+    static func merge(snapshot: [JSONValue], over current: [JSONValue]) -> [JSONValue] {
+        var known: [String: JSONValue] = [:]
+        for r in current { if let id = r["runId"]?.stringValue { known[id] = r } }
+        return snapshot.map { fresh in
+            guard let id = fresh["runId"]?.stringValue, let shown = known[id],
+                  (shown["revision"]?.intValue ?? 0) > (fresh["revision"]?.intValue ?? 0) else { return fresh }
+            return shown
+        }
+    }
+
     // MARK: Update loops
 
+    /// Status and Desktops every interval (no Desktop events yet, F1-02),
+    /// Runs too while they are not pushed; reconnects while disconnected.
     private func pollLoop(_ gen: Int) async {
         while !Task.isCancelled, gen == generation {
             do { try await clock.pause(milliseconds: pollMs) } catch { return }
@@ -298,37 +346,96 @@ public final class ShellStore: ObservableObject {
                 if runUpdates == .polling { await refreshRuns() }
                 tick += 1
             } else {
-                // Reconnect: the same loop, one attempt per interval.
-                let hadSubscription = runUpdates == .subscription
+                // Reconnect: the same loop, one attempt per interval; the
+                // push resumes after the last applied cursor.
                 await connect(gen)
-                if case .connected = connection, runUpdates == .subscription, !hadSubscription {
-                    tasks.append(Task { [weak self] in await self?.subscriptionLoop(gen) })
-                }
+                startPush(gen)
             }
         }
     }
 
-    private func subscriptionLoop(_ gen: Int) async {
-        while !Task.isCancelled, gen == generation {
+    /// Start the push loop when Runs are to be pushed and none is running.
+    private func startPush(_ gen: Int) {
+        guard gen == generation, runUpdates == .subscription, pushTask == nil else { return }
+        guard case .connected = connection else { return }
+        pushId += 1
+        let id = pushId
+        pushTask = Task { [weak self] in
+            await self?.pushLoop(gen)
+            guard let self, self.pushId == id else { return }
+            self.pushTask = nil
+            self.pushLive = false
+        }
+    }
+
+    /// Runs from `events.subscribe` (U1b-2). Resumes after the last applied
+    /// cursor; past the stored events (`events_cursor_expired`) it starts
+    /// from now and re-reads `run.list`; a stream the Runtime ends or loses
+    /// is opened again; a Runtime that cannot push turns Runs back to
+    /// polling. Pages see the same `runs` and `tick` either way.
+    private func pushLoop(_ gen: Int) async {
+        while !Task.isCancelled, gen == generation, runUpdates == .subscription {
+            guard case .connected = connection else { return }
+            let resumed = eventCursor != nil
+            let stream: AsyncThrowingStream<JSONValue, Error>
             do {
-                let stream = try await runtime.subscribe(after: eventCursor)
+                stream = try await runtime.subscribe(after: eventCursor)
+            } catch {
+                guard await recover(from: error, gen, opening: true) else { return }
+                continue
+            }
+            guard !Task.isCancelled, gen == generation, runUpdates == .subscription else { return }
+            pushLive = true
+            // Following from now: a snapshot taken after the subscription
+            // covers whatever happened before it, so nothing falls between.
+            if !resumed { await refreshRuns() }
+            tick += 1
+            var delivered = false
+            do {
                 for try await frame in stream {
                     guard !Task.isCancelled, gen == generation else { return }
-                    await apply(frame: frame)
+                    try await applyPushed(frame, gen)
+                    delivered = true
                 }
-                return
-            } catch let e as RuntimeError where e.code == "events_cursor_expired" {
-                // Past the stored events: take the current state, then
-                // follow from now.
-                guard gen == generation else { return }
-                eventCursor = nil
-                await refreshRuns()
-            } catch {
+                pushLive = false
                 guard !Task.isCancelled, gen == generation else { return }
-                runsState = Self.failure(error)
-                do { try await clock.pause(milliseconds: pollMs) } catch { return }
+                // The Runtime closed the stream: open it again from the
+                // cursor; at once if it had carried events, else after a pause.
+                if !delivered { do { try await clock.pause(milliseconds: pollMs) } catch { return } }
+            } catch {
+                pushLive = false
+                guard await recover(from: error, gen, opening: false) else { return }
             }
         }
+    }
+
+    /// After the stream failed: true to subscribe again.
+    /// - `events_cursor_expired`: from now, then a snapshot (no pause).
+    /// - Runtime unreachable when subscribing: Disconnected; the poll loop
+    ///   reconnects and starts the push again from the cursor.
+    /// - Stream lost while connected: pause, then subscribe again from the
+    ///   cursor (the poll loop finds out if the Runtime itself is gone).
+    /// - Anything else (no push in this Runtime, refused): poll Runs.
+    private func recover(from error: Error, _ gen: Int, opening: Bool) async -> Bool {
+        guard !Task.isCancelled, gen == generation else { return false }
+        let p = RuntimeProblem(error)
+        if p.code == "events_cursor_expired" {
+            eventCursor = nil
+            return true
+        }
+        if p.isDisconnection {
+            if opening {
+                markDisconnected(p)
+                return false
+            }
+            do { try await clock.pause(milliseconds: pollMs) } catch { return false }
+            return !Task.isCancelled && gen == generation
+        }
+        pushFallback = p
+        runUpdates = .polling
+        await refreshRuns()
+        tick += 1
+        return false
     }
 
     static func failure(_ error: Error) -> PageState {

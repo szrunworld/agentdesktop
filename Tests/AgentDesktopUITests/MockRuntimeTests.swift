@@ -72,7 +72,9 @@ struct MockRuntimeTests {
             #expect(RuntimeContract.shared.validate(result, spec.result).isEmpty, "\(method)")
             #expect(keys(result).isDisjoint(with: plannedFieldNames), "\(method) carries a planned field")
         }
-        #expect(seen == Set(MockRuntime.modeled))
+        // Each UI lane covers its own methods in its own tests
+        // (docs/plan/11-parallel-lanes.md; UI-A: RunsU5Tests.mockLedger).
+        #expect(seen == Set(MockRuntime.baseModeled))
         #expect(m.contractViolations.isEmpty, "\(m.contractViolations)")
     }
 
