@@ -1141,3 +1141,11 @@ Kevin 原话：
 
 - **合并后核对**（2ndscreen-f1，main bd4e888）：引擎包 393 个测试通过；根包 1488 个，仅 `SingleEndpointTests` 的 3 个已知偶发用例失败（#273）。本地 `~/orca/2ndscreen` 已更新到 303f5d7，skill 警示生效。
 - #263 已按 B 关闭并附收尾记录。
+
+### #295 合并记录（#288 审核后续；执行人 2ndscreen-f1，Kevin 授权）
+
+- **PR**：#295「#288 审核后续：不再学习 hover 步骤；运行时注释改为『引擎也拒绝』」。
+- **授权原文**："授权"（2026-10-11，2ndscreen-f1 会话），直接回应上一条列出 PR #295 与完整 SHA `12ea71cc5e0cf8f3350211aa481a0a410f02f0f0` 的合并申请；申请中已说明 owner 审核尚缺并给出「由 Kevin 本人兼审」的选项，Kevin 以授权回应。
+- **合并前核对**：head 未变；与 main 1462e90 merge-tree 无冲突；CI build 通过；Codex 对 12ea71c「Didn't find any major issues」，0 条行内意见。
+- **合并**：2026-10-11 06:44:17Z，`--merge --match-head-commit 12ea71cc…`，合并提交 0feb4b1；已确认 12ea71c 是 main 的祖先。
+- **备注**：PR 描述里的反向验证第一次无效（替换未匹配），已重做并在 PR 评论中更正；非作者审核未进行（Kevin 兼审）。
