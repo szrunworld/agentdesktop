@@ -32,12 +32,12 @@
 | 窗口状态与 AX 元素、查询过滤 | `state --query` | R（observe 含 elements） | 查询过滤 A5 | 是 | 无 |
 | 截图（含 `--windows` 窗口合成） | `screenshot` | R（observe image） | 已完成 | — | 无 |
 | 点击（索引、文本、坐标、右键、双击） | `click` | R（act click，button、count） | 已完成 | — | 无 |
-| 悬停 | `hover` | E | A5 Action `hover` | 是 | 无 |
-| AX 按压 | `ax-press` | E | A5 Action `press` | 是 | 无 |
+| 悬停 | `hover` | E | A5 Action `hover` 已定参数；runtime/1 的 `act` 在 macOS 上拒绝（`unsupported_backend`）。引擎层在输入入口也直接拒绝 hover；CLI、MCP、TarsAgent 不再提供 hover，中键模拟路径已删除（#288），只发移动事件的方式 Chrome 与 AppKit 都收不到（#263 第 0 阶段实验）。Kevin 2026-10-11 选 B，有「独立浏览器中必须 hover」的场景时再评估 CDP 方案 | 否 | 不得以按键事件代替悬停 |
+| AX 按压 | `ax-press` | R（act press） | 已完成（A5） | — | 无 |
 | 输入文本（替换） | `type --replace` | R | 已完成 | — | 无 |
 | 按键与修饰键 | `key` | R | 已完成 | — | 无 |
 | 滚动（行、页） | `scroll --by` | R（amount） | 按页滚动 A5 | 是 | 无 |
-| 拖动（需前台） | `drag --foreground` | E | A5 Action `drag`；需前台时返回 `unsupported_backend` 并要求显式允许 | 是 | 不得静默抢前台（D19 相关规则） |
+| 拖动（需前台） | `drag --foreground` | E | A5 Action `drag` 已定参数；runtime/1 的 `act` 在 macOS 上一律返回 `unsupported_backend`（`background_drag_unsupported`），没有「显式允许前台」的入口；恢复须另提设计、安全分析与验收方案并经批准 | 否 | 不得静默抢前台（D19 相关规则） |
 | 本机 OCR、比较、拼接 | `vision` | E | A6 后作为观察能力（coverage.ocr） | 是 | 无 |
 | MCP 原子工具 | `mcp` | E（旧）；R（#29 新 MCP） | A7 | 新 MCP 取代 | 旧 MCP 原子工具绕过检查链，不迁 |
 
