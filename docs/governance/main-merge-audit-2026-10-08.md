@@ -1126,3 +1126,18 @@ Kevin 原话：
   - 上一条记的 69582b1（run 38102239935）结果应为 **cancelled**，不是一个完整结果。
   - 74f41cd（run 38102634974）同样被后续合并按 cancel-in-progress 取消。
   - 第一个跑完的 main CI 是 **36f84e9（run 38102714600）：success**。b9 已用 `git merge-base --is-ancestor` 确认它包含 36f34b1，即三个修复都在其中。
+
+### #287、#288、2ndscreen#71 合并记录（#263 hover 决定 B；执行人与授权人均为 Kevin）
+
+- **决定**：Kevin 在 #263 选 B（macOS 明确拒绝 hover），随后确认 B-2（引擎入口拒绝）与 B-3（冻结的 2ndscreen 仓库加警示）。三个 PR 由 2ndscreen-f1 提交。
+- **合并**：三个 PR 于 2026-10-11 03:29–03:30Z 由共用账号合并；Kevin 在 2ndscreen-f1 会话中确认「是我」（2026-10-11），因此视为其本人授权。
+- **审查情况**：Codex 对三个 head 均回复用量限制、未给出审查（充值后仍然如此）；Kevin 决定这三个 PR 免除 Codex。#288 的 owner 审核由 2ndscreen-f1 事后完成（作者审核，非独立），结论见 #288 评论：无阻塞项，三条后续事项（旧学习记录含 hover 步骤、runtime 两处注释过时、Windows Planner 未改）。
+
+| PR | head | 合并提交 | CI | Codex | 非作者审核 |
+|---|---|---|---|---|---|
+| agentdesktop #287（文档对齐 runtime/1 的 hover 拒绝） | 309d79d（d1628c3 之上的整合提交，由共用账号推送） | bcf2665 | build 通过（d1628c3） | 免除 | 无 |
+| agentdesktop #288（引擎入口拒绝 hover，删除中键模拟） | d56630a | 7260b35 | build 通过 | 免除 | 作者事后审核（2ndscreen-f1） |
+| szrunworld/2ndscreen #71（README 与 skill 警示） | b7cf1f4 | 303f5d7 | 该仓库纯文档 PR 不跑 CI | 免除 | 无 |
+
+- **合并后核对**（2ndscreen-f1，main bd4e888）：引擎包 393 个测试通过；根包 1488 个，仅 `SingleEndpointTests` 的 3 个已知偶发用例失败（#273）。本地 `~/orca/2ndscreen` 已更新到 303f5d7，skill 警示生效。
+- #263 已按 B 关闭并附收尾记录。
