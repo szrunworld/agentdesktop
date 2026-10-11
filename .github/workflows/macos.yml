@@ -34,6 +34,10 @@ jobs:
       - name: Product unit tests
         timeout-minutes: 8
         run: swift test
+      - name: Acceptance process identity safety
+        run: |
+          sh scripts/lib/process-identity-selftest.sh
+          python3 scripts/lib/process-identity-kernel-test.py
       - name: Test watchdog self-tests
         # Each case runs the real watchdog against real processes (stalls of
         # 3 s, sampling, stops): 21 cases took 2 min 52 s on CI (#196), so 3
@@ -48,6 +52,11 @@ jobs:
         run: python3 -m unittest -v scripts.ci.test_test_watchdog.WatchdogOwnershipTests
       - name: Native core unit tests
         timeout-minutes: 8
+        env:
+          # A bounded wait that runs out writes its evidence (what it waited
+          # for, the stage, a sample of the process) here, inside the
+          # directory uploaded below, so it reaches the artifact (#264).
+          ENGINE_TEST_EVIDENCE_DIR: ${{ runner.temp }}/engine-test-watchdog/bounded-waits
         run: |
           # On a pseudo-terminal so each result line shows when written, and
           # with a watchdog: after 150 s without output it lists the tests

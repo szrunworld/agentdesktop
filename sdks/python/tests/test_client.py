@@ -257,6 +257,147 @@ class ClientTests(unittest.TestCase):
             rt.close()
 
 
+def err(req, code, message="refused", phase="request", details=None):
+    e = {"code": code, "message": message, "phase": phase, "retryable": False, "notSent": True}
+    if details:
+        e["details"] = details
+    return json.dumps({"apiVersion": API_VERSION, "requestId": req["requestId"], "ok": False, "error": e}).encode()
+
+
+TOKEN = "adt1_" + "B" * 43
+
+
+def pairing_runtime(final):
+    """hub.pairing.* answering `requested` once, then `final` (a status dict)."""
+    polls = []
+
+    def reply(r):
+        if r["method"] == "runtime.handshake":
+            return ok(r, IDENTITY)
+        if r["method"] == "hub.pairing.start":
+            return ok(r, {"pairingId": "pair_9", "shortCode": "654321", "state": "requested", "expiresAt": "2026-10-11T01:00:00Z"})
+        if r["method"] == "hub.pairing.status":
+            polls.append(1)
+            if len(polls) == 1:
+                return ok(r, {"pairingId": "pair_9", "state": "requested", "expiresAt": "2026-10-11T01:00:00Z"})
+            return ok(r, dict({"pairingId": "pair_9", "expiresAt": "2026-10-11T01:00:00Z"}, **final))
+        return ok(r, {"desktops": []})
+    return reply
+
+
+class ConsistencyWithCLITests(unittest.TestCase):
+    """SDK-01…SDK-05 (08 file): pairing, action, disconnect, reconnect and
+    revocation behave as `agentdesktop agents pair` and the CLI do. SDK-06
+    (MCP --desktop-id) is Swift's MCPServerTests."""
+
+    def test_sdk01_pairing_returns_the_credential_once_and_reconnects_as_the_app(self):
+        rt = FakeRuntime(pairing_runtime({"state": "approved", "clientId": "app:x",
+                                          "credential": {"clientId": "app:x", "token": TOKEN}}))
+        try:
+            c = RuntimeClient(rt.path, env={})
+            codes = []
+            cred = c.pair("py-app", ["observe"], desktops=["created"], on_code=lambda code, pid: codes.append((code, pid)),
+                          timeout=5, poll=0.01)
+            self.assertEqual(cred, {"clientId": "app:x", "token": TOKEN})
+            self.assertEqual(codes, [("654321", "pair_9")])
+            self.assertIsNone(c._sock, "the pairing connection is closed")
+            start = next(r for r in rt.requests if r["method"] == "hub.pairing.start")
+            self.assertEqual(start["params"], {"agentName": "py-app",
+                                               "requested": {"capabilities": ["observe"], "desktops": ["created"], "apps": []}})
+            self.assertNotIn("credential", rt.requests[0]["params"], "pairing runs unpaired")
+            c.desktops()
+            hs = [r for r in rt.requests if r["method"] == "runtime.handshake"]
+            self.assertEqual(hs[-1]["params"]["credential"], {"clientId": "app:x", "token": TOKEN})
+        finally:
+            rt.close()
+
+    def test_sdk01_a_denied_or_expired_pairing_is_permission_denied_with_its_id(self):
+        for state in ("denied", "expired"):
+            rt = FakeRuntime(pairing_runtime({"state": state}))
+            try:
+                with self.assertRaises(RuntimeError_) as cm:
+                    RuntimeClient(rt.path, env={}).pair("py-app", ["observe"], timeout=5, poll=0.01)
+                self.assertEqual(cm.exception.code, "permission_denied")
+                self.assertEqual(cm.exception.details, {"pairingId": "pair_9"})
+            finally:
+                rt.close()
+
+    def test_sdk01_approved_without_a_credential_fails_at_once_like_the_cli(self):
+        rt = FakeRuntime(pairing_runtime({"state": "approved", "clientId": "app:x"}))
+        try:
+            with self.assertRaises(RuntimeError_) as cm:
+                RuntimeClient(rt.path, env={}).pair("py-app", ["observe"], timeout=5, poll=0.01)
+            self.assertEqual(cm.exception.code, "execution_failed")
+            self.assertEqual(sum(r["method"] == "hub.pairing.status" for r in rt.requests), 2, "no polling until the timeout")
+        finally:
+            rt.close()
+
+    def test_sdk02_a_refused_action_is_reported_once_and_never_resent(self):
+        def reply(r):
+            if r["method"] == "session.open":
+                return ok(r, {"sessionId": "s_1", "desktopId": "d_1", "state": "open", "createdAt": "t"})
+            if r["method"] == "act":
+                return err(r, "grant_missing", details={"reason": "capability", "capability": "act"})
+            return ok(r, {})
+        rt = FakeRuntime(handshake_then(reply))
+        try:
+            with RuntimeClient(rt.path, env={}) as c:
+                with c.session("d_1") as s:
+                    with self.assertRaises(RuntimeError_) as cm:
+                        s.click("obs_1", element="el_2", request_id="py-act-1")
+            self.assertEqual(cm.exception.code, "grant_missing")
+            self.assertTrue(cm.exception.not_sent)
+            acts = [r for r in rt.requests if r["method"] == "act"]
+            self.assertEqual(len(acts), 1)
+            self.assertEqual(acts[0]["requestId"], "py-act-1")
+            self.assertEqual(acts[0]["context"], {"sessionId": "s_1"})
+        finally:
+            rt.close()
+
+    def test_sdk03_sdk04_disconnect_then_reconnect_with_the_saved_credential(self):
+        rt = FakeRuntime(handshake_then(lambda r: ok(r, {"desktops": []})))
+        d = tempfile.mkdtemp(prefix="adt-py-cred-")
+        path = os.path.join(d, "cred.json")
+        try:
+            from agentdesktop_client import load_credential, save_credential
+            save_credential({"clientId": "app:x", "token": TOKEN}, path)
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+            c = RuntimeClient(rt.path, env={"AGENTDESKTOP_CREDENTIAL_FILE": path})
+            c.desktops()
+            c.close()
+            self.assertIsNone(c.identity)
+            c.desktops()   # a fresh connection, handshaking again with the same credential
+            hs = [r for r in rt.requests if r["method"] == "runtime.handshake"]
+            self.assertEqual(len(hs), 2)
+            self.assertTrue(all(h["params"]["credential"] == {"clientId": "app:x", "token": TOKEN} for h in hs))
+            # A tampered file is no credential (duplicate keys, wrong types).
+            with open(path, "w") as f:
+                f.write('{"clientId":"app:x","token":"a","token":"b"}')
+            with self.assertRaises(RuntimeError_):
+                load_credential(path)
+            with open(path, "w") as f:
+                f.write('{"clientId":"app:x","token":7}')
+            with self.assertRaises(RuntimeError_):
+                load_credential(path)
+        finally:
+            rt.close()
+
+    def test_sdk05_a_revoked_credential_is_refused_and_not_retried(self):
+        def reply(r):
+            return err(r, "client_revoked", "app:x was removed from AgentDesktop; pair again to continue",
+                       details={"reason": "client_revoked"})
+        rt = FakeRuntime(reply)
+        try:
+            c = RuntimeClient(rt.path, env={}, credential={"clientId": "app:x", "token": TOKEN})
+            with self.assertRaises(RuntimeError_) as cm:
+                c.desktops()
+            self.assertEqual(cm.exception.code, "client_revoked")
+            self.assertIsNone(c._sock)
+            self.assertEqual([r["method"] for r in rt.requests], ["runtime.handshake"])
+        finally:
+            rt.close()
+
+
 @unittest.skipUnless(os.environ.get("AGENTDESKTOP_SDK_LIVE_ENDPOINT"), "needs a live Runtime")
 class LiveTests(unittest.TestCase):
     """Run by the Swift cross-entry test against a real RuntimeServer."""

@@ -9,8 +9,26 @@ extension RuntimeService {
     /// platform → ActionReceipt.
     func act(_ request: RuntimeRequest, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
+        // A5/A7: context.desktopId alone opens an implicit session: the
+        // caller's open session on that Desktop, else a new one, opened as
+        // session.open would (same capability, same checks under the lock).
+        // A hidden session stays open while any implicit act is in flight.
+        // The last failure closes it; any success makes it caller-accessible.
+        if request.context.sessionId == nil, let desktopId = request.context.desktopId {
+            switch implicitSession(desktopId: desktopId, c) {
+            case let .failure(e): return .failure(e)
+            case let .success((sid, _)):
+                var scoped = request
+                scoped.context.sessionId = sid
+                let result = act(scoped, c)
+                let succeeded: Bool
+                if case .success = result { succeeded = true } else { succeeded = false }
+                sessions.finishImplicit(sid, succeeded: succeeded, at: nowString)
+                return result
+            }
+        }
         guard request.context.sessionId != nil else {
-            return .failure(.schemaInvalid("act needs context.sessionId: input without a session is refused"))
+            return .failure(.schemaInvalid("act needs context.sessionId or context.desktopId: input without a session is refused"))
         }
         let acceptedAt = nowString
         let session: RuntimeSession
@@ -390,6 +408,26 @@ extension RuntimeService {
             pa.point = (gx, gy)
         }
         return pa
+    }
+
+    /// The session an act naming only its Desktop runs in, and whether it
+    /// was opened now: the caller's oldest open session there (so repeated
+    /// calls agree), else a new one. Under the Desktop's lock, with the same
+    /// checks as session.open, and the lookup and the creation in one step
+    /// of the session store, so concurrent acts share one session (Codex P2
+    /// on #276).
+    func implicitSession(desktopId: String, _ c: ConnectionState) -> Result<(String, Bool), RuntimeError> {
+        var opened = false
+        return withDesktop(.string(desktopId), as: c, method: "session.open") { d in
+            let (s, created) = sessions.firstOpenOrOpen(desktopId: d.desktopId, caller: c.clientId, at: nowString)
+            opened = created
+            return .string(s.sessionId)
+        }.flatMap { v in
+            guard let sid = v.stringValue else {
+                return .failure(RuntimeError("internal_error", "no implicit session", phase: .handler))
+            }
+            return .success((sid, opened))
+        }
     }
 
     /// Wait, on the Runtime, for an element condition in the bound window.

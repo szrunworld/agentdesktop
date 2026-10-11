@@ -160,6 +160,10 @@ extension CLI {
             return lines.joined(separator: "\n")
         case .act:
             var line = "\(s(d["delivery"]))/\(s(d["execution"]))  route \(s(d["route"]))  receipt \(s(d["receiptId"]))  run \(s(d["runId"]))"
+            // The session it ran in: with --desktop alone it may be one the
+            // Runtime just opened, which the caller closes (session close)
+            // before desktop destroy (Codex P2 on #276).
+            if let sid = d["sessionId"]?.stringValue { line += "  session \(sid)" }
             if let p = d["target"]?["point"], !p.isNull {
                 line += "  at \(p["x"]?.doubleValue.map { String(Int($0)) } ?? "?"),\(p["y"]?.doubleValue.map { String(Int($0)) } ?? "?")"
             }

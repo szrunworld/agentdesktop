@@ -456,7 +456,7 @@ PR4 ───────────────────► U9 Inbox / 核�
 | PR3 身份与授权（A4） | 未开始，`hub.*` 无参数 | U4 |
 | A5 Desktop 控制面增量 | 未开始 | U3、U5b；U2 的完整控制者显示 |
 | A7 / #29 MCP `--desktop-id` | 草稿 | U4 的 P10 |
-| PR4 Inbox / 核实 / 诊断 | 未开始 | U9、U3 的 P17 核实 |
+| PR4 Inbox / 核实 / 诊断 | 进行中：inbox.*、run.reconcile 已实现（PR4①）；diagnostics.export 待 PR4② | U9、U3 的 P17 核实 |
 | X1 Explorer 基础 | 未开始 | U7 |
 
 ---

@@ -205,12 +205,9 @@ final class AppController: NSObject, NSApplicationDelegate {
                 runtime.onAccessWithdrawn { clientId in Task { await service.accessWithdrawn(clientId: clientId) } }
                 await MainActor.run {
                     self.aiService = service
-                    // The AI/GUI pages live in Settings and keep their
-                    // contract v1 client until U6.
-                    let client = InProcessContractClient(router: service.router(callerScope: "uid:\(getuid())"),
-                                                         guiCapabilities: { service.guiCapabilities() },
-                                                         runs: Self.runtimeRuns(runtime))
-                    self.mainWindow.attachAISettings(AISettingsModel(client: client))
+                    // Settings reads the AI/GUI configuration through the
+                    // Runtime (ai.* on runtime/1, U6); the Store's next
+                    // capabilities read lists the methods registered above.
                 }
             } catch {
                 FileHandle.standardError.write(Data("AI service unavailable: \(error)\n".utf8))

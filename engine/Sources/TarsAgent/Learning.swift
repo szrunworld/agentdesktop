@@ -51,10 +51,15 @@ extension TarsAgent {
         case .accessibilityPress:
             unlearnable = unlearnable ?? "an accessibility press is not a model action"
             return nil
+        case .hover:
+            // The engine refuses hover on macOS (#263); a step that would
+            // only be refused again is nothing to learn.
+            unlearnable = unlearnable ?? "hover is refused on macOS"
+            return nil
         case .type where named == nil:
             // Keys to whatever has focus, which the step before gave it.
             return step
-        case .click, .type, .scroll, .hover:
+        case .click, .type, .scroll:
             if let named, let reference = ElementRef(named, in: frame) {
                 step.target = reference
                 return step
@@ -303,6 +308,10 @@ extension TarsAgent {
                 continue
             }
             guard let kind = InputAction.Kind(rawValue: step.kind) else { return .handOver("\(what) is not an action", failed: true) }
+            // A procedure learned before the engine refused hover (#263):
+            // handed over before anything is sent, so the model does the
+            // task another way and the procedure is learned afresh.
+            if kind == .hover { return .handOver("\(what): hover is refused on macOS; re-learn the task", failed: true) }
             var action = InputAction(kind)
             action.button = step.button
             action.count = step.count

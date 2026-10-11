@@ -416,3 +416,29 @@ private func attach(_ s: RuntimeService, _ c: ConnectionState, display: Int = 1,
         #expect(s.hub.grant(id)?.revision == before.revision && s.desktops.count == count)
     }
 }
+
+@Test func aDisplayChangedBeforeReuseDoesNotGrantAStaleDesktop() throws {
+    for change in ["resolution", "arrangement", "hidpi"] {
+        let platform = FakePlatform()
+        let s = displayService(platform)
+        let owner = handshaken(s)
+        let (_, first, _) = try pairedClient(s, capabilities: ["observe"], desktops: ["created"])
+        let d = try #require(data(attach(s, owner, client: first))?["desktop"]?["desktopId"]?.stringValue)
+        let (_, second, _) = try pairedClient(s, capabilities: ["observe"], desktops: ["created"])
+        let before = try #require(s.hub.grant(second))
+        var report = platform.displays()
+        switch change {
+        case "resolution": report[0].frame.width += 100
+        case "arrangement": report[0].frame.x += 100
+        default: report[0].hiDPI.toggle()
+        }
+        platform.displayReport = report
+        let response = attach(s, owner, client: second)
+        #expect(code(response) == "conflict")
+        #expect(errorDetails(response)?["reason"]?.stringValue == "display_changed")
+        #expect(s.hub.grant(second)?.revision == before.revision)
+        #expect(s.hub.grant(second)?.desktops.contains(d) == false)
+        #expect(s.hub.grant(first)?.desktops.contains(d) == true)
+        #expect(s.desktops.count == 1)
+    }
+}

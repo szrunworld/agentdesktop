@@ -87,6 +87,10 @@ final class URTestRuntime: @unchecked Sendable {
     var answer: Answer = .scenario
     var methods: Set<String> = URTestRuntime.withUnitRun
     var profiles: [JSONValue]?
+    /// The role the handshake reports (principal.role). Owner by default:
+    /// these flows exercise the owner path, where profiles are listed; a
+    /// paired bridge never lists them (#246).
+    var principalRole: String? = "owner"
     var calls: [Call] = []
     var violations: [String] = []
     var connections = 0
@@ -381,6 +385,10 @@ final class URTestClient: RuntimeClient {
     init(server: URTestRuntime, role: ACPBridgeConnectionRole) {
         self.server = server
         self.role = role
+    }
+
+    var principal: JSONValue? {
+        server.with { server.principalRole.map { JSONValue.obj([("role", .string($0))]) } }
     }
 
     func handshake() throws -> RuntimeIdentity {

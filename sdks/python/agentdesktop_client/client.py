@@ -149,12 +149,19 @@ class RuntimeClient:
         deadline = time.monotonic() + timeout
         while True:
             st = self.call("hub.pairing.status", {"pairingId": started["pairingId"]})
-            if st["state"] == "approved" and "credential" in st:
-                self.credential = st["credential"]
+            # Same outcomes as `agentdesktop agents pair` (A7, SDK-01).
+            if st["state"] == "approved":
+                cred = st.get("credential")
+                if not isinstance(cred, dict) or not cred.get("clientId") or not cred.get("token"):
+                    # The plaintext is handed out once; asking again cannot get it.
+                    raise RuntimeError_("execution_failed", "approved, but the credential was already collected", "handler",
+                                        details={"pairingId": started["pairingId"]})
+                self.credential = {"clientId": cred["clientId"], "token": cred["token"]}
                 self.close()
                 return self.credential
             if st["state"] in ("denied", "expired"):
-                raise RuntimeError_("permission_denied", f"pairing {started['pairingId']} was {st['state']}", "handler")
+                raise RuntimeError_("permission_denied", f"pairing {started['pairingId']} was {st['state']}", "handler",
+                                    details={"pairingId": started["pairingId"]})
             if time.monotonic() >= deadline:
                 raise RuntimeError_("wait_timeout", "the owner has not answered the pairing request", "local")
             time.sleep(poll)
@@ -438,8 +445,11 @@ def load_credential(path: str) -> dict:
     can read it); a signed app should keep its credential in the keychain.
     """
     with open(path, "r", encoding="utf-8") as f:
-        v = json.load(f)
-    if not isinstance(v, dict) or "clientId" not in v or "token" not in v:
+        try:
+            v = _strict_loads(f.read())   # like the TypeScript SDK: duplicate keys refused
+        except ValueError:
+            v = None
+    if not isinstance(v, dict) or not isinstance(v.get("clientId"), str) or not isinstance(v.get("token"), str):
         raise RuntimeError_("invalid_argument", f"{path} holds no credential", "local", not_sent=True)
     return {"clientId": v["clientId"], "token": v["token"]}
 

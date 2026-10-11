@@ -56,6 +56,9 @@ public final class InputEngine: @unchecked Sendable {
             window.frame.contains(point)
                 || (bounds.contains(point) && BackgroundInput.topWindow(at: point, pid: window.pid) != nil)
         }
+        // #263 B-2: refused before an element is read, a point checked or
+        // any event (focus records included) is posted.
+        if action.kind == .hover { throw AccessibilityError(InputAction.hoverRefusal) }
         var response = ControlResponse()
         response.window = WindowSummary(window)
         if action.kind == .accessibilityPress {
@@ -72,7 +75,7 @@ public final class InputEngine: @unchecked Sendable {
         let element = try resolve(action, in: window)
         response.element = element?.info
         if let element, element.snapshot.isWeb(element.info.index),
-           action.kind == .click || action.kind == .hover || action.kind == .scroll ||
+           action.kind == .click || action.kind == .scroll ||
            (action.kind == .type && action.replace != true) {
             if let point = action.point, point != element.info.center {
                 throw AccessibilityError("explicit coordinates do not name the observed web element; observe again")
@@ -172,12 +175,8 @@ public final class InputEngine: @unchecked Sendable {
             }
 
         case .hover:
-            guard let point = action.point ?? element?.info.center else {
-                throw AccessibilityError(element == nil ? "give --index N, --text TEXT, or --x X --y Y"
-                    : "the element has no frame to hover over")
-            }
-            cursor(.move, point)
-            response.route = try BackgroundInput.hover(at: point, in: window)
+            // Refused at the top of perform; never reached.
+            throw AccessibilityError(InputAction.hoverRefusal)
 
         case .scroll:
             let directions = ["up", "down", "left", "right"]

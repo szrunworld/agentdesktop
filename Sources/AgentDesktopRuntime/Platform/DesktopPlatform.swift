@@ -89,8 +89,9 @@ public struct PlatformElement: Equatable, Sendable {
 /// an element by the backend's index from the snapshot that is still the
 /// latest read of the window, or a global point that lies in the window.
 public struct PlatformAction: Equatable, Sendable {
-    /// hover rests the pointer on the target (the engine does it with a
-    /// middle-button event, so act refuses it for now); press is
+    /// hover rests the pointer on the target; no macOS backend does that
+    /// without a button event, so act and the engine both refuse it
+    /// (#263). press is
     /// an accessibility press of one element and nothing else (no event
     /// fallback). A drag has no kind here: no platform does one in the
     /// background yet, and the Runtime refuses it before (unsupported_backend).

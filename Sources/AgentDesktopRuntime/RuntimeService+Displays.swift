@@ -121,6 +121,10 @@ extension RuntimeService {
         let d: DesktopRecord
         let created: Bool
         if let attached = now {
+            guard attached.screen.frame == display.frame, attached.screen.hiDPI == display.hiDPI else {
+                return .failure(RuntimeError("conflict", "the saved geometry of display \(displayId) changed; detach it and attach again", phase: .handler,
+                                             notSent: true, details: .obj([("reason", .string("display_changed"))])))
+            }
             d = attached
             created = false
         } else {

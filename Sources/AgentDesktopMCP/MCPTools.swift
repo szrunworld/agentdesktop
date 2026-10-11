@@ -100,4 +100,40 @@ enum MCPTools {
     ]
 
     static let byName: [String: Tool] = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
+
+    /// Tools that would reach beyond one Desktop: not offered by a server
+    /// limited to one (`agentdesktop mcp --desktop-id`), and refused if
+    /// called anyway.
+    static let outsideScope: Set<String> = ["desktop_create"]
+
+    /// Tools that take their Desktop from the session or, without one, the
+    /// Desktop the server is limited to (observe and wait accept
+    /// context.desktopId alone).
+    static let sessionOptionalInScope: Set<String> = ["observe", "wait_for_element"]
+
+    /// The tool list of a server limited to `desktopId`: no tool that makes
+    /// another Desktop; desktopId defaults to that Desktop; observe and wait
+    /// work without a session.
+    static func scoped(to desktopId: String) -> [Tool] {
+        all.filter { !outsideScope.contains($0.name) }.map { t in
+            var drop: Set<String> = ["desktopId"]
+            if sessionOptionalInScope.contains(t.name) { drop.insert("sessionId") }
+            var schema = t.schema
+            if let props = schema["properties"]?.objectMembers {
+                schema = schema.setting("properties", .object(props.map { m in
+                    guard m.key == "desktopId" else { return m }
+                    return (key: m.key, value: str("Optional: this server is limited to Desktop \(desktopId); any other id is refused."))
+                }))
+            }
+            if let req = schema["required"]?.arrayValue {
+                let kept = req.filter { !drop.contains($0.stringValue ?? "") }
+                if kept.isEmpty, case let .object(m) = schema {
+                    schema = .object(m.filter { $0.key != "required" })
+                } else {
+                    schema = schema.setting("required", .array(kept))
+                }
+            }
+            return Tool(name: t.name, description: t.description, schema: schema, method: t.method, mutation: t.mutation)
+        }
+    }
 }

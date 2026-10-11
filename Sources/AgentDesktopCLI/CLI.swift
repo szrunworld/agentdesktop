@@ -160,7 +160,7 @@ struct CLI {
         case let .agentsPair(name, publisher, grant, profile, timeout):
             return agentsPair(name: name, publisher: publisher, grant: grant, profile: profile ?? self.profile, timeout: timeout,
                               out, endpoint: endpoint)
-        case let .mcp(profile):
+        case let .mcp(profile, desktopId):
             // An MCP host is an external agent: it acts as a paired app with
             // its own credential (profile "mcp" unless told otherwise), never
             // as the owner (A4). Without one it can only see that it must pair.
@@ -169,7 +169,8 @@ struct CLI {
                 stderr("agentdesktop mcp: not paired; run `agentdesktop agents pair --name <host> --profile \(profile ?? "mcp")` first")
             }
             // stdout carries only MCP messages; diagnostics go to stderr.
-            let server = MCPServer(makeClient: {
+            // --desktop-id: every tool stays on that one Desktop (A7).
+            let server = MCPServer(desktopScope: desktopId, makeClient: {
                 SocketRuntimeClient(endpoint: endpoint, info: CLI.clientInfo, credential: credential)
             })
             server.serve(readLine: { Swift.readLine(strippingNewline: true) }, write: { line in

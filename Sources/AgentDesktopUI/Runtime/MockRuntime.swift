@@ -23,7 +23,10 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     public let isSample = true
 
     /// Methods this mock models; a subset of `RuntimeCatalog.implemented`.
-    public static let modeled: [String] = [
+    /// The lanes add theirs in Runtime/MockLanes (laneModeled).
+    public static var modeled: [String] { baseModeled + laneModeled }
+
+    static let baseModeled: [String] = [
         "runtime.handshake", "runtime.status", "runtime.capabilities", "runtime.stopAll", "runtime.enableInput",
         "desktop.list", "desktop.show", "desktop.create", "desktop.destroy",
         "app.list", "window.list", "app.launch", "window.bind",
@@ -33,32 +36,34 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         "hub.clients.list", "hub.grants.list", "hub.displays.list", "hub.displays.attach", "hub.displays.detach",
     ]
 
-    private let lock = NSLock()
-    private let contract = RuntimeContract.shared
-    private let base: Date
-    private var clock: TimeInterval = 0
+    let lock = NSLock()
+    /// Each UI lane's own mock state (Runtime/MockLanes).
+    let lanes = MockLanes()
+    let contract = RuntimeContract.shared
+    let base: Date
+    var clock: TimeInterval = 0
 
-    private var desktops: [JSONValue] = []
+    var desktops: [JSONValue] = []
     /// The user's displays (HubDisplay without the computed fields) and the
     /// paired clients with their grants, for the owner's display entry.
-    private var displays: [JSONValue] = []
-    private var clients: [JSONValue] = []
+    var displays: [JSONValue] = []
+    var clients: [JSONValue] = []
     /// Windows not on any Desktop (window.list, window.bind), and apps that
     /// app.launch can start; both neutral, never a real user app.
-    private var freeWindows: [JSONValue] = []
-    private var launchable: Set<String> = ["com.example.probe"]
-    private var artifactsById: [String: (meta: JSONValue, bytes: Data)] = [:]
-    private var observationCount = 0
-    private var runs: [JSONValue] = []
-    private var requests: [String: JSONValue] = [:]
+    var freeWindows: [JSONValue] = []
+    var launchable: Set<String> = ["com.example.probe"]
+    var artifactsById: [String: (meta: JSONValue, bytes: Data)] = [:]
+    var observationCount = 0
+    var runs: [JSONValue] = []
+    var requests: [String: JSONValue] = [:]
     /// Global event log: (cursor, RunEvent).
-    private var events: [(cursor: Int, event: JSONValue)] = []
-    private var eventFloor = 0
-    private var runSequences: [String: Int] = [:]
-    private var admission = "enabled"
-    private var nextId = 1
-    private var subscribers: [UUID: AsyncThrowingStream<JSONValue, Error>.Continuation] = [:]
-    private var queuedFailures: [String: [RuntimeError]] = [:]
+    var events: [(cursor: Int, event: JSONValue)] = []
+    var eventFloor = 0
+    var runSequences: [String: Int] = [:]
+    var admission = "enabled"
+    var nextId = 1
+    var subscribers: [UUID: AsyncThrowingStream<JSONValue, Error>.Continuation] = [:]
+    var queuedFailures: [String: [RuntimeError]] = [:]
 
     /// Calls answered, in order (method names); tests read it.
     public private(set) var callLog: [String] = []
@@ -70,7 +75,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         get { lock.withLock { _offline } }
         set { lock.withLock { _offline = newValue } }
     }
-    private var _offline = false
+    var _offline = false
 
     /// Permission states reported in `runtime.capabilities`.
     /// Whether `events.subscribe` is offered (advertised and answered).
@@ -177,7 +182,8 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
                 appendEventLocked(runId, "action.dispatched", .obj([("requestId", .string(requestId))]))
             }
             appendEventLocked(runId, "action.\(execution)", .obj([("receipt", receipt)]))
-            var outcome: JSONValue = receipt
+            // As the Runtime's ledger stores it: {data} or {error}.
+            var outcome: JSONValue = .obj([("data", receipt)])
             if let errorCode {
                 outcome = .obj([("error", RuntimeError(errorCode, Self.mockMessage(errorCode), phase: .handler,
                                                         notSent: delivery == "not_dispatched" ? true : nil,
@@ -186,7 +192,8 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             let recordState = state ?? (execution == "completed" ? "completed" : execution == "unknown" ? "unknown" : "failed")
             requests[requestId] = .obj([
                 ("requestId", .string(requestId)), ("method", .string("act")), ("state", .string(recordState)),
-                ("acceptedAt", .string(accepted)), ("finishedAt", .string(stamp())), ("outcome", outcome),
+                ("acceptedAt", .string(accepted)), ("finishedAt", .string(stamp())),
+                ("desktopId", run["desktopId"] ?? .null), ("outcome", outcome),
             ])
             return requestId
         }
@@ -278,7 +285,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         get { lock.withLock { _delays } }
         set { lock.withLock { _delays = newValue } }
     }
-    private var _delays: [String: UInt64] = [:]
+    var _delays: [String: UInt64] = [:]
 
     /// Number of observations taken (each has its own snapshotId).
     public var observations: Int { lock.withLock { observationCount } }
@@ -327,7 +334,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
 
     // MARK: Dispatch
 
-    private func callLocked(_ method: String, _ params: JSONValue, context: RequestContext) throws -> JSONValue {
+    func callLocked(_ method: String, _ params: JSONValue, context: RequestContext) throws -> JSONValue {
         callLog.append(method)
         if _offline { throw RuntimeError.runtimeOffline("mock runtime is offline", endpoint: "mock") }
         guard let spec = contract.method(method) else {
@@ -352,7 +359,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         return result
     }
 
-    private func handle(_ method: String, _ p: JSONValue, context: RequestContext) throws -> JSONValue {
+    func handle(_ method: String, _ p: JSONValue, context: RequestContext) throws -> JSONValue {
         switch method {
         case "runtime.handshake":
             return .obj([
@@ -605,13 +612,14 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             guard let r = requests[id] else { throw RuntimeError.notFound("no request \(id)") }
             return r
         default:
+            if let answer = try laneAnswer(method, p, context: context) { return answer }
             throw RuntimeError.capabilityMissing("the mock does not model \(method)")
         }
     }
 
     // MARK: Helpers (lock held)
 
-    private func setBinding(_ id: String, app: String, pid: Int, windowId: Int) {
+    func setBinding(_ id: String, app: String, pid: Int, windowId: Int) {
         guard let i = desktops.firstIndex(where: { $0["desktopId"]?.stringValue == id }) else { return }
         let gen = (desktops[i]["binding"]?["generation"]?.intValue ?? 0) + 1
         let at = stamp()
@@ -647,23 +655,23 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private var platformJSON: JSONValue {
+    var platformJSON: JSONValue {
         .obj([("os", .string("macos")), ("osVersion", .string("15.0")), ("arch", .string("arm64"))])
     }
 
-    private func stamp() -> String {
+    func stamp() -> String {
         clock += 1
         return Timestamp.string(base.addingTimeInterval(clock))
     }
 
-    private func desktop(_ id: String) throws -> JSONValue {
+    func desktop(_ id: String) throws -> JSONValue {
         guard let d = desktops.first(where: { $0["desktopId"]?.stringValue == id }) else {
             throw RuntimeError.notFound("no Desktop \(id)")
         }
         return d
     }
 
-    private func run(_ id: String) throws -> JSONValue {
+    func run(_ id: String) throws -> JSONValue {
         guard let r = runs.first(where: { $0["runId"]?.stringValue == id }) else { throw RuntimeError.notFound("no Run \(id)") }
         return r
     }
@@ -673,7 +681,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
     /// later stop of a stopping Run changes nothing but is still reported,
     /// with its own reason at the unchanged revision. The event type follows
     /// the reason (`run.finishing` for finished/completed/exit*).
-    private func stopLocked(_ id: String, reason: String) {
+    func stopLocked(_ id: String, reason: String) {
         guard let current = runs.first(where: { $0["runId"]?.stringValue == id }) else { return }
         if current["phase"]?.stringValue != "stopping" {
             updateRunLocked(id) {
@@ -684,17 +692,17 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         appendEventLocked(id, type, .obj([("reason", .string(reason)), ("inFlight", .bool(false)), ("revision", revisionLocked(id))]))
     }
 
-    private func revisionLocked(_ id: String) -> JSONValue {
+    func revisionLocked(_ id: String) -> JSONValue {
         runs.first(where: { $0["runId"]?.stringValue == id })?["revision"] ?? .int(1)
     }
 
-    private func updateRunLocked(_ id: String, _ change: (JSONValue) -> JSONValue) {
+    func updateRunLocked(_ id: String, _ change: (JSONValue) -> JSONValue) {
         guard let i = runs.firstIndex(where: { $0["runId"]?.stringValue == id }) else { return }
         let rev = (runs[i]["revision"]?.intValue ?? 1) + 1
         runs[i] = change(runs[i]).setting("revision", .int(rev))
     }
 
-    private func desktopJSON(id: String, name: String, width: Int, height: Int, state: String, app: String?, windowId: Int) -> JSONValue {
+    func desktopJSON(id: String, name: String, width: Int, height: Int, state: String, app: String?, windowId: Int) -> JSONValue {
         let created = stamp()
         let binding: JSONValue = app.map {
             .obj([("generation", .int(1)), ("process", .obj([("pid", .int(700 + windowId % 100)), ("startedAt", .string(created))])),
@@ -709,7 +717,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         ])
     }
 
-    private func receiptJSON(run: JSONValue, requestId: String, delivery: String, execution: String, acceptedAt: String) -> JSONValue {
+    func receiptJSON(run: JSONValue, requestId: String, delivery: String, execution: String, acceptedAt: String) -> JSONValue {
         let desk = desktops.first { $0["desktopId"] == run["desktopId"] }
         let b = desk?["binding"]
         let process = b?["process"] ?? .obj([("pid", .int(1)), ("startedAt", .null)])
@@ -728,7 +736,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         ])
     }
 
-    private func appendEventLocked(_ runId: String, _ type: String, _ data: JSONValue) {
+    func appendEventLocked(_ runId: String, _ type: String, _ data: JSONValue) {
         let seq = (runSequences[runId] ?? 0) + 1
         runSequences[runId] = seq
         let cursor = (events.last?.cursor ?? eventFloor) + 1
@@ -738,7 +746,7 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         for c in subscribers.values { c.yield(frame((cursor, e))) }
     }
 
-    private func frame(_ e: (cursor: Int, event: JSONValue)) -> JSONValue {
+    func frame(_ e: (cursor: Int, event: JSONValue)) -> JSONValue {
         .obj([("apiVersion", .string(RuntimeAPI.version)), ("event", e.event), ("cursor", .int(e.cursor))])
     }
 
