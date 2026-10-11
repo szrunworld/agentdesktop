@@ -2,13 +2,18 @@
 #
 # A pid is reused once its process exits, so a script signals a pid it started
 # only while that pid still has the identity recorded at launch: the start
-# time and the executable, both as `ps` reports them. Otherwise it leaves the
+# time and executable, plus the kernel PID version. Signals use that version
+# atomically; unsupported APIs fail closed without a plain kill fallback. Otherwise it leaves the
 # process alone and says so.
 
-# The identity of pid $1: "<start time> <executable>", or nothing if it is gone.
+# Resolve while sourcing: callers source this library from scripts/ or scripts/lib/.
+_PROC_ID_HELPER="$(dirname "$0")/lib/process-identity.py"
+[ -f "$_PROC_ID_HELPER" ] || _PROC_ID_HELPER="$(dirname "$0")/process-identity.py"
+
+# The identity of pid $1: "<pid version>:<start time> <executable>", or nothing if it is gone.
 proc_identity() {
     [ -n "$1" ] || return 1
-    ps -o lstart= -o comm= -p "$1" 2>/dev/null
+    python3 "$_PROC_ID_HELPER" identity "$1" 2>/dev/null
 }
 
 # Print the identity of pid $1 once it runs executable $2 (as it was started).
@@ -32,7 +37,7 @@ proc_same() { [ -n "$1" ] && [ -n "$2" ] && [ "$(proc_identity "$1")" = "$2" ]; 
 # that now belongs to another process is never signalled.
 proc_stop() {
     proc_same "$1" "$2" || return 0
-    kill "$1" 2>/dev/null
+    python3 "$_PROC_ID_HELPER" stop "$1" "$2" || return 1
     _ps_i=0
     while proc_same "$1" "$2" && [ "$_ps_i" -lt 20 ]; do sleep 0.5; _ps_i=$((_ps_i + 1)); done
     ! proc_same "$1" "$2"

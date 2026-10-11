@@ -9,8 +9,22 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/proc-id-selftest.XXXXXX")
 pass=0; fail=0
 ok()  { echo "PASS  $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
-A=""; B=""; C=""
-trap 'kill $A $B $C 2>/dev/null; rm -rf "$T"' EXIT
+A=""; B=""; C=""; A_ID=""; B_ID=""; C_ID=""
+cleanup() {
+    rc=$?
+    for item in A B C; do
+        eval 'pid=${'"$item"':-}; identity=${'"$item"'_ID:-}'
+        [ -n "$pid" ] || continue
+        proc_stop "$pid" "$identity" || rc=1
+        proc_left "$pid" "$identity" "self-test child"
+    done
+    rm -rf "$T"
+    trap - EXIT INT TERM
+    exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 mkdir -p "$T/Test Host.app/Contents/MacOS"
 printf '#include <unistd.h>\nint main(void){sleep(60);return 0;}\n' > "$T/s.c"
@@ -45,11 +59,13 @@ kill -0 "$A" 2>/dev/null && bad "pid $A still exists" || ok "pid $A is gone"
 # 5. Never identified: not signalled, and the script is told to quit it by hand.
 "$EXE" &
 C=$!
+C_ID=$(proc_record "$C" "$EXE") || bad "no identity for C"
 proc_stop "$C" "" && kill -0 "$C" 2>/dev/null && ok "an unidentified pid is not signalled" || bad "an unidentified pid was signalled"
 case "$(proc_left "$C" "" "the test host")" in *"identity was not recorded"*) ok "unidentified process reported" ;; *) bad "no report for the unidentified process" ;; esac
 
 # 6. A gone pid records nothing.
-kill "$C"; wait "$C" 2>/dev/null
+proc_stop "$C" "$C_ID" || bad "could not stop C"
+wait "$C" 2>/dev/null
 proc_record "$C" "$EXE" > /dev/null && bad "recorded a gone pid" || ok "a gone pid records nothing"
 
 echo "RESULT: $pass passed, $fail failed"

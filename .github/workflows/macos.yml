@@ -34,6 +34,10 @@ jobs:
       - name: Product unit tests
         timeout-minutes: 8
         run: swift test
+      - name: Acceptance process identity safety
+        run: |
+          sh scripts/lib/process-identity-selftest.sh
+          python3 scripts/lib/process-identity-kernel-test.py
       - name: Test watchdog self-tests
         # Each case runs the real watchdog against real processes (stalls of
         # 3 s, sampling, stops): 21 cases took 2 min 52 s on CI (#196), so 3
