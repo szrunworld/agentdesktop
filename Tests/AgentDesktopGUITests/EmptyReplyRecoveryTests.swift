@@ -102,6 +102,8 @@ struct EmptyReplyRecoveryTests {
             if case let .guiStep(p) = ctx.purpose { return p.snapshotId }; return ""
         }
         #expect(snapshots[1] != snapshots[2])
+        #expect(h.ai.requests[2].messages.count == 2,
+                "the retry carries only the system prompt and fresh observation")
         #expect(Set(h.ai.contexts.map(\.inferenceAttemptId)).count == 4)
         #expect(unitEventsClean(run.events))
     }
