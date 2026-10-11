@@ -74,7 +74,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+sha() { LC_ALL=C shasum -a 256 "$1" | cut -d' ' -f1; }
 cat > "$APP/Contents/Resources/build.json" <<JSON
 {
   "product": "Agent Desktop",
