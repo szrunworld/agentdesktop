@@ -91,3 +91,32 @@ private func expiringDuring(_ method: String, params: String = #"{"connectionId"
     let (r2, _, _) = try expiringDuring("ai.models.refresh", outcome: .failure(unknown))
     #expect(code(r2) == "request_acceptance_unknown" && notSent(r2) != true && errorDetails(r2)?["writeOutcome"] == nil)
 }
+
+@Test func unknownAiCreateIsResolvedUnderTheSameKey() throws {
+    let s = platformService()
+    let owner = handshaken(s)
+    final class Outcomes: @unchecked Sendable {
+        let lock = NSLock()
+        var calls = 0
+        var keys: [String] = []
+        func answer(_ call: ExtensionCall) -> Result<JSONValue, RuntimeError> {
+            lock.withLock {
+                calls += 1
+                keys.append(call.requestId)
+                if calls == 1 { return .failure(RuntimeError("request_acceptance_unknown", "answer lost", phase: .handler)) }
+                return .success(.obj([("connectionId", .string("conn_recovered"))]))
+            }
+        }
+    }
+    let outcomes = Outcomes()
+    s.registerExtensions(["ai.connections.create": { outcomes.answer($0) }])
+    let id = "recover-create-0001"
+    #expect(code(call(s, owner, "ai.connections.create", id: id, params: "{}")) == "request_acceptance_unknown")
+    #expect(code(call(s, owner, "ai.connections.create", id: id, params: #"{"name":"changed"}"#)) == "idempotency_conflict")
+    let recovered = call(s, owner, "ai.connections.create", id: id, params: "{}")
+    #expect(data(recovered)?["connectionId"]?.stringValue == "conn_recovered")
+    _ = call(s, owner, "ai.connections.create", id: id, params: "{}")
+    #expect(outcomes.calls == 2)
+    #expect(outcomes.keys == [id, id])
+    #expect(try s.ledger.record(caller: owner.clientId, requestId: id)?.state == .completed)
+}

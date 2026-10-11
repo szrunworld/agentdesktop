@@ -42,6 +42,8 @@ public final class RequestLedger: @unchecked Sendable {
     public enum Begin: Equatable, Sendable {
         /// First time: run it, then `finish`.
         case fresh
+        /// Resolve an unknown service create with its original key.
+        case resolving
         /// Seen before with the same content.
         case existing(Record)
         /// Seen before with other content.
@@ -110,14 +112,25 @@ public final class RequestLedger: @unchecked Sendable {
 
     /// Record the request as accepted, unless it is already known. A
     /// duplicate that arrives while the original runs waits for it.
-    public func begin(caller: String, _ request: RuntimeRequest, desktopId: String? = nil) throws -> Begin {
+    public func begin(caller: String, _ request: RuntimeRequest, desktopId: String? = nil, resolveUnknown: Bool = false) throws -> Begin {
         let key = "\(caller)/\(request.requestId)"
         let digest = Self.digest(request)
         inFlight.lock()
         while running.contains(key) { inFlight.wait() }
         defer { inFlight.unlock() }
         if let existing = try record(caller: caller, requestId: request.requestId) {
-            return existing.digest == digest ? .existing(existing) : .conflict(existing)
+            guard existing.digest == digest else { return .conflict(existing) }
+            // Only callers backed by a service idempotency store opt in. Keep
+            // the key and digest, and serialize resolution with duplicates.
+            // AI keys live at least 24 hours; stop recovery after 23 hours
+            // so an expired service key cannot turn recovery into a new write.
+            if resolveUnknown, let accepted = Timestamp.date(existing.acceptedAt), now().timeIntervalSince(accepted) < 23 * 3600, case let .failure(error) = Self.replay(existing), error.code == "request_acceptance_unknown" {
+                try db.execute("UPDATE requests SET state = 'accepted', outcome = NULL, finished_at = NULL WHERE caller = ? AND request_id = ?",
+                               [.text(caller), .text(request.requestId)])
+                running.insert(key)
+                return .resolving
+            }
+            return .existing(existing)
         }
         try db.execute("""
             INSERT INTO requests (caller, request_id, method, digest, state, accepted_at, desktop_id)

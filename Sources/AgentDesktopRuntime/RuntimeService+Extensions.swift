@@ -45,7 +45,11 @@ extension RuntimeService {
     func ledgeredExtension(_ request: RuntimeRequest, _ handler: ExtensionMethod, on c: ConnectionState) -> RuntimeResponse {
         let begin: RequestLedger.Begin
         do {
-            begin = try ledger.begin(caller: c.clientId, request)
+            // These creates are idempotent in the AI service under the same
+            // caller/requestId. Resolve an unknown result there, never with
+            // a new key, and never replay physical input this way.
+            let resolvesUnknown = ["ai.connections.create", "ai.modelProfiles.create", "ai.profiles.create"].contains(request.method)
+            begin = try ledger.begin(caller: c.clientId, request, resolveUnknown: resolvesUnknown)
         } catch {
             return .failure(request.requestId, RuntimeError("audit_unavailable", "the request ledger is unavailable", phase: .request,
                                                             notSent: true))
@@ -60,10 +64,10 @@ extension RuntimeService {
             return .failure(request.requestId, RuntimeError(
                 "idempotency_conflict", "requestId \(request.requestId) was used for another request (\(record.method)); use a new requestId",
                 phase: .request, notSent: true, details: .obj([("method", .string(record.method))])))
-        case .fresh:
+        case .fresh, .resolving:
             let response = answerExtension(request, handler, on: c)
             switch response.result {
-            case let .failure(e) where !["request_acceptance_unknown", "action_delivery_unknown"].contains(e.code):
+            case let .failure(e) where begin == .fresh && !["request_acceptance_unknown", "action_delivery_unknown"].contains(e.code):
                 // The service refused or failed it before any effect, and
                 // forgot the key itself: so does the ledger, for a retry.
                 try? ledger.forget(caller: c.clientId, requestId: request.requestId)

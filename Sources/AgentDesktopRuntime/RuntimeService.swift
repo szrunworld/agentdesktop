@@ -410,7 +410,7 @@ public final class RuntimeService: @unchecked Sendable {
             return .failure(ExecutionCoordinator.auditError(notSent: true))
         }
         switch begin {
-        case .fresh:
+        case .fresh, .resolving:
             var result: Result<JSONValue, RuntimeError> = execution.auditUnavailable
                 ? .failure(ExecutionCoordinator.auditError(notSent: true))
                 : handle(request, on: connection)
