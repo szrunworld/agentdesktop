@@ -18,7 +18,7 @@
 | W12 | 部分通过 | ACP 提交与事件订阅记录了 Run 的观察、推理、动作受理/完成及终止，Runtime 显示 `ended` / `failed` / `confirmed`。真实模型在第三步给出无法解析的动作，故正常完成与取消链路仍未验收。fake editor 的 `PASS` 仅表示预期的权限请求出现，不代表任务成功。 |
 | W13 | 部分通过 | 数据库的三个窗口授权均只归属桥的 clientId `app:ec7f050c32c0`，权限为 observe、act；用户亲自批准配对和窗口请求。`same_user` 等级在首轮已核对，本轮未留新的身份等级快照。 |
 
-真实 Runtime 的 `requests.sqlite` 记录了 W4 的 `window_grant_missing`、首轮 W7 的 `no_default_gui_profile`、W10/W11 的 `window_grant_ended`；`hub.sqlite` 记录窗口授权归属、权限及结束状态。后续副本的 `runs.sqlite` 记录 `run_958627b54623` 的 2 次已完成点击及 `invalid_action` 终止，`ai.sqlite` 记录 4 次推理均为 HTTP 200。fake editor 的 ACP transcript 与 summary 保存在隔离测试目录，输入中明确给出 `desktopId`。首轮测试结束后各窗口授权均为 `revoked` 或 `ended`；续测副本的窗口 3452 授权截至本次记录仍为 active。
+真实 Runtime 的 `requests.sqlite` 记录了 W4 的 `window_grant_missing`、首轮 W7 的 `no_default_gui_profile`、W10/W11 的 `window_grant_ended`；`hub.sqlite` 记录窗口授权归属、权限及结束状态。后续副本的 `runs.sqlite` 记录 `run_958627b54623` 的 2 次已完成点击及 `invalid_action` 终止，`ai.sqlite` 记录 4 次推理均为 HTTP 200。fake editor 的 ACP transcript 与 summary 保存在隔离测试目录，输入中明确给出 `desktopId`。测试结束后，后续副本的窗口 3452 授权 `wg_92908c8b7267` 已从 owner UI 撤销，`hub.sqlite` 显示 `revoked` / `window_grant_revoked`；物理 Desktop 已从 owner UI 解除挂接，页面显示 0 个 Desktop，隔离测试副本已退出。此前重启产生的同窗口授权均为 `ended`。
 
 **结论**：物理 Desktop 的配对、绑定、窗口申请和拒绝链路已验证；真实模型现在可进入执行并在 Calculator 完成窗口级输入。ACP 编辑器填写 `desktopId`、owner UI 物理 Desktop 的绑定与撤销、AI 连接 URL 编辑、空闲后首次截图容量检查均有修复。W3 的 Zed 部分、W7 的目标完成、W12 的正常完成与取消，以及 W10 的独立 observe/act 操作仍待验收；不能宣称 W1–W13 全通过。
 
