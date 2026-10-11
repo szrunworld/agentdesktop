@@ -28,7 +28,7 @@
 | A6 unit.run 落 RunStore | PR2d（#50 草案） | 契约提案已随 #111 进入 main（设计记录，不代表实现）；#136 的 ACP 测试工作包已合入 14f0bba（Mock 回归及禁用的 Real 测试，不计真实验收）；Runtime 实现尚未合入，`unit.run` 仍不可用 |
 | 事件订阅 | PR2e（#41） | 已合入 |
 | A4 Hub Core 身份与授权 | PR3（#137）；窗口授权增量 #205 | **已合入**：#137 于 2026-10-09 合入 bb02b59，身份认证、配对、凭据、授权与撤销；#205 于 2026-10-10 合入 0ac22c4，增加按窗口的 Observe / Act / Persist。代码合入不代表发布安全门禁通过：S4（Developer ID 签名与 Hardened Runtime）仍是正式发布阻断项，见 docs/release/a4-release-gate.md |
-| A5 Desktop 控制面 | #241 #245 #250 #252 #253 #254 #256 | `implementation_complete_with_known_limitations`（Kevin 2026-10-11）：控制面方法、`Desktop.control`、`request.list/export`、`press` 已在 main；hover 与 drag 在 macOS 上 fail-closed，未做 E2E 验证（hover 见 #263，选 B）。`desktop.create` 的 launch/bind（RT-17）与 `run.reconcile`（RT-19）不在本次范围 |
+| A5 Desktop 控制面 | #241 #245 #250 #252 #253 #254 #256 | `implementation_complete_with_known_limitations`（Kevin 2026-10-11）：控制面方法、`Desktop.control`、`request.list/export`、`press` 已在 main；hover 与 drag 由 runtime/1 的 `act` 在 macOS 上 fail-closed（引擎层的 hover 仍是中键，产品里不可达），未做 E2E 验证（hover 见 #263，选 B）。`desktop.create` 的 launch/bind（RT-17）与 `run.reconcile`（RT-19）不在本次范围 |
 | A7 CLI / MCP / SDK 对齐 | 无 | 部分已随 #137 落地：CLI 配对与凭据、Python / TypeScript SDK 凭据与配对；其余范围仍按 2.4 验收，不标记整体完成 |
 | U9 Inbox、核实、诊断 | PR4 | 未开始 |
 | U1a 界面库 | PR6-1（#52） | **已合入 614ea7e，组件验收通过**：AgentDesktopUI（token、组件、页面四态、导航、RuntimePort、Mock、Store、离屏出图），398 项测试，与 A0/G0 后基线合并 404 项通过。P01、P06、P19、P21 只是组件样张，**不计正式页面交付**；页面以端到端验收为准 |
