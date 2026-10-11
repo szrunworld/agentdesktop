@@ -103,6 +103,10 @@ public final class ConnectionEditorModel: ObservableObject {
         ProviderEndpointRule.error(s, allowLocalHTTP: allowLocalHTTP)
     }
 
+    public func clearBaseUrlError() {
+        fieldErrors.removeValue(forKey: "baseUrl")
+    }
+
     /// Create or save metadata. Metadata saves never touch the credential.
     public func save() async {
         notice = nil
@@ -249,7 +253,10 @@ public final class ConnectionEditorModel: ObservableObject {
 
 public struct ConnectionEditorView: View {
     @ObservedObject var model: ConnectionEditorModel
+    @FocusState private var focusedField: Field?
     var onTest: (String) -> Void
+
+    private enum Field: Hashable { case name, baseUrl, apiKey }
 
     public init(model: ConnectionEditorModel, onTest: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -273,12 +280,14 @@ public struct ConnectionEditorView: View {
                 if let n = model.notice { Text(n).foregroundStyle(.green) }
             }
             Section("连接") {
-                TextField("名称", text: $model.name)
+                TextField("名称", text: $model.name).focused($focusedField, equals: .name)
                 if let e = model.fieldErrors["name"] { Text(e).foregroundStyle(.red).font(.caption) }
                 Picker("协议", selection: .constant("openai_chat")) {
                     ForEach(ConnectionEditorModel.protocols, id: \.id) { p in Text(p.label).tag(p.id).disabled(!p.implemented) }
                 }
                 TextField("Base URL", text: $model.baseUrl)
+                    .focused($focusedField, equals: .baseUrl)
+                    .onChange(of: model.baseUrl) { _, _ in model.clearBaseUrlError() }
                 if let e = model.fieldErrors["baseUrl"] { Text(e).foregroundStyle(.red).font(.caption) }
                 Toggle("允许本地模型（http://127.0.0.1、localhost、[::1]）", isOn: $model.allowLocalHTTP)
                 Stepper("请求超时 \(model.timeoutMs) ms", value: $model.timeoutMs, in: 100...120_000, step: 1000)
@@ -287,6 +296,7 @@ public struct ConnectionEditorView: View {
             Section(model.mode == .create ? "API 密钥" : "凭据") {
                 if let s = model.savedCredentialSummary { LabeledValue(label: "当前", value: s) }
                 SecureField(model.mode == .create ? "API 密钥" : "新的 API 密钥（留空表示不修改）", text: $model.secretInput)
+                    .focused($focusedField, equals: .apiKey)
                 if let e = model.fieldErrors["apiKey"] { Text(e).foregroundStyle(.red).font(.caption) }
                 if model.mode != .create {
                     Text("轮换会撤销旧凭据身份；仍在使用它的运行会明确失败，不会静默切换账户。").font(.caption)
@@ -300,7 +310,13 @@ public struct ConnectionEditorView: View {
                 Text("模型列表不代表图像或 GUI 能力可用，能力以四层测试为准。").font(.caption).foregroundStyle(.secondary)
             }
             HStack {
-                Button("保存") { Task { await model.save() } }.keyboardShortcut(.defaultAction).disabled(model.saving)
+                Button("保存") {
+                    focusedField = nil
+                    Task { @MainActor in
+                        await Task.yield()
+                        await model.save()
+                    }
+                }.keyboardShortcut(.defaultAction).disabled(model.saving)
                 if let id = model.savedConnectionId { Button("测试") { onTest(id) } }
             }
         }

@@ -21,3 +21,9 @@
 真实 Runtime 的 `requests.sqlite` 记录了 W4 的 `window_grant_missing`、W7 的 `no_default_gui_profile`、W10/W11 的 `window_grant_ended`；`hub.sqlite` 记录窗口授权 1149/1214 的归属、权限及结束状态。fake editor 的 ACP transcript 与 summary 保存在隔离测试目录，输入中明确给出 `desktopId`。测试结束后所有测试窗口授权均为 `revoked` 或 `ended`。
 
 **结论**：本轮证实了物理 Desktop 的配对、绑定、窗口申请和拒绝链路，并发现 ACP 编辑器原本无法填写 `desktopId`、owner UI 原本无法为物理 Desktop 绑定与撤销窗口。本修复 PR 处理这两处障碍。W3 的 Zed 部分、W7 的完整执行、W12，以及 W10 的独立 observe/act 操作仍待配置专用模型连接、默认 GUI profile 和合格测试凭据后重测；不能宣称 W1–W13 全通过。
+
+## 专用模型连接续测
+
+在第二个隔离测试副本 `/tmp/adt-url-fix` 中，用户亲自输入并保存专用 API 密钥；密钥未进入报告或源码。Base URL 为 `https://ark.cn-beijing.volces.com/api/v3`。保存后的“获取模型”成功返回列表，连接及凭据已由真实提供方验证。旧表单在输入框显示完整 URL 时仍保留“请输入完整的 URL”错误；修补版让保存按钮先结束输入框编辑并等待一次 UI 状态同步，还会在 URL 编辑后清掉旧错误。真机验证中，使用相同 URL、未填写密钥时只出现“需要填写 API 密钥”；用户随后在修补版保存成功。
+
+基于该连接创建 `UI-TARS v1` 测试 GUI 配置和模型配置。能力测试以官方示例 `doubao-seed-2-1-pro-260628` 运行，T1 网络/端点通过，T2 返回 HTTP 404 / `UPSTREAM_PROTOCOL_ERROR`。改用该账号“获取模型”返回的 `doubao-pro-128k-240515` 后，T1 仍通过，T2 返回 HTTP 404 / `MODEL_NOT_FOUND`。两次均未进入 T3 图像输入和 T4 GUI 输出；应用记录实际桌面输入为 0。当前无法把连接已保存等同于模型可调用，也不能继续 W7/W12 的完整 `unit.run` 验收。需要账号可调用的图像/GUI 模型 ID 或推理接入点 ID，或开通对应模型权限。
