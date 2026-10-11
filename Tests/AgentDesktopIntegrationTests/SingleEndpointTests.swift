@@ -68,7 +68,7 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
     let server = RuntimeServer(path: path, service: runtime)
     try server.start()
-    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"), timeout: 60,
                                       credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
     return (server, client, runtime, dir)
 }

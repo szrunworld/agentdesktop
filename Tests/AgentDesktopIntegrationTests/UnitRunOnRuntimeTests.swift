@@ -153,6 +153,12 @@ func untilEnded(_ s: UnitStack, _ runId: String) async throws -> RunRecord {
     // One Run: the input went into the unit Run, not a one-action Run.
     #expect(s.runtime.runs.list(RunStore.ListFilter(), after: nil, limit: 10).runs.map(\.runId) == [runId])
 
+    // The terminal row and its final event are separate writes. Wait for
+    // the event we assert, rather than racing the terminal row update.
+    let eventDeadline = Date().addingTimeInterval(10)
+    while !s.runtime.runs.events(runId, after: 0, limit: 1000).contains(where: { $0["type"]?.stringValue == "run.ended" }), Date() < eventDeadline {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
     let events = s.runtime.runs.events(runId, after: 0, limit: 1000)
     let types = events.compactMap { $0["type"]?.stringValue }
     for t in ["run.started", "unit.observation", "unit.progress", "unit.inference.attempt", "unit.step.proposed",

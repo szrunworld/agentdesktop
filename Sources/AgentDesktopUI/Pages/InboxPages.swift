@@ -47,7 +47,7 @@ public struct InboxPage: View {
             content
         }
         .task(id: store.tick) { await loader.reload() }
-        .onChange(of: filter) { f in Task { await loader.apply(f) } }
+        .onChange(of: filter) { f in selected = nil; Task { await loader.apply(f) } }
     }
 
     /// The filter row stays usable while a filtered list is empty.
@@ -505,7 +505,7 @@ struct SettingsVerificationPage: View {
             }
         }
         .task(id: store.tick) { await loader.reload() }
-        .onChange(of: stateFilter) { s in Task { await loader.apply(.init(state: s, kind: "unknown_reference")) } }
+        .onChange(of: stateFilter) { s in selected = nil; Task { await loader.apply(.init(state: s, kind: "unknown_reference")) } }
     }
 }
 
