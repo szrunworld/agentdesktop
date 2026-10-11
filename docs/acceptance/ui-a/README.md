@@ -1,6 +1,6 @@
 # UI-A：U1b-2 事件驱动 Store 与 U5 Runs（组件验收，2026-10-11）
 
-基线：`origin/ui-lane-seams@dd7efe9`（PR #260）。工作线规则见 `docs/plan/11-parallel-lanes.md`。
+基线：`origin/ui-lane-seams@dd7efe9`（PR #260），之后合并了 `origin/main@36f84e9`（#260 已合入 main）。工作线规则见 `docs/plan/11-parallel-lanes.md`。
 
 **验收级别：只到组件验收**（单元测试 + 离屏渲染）。页面验收（真实 Runtime、真实窗口、交互）**待做**：本线不启动应用、不建窗口、不连产品 socket。
 
@@ -71,9 +71,11 @@ Mock（`Runtime/MockLanes/MockRuntime+Runs.swift`）：新增 `request.list`、`
 
 | 命令 | 退出码 | 结果 |
 | --- | --- | --- |
-| `swift build --build-tests` | 见 PR 描述 | |
-| `swift test --skip-build` | 见 PR 描述 | |
-| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 见 PR 描述 | |
+| `swift build --build-tests` | 0 | — |
+| `swift test --skip-build` | 0 | 1419 项通过；7 个 known issue 是原有的 ACP Mock 用例（`withKnownIssue`） |
+| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 0 | 1419 项通过（这一轮 `SingleEndpointTests` 没有超时） |
+
+之前一轮（机器重启前、负载 25 左右）出现过 `SingleEndpointTests`、`RuntimeGuiPortsTests`（磁盘 `disk_unknown`）等原有用例失败，本 PR 没有改动这些文件；重启后同一提交整套通过。那一轮还暴露了本 PR 自己的两个问题，已修：`MockRuntimeTests.answersStayInsideTheContract` 改为只核对基础方法（各线方法在各自测试里核对）；新测试的等待从 Combine 的 `.values` 改为缓冲的 `AsyncStream`（前者在两次读取之间收到变化时会崩溃）。
 
 新增测试（新测试一律用确定性的等待：等 Store 的 `tick` 发布后再检查条件，计时器只作为挂死时的保险）：
 
