@@ -80,8 +80,19 @@ import Testing
     @Test func anotherProcessOfTheBundleIsSeenBeforeItListens() {
         let apps = [SingleInstance.RunningApp(pid: 10, bundlePath: "/me.app", regular: true),
                     SingleInstance.RunningApp(pid: 11, bundlePath: "/copy.app", regular: false)]
-        #expect(SingleInstance.otherRunning(me: 10) { apps } == .init(pid: 11, role: "test", bundlePath: "/copy.app"))
-        #expect(SingleInstance.otherRunning(me: 11) { apps } == .init(pid: 10, role: "product", bundlePath: "/me.app"))
-        #expect(SingleInstance.otherRunning(me: 10) { [apps[0]] } == nil, "this process alone")
+        #expect(SingleInstance.otherRunning(me: 10, productPID: nil) { apps } == .init(pid: 11, role: "test", bundlePath: "/copy.app"))
+        #expect(SingleInstance.otherRunning(me: 11, productPID: nil) { apps } == .init(pid: 10, role: "product", bundlePath: "/me.app"))
+        #expect(SingleInstance.otherRunning(me: 10, productPID: nil) { [apps[0]] } == nil, "this process alone")
+    }
+
+    // Codex P2 on fe1d9f6 (#305): a product kept in the background
+    // (保留后台) is accessory, like a test copy; the product's Runtime
+    // record decides, so it is still brought forward.
+    @Test func aBackgroundedProductIsStillTheProduct() {
+        let apps = [SingleInstance.RunningApp(pid: 20, bundlePath: "/copy.app", regular: false),
+                    SingleInstance.RunningApp(pid: 21, bundlePath: "/product.app", regular: false)]
+        #expect(SingleInstance.otherRunning(me: 1, productPID: 21) { apps } == .init(pid: 21, role: "product", bundlePath: "/product.app"),
+                "the product is preferred and named by its record")
+        #expect(SingleInstance.otherRunning(me: 1, productPID: 99) { [apps[0]] } == .init(pid: 20, role: "test", bundlePath: "/copy.app"))
     }
 }

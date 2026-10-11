@@ -73,24 +73,37 @@ enum SingleInstance {
     struct RunningApp: Equatable {
         var pid: Int32
         var bundlePath: String?
-        /// A Dock app: the product; a test copy is accessory.
+        /// A Dock app right now. A product kept in the background is
+        /// accessory too, so this only decides when the product's Runtime
+        /// record names no process.
         var regular: Bool
     }
 
-    static func otherRunning(me: Int32 = getpid(), apps: () -> [RunningApp] = {
+    /// Another running process of this bundle. It is the product when the
+    /// product's Runtime record names its pid (`productPID`), whatever its
+    /// activation policy.
+    static func otherRunning(me: Int32 = getpid(), productPID: Int32? = productRecordPID(), apps: () -> [RunningApp] = {
         NSRunningApplication.runningApplications(withBundleIdentifier: HostRole.bundleID)
             .filter { !$0.isTerminated }
             .map { RunningApp(pid: $0.processIdentifier, bundlePath: $0.bundleURL?.path, regular: $0.activationPolicy == .regular) }
     }) -> Holder? {
-        guard let other = apps().first(where: { $0.pid != me }) else { return nil }
-        return Holder(pid: other.pid, role: other.regular ? "product" : "test", bundlePath: other.bundlePath ?? "")
+        let others = apps().filter { $0.pid != me }
+        guard let other = others.first(where: { $0.pid == productPID }) ?? others.first else { return nil }
+        let product = productPID.map { $0 == other.pid } ?? other.regular
+        return Holder(pid: other.pid, role: product ? "product" : "test", bundlePath: other.bundlePath ?? "")
+    }
+
+    /// The pid the product's Runtime endpoint record names (JSON or a bare
+    /// pid), if any.
+    static func productRecordPID(endpointRecord: String = HostRole.product.runtimeEndpoint.path + ".lock") -> Int32? {
+        guard let text = EndpointRecord.readFile(endpointRecord) else { return nil }
+        let parsed = EndpointRecord.parse(text)
+        return (parsed.record?.pid ?? parsed.legacyPID).flatMap { $0 > 0 ? $0 : nil }
     }
 
     static func legacyProduct(endpointRecord: String = HostRole.product.runtimeEndpoint.path + ".lock",
                               bundleOf: (Int32) -> String? = { NSRunningApplication(processIdentifier: $0)?.bundleURL?.path }) -> Holder? {
-        guard let text = EndpointRecord.readFile(endpointRecord) else { return nil }
-        let parsed = EndpointRecord.parse(text)
-        guard let pid = parsed.record?.pid ?? parsed.legacyPID, pid > 0, let bundle = bundleOf(pid) else { return nil }
+        guard let pid = productRecordPID(endpointRecord: endpointRecord), let bundle = bundleOf(pid) else { return nil }
         return Holder(pid: pid, role: "product", bundlePath: bundle)
     }
 
