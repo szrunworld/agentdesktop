@@ -156,11 +156,16 @@ public final class GuiRunDriver: Sendable {
     private func settle(_ bundle: ObservationBundle) async throws -> Bool {
         let v = try verifier.evaluate(bundle, binding: binding, checkedAt: clock.wallNow())
         await recorder.verified(v)
-        if v.status == .passed {
+        // Only matched is success; inconclusive is "not shown yet", never done.
+        switch v.status {
+        case .passed:
             try await move(.succeeded, "goal verified on observation \(bundle.observation.observationId)")
             return true
+        case .inconclusive:
+            try await move(.observing, "goal not confirmed: \(v.reason?.rawValue ?? "inconclusive")")
+        case .failed, .notRun:
+            try await move(.observing, "goal not reached yet")
         }
-        try await move(.observing, "goal not reached yet")
         return false
     }
 
