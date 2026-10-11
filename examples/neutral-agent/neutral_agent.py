@@ -15,6 +15,7 @@ retried. By default it sends no input at all: an action happens only when
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -194,10 +195,19 @@ def runtime_endpoint(option: Optional[str], env) -> str:
     return f"{home}/Library/Application Support/AgentDesktop/runtime.sock"
 
 
+def default_credential_file(endpoint: str) -> str:
+    """One credential per Runtime: each Runtime knows only the credentials
+    it issued, so a test copy's must never be shown to the installed
+    product (or the other way round)."""
+    digest = hashlib.sha256(os.path.realpath(endpoint).encode()).hexdigest()[:12]
+    return f"neutral-agent.{digest}.credential.json"
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="中性示例 Agent：配对、列 Desktop、观察、动作、断开、重连")
     p.add_argument("--endpoint", help="Runtime socket；默认 AGENTDESKTOP_ENDPOINT，再看测试副本的 AGENTDESKTOP_SOCKET（其 Runtime 在 <名字>.runtime.sock），最后是已安装产品的")
-    p.add_argument("--credential-file", default="neutral-agent.credential.json", help="凭据文件（0600）；没有就先配对")
+    p.add_argument("--credential-file", default=None,
+                   help="凭据文件（0600）；没有就先配对。默认按 Runtime 区分：neutral-agent.<endpoint 摘要>.credential.json")
     p.add_argument("--name", default="neutral-agent", help="配对时显示的 Agent 名")
     p.add_argument("--publisher", default=None)
     p.add_argument("--capabilities", default="observe,act", help="配对请求的能力，逗号分隔")
@@ -213,6 +223,8 @@ def main(argv=None) -> int:
     p.add_argument("--timeout", type=float, default=10.0)
     args = p.parse_args(argv)
     args.endpoint = runtime_endpoint(args.endpoint, os.environ)
+    if not args.credential_file:
+        args.credential_file = default_credential_file(args.endpoint)
     return run(args)
 
 

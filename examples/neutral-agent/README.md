@@ -14,7 +14,7 @@ handshake → 配对（pair）→ 等主人在 Agent Desktop 窗口批准 → �
 ```bash
 # 推荐先在测试副本上做只读检查：只握手、配对、列 Desktop、断开、重连
 AGENTDESKTOP_SOCKET=/tmp/adt-a7/side.sock \
-  python3 examples/neutral-agent/neutral_agent.py --list-only
+  python3 examples/neutral-agent/neutral_agent.py --list-only --capabilities observe
 
 # 完整流程：请求一个已有 Desktop 的授权并观察它，不发送任何输入
 # （"created" 只覆盖这个 Agent 自己创建的 Desktop；示例不创建 Desktop，新配对时它是空的）
@@ -28,7 +28,7 @@ Runtime 的位置与 CLI 相同，依次取：`--endpoint`、`AGENTDESKTOP_ENDPO
 
 | 参数 | 含义 |
 | --- | --- |
-| `--credential-file` | 凭据文件，默认当前目录下的 `neutral-agent.credential.json`。不存在时先配对，批准后以 0600 写入；存在时直接使用，不再配对 |
+| `--credential-file` | 凭据文件。默认按 Runtime 区分：当前目录下的 `neutral-agent.<endpoint 摘要>.credential.json`，测试副本和已安装产品各用各的（每个 Runtime 只认自己发的凭据）。不存在时先配对，批准后以 0600 写入；存在时直接使用，不再配对。显式指定时请自己保证它属于当前 Runtime |
 | `--name` / `--publisher` | 配对时在确认窗口里显示的名字（自报，窗口会如实标注） |
 | `--capabilities` / `--desktops` / `--apps` | 配对请求的授权范围，逗号分隔；默认只要 `observe,act`。`--desktops` 写已有 Desktop 的 id；`created` 只覆盖本 Agent 自己创建的 Desktop，而示例不创建 Desktop |
 | `--desktop-id` | 观察哪个 Desktop；默认授权里可见的第一个。不在授权里的 Desktop 不会被触碰 |
@@ -44,7 +44,7 @@ Runtime 的位置与 CLI 相同，依次取：`--endpoint`、`AGENTDESKTOP_ENDPO
 ```
 [handshake] {"apiVersion": "agentdesktop.runtime/1", "instanceId": "rt_…", "principal": {"role": "unpaired", …}, "product": "AgentDesktop"}
 [pair.start] {"pairingId": "pair_…", "shortCode": "123456"}
-[pair.approved] {"clientId": "app:…", "mode": "0600", "savedTo": "neutral-agent.credential.json"}
+[pair.approved] {"clientId": "app:…", "mode": "0600", "savedTo": "neutral-agent.3f2a9c1d0b7e.credential.json"}
 [connect] {"clientId": "app:…", "principal": {"role": "paired", …}}
 [desktops] [{"desktopId": "d_…", "name": "…", "state": "ready"}]
 [session.open] {"desktopId": "d_…", "sessionId": "s_…"}

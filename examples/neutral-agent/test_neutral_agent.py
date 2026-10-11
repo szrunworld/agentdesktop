@@ -226,6 +226,12 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(r(None, {"HOME": "/Users/t", "AGENTDESKTOP_SOCKET": "/tmp/adt-a7/side.sock"}), "/tmp/adt-a7/side.runtime.sock")
         self.assertEqual(r(None, {"HOME": "/Users/t"}), "/Users/t/Library/Application Support/AgentDesktop/runtime.sock")
 
+    def test_the_default_credential_file_is_per_runtime(self):
+        f = neutral_agent.default_credential_file
+        self.assertNotEqual(f("/tmp/adt-a7/side.runtime.sock"), f("/Users/t/Library/Application Support/AgentDesktop/runtime.sock"))
+        self.assertEqual(f("/tmp/a.sock"), f("/tmp/a.sock"))
+        self.assertTrue(f("/tmp/a.sock").startswith("neutral-agent.") and f("/tmp/a.sock").endswith(".credential.json"))
+
     def test_environment_endpoint_is_used_without_an_option(self):
         rt = FakeRuntime()
         cred = os.path.join(tempfile.mkdtemp(prefix="adt-na-env-"), "c.json")
