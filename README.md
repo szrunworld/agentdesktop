@@ -57,6 +57,8 @@ CLI="build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
 
 Runtime endpoint 是 `~/Library/Application Support/AgentDesktop/runtime.sock`（只允许当前用户，`runtime.sock.lock` 上的 flock 保证单实例）；测试副本用 `AGENTDESKTOP_SOCKET=<路径>` 启动，其 Runtime endpoint 是 `<AGENTDESKTOP_SOCKET 去掉扩展名>.runtime.sock`，用 `--endpoint` 或 `AGENTDESKTOP_ENDPOINT` 指过去。协议、方法表、错误码与退出码在 `contracts/runtime/v1/`，夹具在 `contracts/fixtures/runtime/v1/`。
 
+安装、支持范围、故障处理与发布步骤见 [docs/release](docs/release/README.md)；`scripts/release-smoke.sh` 按新用户拿到归档的方式检查它（解压、来源一致、测试副本上的实际能力、未配对拒绝）。
+
 默认包只含原生 App 和 `agentdesktop`；不安装 Node 宿主、旧 task Runtime、BOSS 业务包或 Android 工具。签名、公证、权限、真实输入与并发的发布承诺需要各自目标环境证据。
 
 ## 与正在开发的新 AI/GUI 的关系

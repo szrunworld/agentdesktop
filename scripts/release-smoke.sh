@@ -1,7 +1,7 @@
 #!/bin/bash
 # Release smoke: check a distributed archive the way a new user meets it.
 #
-#   scripts/release-smoke.sh ZIP MANIFEST [--release] [--report FILE]
+#   scripts/release-smoke.sh ZIP MANIFEST [--release] [--gui-execution] [--report FILE]
 #
 # 1. The archive matches its manifest (scripts/verify-archive.sh).
 # 2. It unpacks into a fresh 0700 directory under /tmp; the unpacked bundle's
@@ -16,7 +16,10 @@
 #      - doctor: the handshake names this host and this build; its failures
 #        are only missing OS permissions;
 #      - runtime capabilities: every method the frozen contract marks
-#        implemented is served; nothing outside the contract is served;
+#        implemented is served, except unit.run, which the product serves
+#        only with the GUI executor turned on (defaults guiExecution; here
+#        --gui-execution, then it must be served); nothing outside the
+#        contract is served;
 #      - runtime status, desktop list and desktop create are refused with
 #        pairing_required (exit 4): an unpaired client reads nothing and
 #        creates nothing.
@@ -30,16 +33,17 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-ARCHIVE=""; MANIFEST=""; RELEASE=0; REPORT=""
+ARCHIVE=""; MANIFEST=""; RELEASE=0; GUI=0; REPORT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) RELEASE=1; shift ;;
+        --gui-execution) GUI=1; shift ;;
         --report) REPORT="$2"; shift 2 ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) if [[ -z "$ARCHIVE" ]]; then ARCHIVE="$1"; elif [[ -z "$MANIFEST" ]]; then MANIFEST="$1"; else echo "too many arguments" >&2; exit 2; fi; shift ;;
     esac
 done
-[[ -n "$ARCHIVE" && -n "$MANIFEST" ]] || { echo "usage: release-smoke.sh ZIP MANIFEST [--release] [--report FILE]" >&2; exit 2; }
+[[ -n "$ARCHIVE" && -n "$MANIFEST" ]] || { echo "usage: release-smoke.sh ZIP MANIFEST [--release] [--gui-execution] [--report FILE]" >&2; exit 2; }
 ARCHIVE="$(cd -- "$(dirname -- "$ARCHIVE")" && pwd)/$(basename -- "$ARCHIVE")"
 MANIFEST="$(cd -- "$(dirname -- "$MANIFEST")" && pwd)/$(basename -- "$MANIFEST")"
 
@@ -97,6 +101,7 @@ unset AGENTDESKTOP_ENDPOINT AGENTDESKTOP_CONTEXT AGENTDESKTOP_PROFILE
 EP="$DIR/side.runtime.sock"
 
 step "provenance and side instance"
+if [[ $GUI == 1 ]]; then export AGENTDESKTOP_GUI_EXECUTION=1; else unset AGENTDESKTOP_GUI_EXECUTION; fi
 AGENTDESKTOP_SOCKET="$DIR/side.sock" "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
 HOST_PID=$!
 # runtime.capabilities is one of the few methods an unpaired client may call.
@@ -115,10 +120,10 @@ set +e
 set -e
 
 python3 - "$ROOT" "$DIR" "$MANIFEST" "$HOST_PID" "$DOCTOR_EXIT" "$STATUS_EXIT" "$DESKTOPS_EXIT" "$CREATE_EXIT" \
-    "$TEAM" "$AUTHORITY" "$FLAGS" "$GATEKEEPER" "$ARCHS" "$CLI_ARCHS" "$MIN_OS" "${REPORT:-}" <<'PY'
+    "$TEAM" "$AUTHORITY" "$FLAGS" "$GATEKEEPER" "$ARCHS" "$CLI_ARCHS" "$MIN_OS" "$GUI" "${REPORT:-}" <<'PY'
 import json, sys
 (root, d, manifest, host_pid, doctor_exit, status_exit, desktops_exit, create_exit,
- team, authority, flags, gatekeeper, archs, cli_archs, min_os, report) = sys.argv[1:17]
+ team, authority, flags, gatekeeper, archs, cli_archs, min_os, gui, report) = sys.argv[1:18]
 load = lambda n: json.load(open(f'{d}/{n}.json'))
 m = json.load(open(manifest))
 version, caps, doctor = load('version'), load('capabilities'), load('doctor')
@@ -139,7 +144,9 @@ contract = {x['method'] for x in json.load(open(f'{root}/contracts/runtime/v1/me
             if x['status'] == 'implemented'}
 cdata = caps['data']
 served = {x['method'] for x in cdata['interface']['methods']}
-missing, extra = sorted(contract - served), sorted(served - contract)
+# Served only with the GUI executor on (HostRole.guiExecutionEnabled).
+optional = set() if gui == '1' else {'unit.run'}
+missing, extra = sorted(contract - served - optional), sorted(served - contract)
 if missing: bad.append(f'contract methods the Runtime does not serve: {missing}')
 if extra: bad.append(f'Runtime serves methods outside the contract: {extra}')
 
@@ -169,7 +176,8 @@ summary = {
     'architectures': {'host': archs.split(), 'cli': cli_archs.split()}, 'minimumMacOS': min_os,
     'runtime': {'pid': identity.get('pid'), 'apiVersion': identity.get('apiVersion'),
                 'productVersion': identity.get('productVersion'), 'buildSource': identity.get('build', {}).get('source')},
-    'methods': {'contract': len(contract), 'served': len(served)},
+    'methods': {'contract': len(contract), 'served': len(served), 'guiExecution': gui == '1',
+                'notServed': sorted(contract - served)},
     'backend': {k: v for k, v in cdata.items() if k not in ('interface', 'apiVersion')},
     'doctor': {'exit': int(doctor_exit), 'checks': [{k: c.get(k) for k in ('id', 'status', 'code')} for c in checks]},
     'unpaired': {'runtime status': int(status_exit), 'desktop list': int(desktops_exit), 'desktop create': int(create_exit)},

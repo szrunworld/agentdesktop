@@ -1,0 +1,172 @@
+{
+  "archive": {
+    "name": "Agent Desktop-0.1.0-dev.zip",
+    "sha256": "dd057380364c426e602dc7a249da9826b9245c7c1ca3d98163b754b3f32033ff"
+  },
+  "source": "0411ee4883c84066a669fec0df7d4551de33d784",
+  "signing": {
+    "authority": "Agent Desktop Local Signing",
+    "teamId": "not set",
+    "flags": "0x0(none)",
+    "gatekeeper": "rejected"
+  },
+  "architectures": {
+    "host": [
+      "arm64"
+    ],
+    "cli": [
+      "arm64"
+    ]
+  },
+  "minimumMacOS": "14.0",
+  "runtime": {
+    "pid": 77373,
+    "apiVersion": "agentdesktop.runtime/1",
+    "productVersion": "0.1.0-dev",
+    "buildSource": "0411ee4883c84066a669fec0df7d4551de33d784"
+  },
+  "methods": {
+    "contract": 96,
+    "served": 96,
+    "guiExecution": true,
+    "notServed": []
+  },
+  "backend": {
+    "backend": {
+      "platform": {
+        "os": "macos",
+        "osVersion": "15.1.0",
+        "arch": "arm64"
+      },
+      "permissions": {
+        "screenRecording": "granted",
+        "accessibility": "granted"
+      },
+      "features": [
+        "apps.list",
+        "windows.list",
+        "windows.titles"
+      ]
+    },
+    "regionObservation": {
+      "version": 1,
+      "method": "observe.region",
+      "maxWidth": 4096
+    },
+    "bindingRecovery": {
+      "version": 1,
+      "statusMethod": "desktop.bindingStatus",
+      "recoveryMethod": "desktop.recoverBinding",
+      "requiresConfirmation": true
+    },
+    "liveObservation": {
+      "version": 1,
+      "method": "observe.subscribe",
+      "maxFPS": 2,
+      "maxWidth": 1920
+    },
+    "gui": {
+      "implementedAiProtocols": [
+        "openai_chat"
+      ],
+      "verificationPredicates": [
+        "element_text_equals",
+        "element_exists",
+        "value_equals_parameter"
+      ],
+      "guiAdapters": [
+        "uitars_v1"
+      ],
+      "actions": [
+        "click",
+        "type",
+        "key",
+        "scroll"
+      ],
+      "limits": {
+        "maxSteps": 20,
+        "maxWallTimeMs": 120000,
+        "maxModelAttemptsPerStep": 2,
+        "maxTotalModelAttempts": 30,
+        "maxOutputTokens": 1024,
+        "maxWaitMs": 5000,
+        "maxScreenshots": 5,
+        "maxImageEncodedBytes": 8388608,
+        "requireReportedUsage": false
+      },
+      "features": {
+        "directApiWithoutAi": false,
+        "deterministicReplayWithoutAi": false,
+        "fixtureAdapterEnabled": false,
+        "independentDesktopConcurrency": true,
+        "nativeIsolationEvidence": "NOT_RUN"
+      }
+    }
+  },
+  "doctor": {
+    "exit": 0,
+    "checks": [
+      {
+        "id": "cli",
+        "status": "ok",
+        "code": null
+      },
+      {
+        "id": "endpoint.environment",
+        "status": "ok",
+        "code": null
+      },
+      {
+        "id": "endpoint.socket",
+        "status": "ok",
+        "code": null
+      },
+      {
+        "id": "endpoint.owner",
+        "status": "ok",
+        "code": null
+      },
+      {
+        "id": "handshake",
+        "status": "ok",
+        "code": null
+      },
+      {
+        "id": "version",
+        "status": "ok",
+        "code": null
+      },
+      {
+        "id": "identity",
+        "status": "ok",
+        "code": null
+      },
+      {
+        "id": "authentication",
+        "status": "warn",
+        "code": null
+      },
+      {
+        "id": "runs",
+        "status": "skip",
+        "code": null
+      },
+      {
+        "id": "permission.screenRecording",
+        "status": "ok",
+        "code": null
+      },
+      {
+        "id": "permission.accessibility",
+        "status": "ok",
+        "code": null
+      }
+    ]
+  },
+  "unpaired": {
+    "runtime status": 4,
+    "desktop list": 4,
+    "desktop create": 4
+  },
+  "problems": []
+}
