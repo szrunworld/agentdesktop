@@ -274,6 +274,7 @@ struct MainWindowHostTests {
         q.clock = FastClock()
         var terminations = 0, replies: [Bool] = []
         q.terminate = { terminations += 1 }
+        q.later = { $0() }
         q.reply = { replies.append($0) }
         q.requestQuit()
         #expect(terminations == 1, "with no dialog open a request starts the quit")
@@ -286,6 +287,33 @@ struct MainWindowHostTests {
         #expect(replies == [false])
         q.requestQuit()
         #expect(terminations == 2)
+    }
+
+    // 2026-10-11 on the machine: 退出 in the menu bar panel showed the
+    // dialog, but none of its buttons did anything. NSApp.terminate waits
+    // for the answer inside the panel's SwiftUI button action, and SwiftUI
+    // runs no other button action until that one returns. A request only
+    // schedules the terminate; it runs after the caller has returned, once
+    // however many requests arrive before it.
+    @Test func aQuitRequestTerminatesAfterTheCallerReturns() async throws {
+        let m = MockRuntime.sample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let q = QuitController(store: store)
+        var terminations = 0
+        var scheduled: [@MainActor () -> Void] = []
+        q.terminate = { terminations += 1 }
+        q.later = { scheduled.append($0) }
+        q.requestQuit()
+        q.requestQuit()
+        #expect(terminations == 0, "nothing terminates inside the caller")
+        #expect(scheduled.count == 1, "requests before the terminate runs share one")
+        try #require(scheduled.count == 1)
+        scheduled.removeFirst()()
+        #expect(terminations == 1)
+        q.requestQuit()
+        #expect(scheduled.count == 1, "after it ran, the next request schedules again")
     }
 
     // Review of #101: a stop called off while a Runtime answer is in flight

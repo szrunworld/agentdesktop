@@ -20,6 +20,11 @@ final class QuitController: NSObject, NSWindowDelegate {
     var activates = true
     /// NSApp.terminate, injectable for tests.
     var terminate: () -> Void = { NSApp.terminate(nil) }
+    /// Runs the terminate on a later turn of the main run loop, injectable
+    /// for tests.
+    var later: (@escaping @MainActor () -> Void) -> Void = { body in DispatchQueue.main.async { body() } }
+    /// A terminate is scheduled and has not run yet.
+    private var terminatePending = false
     var clock: PollClock = SystemPollClock()
     private(set) var flow: QuitFlow?
     /// Reading the active count; tests wait on it.
@@ -42,8 +47,24 @@ final class QuitController: NSObject, NSWindowDelegate {
     /// ("Unexpected call to terminate: while still determining whether to
     /// terminate"), which skips stopping input and waiting for quiet Runs.
     /// So a request then only brings the dialog forward.
+    ///
+    /// The terminate itself runs on a later turn of the run loop. AppKit
+    /// waits for the answer (terminateLater) inside NSApp.terminate; called
+    /// straight from a SwiftUI button action (the menu bar panel's 退出),
+    /// that action never returns, and SwiftUI holds back every later button
+    /// action until it does, so no button of the dialog did anything and
+    /// the app could not quit.
     func requestQuit() {
-        guard isAsking else { terminate(); return }
+        guard isAsking else {
+            guard !terminatePending else { return }
+            terminatePending = true
+            later { [weak self] in
+                guard let self else { return }
+                self.terminatePending = false
+                self.terminate()
+            }
+            return
+        }
         guard let window else { return }
         bringForward(window)
     }
