@@ -96,3 +96,15 @@
 | `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 1 | 已知的 `SingleEndpointTests` 两项超时；另有 `AgentDesktopAIUITests.ui004_capabilityTest` 在整套负载下一次时序失败（取消前测试已完成），严格模式下单独重跑 3 次都通过，本 PR 没有改动它 |
 
 修复：结果未知时停止和接管都不可用（提示「先核对上一个动作的结果」），只能经过 P17 核对；P17 的结束只对 Desktop.control 当前指向的那次运行有效；总览、并排、预览窗口每轮刷新都会撤下状态已经过去的「已停止」。新增 `DesktopControlReviewFixTests2`（3 项）。
+
+第四轮（Codex 在 acd2591 上的 1 个 P1、2 个 P2 修复后，并已 merge `origin/main@36f84e9`，即 #260 合入后的 main）：
+
+| 命令 | 退出码 | 结果 |
+| --- | --- | --- |
+| `swift build --build-tests` | 0 | — |
+| `swift test --skip-build` | 0 | 1427 项通过（7 个原有 known issue） |
+| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 1 | 只有已知的 `SingleEndpointTests` 两项超时 |
+
+修复：结果未知时「关闭」不可用；P17 按 Desktop.control 的 controllerRunId 直接读那次运行的事件来找结果未知的动作（不依赖 Store 截断的 200 条运行快照），找不到时显示原因；只有在 `desktop.handback` 回答 handedBack = true 后才显示「已结束」。新增 `DesktopControlReviewFixTests3`（3 项）。
+
+注：第三轮之后机器负载很高（load 25–175），整套测试里曾出现 Runtime / WDA / UnitRun 测试超时，全部是本 PR 没改的文件；在严格模式下单独重跑都通过，本轮负载下降后也没有再出现。
