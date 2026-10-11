@@ -471,8 +471,9 @@ public final class ExecutionCoordinator: @unchecked Sendable {
                      details: .obj([("desktopId", .string(desktopId)), ("reason", .string("superseded"))]))
     }
 
-    /// Check before reporting a pending holder; startTakeover repeats this
-    /// check atomically with acquiring the lease.
+    /// Whether the manual gate a takeover closed (its `serial`) still stands.
+    /// A read for choosing the answer only; startTakeover checks it again
+    /// atomically with the Run's start.
     func takeoverStands(_ desktopId: String, serial: Int) -> Bool {
         lock.withLock { gates[desktopId] == .manual && gateSerial[desktopId, default: 0] == serial }
     }

@@ -33,6 +33,21 @@ extension RuntimeService {
         return m
     }()
 
+    /// Reading, waiting on and stopping one's own unit Runs needs only the
+    /// unit.run capability that started them (codex on 073b96f); run.list
+    /// shows only the caller's Runs anyway. Everything else of run.* still
+    /// needs run.
+    static let unitRunControlMethods: Set<String> = ["run.show", "run.events", "run.wait", "run.cancel", "run.list"]
+
+    func unitRunControl(_ request: RuntimeRequest, _ c: ConnectionState, refused e: RuntimeError) -> Bool {
+        guard Self.unitRunControlMethods.contains(request.method), e.code == "grant_missing",
+              e.details?["capability"]?.stringValue == "run",
+              let g = hub.grant(c.clientId), g.state == "active", g.capabilities.contains(RuntimeMethod.unitRun.rawValue) else { return false }
+        if request.method == "run.list" { return true }
+        guard let runId = request.params["runId"]?.stringValue, let r = runs.find(runId) else { return false }
+        return r.kind == "unit" && r.clientId == c.clientId
+    }
+
     func isOwner(_ c: ConnectionState) -> Bool { c.role == .owner || c.elevatedFor != nil }
 
     /// The reasons #153 (the interim seal) gave for these methods, kept so
@@ -60,7 +75,9 @@ extension RuntimeService {
             if let e = accessError(c, method: "runtime.status") { return deny(e, e.details?["reason"]?.stringValue ?? e.code) }
             return confirmAdminCall(request, c)
         }
-        if let e = accessError(c, method: method) { return deny(e, e.details?["reason"]?.stringValue ?? e.code) }
+        if let e = accessError(c, method: method), !unitRunControl(request, c, refused: e) {
+            return deny(e, e.details?["reason"]?.stringValue ?? e.code)
+        }
         // Attaching one of the user's own displays puts the user's real
         // windows in reach: only the owner does that. An owner may still
         // list such a Desktop's id in an app's grant.
@@ -207,7 +224,9 @@ extension RuntimeService {
         guard c.role == .paired, !Self.openMethods.contains(request.method) else { return nil }
         // A confirmed owner call answers unless the client itself lost access.
         let method = c.elevatedFor == request.requestId ? "runtime.status" : request.method
-        let e = c.cutReason.map { Self.cutError(c, $0) } ?? accessError(c, method: method)
+        var e = c.cutReason.map { Self.cutError(c, $0) } ?? accessError(c, method: method)
+        // The same unit.run allowance as on the way in.
+        if let refused = e, c.cutReason == nil, unitRunControl(request, c, refused: refused) { e = nil }
         guard let e else { return nil }
         hub.audit(connectionId: c.connectionId, clientId: c.clientId, method: request.method, decision: "withheld",
                   reason: e.details?["reason"]?.stringValue ?? e.code, runId: request.context.runId)

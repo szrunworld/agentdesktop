@@ -15,11 +15,11 @@ public struct AiApplicationHandlers: Sendable {
     /// Inputs of these unit Runs in [from, to): confirmed, and outcomes still
     /// unknown. The Runtime holds them (A6); the host answers from its
     /// RunStore. Without a Runtime there are no unit Runs to count.
-    public let actionOutcomes: @Sendable (_ runIds: [String], _ from: Date, _ to: Date) -> (confirmed: Int, unknown: Int)
+    public let actionOutcomes: @Sendable (_ runIds: [String], _ from: Date, _ to: Date) throws -> (confirmed: Int, unknown: Int)
 
     public init(store: ConfigStore, http: HTTPTransport, runner: AiOperationRunner = AiOperationRunner(),
                 credentials: CredentialResolver? = nil,
-                actionOutcomes: @escaping @Sendable ([String], Date, Date) -> (confirmed: Int, unknown: Int) = { _, _, _ in (0, 0) }) {
+                actionOutcomes: @escaping @Sendable ([String], Date, Date) throws -> (confirmed: Int, unknown: Int) = { _, _, _ in (0, 0) }) {
         self.actionOutcomes = actionOutcomes
         self.store = store
         self.config = ConfigApplicationService(store: store)
@@ -101,7 +101,11 @@ public struct AiApplicationHandlers: Sendable {
             let rows = try await s.usageRows(callerScope: callerScope)
             let connection = p["connectionId"]?.stringValue
             let runIds = try await s.unitRunIds(callerScope: callerScope, connectionId: connection)
-            let actions = actionOutcomes(runIds, from, to)
+            let actions: (confirmed: Int, unknown: Int)
+            do { actions = try actionOutcomes(runIds, from, to) } catch {
+                // Say so rather than report zero inputs.
+                throw ContractError(.usageUnavailable, "the Runtime's record of inputs could not be read")
+            }
             return UsageSummaryBuilder.summarize(rows: rows, from: from, to: to, connectionId: connection,
                                                  confirmedActions: actions.confirmed, unknownActionOutcomes: actions.unknown)
         default:

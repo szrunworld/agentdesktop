@@ -35,7 +35,10 @@ func createConnection(_ client: ContractClient, name: String = "Ark") async thro
 
 /// W03: a model profile and a GUI profile, made the default.
 @MainActor
-func configure(_ client: ContractClient) async throws -> ProfilesModel {
+/// Connection, model profile, GUI profile set as default; with
+/// `contractTest`, also the capability test (W04) a profile must pass before
+/// a GUI unit Run can start (F40-06 row 12).
+func configure(_ client: ContractClient, contractTest: Bool = false) async throws -> ProfilesModel {
     _ = try await createConnection(client)
     let p = ProfilesModel(client: client)
     await p.refresh()
@@ -48,6 +51,11 @@ func configure(_ client: ContractClient) async throws -> ProfilesModel {
     #expect(p.problem == nil, "\(String(describing: p.problem))")
     let row = try #require(p.profiles.first)
     await p.setDefault(row)
+    if contractTest {
+        let t = CapabilityTestModel(client: client, guiProfileId: row.id, clock: FastClock(), pollMs: 5)
+        await t.start()
+        #expect(t.evidence["guiContract"] == "verified")
+    }
     return p
 }
 
@@ -235,7 +243,7 @@ struct PagesTests {
     @Test func ui005_startRun() async throws {
         let h = try await Harness()
         let spy = SpyClient(h.client)
-        let p = try await configure(spy)
+        let p = try await configure(spy, contractTest: true)
         let first = try #require(p.profiles.first)
 
         let s = RunStartModel(client: spy)
@@ -276,10 +284,24 @@ struct PagesTests {
         #expect(h.form.submissions == 1, "one start, one run")
     }
 
+    // F40-06 row 12 on W05: a profile that never passed the capability
+    // test starts nothing; the page says the capability does not match.
+    @Test func ui005_untestedProfileStartsNothing() async throws {
+        let h = try await Harness()
+        _ = try await configure(h.client)
+        let s = RunStartModel(client: h.client)
+        await s.load()
+        s.desktopId = "desk-a"
+        await s.start()
+        #expect(s.startedRunId == nil)
+        #expect(s.problem?.code == .capabilityMismatch)
+        #expect(await h.executor.executed == 0 && h.form.inputCount == 0)
+    }
+
     // UI-006 (W06): success with its evidence; events deduplicated.
     @Test func ui006_runDetailSuccess() async throws {
         let h = try await Harness()
-        _ = try await configure(h.client)
+        _ = try await configure(h.client, contractTest: true)
         let s = RunStartModel(client: h.client)
         await s.load()
         s.desktopId = "desk-a"
@@ -307,7 +329,7 @@ struct PagesTests {
     // UI-006 (W06 stop): accepted is "stop requested", not "stopped".
     @Test func ui006_stopAcceptedIsNotStopped() async throws {
         let h = try await Harness()
-        _ = try await configure(h.client)
+        _ = try await configure(h.client, contractTest: true)
         await h.executor.set(mode: .hang)
         let s = RunStartModel(client: h.client)
         await s.load()
@@ -333,7 +355,7 @@ struct PagesTests {
     // is never resent and nothing resumes it.
     @Test func ui006_unknownOutcomeAttention() async throws {
         let h = try await Harness()
-        _ = try await configure(h.client)
+        _ = try await configure(h.client, contractTest: true)
         await h.executor.set(mode: .unknown)
         let s = RunStartModel(client: h.client)
         await s.load()
@@ -365,7 +387,7 @@ struct PagesTests {
     // stopping is the only control.
     @Test func ui006_needsUserWaitsUntilStopped() async throws {
         let h = try await Harness()
-        _ = try await configure(h.client)
+        _ = try await configure(h.client, contractTest: true)
         h.upstream.callUser = true
         let s = RunStartModel(client: h.client)
         await s.load()
@@ -387,7 +409,11 @@ struct PagesTests {
     // money is labelled an estimate.
     @Test func usg004_usageUnknownIsNotZero() async throws {
         let h = try await Harness()
-        _ = try await configure(h.client)
+        _ = try await configure(h.client, contractTest: true)
+        // The window starts after the capability test (its bounds are whole
+        // seconds): only the Run's calls.
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        let afterTest = Date()
         h.upstream.usageReported = false
         let s = RunStartModel(client: h.client)
         await s.load()
@@ -396,7 +422,7 @@ struct PagesTests {
         let d = RunDetailModel(client: h.client, runId: try #require(s.startedRunId), clock: FastClock(), pollMs: 5)
         await d.follow()
 
-        let u = UsageModel(client: h.client, from: Date(timeIntervalSinceNow: -3600), to: Date(timeIntervalSinceNow: 3600))
+        let u = UsageModel(client: h.client, from: afterTest, to: Date(timeIntervalSinceNow: 3600))
         await u.refresh()
         #expect(u.problem == nil)
         #expect(u.attempts == 3)

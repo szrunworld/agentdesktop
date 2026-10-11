@@ -42,8 +42,18 @@ func proposal(_ body: GuiProposalBody, run: String, stamp: ObservationStamp, sho
     #expect(pngSize(image.bytes).map { $0 == (800, 600) } == true)
     #expect(shot.sha256 == SHA256.hash(data: image.bytes).map { String(format: "%02x", $0) }.joined())
     #expect(FileManager.default.fileExists(atPath: s.artifacts.path(for: shot.artifactRef, ext: "png")))
-    #expect(bundle.elements?.first == ObservedElement(role: "button", text: "继续"))
-    #expect(bundle.elements?.last == ObservedElement(role: "text_field", text: "Ada \"Q\""))
+    // X1: label and value travel separately; text is what the element shows.
+    #expect(bundle.elements?.first == ObservedElement(role: "button", label: "继续", value: nil))
+    #expect(bundle.elements?.last == ObservedElement(role: "text_field", label: "名字", value: "Ada \"Q\""))
+    #expect(bundle.elements?.last?.text == "Ada \"Q\"")
+    // observe's coverage.ax reaches the verifier (only complete proves absence).
+    #expect(bundle.elementCoverage == .complete)
+}
+
+@Test(arguments: [("complete", ElementCoverage.complete), ("partial", .partial), ("unavailable", .unavailable),
+                  ("not_requested", .unavailable), (nil, .unavailable)] as [(String?, ElementCoverage)])
+func observeCoverageBecomesElementCoverage(ax: String?, expected: ElementCoverage) {
+    #expect(RuntimeGuiPorts.coverage(ax) == expected)
 }
 
 @Test func executeRunsThroughTheRuntimeExecutorOncePerActionId() async throws {

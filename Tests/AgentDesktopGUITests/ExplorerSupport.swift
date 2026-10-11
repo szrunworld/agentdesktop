@@ -170,6 +170,10 @@ actor SpyObservation: GuiObservationPort {
     var sessionId = "sess-a"
     var epoch: UInt64 = 1
     var elementsAvailable = true
+    /// X1: how much of the tree each observation claims to have read, and
+    /// elements shown beside the form's own.
+    var coverage: ElementCoverage = .complete
+    var extraElements: [ObservedElement] = []
     var imageBytes = 1000
     /// Observations that still show the old status after a submission (a
     /// slow page): the result becomes visible only after that many looks.
@@ -183,6 +187,8 @@ actor SpyObservation: GuiObservationPort {
 
     func set(session: String) { sessionId = session }
     func set(elementsAvailable v: Bool) { elementsAvailable = v }
+    func set(coverage v: ElementCoverage) { coverage = v }
+    func set(extraElements v: [ObservedElement]) { extraElements = v }
     func set(imageBytes v: Int) { imageBytes = v }
     func set(statusLag v: Int) { statusLag = v }
 
@@ -208,9 +214,10 @@ actor SpyObservation: GuiObservationPort {
         let image = AiImageContent(screenshotId: shot.screenshotId, mimeType: "image/png",
                                    bytes: Data(repeating: UInt8(count % 251), count: imageBytes))
         let elements: [ObservedElement]? = elementsAvailable
-            ? [ObservedElement(role: "static_text", text: visibleStatus()), ObservedElement(role: "text_field", text: form.name)]
+            ? [ObservedElement(role: "static_text", text: visibleStatus()),
+               ObservedElement(role: "text_field", label: "姓名", value: form.name)] + extraElements
             : nil
-        return ObservationBundle(observation: obs, authorizedImages: [image], elements: elements)
+        return ObservationBundle(observation: obs, authorizedImages: [image], elements: elements, elementCoverage: coverage)
     }
 }
 
@@ -275,6 +282,19 @@ final class IdCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var n = 0
     func next() -> Int { lock.withLock { n += 1; return n } }
+}
+
+/// F40-06 row 12 for these tests: whether each candidate "passed" the GUI
+/// contract test is set here; the store-backed check is exercised end to
+/// end in UnitRunOnRuntimeTests.
+final class ContractEvidenceStub: GuiContractEvidence, @unchecked Sendable {
+    private let lock = NSLock()
+    private var passing = true
+    var passed: Bool {
+        get { lock.withLock { passing } }
+        set { lock.withLock { passing = newValue } }
+    }
+    func guiContractPassed(_ candidate: GuiCandidate, provenance: AdapterProvenance) -> Bool { passed }
 }
 
 /// The Runtime's side of one unit Run, recorded (A6): the events the
@@ -343,6 +363,7 @@ final class GuiHarness: @unchecked Sendable {
     let features: GuiBackendFeatures?
     let codecs: GuiCodecRegistry
     let owner: ServiceRouter
+    let evidence = ContractEvidenceStub()
     var profile: JSONValue = .null
     private let lock = NSLock()
     private var sinks: [String: RecordingSink] = [:]
@@ -350,7 +371,8 @@ final class GuiHarness: @unchecked Sendable {
     private let counter = IdCounter()
 
     init(_ replies: [StubAiService.Reply], backend: Bool = true, limits: [(String, JSONValue)] = [],
-         fixture: Bool = false, clock: ManualClock = ManualClock()) throws {
+         fixture: Bool = false, clock: ManualClock = ManualClock(),
+         predicates: [String] = GuiBackendFeatures.elementPredicates) throws {
         let dir = ScratchDirectory.url("adgui")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         store = try ConfigStore(path: dir.appendingPathComponent("c.sqlite").path, credentials: InMemoryCredentialStore(),
@@ -362,10 +384,10 @@ final class GuiHarness: @unchecked Sendable {
         executor = SpyExecutor(form: form)
         codecs = GuiCodecRegistry(fixtureAdapterEnabled: fixture)
         let ports = GuiExplorerPorts(observation: observation, execution: executor, audit: audit)
-        features = backend ? GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"]) : nil
-        let (store, ai, codecs) = (store, ai, codecs)
+        features = backend ? GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: predicates) : nil
+        let (store, ai, codecs, evidence) = (store, ai, codecs, evidence)
         units = features.map { f in
-            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs), ports: ports, features: f,
+            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs), evidence: evidence, ports: ports, features: f,
                            aiService: ai, codecs: codecs, clock: clock)
         }
         owner = ServiceRouter(handlers: ConfigApplicationService(store: store).handlers(callerScope: "owner"))

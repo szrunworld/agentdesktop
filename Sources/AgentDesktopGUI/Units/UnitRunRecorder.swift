@@ -100,9 +100,16 @@ public actor UnitRunRecorder: GuiRunRecording {
 
     public func verified(_ v: GoalVerification) async {
         guard v.status != .notRun, let observationId = v.observationId, let checkedAt = v.checkedAt else { return }
-        let status = v.status == .passed ? "matched" : "contradicted"
-        record("unit.verification", [("status", .string(status)), ("verifierId", .string(v.verifierId ?? GoalVerifier.verifierId)),
-                                     ("observationId", .string(observationId)), ("checkedAt", .string(Timestamp.string(checkedAt)))])
+        let status: String
+        switch v.status {
+        case .passed: status = "matched"
+        case .inconclusive: status = "inconclusive"
+        case .failed, .notRun: status = "contradicted"
+        }
+        var data: [(String, JSONValue)] = [("status", .string(status)), ("verifierId", .string(v.verifierId ?? GoalVerifier.verifierId)),
+                                           ("observationId", .string(observationId)), ("checkedAt", .string(Timestamp.string(checkedAt)))]
+        if let reason = v.reason { data.append(("reason", .string(reason.rawValue))) }
+        record("unit.verification", data)
         sink.verified(status: status, observationId: observationId, checkedAt: checkedAt)
     }
 

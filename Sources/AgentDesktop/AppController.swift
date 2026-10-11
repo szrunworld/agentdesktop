@@ -184,7 +184,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             do {
                 let backend = enabled ? GuiExecutionBackend(
                     ports: GuiExplorerPorts(observation: ports, execution: ports, audit: NoGuiAudit()),
-                    features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: ["element_text_equals"],
+                    features: GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: GuiBackendFeatures.elementPredicates,
                                                  independentDesktopConcurrency: true)) : nil
                 let credentials: CredentialStore
                 switch credentialBackend {
@@ -193,7 +193,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                 }
                 let service = try await AgentDesktopService.open(AgentDesktopServiceOptions(
                     databasePath: records + "/ai.sqlite", credentials: credentials, executionBackend: backend,
-                    actionOutcomes: { runIds, from, to in runtime.actionOutcomes(runIds: runIds, from: from, to: to) }))
+                    actionOutcomes: { runIds, from, to in try runtime.actionOutcomes(runIds: runIds, from: from, to: to) }))
                 // A2: one endpoint. The AI service answers ai.* through the
                 // Runtime's server; it has no socket of its own.
                 let served = runtime.contract.methods.filter { $0.servedBy == "ai-service" }.map(\.method)

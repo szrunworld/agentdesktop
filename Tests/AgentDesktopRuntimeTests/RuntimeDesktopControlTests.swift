@@ -378,3 +378,61 @@ private final class Box: @unchecked Sendable { var response: RuntimeResponse? }
     #expect(x.controlFacts(sc.desktop).gate == nil)
     #expect(data(act(sc, clickContinue))?["delivery"]?.stringValue == "dispatched")
 }
+
+@Test func aTakeoverSupersededByAHandbackSaysSoEvenWhenAnAgentRunHoldsTheDesktopAgain() throws {
+    // Codex P2 on 557a0d0: handback, then a new agent Run, while the takeover waited.
+    let sc = try scene()
+    let agent = handshaken(sc.s)
+    let desk = try #require(sc.s.desktops.find(sc.desktop))
+    desk.lock.lock()
+    let box = Box()
+    let taking = onThread { box.response = call(sc.s, sc.c, "desktop.takeover", params: #"{"desktopId":"\#(sc.desktop)"}"#) }
+    let deadline = Date().addingTimeInterval(5)
+    while sc.s.execution.controlFacts(sc.desktop).gate != .manual, Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+    sc.s.execution.openDesktop(sc.desktop)   // the handback
+    let runId = try #require(data(call(sc.s, agent, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
+    desk.lock.unlock()
+    taking.wait()
+    let r = try #require(box.response)
+    #expect(code(r) == "conflict" && reason(r) == "superseded", "not stop_pending: \(r)")
+    #expect(runJSON(sc, runId)?["phase"]?.stringValue == "running", "the agent's new Run is untouched")
+}
+
+// Codex P2 on 1681037: the two other early answers of a superseded takeover.
+
+@Test func aTakeoverThatTimesOutAfterAStopSaysSuperseded() throws {
+    let sc = try scene()
+    let desk = try #require(sc.s.desktops.find(sc.desktop))
+    desk.lock.lock()   // an action in flight past the deadline
+    let box = Box()
+    let line = #"{"apiVersion":"agentdesktop.runtime/1","requestId":"take-late","method":"desktop.takeover","deadline":"\#(Timestamp.string(Date().addingTimeInterval(0.5)))","params":{"desktopId":"\#(sc.desktop)"}}"#
+    let taking = onThread { box.response = answer(sc.s, line, sc.c) }
+    let until = Date().addingTimeInterval(5)
+    while sc.s.execution.controlFacts(sc.desktop).gate != .manual, Date() < until { Thread.sleep(forTimeInterval: 0.01) }
+    _ = sc.s.execution.stopDesktop(sc.desktop)   // the owner stops it meanwhile
+    taking.wait()
+    desk.lock.unlock()
+    let r = try #require(box.response)
+    #expect(code(r) == "conflict" && reason(r) == "superseded", "not stop_pending: \(r)")
+    #expect(sc.s.execution.controlFacts(sc.desktop).gate == .stopped)
+}
+
+@Test func aTakeoverDoesNotClaimALaterTakeoversRunAfterAHandback() throws {
+    let sc = try scene()
+    let desk = try #require(sc.s.desktops.find(sc.desktop))
+    desk.lock.lock()
+    let box = Box()
+    let taking = onThread { box.response = call(sc.s, sc.c, "desktop.takeover", params: #"{"desktopId":"\#(sc.desktop)"}"#) }
+    let until = Date().addingTimeInterval(5)
+    while sc.s.execution.controlFacts(sc.desktop).gate != .manual, Date() < until { Thread.sleep(forTimeInterval: 0.01) }
+    // A handback, then a later takeover that starts its own user Run.
+    sc.s.execution.openDesktop(sc.desktop)
+    let (_, _, later) = sc.s.execution.closeForTakeover(sc.desktop)
+    let session = sc.s.sessions.open(desktopId: sc.desktop, caller: "local:\(getuid())", at: Timestamp.string(Date()))
+    let laterRun = try sc.s.execution.startTakeover(session: session, serial: later).get()
+    desk.lock.unlock()
+    taking.wait()
+    let r = try #require(box.response)
+    #expect(code(r) == "conflict" && reason(r) == "superseded", "not the later takeover's Run as its own: \(r)")
+    #expect(sc.s.execution.controlFacts(sc.desktop).holder?.runId == laterRun.runId, "the later takeover keeps its Run")
+}

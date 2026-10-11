@@ -162,11 +162,22 @@ public final class RuntimeGuiPorts: GuiObservationPort, GuiExecutionPort, @unche
                                     bindingEpoch: UInt64(b.generation), runGeneration: expectedGeneration),
             target: target, observedAt: Timestamp.date(stored.capturedAt) ?? Date(), screenshots: [shot])
         let elements = stored.readElements ? stored.elements.values.sorted { $0.index < $1.index }.map {
-            ObservedElement(role: Self.role($0.role), text: $0.value ?? $0.label ?? "")
+            ObservedElement(role: Self.role($0.role), label: $0.label, value: $0.value)
         } : nil
         return ObservationBundle(observation: observation,
                                  authorizedImages: [AiImageContent(screenshotId: shot.screenshotId, mimeType: "image/png", bytes: modelPNG)],
-                                 elements: elements)
+                                 elements: elements, elementCoverage: Self.coverage(data["coverage"]?["ax"]?.stringValue))
+    }
+
+    /// observe's `coverage.ax` as the verifier reads it: anything but a
+    /// complete read (a truncated walk, a deadline, an error, no answer)
+    /// cannot show that an element is absent.
+    static func coverage(_ ax: String?) -> ElementCoverage {
+        switch ax {
+        case "complete": return .complete
+        case "partial": return .partial
+        default: return .unavailable
+        }
     }
 
     static func role(_ ax: String) -> String {
