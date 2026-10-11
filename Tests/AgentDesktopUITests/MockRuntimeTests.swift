@@ -8,9 +8,10 @@ func code(of body: () async throws -> Void) async -> String? {
 }
 
 /// Field names the plan adds later (methods.json plannedFields). None may
-/// appear in a Mock answer before the contract has them.
+/// appear in a Mock answer before the contract has them. Desktop.control
+/// is in since A5; its planned transport and lastActionAt are not.
 let plannedFieldNames: Set<String> = [
-    "control", "targetKind", "businessResult", "elapsedMs", "geometryRevision", "dispatchSequence",
+    "transport", "lastActionAt", "targetKind", "businessResult", "elapsedMs", "geometryRevision", "dispatchSequence",
     "proposalId", "inferenceAttemptId", "reconciliations", "captureSequence", "coverage", "unit",
     "episodeEligible", "excludedReason", "launch", "bind", "principal",
 ]
