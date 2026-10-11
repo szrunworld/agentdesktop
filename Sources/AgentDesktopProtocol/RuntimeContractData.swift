@@ -6212,6 +6212,168 @@ enum RuntimeContractData {
           "description": "as it is: its outcome stays what it was (unknown)"
         }
       }
+    },
+    "diagnostics_export_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "runtime",
+              "capabilities",
+              "connections",
+              "clients",
+              "desktops",
+              "runs",
+              "requests",
+              "authorization"
+            ]
+          },
+          "description": "default all; authorization is the owner's (a paired client gets its own refusals only)"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "runs, requests and refusals from this time on; default 24 h ago, never more than 7 days"
+        },
+        "preview": {
+          "type": "boolean",
+          "description": "true: say what an export would hold (the manifest), write nothing"
+        }
+      }
+    },
+    "DiagnosticsManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "since",
+        "sections",
+        "excluded"
+      ],
+      "properties": {
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "clientId"
+          ],
+          "properties": {
+            "role": {
+              "enum": [
+                "owner",
+                "paired"
+              ]
+            },
+            "clientId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "items"
+            ],
+            "properties": {
+              "name": {
+                "enum": [
+                  "runtime",
+                  "capabilities",
+                  "connections",
+                  "clients",
+                  "desktops",
+                  "runs",
+                  "requests",
+                  "authorization"
+                ]
+              },
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "a limit cut the section short (Runs: 500; requests: 100000 scanned), or retention already removed refusals inside the window: narrow since"
+              },
+              "unavailable": {
+                "type": "boolean",
+                "description": "the section could not be read (the request ledger is unreadable); its contents say why"
+              }
+            }
+          }
+        },
+        "excluded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "what an export never holds"
+        }
+      }
+    },
+    "DiagnosticsExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preview",
+        "manifest"
+      ],
+      "properties": {
+        "preview": {
+          "type": "boolean"
+        },
+        "manifest": {
+          "$ref": "#/$defs/DiagnosticsManifest"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "preview": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "artifact"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "preview": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "artifact"
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }
@@ -11293,16 +11455,19 @@ enum RuntimeContractData {
       "result": "RunReconciliation",
       "status": "implemented",
       "note": "owner; appends one reconciliation to an action whose delivery is unknown, of a Run that has ended (else conflict, reason not_quiescent). It changes nothing else: the receipt, the request's outcome (the same requestId still answers action_delivery_unknown) and the Run's outcome (unknown) stay; nothing is retried or replayed, and any new action takes a new requestId. executed or not_executed resolves the Inbox item; still_unknown keeps it open. expectedRevision is the number of reconciliations the action has (conflict, reason revision_conflict, otherwise); an action that is not unknown is invalid_argument, reason not_unknown; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "diagnostics.export",
+      "stage": "P0",
+      "mutation": false,
+      "params": "diagnostics_export_params",
+      "result": "DiagnosticsExport",
+      "status": "implemented",
+      "note": "observe; read-only: repairs nothing, removes no socket, restarts nothing, changes no grant and creates no Run. Writes the chosen sections (runtime identity, admission and permissions; method names; open connections; clients and grant summaries; Desktops; Runs with their stop evidence; request counts by method and state; authorization refusals counted by reason) as one JSON document into an application/json artifact of the caller (read with artifact.read, kept like any artifact), or with preview only says what it would hold. Never in it: credentials or tokens (any adt1_ value is redacted), screenshots or other artifacts, typed text or action parameters, request outcomes, window titles or app content, peer process facts, free-text notes, the endpoint path. The owner sees every client; a paired client only itself, its own connections, Runs (with the run capability), requests and refusals, and Desktops in its grant"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
   "catalog": [
-    {
-      "method": "diagnostics.export",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
     {
       "method": "gui.knowledge.get",
       "status": "reserved",
