@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Testing
+import EngineTestSupport
 @testable import SecondScreenCore
 
 /// The display-sleep preconditions and hold, with fake assertions and a fake
@@ -165,7 +166,10 @@ struct DisplaySleepTests {
         clock.onPause = { count in
             guard count == 3 else { return }
             quick.signal()
-            queue.sync {} // the transaction has returned and the configurator is free
+            // The transaction has returned and the configurator is free; a
+            // private serial queue drains in milliseconds, 30 s is the limit
+            // (#183) and a timeout fails the test with evidence.
+            do { try Bounded.sync(queue, 30, for: "the configuration queue to drain", stage: "third poll") } catch { Issue.record(error) }
         }
         var ran = false
         let ok = await clocked(assertions, configurator, waitLimit: 2, clock).run("create", refused: { _ in false }) { () async -> Bool in
