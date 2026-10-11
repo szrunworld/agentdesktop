@@ -59,6 +59,8 @@ extension MockRuntime {
             let run = receipt.flatMap { rc in runs.first { $0["runId"] == rc["runId"] } }
             let client = run?["clientId"].flatMap(\.stringValue) ?? "local:501"
             r = r.setting("clientId", .string(client))
+            // As the Runtime's ledger keeps it: a success under outcome.data.
+            if let o = outcome, !o.isNull, o["error"] == nil, o["data"] == nil { r = r.setting("outcome", .obj([("data", o)])) }
             if let d = receipt?["desktopId"] ?? r["desktopId"] { r = r.setting("desktopId", d) }
             return r
         }

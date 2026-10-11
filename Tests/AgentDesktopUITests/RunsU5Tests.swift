@@ -97,6 +97,10 @@ struct RunsU5Tests {
         #expect(ActionLevels.record(rec("accepted", nil)).summary.text == "已受理")
         #expect(ActionLevels.record(rec("unknown", nil)).summary.text == "结果未知 · 需要核实")
         #expect(ActionLevels.record(rec("completed", receipt("dispatched", "completed"))).summary.text == "已执行，未验证")
+        // The ledger's shape: a success under outcome.data.
+        let stored = ActionLevels.record(rec("completed", .obj([("data", receipt("dispatched", "completed"))])))
+        #expect(stored.summary.text == "已执行，未验证" && stored.hasReceipt)
+        #expect(ActionLevels.record(rec("completed", .obj([("data", .obj([("desktopId", .string("d"))]))]))).summary.text == "已完成")
         let err = RuntimeError("target_moved", "m", phase: .handler, notSent: true,
                                details: .obj([("receipt", receipt("not_dispatched", "failed"))])).json
         let r = ActionLevels.record(rec("failed", .obj([("error", err)])))
@@ -114,6 +118,10 @@ struct RunsU5Tests {
         #expect(all.count == 7)
         #expect(all.allSatisfy { $0["clientId"] != nil })
         #expect(all.filter { $0["desktopId"] != nil }.count == 6)
+        // Successes are kept under outcome.data, as the Runtime's ledger does.
+        let done = all.first { $0["state"]?.stringValue == "completed" }!
+        #expect(done["outcome"]?["data"]?["delivery"]?.stringValue == "dispatched")
+        #expect(ActionsRecord.receipt(of: done) != nil)
         let stamps = all.map { $0["acceptedAt"]!.stringValue! }
         #expect(stamps == stamps.sorted(by: >), "newest first")
         let unknown = try await m.call("request.list", .obj([("state", .string("unknown"))]))["requests"]!.arrayValue!
@@ -242,10 +250,11 @@ struct RunsU5Tests {
         func r(_ id: String) -> JSONValue { .obj([("requestId", .string(id))]) }
         let old = (0..<6).map { r("o\($0)") }   // first page was o0…o3, then o4, o5
         let first = [r("n"), r("o0"), r("o1"), r("o2")]   // limit 4: o3 crossed the boundary
-        #expect(RunListLoader.tail(after: first, of: old, key: "requestId").map { $0["requestId"]!.stringValue! } == ["o3", "o4", "o5"])
+        #expect(RunListLoader.tail(after: first, of: old, key: "requestId")?.map { $0["requestId"]!.stringValue! } == ["o3", "o4", "o5"])
         let gone = [r("o0"), r("o2"), r("o3"), r("o4")]   // o1 left the range
-        #expect(RunListLoader.tail(after: gone, of: old, key: "requestId").map { $0["requestId"]!.stringValue! } == ["o5"])
-        #expect(RunListLoader.tail(after: [r("x")], of: old, key: "requestId").count == 6)
+        #expect(RunListLoader.tail(after: gone, of: old, key: "requestId")?.map { $0["requestId"]!.stringValue! } == ["o5"])
+        // Nothing shared: more arrived than a page holds; old pages go.
+        #expect(RunListLoader.tail(after: [r("x")], of: old, key: "requestId") == nil)
     }
 
     @Test func prettyJSONKeepsOrderAndParses() throws {

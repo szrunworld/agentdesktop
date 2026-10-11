@@ -298,7 +298,7 @@ public final class RunListLoader: ObservableObject {
             let r = try await runtime.call("run.list", .obj(filter.params + [("limit", .int(limit))]))
             guard mine == ticket else { return }
             let first = r["runs"]?.arrayValue ?? []
-            let rest = runs.count > limit ? Self.tail(after: first, of: runs, key: "runId") : []
+            let rest = runs.count > limit ? Self.tail(after: first, of: runs, key: "runId") ?? [] : []
             runs = first + rest
             if rest.isEmpty { next = r["next"]?.stringValue }
             syncedAt = Date()
@@ -313,11 +313,13 @@ public final class RunListLoader: ObservableObject {
     /// after the last item the new first page shares with the old list
     /// (items pushed across the page boundary by newer ones stay; items
     /// that left the first page's range are dropped), without repeats.
-    static func tail(after first: [JSONValue], of old: [JSONValue], key: String) -> [JSONValue] {
+    /// Nil when the two share nothing: more arrived than one page holds, so
+    /// what lies between is unknown and the old pages are dropped (the
+    /// refreshed page's cursor continues from there).
+    static func tail(after first: [JSONValue], of old: [JSONValue], key: String) -> [JSONValue]? {
         let ids = Set(first.compactMap { $0[key]?.stringValue })
-        let shared = old.lastIndex { ids.contains($0[key]?.stringValue ?? "") }
-        let from = shared.map { $0 + 1 } ?? 0
-        return old[from...].filter { !ids.contains($0[key]?.stringValue ?? "") }
+        guard let shared = old.lastIndex(where: { ids.contains($0[key]?.stringValue ?? "") }) else { return nil }
+        return old[(shared + 1)...].filter { !ids.contains($0[key]?.stringValue ?? "") }
     }
 
     /// The next page after `next`.
@@ -423,7 +425,7 @@ public final class ActionRecordsLoader: ObservableObject {
             let r = try await runtime.call("request.list", .obj(filter.params + [("limit", .int(limit))]))
             guard mine == ticket else { return }
             let first = r["requests"]?.arrayValue ?? []
-            let rest = records.count > limit ? RunListLoader.tail(after: first, of: records, key: "requestId") : []
+            let rest = records.count > limit ? RunListLoader.tail(after: first, of: records, key: "requestId") ?? [] : []
             records = first + rest
             if rest.isEmpty { next = r["next"]?.stringValue }
             syncedAt = Date()

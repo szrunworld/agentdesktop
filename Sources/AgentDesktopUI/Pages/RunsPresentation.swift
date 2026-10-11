@@ -267,11 +267,14 @@ public struct ActionLevels: Equatable, Sendable {
 
 /// Reading a RequestRecord.
 public enum ActionsRecord {
-    /// The ActionReceipt inside a record: the outcome itself, or the
-    /// error's `details.receipt`.
+    /// The ActionReceipt inside a record. The ledger stores a success as
+    /// `outcome.data` and a failure as `outcome.error` (with the receipt in
+    /// `details.receipt`); a bare receipt as the outcome (older mock
+    /// records) is read too.
     public static func receipt(of r: JSONValue) -> JSONValue? {
         guard let outcome = r["outcome"], !outcome.isNull else { return nil }
         if let e = outcome["error"] { return e["details"]?["receipt"] }
+        if let d = outcome["data"] { return d["delivery"] != nil ? d : nil }
         return outcome["delivery"] != nil ? outcome : nil
     }
 

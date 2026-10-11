@@ -84,6 +84,21 @@ Mock（`Runtime/MockLanes/MockRuntime+Runs.swift`）：新增 `request.list`、`
 - `RunsU5Tests`（9 项）：Run 文案（act 已投递、unknown 需要核实、unit 三值）；动作三级；Mock 账本与导出；动作记录加载器（翻页、刷新保留、搜索、过滤、导出读回、失败与断开不回退样例）；运行列表加载器（游标翻页、服务端过滤、结果未知）；停止不等于已停止；被拒绝的动作显示未发出；单元运行详情；JSON 美化保持键序。
 - `RunsRenderTests`（1 项）：上表 9 张渲染图。
 
+## 需要协调：公共文件里同样的成功回执读法
+
+Runtime 的请求账本把成功结果存成 `outcome.data`（`RequestLedger.finish`），失败存成 `outcome.error`。下面两处在公共文件里，仍然把 `outcome` 本身当回执读，所以成功的 act 记录会显示成“已受理”：
+
+- `Presentation/Presentation.swift`：`ActionResultPresentation.make(record:)`；
+- `Components/Records.swift`：`ActionReceiptView(record:)`。
+
+另外，基础 Mock（`MockRuntime.swift`）的 `addAction` 也把成功回执直接放在 `outcome` 里，和真实账本不一致。
+
+本线的页面不受影响：
+- 只用自己的 `ActionsRecord.receipt(of:)`，三种形状都认；
+- 本线 Mock 的 `request.list` 已经按真实账本的形状给出。
+
+请协调者在公共 PR 里修。
+
 ## 未完成与依赖
 
 - 页面验收（真实 Runtime、真实窗口）待做。
