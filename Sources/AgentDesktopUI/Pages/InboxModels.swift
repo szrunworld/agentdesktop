@@ -218,10 +218,10 @@ public struct ReconcileDraft: Equatable, Sendable {
     /// Why it cannot be sent yet, in words; nil when it can.
     public var problem: String? {
         if verdict == nil { return "请选择核实结论。" }
-        if trimmedNote.count > 1024 { return "说明最多 1024 个字符。" }
+        if trimmedNote.unicodeScalars.count > 1024 { return "说明最多 1024 个字符。" }
         let refs = evidenceRefs
         if refs.count > 8 { return "证据引用最多 8 条。" }
-        if refs.contains(where: { $0.count > 256 }) { return "每条证据引用最多 256 个字符。" }
+        if refs.contains(where: { $0.unicodeScalars.count > 256 }) { return "每条证据引用最多 256 个字符。" }
         return nil
     }
 }
@@ -369,8 +369,8 @@ public final class DiagnosticsExportModel: ObservableObject {
         var seconds: TimeInterval { self == .day ? 86_400 : 7 * 86_400 }
     }
 
-    @Published public var chosen: Set<String> = Set(DiagnosticsExportModel.sections)
-    @Published public var window: Window = .day
+    @Published public var chosen: Set<String> = Set(DiagnosticsExportModel.sections) { didSet { if chosen != oldValue { invalidateScope() } } }
+    @Published public var window: Window = .day { didSet { if window != oldValue { invalidateScope() } } }
     @Published public private(set) var preview: JSONValue?
     @Published public private(set) var export: (artifactId: String, data: Data, manifest: JSONValue)?
     @Published public private(set) var working = false
@@ -392,32 +392,60 @@ public final class DiagnosticsExportModel: ObservableObject {
         return [("sections", .array(picked.map(JSONValue.string))), ("since", .string(Timestamp.string(since)))]
     }
 
+    private var scopeRevision = 0
+    private var previewParams: [(String, JSONValue)]?
+
+    private func invalidateScope() {
+        scopeRevision += 1
+        preview = nil
+        previewParams = nil
+        export = nil
+        problem = nil
+    }
+
     public var canRun: Bool { !chosen.isEmpty && !working }
+    public var canExport: Bool { canRun && preview != nil && previewParams != nil }
 
     public func runPreview() async {
+        guard canRun else { return }
+        let revision = scopeRevision
+        let requested = params
+        preview = nil
+        previewParams = nil
+        export = nil
         working = true
         problem = nil
         defer { working = false }
         do {
-            preview = try await runtime.call("diagnostics.export", .obj(params + [("preview", .bool(true))]))["manifest"]
+            let manifest = try await runtime.call("diagnostics.export", .obj(requested + [("preview", .bool(true))]))["manifest"]
+            guard revision == scopeRevision else { return }
+            preview = manifest
+            previewParams = manifest == nil ? nil : requested
         } catch {
+            guard revision == scopeRevision else { return }
             problem = RuntimeProblem(error)
         }
     }
 
     public func runExport() async {
+        guard canExport, let requested = previewParams else { return }
+        let revision = scopeRevision
+        export = nil
         working = true
         problem = nil
         defer { working = false }
         do {
-            let r = try await runtime.call("diagnostics.export", .obj(params + [("preview", .bool(false))]))
+            let r = try await runtime.call("diagnostics.export", .obj(requested + [("preview", .bool(false))]))
+            guard revision == scopeRevision else { return }
             guard let id = r["artifact"]?["artifactId"]?.stringValue else {
                 throw RuntimeError("internal_error", "diagnostics.export gave no artifact", phase: .handler)
             }
             let data = try await ActionRecordsLoader.readArtifact(runtime, id)
+            guard revision == scopeRevision else { return }
             export = (id, data, r["manifest"] ?? .null)
             preview = r["manifest"]
         } catch {
+            guard revision == scopeRevision else { return }
             problem = RuntimeProblem(error)
         }
     }

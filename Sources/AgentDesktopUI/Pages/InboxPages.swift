@@ -537,7 +537,7 @@ struct DiagnosticsExportPanel: View {
                     Button("预览内容") { Task { await model.runPreview() } }
                         .buttonStyle(ADButtonStyle(.secondary)).disabled(!connected || !model.canRun)
                     Button(model.working ? "正在导出…" : "导出") { Task { await model.runExport() } }
-                        .buttonStyle(ADButtonStyle(.primary)).disabled(!connected || !model.canRun)
+                        .buttonStyle(ADButtonStyle(.primary)).disabled(!connected || !model.canExport)
                     if model.chosen.isEmpty { Text("至少选择一项。").font(ADFont.note).foregroundStyle(ADColor.muted) }
                 }
                 if let p = model.problem {

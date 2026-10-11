@@ -5,6 +5,22 @@ import SwiftUI
 import Testing
 @testable import AgentDesktopUI
 
+private final class ScopeChangingRuntime: RuntimePort, @unchecked Sendable {
+    let inner: MockRuntime
+    var isSample: Bool { true }
+    var changeOn: String?
+    var change: (@Sendable () async -> Void)?
+    init(_ inner: MockRuntime) { self.inner = inner }
+    func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue {
+        let result = try await inner.call(method, params, context: context)
+        if method == changeOn { await change?() }
+        return result
+    }
+    func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> {
+        try await inner.subscribe(after: after)
+    }
+}
+
 /// U9: Inbox (Hub W06), 核实 (W07), 诊断导出 (W08) over the mock, whose
 /// answers are checked against the runtime/1 schemas on every call.
 @MainActor
@@ -170,6 +186,51 @@ struct InboxU9Tests {
 
         model.chosen = []
         #expect(!model.canRun)
+    }
+
+    @Test func diagnosticsScopeChangesRequireANewPreviewAndDiscardOldBytes() async throws {
+        let (m, _, _, _) = await scenario()
+        let model = DiagnosticsExportModel(runtime: m)
+        await model.runExport()
+        #expect(!m.callLog.contains("diagnostics.export"))
+        await model.runPreview()
+        #expect(model.canExport)
+        await model.runExport()
+        #expect(model.export != nil)
+        model.chosen.remove("authorization")
+        #expect(model.preview == nil && model.export == nil && !model.canExport)
+        await model.runPreview()
+        await model.runExport()
+        #expect(model.export != nil)
+        m.failNext("diagnostics.export", code: "execution_failed")
+        await model.runExport()
+        #expect(model.export == nil && model.problem != nil)
+        model.window = .week
+        #expect(model.preview == nil && !model.canExport)
+    }
+
+    @Test func repliesFromAnOldScopeCannotRestorePreviewOrExport() async throws {
+        let (m, _, _, _) = await scenario()
+        let runtime = ScopeChangingRuntime(m)
+        let model = DiagnosticsExportModel(runtime: runtime)
+        runtime.changeOn = "diagnostics.export"
+        runtime.change = { await MainActor.run { model.window = .week } }
+        await model.runPreview()
+        #expect(model.preview == nil && !model.canExport)
+        runtime.changeOn = nil
+        await model.runPreview()
+        runtime.changeOn = "artifact.read"
+        runtime.change = { await MainActor.run { _ = model.chosen.remove("authorization") } }
+        await model.runExport()
+        #expect(model.export == nil && model.preview == nil && !model.canExport)
+    }
+
+    @Test func reconciliationLimitsCountUnicodeScalars() {
+        let emoji = "👍🏽"
+        #expect(ReconcileDraft(verdict: "executed", note: String(repeating: emoji, count: 512)).problem == nil)
+        #expect(ReconcileDraft(verdict: "executed", note: String(repeating: emoji, count: 513)).problem != nil)
+        #expect(ReconcileDraft(verdict: "executed", evidence: String(repeating: emoji, count: 128)).problem == nil)
+        #expect(ReconcileDraft(verdict: "executed", evidence: String(repeating: emoji, count: 129)).problem != nil)
     }
 
     @Test func words() {
