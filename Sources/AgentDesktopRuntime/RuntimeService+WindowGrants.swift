@@ -277,9 +277,13 @@ extension RuntimeService {
         // The window: the one named, or the app's frontmost, where this
         // Desktop can bind it (on its display for a physical Desktop).
         let wanted = p["windowId"]?.intValue.flatMap { UInt32(exactly: $0) }
-        func eligible() -> [WindowSummary] {
+        // `named`: only the window the request names, if it names one. A
+        // recovery's uniqueness is judged on every eligible window, named or
+        // not (Codex on 80867e8): naming one must not hide a second.
+        func eligible(named: Bool = true) -> [WindowSummary] {
             backend.windows(pid: nil, bundleId: bundleId, includeOffscreen: false).filter { w in
-                guard w.bundleId == bundleId, w.frame.width >= 2, w.frame.height >= 2, wanted == nil || w.windowId == wanted else { return false }
+                guard w.bundleId == bundleId, w.frame.width >= 2, w.frame.height >= 2,
+                      !named || wanted == nil || w.windowId == wanted else { return false }
                 if d.kind == .physical { return platform?.window(on: d.screen, pid: w.process.pid, windowId: w.windowId) != nil }
                 return true
             }
@@ -299,8 +303,10 @@ extension RuntimeService {
             guard execution.holder(of: d.desktopId) == nil else {
                 return refuse("control_busy", "stop the current Run and confirm quiescence before recovering its binding", code: "control_busy")
             }
-            candidates = candidates.filter { $0.process == old.process && $0.windowId != old.windowId }
-            guard candidates.count == 1 else { return refuse("recovery_ambiguous", "recovery needs exactly one eligible replacement window") }
+            let replacements = eligible(named: false).filter { $0.process == old.process && $0.windowId != old.windowId }
+            guard replacements.count == 1 else { return refuse("recovery_ambiguous", "recovery needs exactly one eligible replacement window") }
+            candidates = candidates.filter { $0.process == old.process && $0.windowId == replacements[0].windowId }
+            guard candidates.count == 1 else { return refuse("recovery_ambiguous", "the named window is not the one eligible replacement") }
             guard backend.windows(pid: old.process.pid, bundleId: bundleId, includeOffscreen: true).contains(where: { $0.windowId == candidates[0].windowId }) else { return refuse("recovery_unverified", "replacement window list cannot be verified") }
             expectedRecovery = old
         }
@@ -376,7 +382,7 @@ extension RuntimeService {
         // window of the process that appeared while the user decided makes
         // the target ambiguous again, whatever was approved.
         if let old = expectedRecovery {
-            let stillEligible = eligible().filter { $0.process == old.process && $0.windowId != old.windowId }
+            let stillEligible = eligible(named: false).filter { $0.process == old.process && $0.windowId != old.windowId }
             guard stillEligible.count == 1, stillEligible[0].windowId == w.windowId else {
                 return refuse("recovery_ambiguous", "another window of the app appeared while approval was pending; request recovery again", code: "conflict")
             }

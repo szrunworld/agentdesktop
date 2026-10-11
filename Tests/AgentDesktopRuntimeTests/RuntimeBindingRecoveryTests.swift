@@ -151,3 +151,32 @@ private final class RecoveryStage {
             && $0["reason"]?.stringValue == "\(oldGrantId) window_closed"
     })
 }
+
+/// Codex on 80867e8: naming the replacement window does not hide a second
+/// eligible one, neither before asking nor after the user approved.
+@Test func bindingRecoveryNamingAWindowDoesNotHideASecondOne() throws {
+    let st = try RecoveryStage()
+    func named(_ id: Int) -> RuntimeResponse {
+        call(st.service, st.client, "desktop.recoverBinding",
+             params: #"{"desktopId":"\#(st.desktop)","bundleId":"com.apple.calculator","permissions":["observe","act"],"windowId":\#(id)}"#)
+    }
+    // Two eligible replacements, one named: refused before asking.
+    st.replace([15, 16])
+    let asked = st.confirmer.requests.count
+    #expect(errorDetails(named(15))?["reason"]?.stringValue == "recovery_ambiguous")
+    #expect(st.confirmer.requests.count == asked)
+    // One replacement when asked, a second appears while the user decides.
+    st.replace([15])
+    let backend = st.backend, platform = st.platform
+    st.confirmer.decide = { request in
+        backend.opened.windows += [WindowSummary(windowId: 16, process: backend.processIdentity(101), appName: "Calculator",
+                                                 bundleId: "com.apple.calculator", title: "second",
+                                                 frame: Rect(x: 300, y: 20, width: 230, height: 400), onScreen: true)]
+        platform.windows[101, default: []] += [PlatformWindow(windowId: 16, pid: 101, appName: "Calculator", title: "second",
+                                                              frame: Rect(x: 300, y: 20, width: 230, height: 400))]
+        platform.onScreen[16] = "physical-1"
+        return .approved(digest: request.digest)
+    }
+    #expect(errorDetails(named(15))?["reason"]?.stringValue == "recovery_ambiguous")
+    #expect(st.service.desktops.find(st.desktop)?.binding?.windowId == 11)
+}
