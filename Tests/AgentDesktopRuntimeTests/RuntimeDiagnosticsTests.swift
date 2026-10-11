@@ -143,3 +143,40 @@ private func export(_ s: RuntimeService, _ c: ConnectionState, _ params: String 
     #expect(r["manifest"]?["sections"]?.arrayValue?.first?["truncated"] == .bool(true))
     #expect(sc.s.runs.events("run_bulk0", types: ["run.quiescent"]).count == 1)
 }
+
+@Test func anOldActiveRunBehindManyEndedOnesIsStillExported() throws {
+    let sc = try scene()
+    let old = Timestamp.string(Date().addingTimeInterval(-3 * 86_400))
+    func run(_ id: String, at: String, ended: Bool) -> RunRecord {
+        RunRecord(runId: id, kind: "exec", origin: .agentHub, ownership: .externalClient, lifetime: .connectionScoped,
+                  clientId: "app:x", connectionId: nil, sessionId: "ses_x", desktopId: "d_x", phase: ended ? .ended : .running,
+                  outcome: ended ? .success : nil, quiescence: ended ? .confirmed : .notConfirmed, closingReason: nil, revision: 1,
+                  createdAt: at, endedAt: ended ? at : nil, receipts: [], unknownActions: 0)
+    }
+    sc.s.runs.create(run("run_old_active", at: Timestamp.string(Date().addingTimeInterval(-3 * 86_400 - 60)), ended: false))
+    for i in 0..<250 { sc.s.runs.create(run("run_old_ended\(i)", at: old, ended: true)) }
+    let runs = try export(sc.s, sc.c, #"{"sections":["runs"]}"#).1?["sections"]?["runs"]?["runs"]?.arrayValue ?? []
+    #expect(runs.contains { $0["runId"]?.stringValue == "run_old_active" })
+    #expect(!runs.contains { $0["runId"]?.stringValue == "run_old_ended0" }, "older ended Runs stay out of the window")
+}
+
+@Test func anUnreadableLedgerIsSaidNotShownAsNoRequests() throws {
+    let sc = try scene()
+    _ = act(sc, clickContinue)
+    try sc.s.ledger.db.execute("DROP TABLE requests")
+    let (r, doc) = try export(sc.s, sc.c, #"{"sections":["requests"]}"#)
+    #expect(doc?["sections"]?["requests"]?["available"] == .bool(false))
+    #expect(r["manifest"]?["sections"]?.arrayValue?.first?["unavailable"] == .bool(true))
+}
+
+@Test func refusalsPrunedInsideTheWindowMarkTheSectionTruncated() throws {
+    let sc = try scene()
+    sc.s.hub.auditKeptUnpaired = 3
+    sc.s.hub.auditPruneEvery = 1
+    for i in 0..<6 { sc.s.hub.audit(connectionId: "c\(i)", clientId: "unpaired:c\(i)", method: "act", decision: "denied", reason: "unpaired") }
+    let (r, doc) = try export(sc.s, sc.c, #"{"sections":["authorization"]}"#)
+    #expect(doc?["sections"]?["authorization"]?["truncated"] == .bool(true))
+    #expect(r["manifest"]?["sections"]?.arrayValue?.first?["truncated"] == .bool(true))
+    let fresh = try scene()
+    #expect(try export(fresh.s, fresh.c, #"{"sections":["authorization"]}"#).1?["sections"]?["authorization"]?["truncated"] == .bool(false))
+}

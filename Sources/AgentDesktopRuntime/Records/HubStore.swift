@@ -646,6 +646,19 @@ public final class HubStore: @unchecked Sendable {
         return counts.values.map { ($0.0, $0.1, $0.2, $0.3) }.sorted { ($0.method, $0.reason) < ($1.method, $1.reason) }
     }
 
+    /// Whether retention may have removed refusals recorded since this time:
+    /// a capped class of them is full and its oldest kept one is newer.
+    func refusalsPrunedSince(_ since: String) -> Bool {
+        func full(_ clause: String, cap: Int) -> Bool {
+            guard let r = try? db.query("SELECT COUNT(*), MIN(at) FROM auth_events WHERE \(clause)").first,
+                  let n = r[0] as? Int64 else { return true }
+            return Int(n) >= cap && (r[1] as? String).map { $0 > since } == true
+        }
+        return full("client_id LIKE 'unpaired:%' AND decision IN ('denied', 'requested')", cap: auditKeptUnpaired)
+            || full("decision IN ('denied', 'withheld')", cap: auditKeptRefusals)
+            || full("1 = 1", cap: auditKept)
+    }
+
     public func auditEvents(limit: Int = 200) -> [JSONValue] {
         ((try? db.query("""
             SELECT at, connection_id, client_id, method, decision, reason, run_id FROM auth_events ORDER BY rowid DESC LIMIT ?

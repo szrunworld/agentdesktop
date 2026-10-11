@@ -5791,7 +5791,11 @@
               },
               "truncated": {
                 "type": "boolean",
-                "description": "a limit cut the section short (Runs: 500; requests: 100000 scanned): narrow since"
+                "description": "a limit cut the section short (Runs: 500; requests: 100000 scanned), or retention already removed refusals inside the window: narrow since"
+              },
+              "unavailable": {
+                "type": "boolean",
+                "description": "the section could not be read (the request ledger is unreadable); its contents say why"
               }
             }
           }

@@ -41,15 +41,21 @@ extension RuntimeService {
 
         var sections: [(String, JSONValue)] = []
         var counts: [(String, Int, Bool)] = []
+        var unavailable: Set<String> = []
         for name in Self.diagnosticsSections where chosen.contains(name) {
             let (value, items, truncated) = diagnosticsSection(name, since: since, mine: mine, c)
             sections.append((name, value))
             counts.append((name, items, truncated))
+            if value["available"] == .bool(false) { unavailable.insert(name) }
         }
         let manifest = JSONValue.obj([
             ("scope", .obj([("role", .string(owner ? "owner" : "paired")), ("clientId", .string(c.clientId))])),
             ("since", .string(since)),
-            ("sections", .array(counts.map { .obj([("name", .string($0.0)), ("items", .int($0.1)), ("truncated", .bool($0.2))]) })),
+            ("sections", .array(counts.map { entry in
+                var m: [(String, JSONValue)] = [("name", .string(entry.0)), ("items", .int(entry.1)), ("truncated", .bool(entry.2))]
+                if unavailable.contains(entry.0) { m.append(("unavailable", .bool(true))) }
+                return .obj(m)
+            })),
             ("excluded", .array(Self.diagnosticsExcluded.map(JSONValue.string))),
         ])
         if p["preview"]?.boolValue == true {
@@ -149,16 +155,28 @@ extension RuntimeService {
             if mine != nil, hub.grant(c.clientId)?.capabilities.contains("run") != true {
                 return (.obj([("truncated", .bool(false)), ("runs", .array([]))]), 0, false)
             }
+            // Every Run still active, however old (Codex on 9e6118c: age and
+            // ended are not monotonic across pages), then the Runs created
+            // since, newest first, until past since or the limit.
             var f = RunStore.ListFilter()
             f.clientId = mine
             var out: [RunRecord] = []
+            var seen: Set<String> = []
+            func take(_ r: RunRecord) { if seen.insert(r.runId).inserted { out.append(r) } }
+            var active = f
+            active.activeOnly = true
             var cursor: String?
             repeat {
+                let page = runs.list(active, after: cursor, limit: 200)
+                page.runs.forEach(take)
+                cursor = page.next
+            } while cursor != nil && out.count <= Self.diagnosticsRunLimit
+            cursor = nil
+            repeat {
                 let page = runs.list(f, after: cursor, limit: 200)
-                let fresh = page.runs.filter { $0.createdAt >= since || !$0.isEnded }
-                out += fresh
-                // Newest first: once a page is all older and ended, the rest is too.
-                cursor = fresh.isEmpty ? nil : page.next
+                page.runs.filter { $0.createdAt >= since }.forEach(take)
+                // Ordered by creation time: once one is older than since, so is the rest.
+                cursor = page.runs.contains { $0.createdAt < since } ? nil : page.next
             } while cursor != nil && out.count <= Self.diagnosticsRunLimit
             // Said, not hidden (Codex on ca649dc): more Runs matched than one
             // export holds; narrow since.
@@ -173,7 +191,10 @@ extension RuntimeService {
             var cursor: String?
             var scanned = 0
             repeat {
-                guard let page = try? ledger.list(f, after: cursor, limit: 1000) else { break }
+                guard let page = try? ledger.list(f, after: cursor, limit: 1000) else {
+                    // Unreadable is said, never shown as no requests (Codex on 9e6118c).
+                    return (.obj([("available", .bool(false)), ("reason", .string("ledger_unreadable"))]), 0, false)
+                }
                 for r in page.records { counts["\(r.method)|\(r.state.rawValue)", default: (r.method, r.state.rawValue, 0)].2 += 1 }
                 scanned += page.records.count
                 cursor = page.next
@@ -184,9 +205,13 @@ extension RuntimeService {
                                                                         ("count", .int($0.2))]) }))]), rows.count, cursor != nil)
         case "authorization":
             let rows = hub.refusalCounts(since: since, clientId: mine)
-            return (.obj([("refusals", .array(rows.map { .obj([("method", .string($0.method)), ("decision", .string($0.decision)),
+            // Retention may already have pruned refusals inside the window
+            // (Codex on 9e6118c): then the counts are not the whole story.
+            let pruned = hub.refusalsPrunedSince(since)
+            return (.obj([("truncated", .bool(pruned)),
+                          ("refusals", .array(rows.map { .obj([("method", .string($0.method)), ("decision", .string($0.decision)),
                                                                ("reason", .string($0.reason)), ("count", .int($0.count))]) }))]),
-                    rows.count, false)
+                    rows.count, pruned)
         default:
             return (.null, 0, false)
         }
