@@ -53,7 +53,7 @@ X1 分三个 PR，按顺序合入，各自验收：
 - `not`：matched 与 contradicted 互换，inconclusive 保持。
 - `verification.all` 里的多个谓词合起来就是一个 `all`。
 
-限制：一棵树最多嵌套 4 层、16 个谓词，每个字符串 1–1024 字符。比较沿用 v2 的归一化（只去掉不可见的双向格式字符，按 Unicode 规范等价比较），不做模糊匹配。
+限制：最多嵌套 4 层；`verification.all` 里所有谓词合起来最多 16 个（不是每个成员各 16 个）；每个字符串 1–1024 字符。比较沿用 v2 的归一化（只去掉不可见的双向格式字符，按 Unicode 规范等价比较），不做模糊匹配。
 
 ### 参数
 
@@ -61,7 +61,8 @@ X1 分三个 PR，按顺序合入，各自验收：
 - 线上形式（事件、绑定的 JSON）只写参数名，不写值。
 - 参数取值规则：字符串原样（不能为空）；整数写成十进制；布尔写成 `true` / `false`；带小数的数字没有唯一的屏幕写法，拒绝。
 - 缺参数、参数值不可用、树超限 → `schema_invalid`，`details.reason = verification_invalid`，不建 Run。
-- 本版本不认识的 kind，或后端不支持某个叶子谓词 → `capability_mismatch` / `predicate_unsupported`（F40-06 第 14 行不变）。
+- 契约里没有的 kind：线上的契约校验先拒绝，返回 `schema_invalid`（F40-06 第 2 行）。
+- 契约里有、但这个后端验证不了的叶子谓词 → `capability_mismatch` / `predicate_unsupported`（F40-06 第 14 行不变）。
 
 ### 歧义与 dispatch=0
 

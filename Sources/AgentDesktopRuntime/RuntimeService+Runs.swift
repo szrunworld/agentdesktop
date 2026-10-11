@@ -71,6 +71,9 @@ extension RuntimeService {
         f.phase = p["phase"]?.stringValue.flatMap(RunRecord.Phase.init(rawValue:))
         f.desktopId = p["desktopId"]?.stringValue
         f.activeOnly = p["active"]?.boolValue ?? false
+        // A caller let in by unit.run alone lists its unit Runs only, never
+        // other Runs it kept from a wider grant (codex on e296d08).
+        if c.role == .paired, let g = hub.grant(c.clientId), !g.capabilities.contains("run") { f.kind = "unit" }
         let page = runs.list(f, after: p["cursor"]?.stringValue, limit: p["limit"]?.intValue ?? 50)
         return .success(.obj([("runs", .array(page.runs.map(\.json))), ("next", page.next.map(JSONValue.string) ?? .null)]))
     }

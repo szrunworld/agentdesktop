@@ -284,6 +284,19 @@ final class IdCounter: @unchecked Sendable {
     func next() -> Int { lock.withLock { n += 1; return n } }
 }
 
+/// F40-06 row 12 for these tests: whether each candidate "passed" the GUI
+/// contract test is set here; the store-backed check is exercised end to
+/// end in UnitRunOnRuntimeTests.
+final class ContractEvidenceStub: GuiContractEvidence, @unchecked Sendable {
+    private let lock = NSLock()
+    private var passing = true
+    var passed: Bool {
+        get { lock.withLock { passing } }
+        set { lock.withLock { passing = newValue } }
+    }
+    func guiContractPassed(_ candidate: GuiCandidate, provenance: AdapterProvenance) -> Bool { passed }
+}
+
 /// The Runtime's side of one unit Run, recorded (A6): the events the
 /// explorer wrote, the verification it reported, how it ended.
 final class RecordingSink: UnitRunSink, @unchecked Sendable {
@@ -350,6 +363,7 @@ final class GuiHarness: @unchecked Sendable {
     let features: GuiBackendFeatures?
     let codecs: GuiCodecRegistry
     let owner: ServiceRouter
+    let evidence = ContractEvidenceStub()
     var profile: JSONValue = .null
     private let lock = NSLock()
     private var sinks: [String: RecordingSink] = [:]
@@ -371,9 +385,9 @@ final class GuiHarness: @unchecked Sendable {
         codecs = GuiCodecRegistry(fixtureAdapterEnabled: fixture)
         let ports = GuiExplorerPorts(observation: observation, execution: executor, audit: audit)
         features = backend ? GuiBackendFeatures(actions: GuiActionKind.allCases, verificationPredicates: predicates) : nil
-        let (store, ai, codecs) = (store, ai, codecs)
+        let (store, ai, codecs, evidence) = (store, ai, codecs, evidence)
         units = features.map { f in
-            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs), ports: ports, features: f,
+            UnitRunService(resolver: ConfigBindingResolver(store: store, codecs: codecs), evidence: evidence, ports: ports, features: f,
                            aiService: ai, codecs: codecs, clock: clock)
         }
         owner = ServiceRouter(handlers: ConfigApplicationService(store: store).handlers(callerScope: "owner"))

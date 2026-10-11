@@ -6017,6 +6017,16 @@ enum RuntimeContractData {
               "type": "string",
               "minLength": 1,
               "maxLength": 64
+            },
+            "adapterId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "coordinateProtocol": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
             }
           },
           "required": [

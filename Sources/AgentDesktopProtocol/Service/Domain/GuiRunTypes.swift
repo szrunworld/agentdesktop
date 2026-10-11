@@ -52,6 +52,16 @@ public indirect enum GuiVerification: Equatable, Sendable {
         self = try Self.parse(json, params: params, depth: 1, nodes: &nodes)
     }
 
+    /// A run's `verification.all`: one conjunction whose bounds (depth,
+    /// predicates) cover every member together, as the verifier judges it.
+    public static func conjunction(_ members: [JSONValue], params: JSONValue? = nil) throws -> [GuiVerification] {
+        guard members.count <= maxOperands else {
+            throw ContractError(.validationError, "verification.all holds at most \(maxOperands) predicates")
+        }
+        var nodes = 0
+        return try members.map { try parse($0, params: params, depth: 1, nodes: &nodes) }
+    }
+
     private static func parse(_ json: JSONValue, params: JSONValue?, depth: Int, nodes: inout Int) throws -> GuiVerification {
         nodes += 1
         guard depth <= maxDepth, nodes <= maxNodes else {
@@ -103,8 +113,10 @@ public indirect enum GuiVerification: Equatable, Sendable {
             }
             return .not(try parse(inner, params: params, depth: depth + 1, nodes: &nodes))
         default:
-            // A kind this build does not know is one no backend verifies
-            // (F40-06 row 14), not a malformed predicate.
+            // A kind this build does not know is one no backend verifies.
+            // On the wire the contract already refuses unknown kinds
+            // (schema_invalid, F40-06 row 2); callers that skip the wire
+            // check get capability_mismatch here.
             throw ContractError(.capabilityMismatch, "unknown verification kind")
         }
     }
