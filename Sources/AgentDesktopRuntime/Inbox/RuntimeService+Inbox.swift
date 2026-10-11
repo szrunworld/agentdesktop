@@ -228,11 +228,17 @@ extension RuntimeService {
         }
         let expected = p["expectedRevision"]?.intValue ?? -1
         guard entry.revision == expected else { return .failure(Self.revisionConflict(entry.revision, expected)) }
+        // The comparison and the stop in one step (Codex on 831d28d): a
+        // second decision, or a run.cancel, made on the same view loses.
         let stop: JSONValue
-        switch execution.stop(runId: entry.run.runId, reason: "inbox_cancel", endAs: .cancelled) {
-        case .accepted: stop = Self.stopReceipt(runs.find(entry.run.runId) ?? entry.run, terminal: false)
-        case let .alreadyTerminal(now): stop = Self.stopReceipt(now, terminal: true)
-        case .notFound: return .failure(.notFound("no inbox item \(entry.inboxId)"))
+        switch execution.stop(runId: entry.run.runId, reason: "inbox_cancel", endAs: .cancelled,
+                              onlyIf: { $0.phase == .waitingInput && $0.revision == expected }) {
+        case .accepted?: stop = Self.stopReceipt(runs.find(entry.run.runId) ?? entry.run, terminal: false)
+        case .alreadyTerminal?, .notFound?, nil:
+            let now = runs.find(entry.run.runId)
+            if let now, now.phase == .waitingInput { return .failure(Self.revisionConflict(now.revision, expected)) }
+            return .failure(RuntimeError("conflict", "inbox item \(entry.inboxId) is already resolved", phase: .handler, notSent: true,
+                                         details: .obj([("reason", .string("already_resolved"))])))
         }
         // Who resolved it, beside the Run's own record. The stop stands even
         // if this note cannot be written: the item then reads run_ended.

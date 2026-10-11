@@ -276,3 +276,36 @@ private func storedUnknownRun(_ s: RuntimeService, clientId: String?, desktopId:
     #expect(state() != "unknown")
     #expect(sc.s.runs.find(runId)?.outcome == .unknown)
 }
+
+@Test func twoDecisionsOnOneRevisionNeverBothStopTheRun() async throws {
+    let executor = FakeUnitExecutor()
+    let (_, s, c, d, _) = try unitScene(executor: executor)
+    let runId = try #require(data(await offPool(s, c, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    executor.lastSink?.finished(.needsInput(reason: "login_required"))
+    let q = try #require(try items(s, c, #"{"kind":"question"}"#).first)
+    let inboxId = try #require(q["inboxId"]?.stringValue)
+    let rev = try #require(q["revision"]?.intValue)
+    let params = #"{"inboxId":"\#(inboxId)","resolution":"cancel_run","expectedRevision":\#(rev)}"#
+    let results = await withTaskGroup(of: RuntimeResponse.self) { group in
+        for _ in 0..<8 { group.addTask { await offPool(s, c, "inbox.resolve", params: params) } }
+        var out: [RuntimeResponse] = []
+        for await r in group { out.append(r) }
+        return out
+    }
+    #expect(results.filter { data($0) != nil }.count == 1, "one decision wins")
+    #expect(results.filter { code($0) == "conflict" }.count == 7)
+    #expect(s.runs.find(runId)?.closingReason == "inbox_cancel")
+}
+
+@Test func aResolveOnAViewARunCancelOvertookIsRefused() async throws {
+    let executor = FakeUnitExecutor()
+    let (_, s, c, d, _) = try unitScene(executor: executor)
+    let runId = try #require(data(await offPool(s, c, "unit.run", params: unitParams(d)))?["runId"]?.stringValue)
+    executor.lastSink?.finished(.needsInput(reason: "login_required"))
+    let q = try #require(try items(s, c, #"{"kind":"question"}"#).first)
+    _ = call(s, c, "run.cancel", params: #"{"runId":"\#(runId)"}"#)
+    let r = call(s, c, "inbox.resolve", params: #"{"inboxId":"\#(q["inboxId"]?.stringValue ?? "")","resolution":"cancel_run","expectedRevision":\#(q["revision"]?.intValue ?? 0)}"#)
+    #expect(code(r) == "conflict")
+    #expect(s.runs.find(runId)?.closingReason == "stopped", "the cancel's own reason stands")
+    #expect(s.runs.inboxResolution(q["inboxId"]?.stringValue ?? "") == nil, "no resolution recorded")
+}
