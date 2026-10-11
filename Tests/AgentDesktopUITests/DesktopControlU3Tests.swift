@@ -635,3 +635,42 @@ struct DesktopControlReviewFixTests4 {
         #expect(stops.note(a) == nil)
     }
 }
+
+/// Codex findings on 5d3592b.
+@MainActor
+@Suite("Desktop control review fixes 5")
+struct DesktopControlReviewFixTests5 {
+    // P1: if the state cannot be re-read, nothing is sent.
+    @Test func failsClosedWhenTheStateCannotBeRead() async {
+        let m = MockRuntime()
+        let a = m.addDesktop(name: "A")
+        _ = m.addRun(desktopId: a)
+        m.enableDesktopControl()
+        let flow = DesktopControlFlow(runtime: m, desktopId: a)
+        m.failNext("desktop.show", code: "internal_error")
+        await flow.takeover()
+        #expect(flow.problems[.takeover]?.code == "internal_error")
+        #expect(!m.callLog.contains("desktop.takeover"))
+        await flow.takeover()
+        #expect(m.callLog.contains("desktop.takeover"))
+    }
+
+    // P2: P17 ends only the Run it reviewed, checked when ending.
+    @Test func endingRechecksTheReviewedRun() async throws {
+        let m = MockRuntime()
+        let a = m.addDesktop(name: "A")
+        let old = m.addRun(desktopId: a)
+        m.addAction(runId: old, delivery: "unknown", execution: "unknown")
+        m.endWithUnknownAction(old)
+        m.enableDesktopControl()
+        // A newer Run also ends unknown before the click.
+        let newer = try m.agentStartsRun(a)
+        m.addAction(runId: newer, delivery: "unknown", execution: "unknown")
+        m.endWithUnknownAction(newer)
+        let flow = DesktopControlFlow(runtime: m, desktopId: a)
+        #expect(await flow.endUnknown(reviewedRunId: old) == false)
+        #expect(flow.problems[.handback]?.code == "review_outdated")
+        #expect(!m.callLog.contains("desktop.handback"))
+        #expect(await flow.endUnknown(reviewedRunId: newer) == true)
+    }
+}

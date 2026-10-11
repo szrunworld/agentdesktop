@@ -119,3 +119,13 @@
 | `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` 第 2 次 | 0 | 1429 项全部通过（这一次 SingleEndpointTests 也没有超时） |
 
 修复：控制模型记住页面最近看到的状态（`observedState`）；结果未知时停止、接管、关闭、退出应用、改尺寸一律不发出，按钮置灰（对话框里的也一样）。每次发出这类变更之前，再用 `desktop.show` 读一次当前状态，处理页面还没刷新的情况。没有 Desktop.control 的 Runtime，按活动运行推出状态，用来撤下过时的「已停止」。新增 `DesktopControlReviewFixTests4`（2 项）。
+
+第六轮（Codex 在 5d3592b 上的 1 个 P1、1 个 P2 修复后）：
+
+| 命令 | 退出码 | 结果 |
+| --- | --- | --- |
+| `swift build --build-tests` | 0 | — |
+| `swift test --skip-build` | 0 | 1431 项通过（7 个原有 known issue） |
+| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 0 | 1431 项全部通过 |
+
+修复：变更前的状态复查读不到时，不发出请求（fail closed），并显示错误；标题栏的「停止所有输入」不受影响。P17 的「结束」在发出 handback 前，再读一次 `desktop.show`：只有 Desktop 仍因被核对的那次运行而处于 unknown，才交还，否则显示「这次核对已过时」。新增 `DesktopControlReviewFixTests5`（2 项）。

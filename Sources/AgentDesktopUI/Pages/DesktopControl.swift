@@ -463,10 +463,40 @@ public final class DesktopControlFlow: ObservableObject {
     }
 
     /// Refuses `op` while an unknown result awaits review; true when it may go.
+    /// Fails closed: if the state cannot be read now, nothing is sent
+    /// (Codex P1 on 5d3592b). The global "停止所有输入" stays available.
     func clearOfUnknown(_ op: Operation) async -> Bool {
         if reviewPending { problems[op] = Self.reviewFirst; return false }
-        if (try? await freshlyUnknown()) == true { problems[op] = Self.reviewFirst; return false }
+        do {
+            if try await freshlyUnknown() { problems[op] = Self.reviewFirst; return false }
+        } catch {
+            problems[op] = RuntimeProblem(error)
+            return false
+        }
         return true
+    }
+
+    /// P17's end: hands back only if, read now, the Desktop is still unknown
+    /// because of the reviewed Run (Codex P2 on 5d3592b); otherwise nothing
+    /// is sent and the reason is shown.
+    @discardableResult
+    public func endUnknown(reviewedRunId: String) async -> Bool {
+        guard working == nil else { return false }
+        problems[.handback] = nil
+        do {
+            let d = try await runtime.call("desktop.show", idParams)
+            let c = d["control"]
+            observedState = c?["state"]?.stringValue ?? observedState
+            guard c?["state"]?.stringValue == "unknown", c?["controllerRunId"]?.stringValue == reviewedRunId else {
+                problems[.handback] = RuntimeProblem(code: "review_outdated", title: "这次核对已过时",
+                                                     advice: "Desktop 现在不是因为运行 \(reviewedRunId) 而处于结果未知（可能有更新的运行）。请关闭对话框，按当前状态重新核对。")
+                return false
+            }
+        } catch {
+            problems[.handback] = RuntimeProblem(error)
+            return false
+        }
+        return await handback()
     }
 
     /// After stop_pending: the holder is quiescent, a new takeover may go.

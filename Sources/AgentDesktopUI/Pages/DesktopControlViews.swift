@@ -323,7 +323,7 @@ struct UnknownResultDialog: View {
                 Button {
                     Task {
                         // "已结束" only after the Runtime handed back (Codex P2 on acd2591).
-                        if await flow.handback() { await review.ended() }
+                        if await flow.endUnknown(reviewedRunId: review.entry.runId) { await review.ended() }
                     }
                 } label: { Label("结束连接并保留记录", systemImage: "stop") }
                     .buttonStyle(ADButtonStyle(.primary))
