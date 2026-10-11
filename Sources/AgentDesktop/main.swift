@@ -20,7 +20,7 @@ let instanceLock: Int32 = MainActor.assumeIsolated {
         // A build from before the lock holds none: its Runtime endpoint
         // still tells it is there.
         if ControlProtocol.isListening(HostRole.product.runtimeEndpoint) {
-            SingleInstance.refuse(role: role, holder: nil)
+            SingleInstance.refuse(role: role, holder: SingleInstance.legacyProduct())
         }
         return fd
     case .held(let holder):

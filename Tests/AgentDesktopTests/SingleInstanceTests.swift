@@ -34,4 +34,20 @@ import Testing
         #expect(SingleInstance.refusal(nil).contains("将退出"))
         #expect(SingleInstance.confirmTitle == "确定退出")
     }
+
+    // Codex P2 on 07cfe5f (#305): a product from before the lock is found
+    // through its Runtime endpoint record, so the refused launch can bring
+    // it forward too.
+    @Test func aLegacyProductIsFoundThroughItsEndpointRecord() throws {
+        let path = try tempLock()
+        let dir = (path as NSString).deletingLastPathComponent
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let record = dir + "/runtime.sock.lock"
+        try Data(#"{"product":"AgentDesktop","pid":70760,"listening":true}"#.utf8).write(to: URL(fileURLWithPath: record))
+        let found = SingleInstance.legacyProduct(endpointRecord: record) { $0 == 70760 ? "/old/Agent Desktop.app" : nil }
+        #expect(found == .init(pid: 70760, role: "product", bundlePath: "/old/Agent Desktop.app"))
+        #expect(SingleInstance.legacyProduct(endpointRecord: record) { _ in nil } == nil, "no running app with that pid")
+        #expect(SingleInstance.legacyProduct(endpointRecord: dir + "/missing") { _ in "/x.app" } == nil)
+    }
 }

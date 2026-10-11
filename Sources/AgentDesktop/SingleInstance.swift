@@ -63,11 +63,24 @@ enum SingleInstance {
         return try? JSONDecoder().decode(Holder.self, from: Data(buffer[0..<n]))
     }
 
+    /// A product from before this lock holds none, but its Runtime
+    /// endpoint record (`runtime.sock.lock`) names its pid; the running
+    /// application with that pid gives its bundle, so it can be brought
+    /// forward like any running product.
+    static func legacyProduct(endpointRecord: String = HostRole.product.runtimeEndpoint.path + ".lock",
+                              bundleOf: (Int32) -> String? = { NSRunningApplication(processIdentifier: $0)?.bundleURL?.path }) -> Holder? {
+        guard let data = FileManager.default.contents(atPath: endpointRecord),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let pid = (object["pid"] as? NSNumber)?.int32Value, pid > 0,
+              let bundle = bundleOf(pid) else { return nil }
+        return Holder(pid: pid, role: "product", bundlePath: bundle)
+    }
+
     /// What a refused launch says.
     static func refusal(_ holder: Holder?) -> String {
         let running: String
         if let holder {
-            let what = holder.role == "test" ? "测试副本" : "Agent Desktop"
+            let what = holder.role == "test" ? "测试副本" : " Agent Desktop "
             running = "已经有一个\(what)在运行（pid \(holder.pid)，\(holder.bundlePath)）。"
         } else {
             running = "已经有一个 Agent Desktop 在运行。"
