@@ -192,7 +192,8 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
             let recordState = state ?? (execution == "completed" ? "completed" : execution == "unknown" ? "unknown" : "failed")
             requests[requestId] = .obj([
                 ("requestId", .string(requestId)), ("method", .string("act")), ("state", .string(recordState)),
-                ("acceptedAt", .string(accepted)), ("finishedAt", .string(stamp())), ("outcome", outcome),
+                ("acceptedAt", .string(accepted)), ("finishedAt", .string(stamp())),
+                ("desktopId", run["desktopId"] ?? .null), ("outcome", outcome),
             ])
             return requestId
         }
