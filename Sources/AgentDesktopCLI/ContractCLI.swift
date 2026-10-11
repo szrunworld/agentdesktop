@@ -242,7 +242,8 @@ public enum RuntimeTransport {
     /// from its keychain; never an owner token (there is none on a socket).
     public static func exchange(_ request: JSONValue, path: String, credential: ClientCredential?) -> TransportReply {
         let transport: UnixSocketTransport
-        do { transport = try UnixSocketTransport(path: path, timeout: 120) } catch let e as RuntimeError {
+        let timeout = max(120, CLI.replyTimeout(for: request["method"]?.stringValue ?? ""))
+        do { transport = try UnixSocketTransport(path: path, timeout: timeout) } catch let e as RuntimeError {
             return .unreachable(e.message)
         } catch { return .unreachable("\(error)") }
         defer { transport.close() }

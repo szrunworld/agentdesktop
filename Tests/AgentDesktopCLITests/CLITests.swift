@@ -76,6 +76,25 @@ final class Harness {
     }
 }
 
+@Test func confirmationCallsWaitLongerThanTrustedUI() {
+    let confirmed: [RuntimeMethod] = [
+        .recoverBinding, .windowsRequest, .windowsRevoke, .enableInput,
+        .clientsList, .clientsShow, .clientsRevoke, .grantsList, .grantsSet,
+        .grantsRevoke, .connectionsList,
+    ]
+    for method in confirmed {
+        #expect(CLI.replyTimeout(for: method.rawValue) > 120, "\(method.rawValue)")
+    }
+    #expect(CLI.replyTimeout(for: "ai.profiles.list") > 120)
+    #expect(CLI.replyTimeout(for: RuntimeMethod.status.rawValue) == 10)
+    #expect(CLI.replyTimeout(for: RuntimeMethod.pairingStatus.rawValue) == 10)
+
+    let endpoint = Endpoint(path: "/tmp/confirmation-test.sock", source: .option)
+    let client = CLI().client(endpoint, timeout: CLI.replyTimeout(for: RuntimeMethod.windowsRequest.rawValue))
+    #expect((client as? SocketRuntimeClient)?.timeout == 150)
+    client.close()
+}
+
 @Test func helpNeverConnects() {
     for args in [["help"], ["--help"], ["runtime", "--help"], ["window", "list", "-h"], ["help", "desktop"]] {
         let h = Harness()
