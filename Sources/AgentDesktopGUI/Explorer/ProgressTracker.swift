@@ -38,6 +38,15 @@ struct ProgressTracker {
 
         /// The run's closingReason when this stall ends it.
         var closingReason: String { self == .stateLoop ? "loop_detected" : "no_progress" }
+
+        /// What the next model call is told after this stall's recovery (X1-3).
+        var hint: GuiRecoveryHint {
+            switch self {
+            case .repeatedAction: return .repeatedAction
+            case .noProgress: return .noProgress
+            case .stateLoop: return .stateLoop
+            }
+        }
     }
 
     /// What an action tried to do, for comparing two actions; digests only.

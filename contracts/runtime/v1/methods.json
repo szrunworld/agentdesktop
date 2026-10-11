@@ -891,40 +891,55 @@
       "result": "RequestExport",
       "status": "implemented",
       "note": "observe; the same records and filters as request.list, at most 10000, newest first, written as one JSON document (apiVersion, exportedAt, filter, count, truncated, requests) into an application/json artifact of the caller: read it with artifact.read; kept like any artifact (24 h) and counted against the store's limits (limit_exceeded)"
+    },
+    {
+      "method": "inbox.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "inbox_list_params",
+      "result": "InboxList",
+      "status": "implemented",
+      "note": "run; the platform Inbox (W06), derived from the Run records, newest first: unknown_reference for each action whose delivery is unknown (open until a reconciliation says executed or not_executed), question for each unit Run that waited for a person (open while it is waiting_input). Filters kind, state (default open), runId, desktopId, and for the owner clientId; the owner sees every item, a paired client only those of its own Runs (another client's runId is not_found); limit 1-100 (default 50), cursor from next. approval and external_reference items are reserved: nothing makes them yet"
+    },
+    {
+      "method": "inbox.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "inbox_ref_params",
+      "result": "InboxItem",
+      "status": "implemented",
+      "note": "run; one item with all its reconciliations; another client's item is not_found"
+    },
+    {
+      "method": "inbox.resolve",
+      "stage": "P0",
+      "mutation": true,
+      "params": "inbox_resolve_params",
+      "result": "InboxResolution",
+      "status": "implemented",
+      "note": "owner; an open question item: cancel_run stops its Run as run.cancel does (closingReason inbox_cancel), nothing else is sent. expectedRevision is the item's revision (conflict, reason revision_conflict, otherwise); a resolved item is conflict, reason already_resolved; an unknown_reference item is invalid_argument, reason use_run_reconcile; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "run.reconcile",
+      "stage": "P0",
+      "mutation": true,
+      "params": "run_reconcile_params",
+      "result": "RunReconciliation",
+      "status": "implemented",
+      "note": "owner; appends one reconciliation to an action whose delivery is unknown, of a Run that has ended (else conflict, reason not_quiescent). It changes nothing else: the receipt, the request's outcome (the same requestId still answers action_delivery_unknown) and the Run's outcome (unknown) stay; nothing is retried or replayed, and any new action takes a new requestId. executed or not_executed resolves the Inbox item; still_unknown keeps it open. expectedRevision is the number of reconciliations the action has (conflict, reason revision_conflict, otherwise); an action that is not unknown is invalid_argument, reason not_unknown; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "diagnostics.export",
+      "stage": "P0",
+      "mutation": false,
+      "params": "diagnostics_export_params",
+      "result": "DiagnosticsExport",
+      "status": "implemented",
+      "note": "observe; read-only: repairs nothing, removes no socket, restarts nothing, changes no grant and creates no Run. Writes the chosen sections (runtime identity, admission and permissions; method names; open connections; clients and grant summaries; Desktops; Runs with their stop evidence; request counts by method and state; authorization refusals counted by reason) as one JSON document into an application/json artifact of the caller (read with artifact.read, kept like any artifact), or with preview only says what it would hold. Never in it: credentials or tokens (any adt1_ value is redacted), screenshots or other artifacts, typed text or action parameters, request outcomes, window titles or app content, peer process facts, free-text notes, the endpoint path. The owner sees every client; a paired client only itself, its own connections, Runs (with the run capability), requests and refusals, and Desktops in its grant"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
   "catalog": [
-    {
-      "method": "inbox.list",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "inbox.show",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "inbox.resolve",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "run.reconcile",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "diagnostics.export",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
     {
       "method": "gui.knowledge.get",
       "status": "reserved",

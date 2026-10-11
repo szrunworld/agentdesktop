@@ -33,6 +33,7 @@
 # Usage, from the repository:
 #   scripts/bundle-app.sh && ALLOW_VIRTUAL_DISPLAY=1 scripts/window-grant-touchid-acceptance.sh
 set -u
+. "$(dirname "$0")/lib/process-identity.sh"
 [ "${ALLOW_VIRTUAL_DISPLAY:-}" = 1 ] || {
     echo "This acceptance creates one virtual display (a virtual Desktop) for the window grant."
     echo "Set ALLOW_VIRTUAL_DISPLAY=1 to run it; nothing was started."
@@ -77,16 +78,6 @@ $SEARCH_BEFORE
 EOF
     [ $# -gt 0 ] && security list-keychains -d user -s "$@"
 }
-# Whether the process recorded as pid $1 with start time $2 still runs.
-alive() { [ -n "$1" ] && [ -n "$2" ] && [ "$(ps -o lstart= -p "$1" 2>/dev/null)" = "$2" ]; }
-# Stop that very process (same pid, same start time; Codex on 8e9eb9d: the
-# pid may be reused) and wait for it to go.
-stop() {
-    alive "$1" "$2" || return 0
-    kill "$1" 2>/dev/null
-    i=0; while alive "$1" "$2" && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done
-    ! alive "$1" "$2"
-}
 
 cleanup() {
     rc=$?
@@ -98,11 +89,11 @@ cleanup() {
         "$B" desktop destroy "$DESK" --format json > "$DIR/destroy.json" 2>&1 \
             || cbad "desktop destroy $DESK: $(cat "$DIR/destroy.json" 2>/dev/null)"
     fi
-    stop "${PROBE:-}" "${PROBE_START:-}" || cbad "the probe TextEdit (pid $PROBE) is still running"
-    stop "${HOST:-}" "${HOST_START:-}" || cbad "the test Agent Desktop (pid $HOST) is still running"
+    proc_stop "${PROBE:-}" "${PROBE_ID:-}" || cbad "the probe TextEdit (pid $PROBE) is still running"
+    proc_stop "${HOST:-}" "${HOST_ID:-}" || cbad "the test Agent Desktop (pid $HOST) is still running"
     # Launched but never identified (Codex on 037a804): nothing is stopped
     # without its recorded identity, so a survivor is a cleanup failure.
-    if [ -n "${HOST:-}" ] && [ -z "${HOST_START:-}" ] && kill -0 "$HOST" 2>/dev/null; then
+    if [ -n "${HOST:-}" ] && [ -z "${HOST_ID:-}" ] && kill -0 "$HOST" 2>/dev/null; then
         cbad "the test Agent Desktop was started (pid $HOST) but its identity was not recorded, so it was not stopped; quit it by hand"
     fi
     if [ -n "${PROBE_OPENED:-}" ] && [ -f "$DIR/textedit-before" ]; then
@@ -144,7 +135,7 @@ export AGENTDESKTOP_ENDPOINT="$EP" AGENTDESKTOP_KEYCHAIN="$KC"
 echo "== start Agent Desktop (test copy)"
 AGENTDESKTOP_SOCKET="$DIR/side.sock" "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
 HOST=$!
-HOST_START=$(ps -o lstart= -p "$HOST" 2>/dev/null)
+HOST_ID=$(proc_record "$HOST" "$APP/Contents/MacOS/Agent Desktop") || HOST_ID=""
 i=0; while [ ! -S "$EP" ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
 [ -S "$EP" ] && ok "Runtime listening at $EP" || { bad "Runtime did not start"; exit 1; }
 
@@ -170,8 +161,8 @@ while [ -z "$PROBE" ] && [ $i -lt 40 ]; do
     PROBE="$NEW"
 done
 [ -n "$PROBE" ] && ok "probe TextEdit pid $PROBE (new, started by this script)" || { bad "no new TextEdit"; exit 1; }
-PROBE_START=$(ps -o lstart= -p "$PROBE" 2>/dev/null)
-[ -n "$PROBE_START" ] || { bad "cannot read the probe's start time"; PROBE=""; exit 1; }
+PROBE_ID=$(proc_identity "$PROBE")
+[ -n "$PROBE_ID" ] || { bad "cannot record the probe's identity"; PROBE=""; exit 1; }
 WIN=$(swift - "$PROBE" 2>/dev/null <<'SWIFT'
 import CoreGraphics
 let pid = Int32(CommandLine.arguments[1])!

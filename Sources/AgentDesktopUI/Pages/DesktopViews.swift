@@ -1,12 +1,6 @@
 import AgentDesktopProtocol
 import SwiftUI
 
-/// Buttons for actions the Runtime does not offer yet (desktop.stop,
-/// takeover, closePlan, all A5): present, off, and saying why.
-public enum WaitingFor {
-    public static let a5 = "等待 A5"
-}
-
 /// The live picture of a Desktop's display with its facts: size in pixels
 /// and scale. Frames come from the window's DesktopFrameHub (screen
 /// capture, memory only); they carry no snapshotId, so none is shown. Zoom
@@ -302,19 +296,21 @@ public struct CreateDesktopSheet: View {
 public struct SideBySideView: View {
     @ObservedObject var store: ShellStore
     @ObservedObject var navigation: ShellNavigation
+    @StateObject private var stops: DesktopStops
     let openPreview: ((String) -> Void)?
 
     public init(store: ShellStore, navigation: ShellNavigation, openPreview: ((String) -> Void)?) {
         self.store = store
         self.navigation = navigation
         self.openPreview = openPreview
+        _stops = StateObject(wrappedValue: DesktopStops(store: store))
     }
 
     public var body: some View {
         PageContainer(state: store.desktopsState, emptyTitle: "还没有 Desktop", syncedAt: store.desktopsSyncedAt,
                       retry: { Task { await store.start() } }, header: {
             PageHeader(eyebrow: "Desktops / Side by side", title: "并排预览",
-                       subtitle: "每个 Desktop 独立输入；这里只看画面，停止要等 Runtime 的单 Desktop 停止（A5）。") {
+                       subtitle: "每个 Desktop 独立接收输入与停止指令；停止一个不影响另一个。") {
                 Button { navigation.sideBySide = false } label: { Label("总览", systemImage: "chevron.left") }
                     .buttonStyle(ADButtonStyle(.secondary))
             }
@@ -322,37 +318,42 @@ public struct SideBySideView: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: ADSpace.l), GridItem(.flexible(), spacing: ADSpace.l)],
                       spacing: ADSpace.l) {
                 ForEach(store.desktops.indices, id: \.self) { i in
-                    SideBySidePanel(store: store, navigation: navigation, desktop: store.desktops[i], openPreview: openPreview)
+                    SideBySidePanel(store: store, navigation: navigation, stops: stops, desktop: store.desktops[i], openPreview: openPreview)
                         .id(store.desktops[i]["desktopId"]?.stringValue ?? "\(i)")
                 }
             }
         }
+        .task(id: store.tick) { await stops.refresh() }
     }
 }
 
 struct SideBySidePanel: View {
     @ObservedObject var store: ShellStore
     @ObservedObject var navigation: ShellNavigation
+    @ObservedObject var stops: DesktopStops
     let desktop: JSONValue
     let openPreview: ((String) -> Void)?
     @StateObject private var lease = DesktopFrameLease()
     @State private var zoom: PreviewZoom = .fit
 
-    init(store: ShellStore, navigation: ShellNavigation, desktop: JSONValue, openPreview: ((String) -> Void)?) {
+    init(store: ShellStore, navigation: ShellNavigation, stops: DesktopStops, desktop: JSONValue, openPreview: ((String) -> Void)?) {
         self.store = store
         self.navigation = navigation
+        self.stops = stops
         self.desktop = desktop
         self.openPreview = openPreview
     }
 
     var body: some View {
         let id = desktop["desktopId"]?.stringValue ?? ""
+        let info = DesktopControlInfo.make(desktop: desktop, activeRuns: store.activeRuns)
+        let methods = DesktopControlMethods(capabilities: store.capabilities)
         VStack(alignment: .leading, spacing: ADSpace.m) {
             HStack {
                 Text(desktop["name"]?.stringValue ?? "—").font(ADFont.bodyStrong).foregroundStyle(ADColor.ink)
                 Text(id).font(ADFont.identifier).foregroundStyle(ADColor.muted)
                 Spacer()
-                StateBadge(DesktopControlPresentation.make(desktop: desktop, activeRuns: store.activeRuns).status)
+                StateBadge(info.status)
             }
             DesktopFrameView(lease: lease, zoom: $zoom, height: 300, desktop: desktop)
             HStack(spacing: ADSpace.s) {
@@ -361,13 +362,16 @@ struct SideBySidePanel: View {
                 Button { openPreview?(id) } label: { Label("独立预览", systemImage: "rectangle.on.rectangle") }
                     .buttonStyle(ADButtonStyle(.secondary)).disabled(openPreview == nil)
                 Spacer()
-                Button {} label: { Label("停止", systemImage: "stop.fill") }
-                    .buttonStyle(ADButtonStyle(.secondary)).disabled(true).help(WaitingFor.a5)
-                Text(WaitingFor.a5).font(ADFont.identifier).foregroundStyle(ADColor.muted)
+                if let note = stops.note(id) { Text(note).font(ADFont.note).foregroundStyle(ADColor.muted) }
+                Button { Task { await stops.stop(id) } } label: { Label("停止", systemImage: "stop.fill") }
+                    .buttonStyle(ADButtonStyle(.secondary)).disabled(!connected || !stops.canStop(id, info: info, methods: methods))
+                    .help(DesktopInspectorView.stopBlocked(info, methods: methods, connected: connected) ?? "只停止这个 Desktop 的输入")
             }
         }
         .liveFrame(lease, displayId: DesktopFrameHub.displayId(of: desktop))
     }
+
+    var connected: Bool { if case .connected = store.connection { return true }; return false }
 }
 
 /// P08: one Desktop's picture in its own window. Closing it closes only the
@@ -375,6 +379,7 @@ struct SideBySidePanel: View {
 public struct DesktopPreviewView: View {
     @ObservedObject var store: ShellStore
     @StateObject private var lease = DesktopFrameLease()
+    @StateObject private var stops: DesktopStops
     @State private var zoom: PreviewZoom = .fit
     let desktopId: String
     let hide: () -> Void
@@ -385,6 +390,7 @@ public struct DesktopPreviewView: View {
         self.desktopId = desktopId
         self.hide = hide
         self.openDetail = openDetail
+        _stops = StateObject(wrappedValue: DesktopStops(store: store))
     }
 
     var desktop: JSONValue? { store.desktops.first { $0["desktopId"]?.stringValue == desktopId } }
@@ -394,13 +400,15 @@ public struct DesktopPreviewView: View {
             HStack(spacing: ADSpace.m) {
                 Text(desktop?["name"]?.stringValue ?? desktopId).font(ADFont.bodyStrong).foregroundStyle(ADColor.ink)
                 Text(desktopId).font(ADFont.identifier).foregroundStyle(ADColor.muted)
-                if let d = desktop { StateBadge(DesktopControlPresentation.make(desktop: d, activeRuns: store.activeRuns).status) }
+                if let d = desktop { StateBadge(DesktopControlInfo.make(desktop: d, activeRuns: store.activeRuns).status) }
                 Spacer()
                 Button("打开详情", action: openDetail).buttonStyle(ADButtonStyle(.secondary))
                 Button("隐藏预览", action: hide).buttonStyle(ADButtonStyle(.secondary))
                     .help("只关闭这个窗口；Desktop 和它的运行不受影响")
-                Button {} label: { Label("停止", systemImage: "stop.fill") }.buttonStyle(ADButtonStyle(.secondary))
-                    .disabled(true).help(WaitingFor.a5)
+                if let note = stops.note(desktopId) { Text(note).font(ADFont.note).foregroundStyle(ADColor.muted) }
+                Button { Task { await stops.stop(desktopId) } } label: { Label("停止", systemImage: "stop.fill") }
+                    .buttonStyle(ADButtonStyle(.secondary)).disabled(!canStop)
+                    .help("只停止这个 Desktop 的输入；关闭预览窗口不会停止它")
             }
             .padding(.horizontal, ADSpace.l).frame(height: 54)
             .background(ADColor.panel)
@@ -417,5 +425,12 @@ public struct DesktopPreviewView: View {
         // The window's own scope: closing or hiding the window lets go of
         // the picture even if SwiftUI never reports a disappearance.
         .liveFrame(lease, displayId: DesktopFrameHub.displayId(of: desktop), scope: PreviewWindowRegistry.scope(desktopId))
+        .task(id: store.tick) { await stops.refresh() }
+    }
+
+    var canStop: Bool {
+        guard case .connected = store.connection, let d = desktop else { return false }
+        let info = DesktopControlInfo.make(desktop: d, activeRuns: store.activeRuns)
+        return stops.canStop(desktopId, info: info, methods: DesktopControlMethods(capabilities: store.capabilities))
     }
 }

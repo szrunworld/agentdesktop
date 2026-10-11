@@ -1084,3 +1084,103 @@ private func launchedScene() throws -> (s: RuntimeService, owner: ConnectionStat
     // 4294967308 truncated would be 12: nothing was bound.
     #expect(data(call(st.s, st.owner, "desktop.show", params: #"{"desktopId":"\#(st.desk)"}"#))?["binding"] == .null)
 }
+
+// MARK: Kevin's ruling of 2026-10-11 on kept screenshots
+//
+// A kept (persist) screenshot stays readable after its window closes, until
+// the window grant's time; once the user revokes, the time runs out, the
+// client is removed or its grant is narrowed, the client reads it no more
+// at once. The owner still can.
+
+/// Whether the app, connecting again with its credential, can read `id`.
+private func appReads(_ s: RuntimeService, _ clientId: String, _ token: String, _ id: String) -> Bool {
+    let (back, _) = socketConnection(s, clientId: clientId, token: token)
+    return data(call(s, back, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil
+}
+
+@Test func aKeptScreenshotOfAClosedWindowIsReadableOnlyUntilTheGrantsTime() throws {
+    let (sc, owner, g, token) = try calculatorScene(["observe", "persist"])
+    let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+    sc.s.endWindowGrant(g, reason: "window_closed")
+    #expect(appReads(sc.s, sc.c.clientId, token, id), "the window closed: still readable within the grant's time")
+    // The grant's time runs out after the window closed.
+    var ended = try #require(sc.s.hub.windowGrant(g.windowGrantId))
+    ended.windowGrantId = "wg_closed_expired"
+    ended.expiresAt = Timestamp.string(Date().addingTimeInterval(-1))
+    try sc.s.hub.addWindowGrant(ended)
+    var moved = try #require(sc.s.artifacts.info(id))
+    moved.windowGrantId = "wg_closed_expired"
+    #expect(sc.s.windowArtifactRefusal(moved, sc.c))
+    #expect(data(call(sc.s, owner, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil)
+}
+
+@Test func removingTheClientTakesBackItsKeptScreenshots() throws {
+    for closedFirst in [false, true] {
+        let (sc, owner, g, token) = try calculatorScene(["observe", "persist"])
+        let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+        if closedFirst { sc.s.endWindowGrant(g, reason: "window_closed") }
+        #expect(data(call(sc.s, owner, "hub.clients.revoke", params: #"{"clientId":"\#(sc.c.clientId)"}"#)) != nil)
+        #expect(!appReads(sc.s, sc.c.clientId, token, id), "closedFirst=\(closedFirst)")
+        #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "revoked")
+        // Not even through the old grant record: it is revoked, not ended.
+        #expect(sc.s.windowArtifactRefusal(try #require(sc.s.artifacts.info(id)), ConnectionState.paired(sc.c.clientId)))
+        #expect(data(call(sc.s, owner, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil)
+    }
+}
+
+@Test func narrowingTheClientsGrantTakesBackKeptScreenshotsAtOnce() throws {
+    // Each way the owner narrows: the Desktop, the observe capability, the time.
+    for narrowing in ["desktop", "observe", "time"] {
+        for closedFirst in [false, true] {
+            let (sc, owner, g, token) = try calculatorScene(["observe", "persist"])
+            let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+            if closedFirst { sc.s.endWindowGrant(g, reason: "window_closed") }
+            #expect(appReads(sc.s, sc.c.clientId, token, id))
+            switch narrowing {
+            case "desktop":
+                let p = #"{"clientId":"\#(sc.c.clientId)","capabilities":["observe","act","desktop.manage","run"],"desktops":[],"apps":["com.apple.calculator"]}"#
+                #expect(data(call(sc.s, owner, "hub.grants.set", params: p)) != nil)
+            case "observe":
+                let p = #"{"clientId":"\#(sc.c.clientId)","capabilities":["act","desktop.manage","run"],"desktops":["created"],"apps":["com.apple.calculator"]}"#
+                #expect(data(call(sc.s, owner, "hub.grants.set", params: p)) != nil)
+            default:
+                var cg = try #require(sc.s.hub.grant(sc.c.clientId))
+                cg.expiresAt = Timestamp.string(Date().addingTimeInterval(-1))
+                _ = try sc.s.hub.setGrant(cg)
+            }
+            #expect(!appReads(sc.s, sc.c.clientId, token, id), "\(narrowing), closedFirst=\(closedFirst)")
+            #expect(data(call(sc.s, owner, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil)
+        }
+    }
+}
+
+@Test func restoringObserveOrRenewingTimeDoesNotRestoreOldScreenshots() throws {
+    for narrowing in ["observe", "time"] {
+        for closedFirst in [false, true] {
+            let (sc, owner, g, token) = try calculatorScene(["observe", "persist"])
+            let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+            let original = try #require(sc.s.hub.grant(sc.c.clientId))
+            if closedFirst { sc.s.endWindowGrant(g, reason: "window_closed") }
+            var narrowed = original
+            if narrowing == "observe" {
+                narrowed.capabilities.removeAll { $0 == "observe" }
+            } else {
+                // Still in the future: shortening alone retires old grants.
+                narrowed.expiresAt = Timestamp.string(Date().addingTimeInterval(30))
+                #expect(narrowed.expiresAt < original.expiresAt)
+            }
+            _ = try sc.s.hub.setGrant(narrowed)
+            #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "revoked")
+            #expect(!appReads(sc.s, sc.c.clientId, token, id))
+            _ = try sc.s.hub.setGrant(original)
+            #expect(!appReads(sc.s, sc.c.clientId, token, id), "renewal must not restore the old screenshot")
+            #expect(data(call(sc.s, owner, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil)
+            // A freshly confirmed window grant cannot unlock old artifacts.
+            var fresh = g
+            fresh.windowGrantId = "wg_fresh_after_restore"
+            fresh.state = "active"
+            try sc.s.hub.addWindowGrant(fresh)
+            #expect(!appReads(sc.s, sc.c.clientId, token, id))
+        }
+    }
+}

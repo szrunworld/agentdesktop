@@ -251,8 +251,8 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 | 身份 | hub.pairing.start / status / approve / deny；hub.clients.list / show / revoke；hub.grants.list / set / revoke；hub.connections.list | 🔖 | PR3 |
 | 窗口授权 | hub.windows.request / list / revoke（按窗口的 observe / act / persist，见 docs/security/window-grants.md） | ✅ | 窗口授权前置 PR |
 | 显示器开放 | hub.displays.list / attach / detach（owner 在主窗口把自己的显示器作为物理 Desktop 开放给已配对程序，Touch ID 确认；见 docs/security/owner-display-attach.md） | ✅ | owner 挂接入口 PR |
-| Inbox | inbox.list / show / resolve；run.reconcile（unknown 核对） | 🔖 | PR4 |
-| 诊断 | diagnostics.export | 🔖 | PR4 |
+| Inbox | inbox.list / show / resolve；run.reconcile（unknown 核对；只追加核实记录，原 outcome 不变，不重试；resolve 与 reconcile 只给 owner） | ✅ | PR4① |
+| 诊断 | diagnostics.export（只读；只导出元数据，凭据一律脱敏，不含截图、输入文字、窗口标题；按调用方范围） | ✅ | PR4② |
 | 学习 | gui.knowledge.get / events；gui.procedures.list / get / propose / revise / lifecycle；gui.validations.start / get / cancel | 🔖 | PR7 |
 | 示范与策略 | gui.demonstrations.start / get / stop；gui.learning.settings.get / update | 🔖 P1 | PR7 之后 |
 
@@ -300,6 +300,7 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 - `drag {target, to}`：参数已定稿。但 macOS 引擎只有前台拖动（会把应用拉到前台、移动用户的真实指针），所以 Runtime 在派发前就拒绝：`unsupported_backend`，`notSent: true`，`details.reason: background_drag_unsupported`，dispatch=0，不会改用前台执行（RT-11）。有后台拖动能力的后端出现之后再开放。`unsupported_backend` 因此不再是预留错误码。
 - 所有回执的 `businessResult` 都是 `not_evaluated`（RT-22）。
 - 入口：CLI 新增 `act press`，MCP 新增 `act_press`；hover 和 drag 都不提供入口。
+- **决定（Kevin 2026-10-11，#263 选 B）**：macOS 上明确拒绝 hover，不实现替代方案。**范围**：本节的拒绝在 runtime/1 的 `act`；引擎层也在输入入口直接拒绝 hover（#288），已删除中键模拟路径；CLI、MCP、TarsAgent 同样拒绝。产品宿主只以 `startInProcess` 运行引擎、不开它的 control socket，打包也不含引擎 CLI，因此产品里只能经 runtime/1 到达引擎；B-2 的实现见 #288。第 0 阶段实验结论：只发 `mouseMoved` 的后台投递，Chrome 网页收到 0 个事件，原生 AppKit 的 tracking area 也不响应（tracking area 由 WindowServer 按真实鼠标位置驱动）；只有 Chrome DevTools Protocol 能做到不发按键事件的悬停，但它需要 Runtime 自己拉起带调试管道的浏览器，是一条新的控制通道。将来出现「独立浏览器中必须使用 hover」的明确场景时，再按该场景的收益重新评估（方案 A，设计草案见 #263）。drag 仍按 fail-closed 处理，恢复须另提设计并经批准。
 
 ### 动作记录（A5）
 
@@ -327,7 +328,7 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 - 方法：上表 “Desktop 控制面” 一行，状态 🔖，归 A5。
 - 错误码（`errors.json`，`reserved`）：`pairing_required`、`client_revoked`、`grant_missing`、`grant_expired`、`permit_expired`（退出码 4）；`target_moved`（5）；`audit_unavailable`（7）；`unsupported_backend`、`capability_mismatch`（6）。
 - 可选字段（`methods.json` 的 `plannedFields`，每项随所属 PR 带 Schema、夹具和 golden 落地）：
-  - ~~Action 新增 `hover` / `drag` / `press`~~：已在 A5 PR④ 落地，见下文「act 的 hover、press 与 drag（A5）」；
+  - ~~Action 新增 `hover` / `drag` / `press`~~：参数已在 A5 PR④ 定稿；macOS 上只有 `press` 可用，`hover`、`drag` 在派发前拒绝，见下文「act 的 hover、press 与 drag（A5）」；
   - 只给 `desktopId` 时使用隐式会话；
   - ActionReceipt 新增 `businessResult`（恒为 `not_evaluated`）、`elapsedMs`、`clientId`、`origin`、`geometryRevision`、`dispatchSequence`、`reconciliations` 等；
   - Observation 新增 `targetKind`、`geometryRevision`、`captureSequence`、`coverage`；
