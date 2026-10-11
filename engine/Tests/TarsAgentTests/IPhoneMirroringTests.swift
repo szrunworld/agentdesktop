@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import SecondScreenCore
 import Testing
+import EngineTestSupport
 @testable import TarsAgent
 
 /// A Mac with iPhone Mirroring that exists only in memory.
@@ -1277,7 +1278,11 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
         let phone = IPhoneAgentScreen(screen: "phone", system: fake)
         phone.gateLockWait = 5
         let report = try phone.reconnect(timeout: 20)
-        changed.wait()
+        // The helper thread signals 0.2 s after it starts; 30 s is the limit
+        // (#183). It runs only if its precondition held, so running out
+        // means it never ran: the test fails with evidence, not a hang.
+        try Bounded.wait(changed, 30, for: "the helper thread to change the phone and release the lock",
+                         stage: "after reconnect")
         #expect(report.outcome == .needsUser)
         #expect(fake.pressed.isEmpty)
         #expect(fake.reconnectGate.reason(now: fake.clock) == nil)
@@ -1303,7 +1308,11 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
             }
         }
         let report = try phone.reconnect(timeout: 20)
-        changed.wait()
+        // The helper thread signals 0.2 s after it starts; 30 s is the limit
+        // (#183). It runs only if its precondition held, so running out
+        // means it never ran: the test fails with evidence, not a hang.
+        try Bounded.wait(changed, 30, for: "the helper thread to change the phone and release the lock",
+                         stage: "after reconnect")
         #expect(report.outcome == .needsUser && !report.isReady)
         #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
         // Codex on #142: the report says what the last read saw.
@@ -1366,7 +1375,11 @@ func tap(_ x: Double, _ y: Double) -> InputAction {
             }
         }
         let report = try phone.reconnect(timeout: 20)
-        changed.wait()
+        // The helper thread signals 0.2 s after it starts; 30 s is the limit
+        // (#183). It runs only if its precondition held, so running out
+        // means it never ran: the test fails with evidence, not a hang.
+        try Bounded.wait(changed, 30, for: "the helper thread to change the phone and release the lock",
+                         stage: "after reconnect")
         #expect(!report.isReady)
         #expect(fake.reconnectGate.reason(now: fake.clock) == "an earlier press")
     }

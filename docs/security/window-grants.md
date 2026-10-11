@@ -19,7 +19,7 @@ AgentDesktop 是通用执行平台，各 Agent 是独立客户端。**客户端�
 
 owner（宿主进程内的主窗口、GUI 端口、AI 服务）就是用户本人，不受窗口授权约束。
 
-> 需要 Kevin 确认：“自己启动的窗口”沿用应用级授权（配对时用户已确认 App 列表）。若要求这类窗口也逐个确认，只需把判定改为“一律需要窗口授权”，机制不变。
+“自己启动”只认可证明的那一次启动：`app.launch` 由平台以启动令牌证明进程是这次启动的（已在运行的 App 一律拒绝），记录 pid **+ 启动时间** 和 bundleId；每次使用再核对系统报告的仍是同一个 App，且客户端授权仍包含这个 App 和这个 Desktop。读不到启动时间、换成了别的程序、或 App / Desktop 被移出授权，都不再算自己启动的窗口（`launchedHere`）。Kevin 2026-10-11 已确认这一划分，见文末“决定记录”。
 
 ## 授权记录
 
@@ -60,7 +60,7 @@ owner（宿主进程内的主窗口、GUI 端口、AI 服务）就是用户本�
 | --- | --- | --- |
 | `observe` | 查看这个窗口：`observe` 的窗口截图和元素、`wait` 的元素轮询、`window.list` 列出它 | 截图的长期保存 |
 | `act` | 向这个窗口发送输入：`act` | 查看 |
-| `persist` | 把窗口内容保存下来：截图按正常期限（24 小时，或所在 Run 结束前）保留；在授权期限内可读；窗口自身结束（关闭、进程或 App 变化、Desktop 销毁、Runtime 重启）后，期限内仍可读取 | 用户收回权限后（撤销这条授权，或把该 App / Desktop 移出客户端授权）：客户端再也读不到在这条授权下保存的截图（owner 仍可读） |
+| `persist` | 把窗口内容保存下来：截图按正常期限（24 小时，或所在 Run 结束前）保留；在授权期限内可读；窗口自身结束（关闭、进程或 App 变化、Desktop 销毁、Runtime 重启）后，期限内仍可读取 | 用户收回权限后（撤销这条授权、移除客户端、撤销客户端授权、把该 App / Desktop 移出客户端授权、收回 `observe` 能力、客户端授权到期）或这条授权到期后：客户端立即读不到在这条授权下保存的截图（owner 仍可读） |
 
 - 申请时，每种权限都要求客户端授权里有对应能力：`observe` 和 `persist` 需要 `observe` 能力，`act` 需要 `act` 能力；`window.bind` 本身还需要 `desktop.manage`。
 - **没有 `persist` 时**，`observe` 的截图仍然要写到文件才能交给客户端，但只作为**临时**文件：
@@ -169,3 +169,23 @@ CLI：`agentdesktop windows request|list|revoke`。
 - 封印开关保持原样：产品默认值不变（`physicalDesktopsEnabled == false`，`bindsOnlyLaunchedProcesses == true`）。
 
 真机部分（Touch ID 确认）由 Kevin 本人执行：`scripts/window-grant-touchid-acceptance.sh`。它用测试副本、独立钥匙串文件，只打开并关闭一个自己的 TextEdit 实例。因为物理 Desktop 在产品里仍是关的，授权只能建在虚拟 Desktop 上，会创建一个虚拟显示器，所以脚本要求显式设置 `ALLOW_VIRTUAL_DISPLAY=1` 才运行。
+
+## 决定记录
+
+**Kevin 2026-10-11**（#205 留待确认的两项划分，同意）：
+
+> 客户端在授权范围内自行启动、且进程身份已验证的窗口，沿用应用级授权；接管已有窗口仍逐窗确认。持久截图在窗口关闭后可读至授权到期；撤销、到期、客户端移除或授权范围收窄后，客户端应立即读不到。临时截图仍按其短期限删除。
+
+对应实现与测试（`Tests/AgentDesktopRuntimeTests/RuntimeWindowGrantTests.swift`）：
+
+| 裁决 | 实现 | 测试 |
+| --- | --- | --- |
+| 自行启动、身份已验证的窗口沿用应用级授权 | `launchedHere`（`RuntimeService+WindowGrants.swift`）：启动登记含启动时间，使用时核对 App 与授权范围 | `aWindowTheAppLaunchedItselfNeedsNoWindowGrant`、`aLaunchWithoutAStartTimeIsNotTheClientsOwn`、`anOwnLaunchThatBecameAnotherAppIsNotExempt`、`anOwnLaunchIsReachableOnlyWhileTheGrantCoversItsAppAndDesktop` |
+| 接管已有窗口逐窗确认 | `windowUse` / `requestWindowGrant`：不是自己启动的窗口一律需要窗口授权，经可信确认窗口 + Touch ID | `aWindowGrantIsAskedForOneWindowAndConfirmedByTheUser`、`aGrantForOneWindowGivesNothingOnAnotherWindowOfTheSameApp` |
+| 持久截图窗口关闭后可读至授权到期 | `windowArtifactRefusal`：窗口自身结束（`endingsThatKeepScreenshots`）仍可读，但不超过窗口授权的 `expiresAt` | `anEndedGrantCanStillBeRevokedAndItsKeptScreenshotsGoOutOfReach`、`aKeptScreenshotOfAClosedWindowIsReadableOnlyUntilTheGrantsTime`、`keptScreenshotsAreNotReadablePastTheGrantsTime` |
+| 撤销后立即读不到 | `hub.windows.revoke` 把授权（含已结束的）记为 `revoked` | `withPersistTheScreenshotIsKeptButNotAfterTheUserRevokes`、`anEndedGrantCanStillBeRevokedAndItsKeptScreenshotsGoOutOfReach` |
+| 客户端移除后立即读不到 | `hub.clients.revoke` 同一事务把客户端、授权和全部窗口授权记为 `revoked`；凭据随即失效 | `revokingTheParentGrantRevokesEndedWindowGrantsToo`、`removingTheClientTakesBackItsKeptScreenshots` |
+| 授权范围收窄后立即读不到 | 移出 App / Desktop：同一事务结束窗口授权（已结束的改为 `revoked`）；收回 `observe` 能力或缩短客户端期限：同一事务撤销既有窗口授权，恢复权限不恢复旧截图；客户端到期：请求入口拒绝 | `keptScreenshotsGoOutOfReachWhenTheAppOrDesktopIsTakenAway`、`takingTheAppAwayAfterTheWindowClosedStillTakesBackKeptScreenshots`、`narrowingTheClientsGrantTakesBackKeptScreenshotsAtOnce` |
+| 临时截图按短期限删除 | 120 秒且不晚于授权到期，由定时任务删除；授权失效或收回 `observe` 时立即删除 | `withoutPersistAScreenshotIsTransientAndGoesWithTheGrant`、`aTransientScreenshotGoesAtItsExpiryWithNothingElseHappening`、`aTransientScreenshotGoesNoLaterThanItsGrant`、`takingObserveAwayDeletesTransientsAtOnce` |
+
+Kevin 已确认采用 B：收回 `observe` 能力或缩短客户端授权期限时，在保存客户端授权的同一事务内永久撤销其既有窗口授权（包含窗口已经关闭的授权）。即使之后恢复 `observe` 或续期，旧截图也不会恢复可读；重新逐窗确认产生新的窗口授权，新授权不能解锁旧授权下的截图。缩短到仍在未来的期限也执行这一规则。owner 仍可读取。回归测试：`restoringObserveOrRenewingTimeDoesNotRestoreOldScreenshots`。

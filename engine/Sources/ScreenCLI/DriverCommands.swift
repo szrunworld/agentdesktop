@@ -2,17 +2,23 @@ import CoreGraphics
 import Foundation
 import SecondScreenCore
 
-/// `state`, `click`, `type`, `key`, `scroll`, `drag`, `hover` and `ax-press`: observe
+/// `state`, `click`, `type`, `key`, `scroll`, `drag` and `ax-press`: observe
 /// and drive a window on an agent screen through the running app, which holds
 /// the Accessibility permission and checks the window is on the named screen.
 /// `ax-press --index N` presses one element of the last state through
 /// accessibility only; a verb of its own, so a CLI that predates it stops
 /// with an unknown command instead of clicking.
-/// Each prints one JSON object and exits non-zero on failure.
+/// Each prints one JSON object and exits non-zero on failure. `hover` is
+/// kept as a verb only to be refused with the engine's reason (#263),
+/// before anything is sent to the app.
 enum DriverCommands {
     static let verbs: Set<String> = ["state", "click", "type", "key", "scroll", "drag", "hover", "ax-press"]
 
     static func run(_ verb: String, _ args: Arguments) -> Never {
+        if verb == "hover" {
+            emit(["ok": false, "error": InputAction.hoverRefusal])
+            exit(1)
+        }
         do {
             var request = try target(args, command: verb == "state" ? .windowState : .input)
             if verb == "state" {

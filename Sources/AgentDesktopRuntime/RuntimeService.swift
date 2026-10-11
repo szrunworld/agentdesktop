@@ -231,6 +231,7 @@ public final class RuntimeService: @unchecked Sendable {
         .eventsSubscribe, .eventsUnsubscribe, .displaysList, .displaysAttach, .displaysDetach,
         .desktopClosePlan, .appQuit, .desktopResize,
         .desktopStop, .desktopTakeover, .desktopHandback,
+        .inboxList, .inboxShow, .inboxResolve, .runReconcile,
     ]
 
     public init(identity: RuntimeIdentity, backend: RuntimeBackend, platform: DesktopPlatform? = nil,
@@ -590,6 +591,11 @@ public final class RuntimeService: @unchecked Sendable {
         case .desktopStop: return stopDesktop(p, connection)
         case .desktopTakeover: return takeover(request, connection)
         case .desktopHandback: return handback(p, connection)
+        case .inboxList: return listInbox(p, connection)
+        case .inboxShow: return showInbox(p, connection)
+        case .inboxResolve: return resolveInbox(request, connection)
+        case .runReconcile: return reconcileAction(request, connection)
+        case .diagnosticsExport: return exportDiagnostics(p, connection)
         }
     }
 }

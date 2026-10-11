@@ -39,6 +39,8 @@ public struct ACPProjector: ACPEventProjector {
             // status only: projected under the strictest policy with no content.
             let protected = t.tier == .protected || ACPDataClassifier.isWithheld(f.data)
             updates = project(t, f, protected ? ACPPrivacyPolicy() : policy, context, statusOnly: protected)
+        } else if let u = ACPUnitEventType(rawValue: f.type) {
+            updates = unit(u, f, statusOnly: u.tier == .protected || ACPDataClassifier.isWithheld(f.data))
         } else {
             let name = ACPRedactor.eventTypeName(f.type) ?? "未知类型"
             updates = [.agentThought("收到未识别的运行事件（\(name)），未作处理")]
@@ -72,6 +74,32 @@ public struct ACPProjector: ACPEventProjector {
             return runEnded(f, c)
         case .actionAccepted, .actionDispatched, .actionCompleted, .actionFailed, .actionUnknown, .actionRefused:
             return [action(t, f, p, c, statusOnly: statusOnly)]
+        }
+    }
+
+    // MARK: GUI unit events (X1)
+
+    /// `unit.verification` and `unit.recovery` as one thought line each:
+    /// fixed text for the contract's closed values, a count, nothing else.
+    /// No id, verifier, time or any other field of the payload is read.
+    private func unit(_ t: ACPUnitEventType, _ f: ACPEventFacts, statusOnly: Bool) -> [ACPSessionUpdate] {
+        switch t {
+        case .verification:
+            guard !statusOnly, let status = ACPEventText.unitVerification(f.string("status")) else {
+                return [.agentThought("界面验证：未得出结论")]
+            }
+            var text = "界面验证：\(status)"
+            if f.string("status") == "inconclusive", let why = ACPEventText.inconclusiveReason(f.string("reason")) {
+                text += "（\(why)）"
+            }
+            return [.agentThought(text)]
+        case .recovery:
+            guard !statusOnly, let what = ACPEventText.recovery(f.string("kind")) else {
+                return [.agentThought("已进行一次恢复")]
+            }
+            var text = "恢复：\(what)"
+            if let n = f.data["count"]?.intValue, (1...99).contains(n) { text += "（第 \(n) 次）" }
+            return [.agentThought(text)]
         }
     }
 

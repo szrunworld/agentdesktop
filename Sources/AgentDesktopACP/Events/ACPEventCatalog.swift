@@ -40,8 +40,35 @@ public enum ACPEventType: String, Sendable, CaseIterable {
     /// The tier of any type string: one outside the catalogue is protected
     /// (status only — a neutral line, nothing of its payload).
     public static func tier(of type: String) -> ACPEventTier {
-        ACPEventType(rawValue: type)?.tier ?? .protected
+        ACPEventType(rawValue: type)?.tier ?? ACPUnitEventType(rawValue: type)?.tier ?? .protected
     }
+}
+
+/// The GUI unit's own events the projector reads (X1-3), from
+/// runtime.schema.json#/$defs/UnitRunEvent. They are not part of the frozen
+/// platform catalogue above; every other `unit.*` type stays one neutral
+/// line. The contract keeps their `data` to ids, enums, codes and numbers
+/// (never a screenshot, typed text, a window title, a goal or parameter
+/// value, or a model reply), and only the closed values below are ever
+/// turned into text: anything else is not shown.
+public enum ACPUnitEventType: String, Sendable, CaseIterable {
+    /// The verdict on one observation: matched / contradicted / inconclusive
+    /// (with a reason, X1-1).
+    case verification = "unit.verification"
+    /// One bounded recovery: an empty reply, or a stall (X1-2).
+    case recovery = "unit.recovery"
+
+    /// Closed vocabularies and counts only: normal. A payload the Runtime
+    /// marked withheld still shows its status only.
+    public var tier: ACPEventTier { .normal }
+
+    /// `unit.verification` data.status values.
+    public static let verificationStatuses: Set<String> = ["matched", "contradicted", "inconclusive"]
+    /// `unit.verification` data.reason values (inconclusive only).
+    public static let inconclusiveReasons: Set<String> = ["elements_partial", "elements_unavailable", "ambiguous",
+                                                          "target_missing", "value_unreadable"]
+    /// `unit.recovery` data.kind values.
+    public static let recoveryKinds: Set<String> = ["reobserve_after_empty_reply", "repeated_action", "no_progress", "state_loop"]
 }
 
 /// One Runtime event with its `data` and time pulled out, whichever way the

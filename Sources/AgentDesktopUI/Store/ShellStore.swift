@@ -74,6 +74,8 @@ public final class ShellStore: ObservableObject {
 
     private var desktopTicket = 0
     private var runTicket = 0
+    private var runUpdateVersion = 0
+    private var pushedRunVersions: [String: Int] = [:]
     private var pollTask: Task<Void, Never>?
     private var pushTask: Task<Void, Never>?
     /// Identifies the current push loop, so an old loop that ends late
@@ -218,11 +220,13 @@ public final class ShellStore: ObservableObject {
         let gen = generation
         runTicket += 1
         let ticket = runTicket
+        let version = runUpdateVersion
         if runs.isEmpty, runsSyncedAt == nil { runsState = .loading }
         do {
             let r = try await runtime.call("run.list", .obj([("limit", .int(200))]))
             guard gen == generation, ticket == runTicket else { return }
-            runs = Self.merge(snapshot: r["runs"]?.arrayValue ?? [], over: runs)
+            runs = Self.merge(snapshot: r["runs"]?.arrayValue ?? [], over: runs,
+                              preserving: Set(pushedRunVersions.filter { $0.value > version }.map(\.key)))
             runsSyncedAt = now()
             runsState = runs.isEmpty ? .empty : .loaded
         } catch {
@@ -312,6 +316,8 @@ public final class ShellStore: ObservableObject {
     /// Keep the newer revision of a Run.
     func upsert(_ run: JSONValue) {
         guard let id = run["runId"]?.stringValue else { return }
+        runUpdateVersion += 1
+        pushedRunVersions[id] = runUpdateVersion
         if let i = runs.firstIndex(where: { $0["runId"]?.stringValue == id }) {
             if (runs[i]["revision"]?.intValue ?? 0) <= (run["revision"]?.intValue ?? 0) { runs[i] = run }
         } else {
@@ -325,10 +331,15 @@ public final class ShellStore: ObservableObject {
     /// Runs are listed and in what order, but a Run already shown at a
     /// newer revision (an event applied while the snapshot was in flight)
     /// is kept, so a slow snapshot never moves a Run back.
-    static func merge(snapshot: [JSONValue], over current: [JSONValue]) -> [JSONValue] {
+    static func merge(snapshot: [JSONValue], over current: [JSONValue], preserving ids: Set<String> = []) -> [JSONValue] {
         var known: [String: JSONValue] = [:]
         for r in current { if let id = r["runId"]?.stringValue { known[id] = r } }
-        return snapshot.map { fresh in
+        let listed = Set(snapshot.compactMap { $0["runId"]?.stringValue })
+        let pushed = current.filter { r in
+            guard let id = r["runId"]?.stringValue else { return false }
+            return ids.contains(id) && !listed.contains(id)
+        }
+        return pushed + snapshot.map { fresh in
             guard let id = fresh["runId"]?.stringValue, let shown = known[id],
                   (shown["revision"]?.intValue ?? 0) > (fresh["revision"]?.intValue ?? 0) else { return fresh }
             return shown

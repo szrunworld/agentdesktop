@@ -51,7 +51,8 @@ public final class RequestLedger: @unchecked Sendable {
     /// How long finished records are kept; older ones are pruned at start.
     public static let retentionDays = 7
 
-    private let db: SQLiteDatabase
+    /// Internal so tests can make it unreadable.
+    let db: SQLiteDatabase
     private let now: @Sendable () -> Date
     private let inFlight = NSCondition()
     private var running: Set<String> = []

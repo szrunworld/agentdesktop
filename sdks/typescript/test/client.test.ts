@@ -4,7 +4,8 @@ import { createServer, type Server } from "node:net";
 import { join, dirname } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { API_VERSION, RuntimeApiError, RuntimeClient, checkResponse, loadExecContext, strictParse, type Obj } from "../src/index.ts";
+import { API_VERSION, RuntimeApiError, RuntimeClient, checkResponse, loadCredential, loadExecContext, saveCredential, strictParse, type Obj } from "../src/index.ts";
+import { statSync, writeFileSync } from "node:fs";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const identity = { product: "AgentDesktop", productVersion: "0.1.0-dev", apiVersion: API_VERSION, apiVersions: [API_VERSION],
@@ -106,6 +107,124 @@ test("inside session exec the context attaches and acts in the Run", async () =>
   chmodSync(path, 0o644);
   assert.throws(() => loadExecContext({ AGENTDESKTOP_CONTEXT: path }), RuntimeApiError);
   c.close(); rt.server.close(); rmSync(dir, { recursive: true });
+});
+
+// SDK-01…SDK-05 (08 file): the same outcomes as `agentdesktop agents pair`
+// and the CLI. SDK-06 (MCP --desktop-id) is Swift's MCPServerTests.
+const TOKEN = "adt1_" + "C".repeat(43);
+function fail(req: Obj, code: string, details?: Obj) {
+  return JSON.stringify({ apiVersion: API_VERSION, requestId: req.requestId, ok: false,
+    error: { code, message: "refused", phase: "request", retryable: false, notSent: true, ...(details ? { details } : {}) } });
+}
+function pairingReply(final: Obj) {
+  let polls = 0;
+  return (r: Obj) => {
+    if (r.method === "hub.pairing.start") return ok(r, { pairingId: "pair_9", shortCode: "654321", state: "requested", expiresAt: "2026-10-11T01:00:00Z" });
+    if (r.method === "hub.pairing.status") {
+      polls++;
+      if (polls === 1) return ok(r, { pairingId: "pair_9", state: "requested", expiresAt: "2026-10-11T01:00:00Z" });
+      return ok(r, { pairingId: "pair_9", expiresAt: "2026-10-11T01:00:00Z", ...final });
+    }
+    return ok(r, { desktops: [] });
+  };
+}
+
+test("SDK-01 pairing returns the credential and reconnects as the app", async () => {
+  const rt = await fakeRuntime(pairingReply({ state: "approved", clientId: "app:x", credential: { clientId: "app:x", token: TOKEN } }));
+  const c = new RuntimeClient(rt.path, 2000, {});
+  const codes: string[] = [];
+  const cred = await c.pair("ts-app", ["observe"], { desktops: ["created"], onCode: (code, id) => codes.push(`${code}/${id}`), timeoutMs: 5000, pollMs: 10 });
+  assert.deepEqual(cred, { clientId: "app:x", token: TOKEN });
+  assert.deepEqual(codes, ["654321/pair_9"]);
+  const start = rt.requests.find((r) => r.method === "hub.pairing.start")!;
+  assert.deepEqual(start.params, { agentName: "ts-app", requested: { capabilities: ["observe"], desktops: ["created"], apps: [] } });
+  assert.equal((rt.requests[0].params as Obj).credential, undefined);
+  await c.desktops();
+  const hs = rt.requests.filter((r) => r.method === "runtime.handshake");
+  assert.deepEqual((hs.at(-1)!.params as Obj).credential, { clientId: "app:x", token: TOKEN });
+  c.close(); rt.server.close();
+});
+
+test("SDK-01 denied or expired is permission_denied with the pairing id", async () => {
+  for (const state of ["denied", "expired"]) {
+    const rt = await fakeRuntime(pairingReply({ state }));
+    const c = new RuntimeClient(rt.path, 2000, {});
+    await assert.rejects(c.pair("ts-app", ["observe"], { timeoutMs: 5000, pollMs: 10 }),
+      (e: RuntimeApiError) => e.code === "permission_denied" && e.details.pairingId === "pair_9");
+    c.close(); rt.server.close();
+  }
+});
+
+test("SDK-01 approved without a credential fails at once, like the CLI", async () => {
+  const rt = await fakeRuntime(pairingReply({ state: "approved", clientId: "app:x" }));
+  const c = new RuntimeClient(rt.path, 2000, {});
+  await assert.rejects(c.pair("ts-app", ["observe"], { timeoutMs: 5000, pollMs: 10 }),
+    (e: RuntimeApiError) => e.code === "execution_failed" && e.details.pairingId === "pair_9");
+  assert.equal(rt.requests.filter((r) => r.method === "hub.pairing.status").length, 2);
+  c.close(); rt.server.close();
+});
+
+test("SDK-02 a refused action is reported once and never resent", async () => {
+  const rt = await fakeRuntime((r) => r.method === "session.open"
+    ? ok(r, { sessionId: "s_1", desktopId: "d_1", state: "open", createdAt: "t" })
+    : r.method === "act" ? fail(r, "grant_missing", { reason: "capability", capability: "act" }) : ok(r, {}));
+  const c = new RuntimeClient(rt.path, 2000, {});
+  const s = await c.session("d_1");
+  await assert.rejects(s.click("obs_1", { element: "el_2" }, "ts-act-1"),
+    (e: RuntimeApiError) => e.code === "grant_missing" && e.notSent === true);
+  const acts = rt.requests.filter((r) => r.method === "act");
+  assert.equal(acts.length, 1);
+  assert.equal(acts[0].requestId, "ts-act-1");
+  assert.deepEqual(acts[0].context, { sessionId: "s_1" });
+  await s.close();
+  c.close(); rt.server.close();
+});
+
+test("SDK-03/04 disconnect, then reconnect with the saved credential", async () => {
+  const rt = await fakeRuntime((r) => ok(r, { desktops: [] }));
+  const dir = mkdtempSync("/tmp/adt-ts-cred-");
+  const path = join(dir, "cred.json");
+  saveCredential({ clientId: "app:x", token: TOKEN }, path);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  const c = new RuntimeClient(rt.path, 2000, { AGENTDESKTOP_CREDENTIAL_FILE: path });
+  await c.desktops();
+  c.close();
+  assert.equal(c.identity, undefined);
+  await c.desktops();
+  const hs = rt.requests.filter((r) => r.method === "runtime.handshake");
+  assert.equal(hs.length, 2);
+  for (const h of hs) assert.deepEqual((h.params as Obj).credential, { clientId: "app:x", token: TOKEN });
+  writeFileSync(path, '{"clientId":"app:x","token":"a","token":"b"}');
+  assert.throws(() => loadCredential(path), RuntimeApiError);
+  writeFileSync(path, '{"clientId":"app:x","token":7}');
+  assert.throws(() => loadCredential(path), RuntimeApiError);
+  c.close(); rt.server.close(); rmSync(dir, { recursive: true });
+});
+
+test("SDK-05 a revoked credential is refused and not retried", async () => {
+  // This fake answers the handshake itself with client_revoked.
+  const dir = mkdtempSync("/tmp/adt-ts-rev-");
+  const path = join(dir, "r.sock");
+  const requests: Obj[] = [];
+  const server = createServer((s) => {
+    s.setEncoding("utf8");
+    let buf = "";
+    s.on("data", (chunk: string) => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const req = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
+        requests.push(req);
+        s.write(fail(req, "client_revoked", { reason: "client_revoked" }) + "\n");
+      }
+    });
+  });
+  await new Promise<void>((r) => server.listen(path, r));
+  const c = new RuntimeClient(path, 2000, {}, { clientId: "app:x", token: TOKEN });
+  await assert.rejects(c.desktops(), (e: RuntimeApiError) => e.code === "client_revoked");
+  assert.deepEqual(requests.map((r) => r.method), ["runtime.handshake"]);
+  assert.equal(c.identity, undefined);
+  c.close(); server.close(); rmSync(dir, { recursive: true });
 });
 
 test("live flow against a real Runtime", { skip: !process.env.AGENTDESKTOP_SDK_LIVE_ENDPOINT }, async () => {
