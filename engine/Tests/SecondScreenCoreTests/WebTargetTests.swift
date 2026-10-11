@@ -1,3 +1,5 @@
+import ApplicationServices
+import Foundation
 import Testing
 @testable import SecondScreenCore
 
@@ -18,4 +20,58 @@ func webTargetChangesRefuseBeforeInput(scenario: String) {
 @Test func unchangedWebTargetPassesTheEvidenceGate() throws {
     try AXSnapshot.requireCurrentWebEvidence(oldTree: "observed", newTree: "observed", complete: true,
                                             sameIdentity: true, sameGeometry: true, hitMatches: true)
+}
+
+/// #249: a web target is checked against the whole tree, never the
+/// filtered one `state` showed: the recapture is unfiltered (the capture
+/// takes no query) and compared with the snapshot's unfiltered tree.
+/// Filtered on both sides, a change outside the filter (the item a reused
+/// Delete button acts on) would pass; a filtered tree against a full one
+/// would refuse every input.
+@Test func theWebTargetIsCheckedAgainstTheWholeTree() {
+    let element = AXElementInfo(index: 1, role: "AXButton", label: "Delete",
+                                frame: CGRect(x: 10, y: 10, width: 40, height: 20))
+    func snapshot(tree: String, fullTree: String? = nil) -> AXSnapshot {
+        AXSnapshot(windowID: 7, elements: [element], tree: tree, handles: [:], web: [1], truncated: nil, fullTree: fullTree)
+    }
+    let button = "- [1] AXButton \"Delete\""
+    // Observed with a filter: `tree` shows the button, `fullTree` also the
+    // item it deletes.
+    let observed = snapshot(tree: button, fullTree: "- AXStaticText = \"Invoice 17\"\n" + button)
+    // Unchanged page, captured unfiltered: the trees compared are equal.
+    let same = observed.webEvidenceTrees(against: snapshot(tree: "- AXStaticText = \"Invoice 17\"\n" + button))
+    #expect(same.old == same.new)
+    // The button stayed, the item changed: the trees compared differ.
+    let changed = observed.webEvidenceTrees(against: snapshot(tree: "- AXStaticText = \"Invoice 18\"\n" + button))
+    #expect(changed.old != changed.new)
+    #expect(throws: AccessibilityError.self) {
+        try AXSnapshot.requireCurrentWebEvidence(oldTree: changed.old, newTree: changed.new, complete: true,
+                                                sameIdentity: true, sameGeometry: true, hitMatches: true)
+    }
+    // Never the filtered tree.
+    #expect(changed.old != observed.tree)
+}
+
+/// #249 (69 on 4865552): the whole tree a filtered walk records is exactly
+/// what an unfiltered walk shows, node by node; a filter only narrows what
+/// is shown, never what the whole tree holds.
+@Test(arguments: [
+    ("AXButton", "Delete", nil, false, true),
+    ("AXStaticText", nil, "Invoice 17", false, true),
+    ("AXGroup", nil, nil, false, false),
+    ("AXGroup", "Toolbar", nil, false, true),
+    ("AXButton", "Hidden", nil, true, true),
+    ("AXImage", nil, nil, false, false),
+] as [(String, String?, String?, Bool, Bool)])
+func aFilteredWalkKeepsTheUnfilteredTree(row: (String, String?, String?, Bool, Bool)) {
+    let (role, label, value, hidden, interesting) = row
+    let unfiltered = AXSnapshot.Walker.keep(role: role, label: label, value: value, hidden: hidden,
+                                            interesting: interesting, query: nil)
+    #expect(unfiltered.inFullTree == unfiltered.shown)
+    for query in ["delete", "invoice", "zzz", "axgroup"] {
+        let filtered = AXSnapshot.Walker.keep(role: role, label: label, value: value, hidden: hidden,
+                                              interesting: interesting, query: query)
+        #expect(filtered.inFullTree == unfiltered.shown, "\(role) under \(query)")
+        #expect(!filtered.shown || filtered.inFullTree)
+    }
 }

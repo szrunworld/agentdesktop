@@ -156,11 +156,16 @@ public final class GuiRunDriver: Sendable {
     private func settle(_ bundle: ObservationBundle) async throws -> Bool {
         let v = try verifier.evaluate(bundle, binding: binding, checkedAt: clock.wallNow())
         await recorder.verified(v)
-        if v.status == .passed {
+        // Only matched is success; inconclusive is "not shown yet", never done.
+        switch v.status {
+        case .passed:
             try await move(.succeeded, "goal verified on observation \(bundle.observation.observationId)")
             return true
+        case .inconclusive:
+            try await move(.observing, "goal not confirmed: \(v.reason?.rawValue ?? "inconclusive")")
+        case .failed, .notRun:
+            try await move(.observing, "goal not reached yet")
         }
-        try await move(.observing, "goal not reached yet")
         return false
     }
 
@@ -175,6 +180,8 @@ public final class GuiRunDriver: Sendable {
         var bundle = try await observe()
         // Already satisfied: succeed without any model call (spec §06.3).
         if try await verifyFresh(bundle) { return }
+        var progress = ProgressTracker()
+        progress.start(bundle)
 
         var history: [GuiHistoryTurn] = []
         var stepIndex = 0
@@ -286,6 +293,10 @@ public final class GuiRunDriver: Sendable {
                     try await move(.observing, "re-observing after input")
                     bundle = try await observe()
                     if try await verifyFresh(bundle) { return }
+                    if case let .action(action) = proposal.body,
+                       let stall = progress.afterAction(ProgressTracker.Intent(action), bundle) {
+                        if try await recover(from: stall, stepIndex: proposal.stepIndex, progress: &progress, bundle: &bundle) { return }
+                    }
                 }
             case let .wait(ms):
                 guard ms >= 0, ms <= limits.maxWaitMs else {
@@ -297,6 +308,7 @@ public final class GuiRunDriver: Sendable {
                 try await move(.observing, "waited \(ms) ms")
                 bundle = try await observe()
                 if try await verifyFresh(bundle) { return }
+                progress.afterWait(bundle)
             case .finish:
                 try await move(.verifying, "model reports done; verifying")
                 let previous = bundle.observation.observationId
@@ -311,6 +323,24 @@ public final class GuiRunDriver: Sendable {
                 return
             }
         }
+    }
+
+    /// A stall (X1-2): the first ones the policy allows take one bounded
+    /// recovery (observe the bound target again and verify that newer
+    /// observation; nothing already sent is repeated); one more ends the run
+    /// with closingReason no_progress or loop_detected. True when the
+    /// recovery's observation shows the goal.
+    private func recover(from stall: ProgressTracker.Stall, stepIndex: Int, progress: inout ProgressTracker,
+                         bundle: inout ObservationBundle) async throws -> Bool {
+        guard progress.mayRecover else {
+            throw ContractError(.limitExceeded, "the run stopped making progress (\(stall.rawValue))",
+                                details: .obj([("reasonCode", .string(stall.closingReason))]))
+        }
+        await recorder.recovery(stepIndex: stepIndex, kind: stall.rawValue, count: progress.recoveries + 1)
+        try await checkProceed()
+        bundle = try await observe()
+        progress.recovered(bundle)
+        return try await verifyFresh(bundle)
     }
 
     /// The Runtime rechecks everything again before input; this is the
