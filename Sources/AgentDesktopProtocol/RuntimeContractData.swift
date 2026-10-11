@@ -5280,8 +5280,12 @@ enum RuntimeContractData {
                 },
                 "kind": {
                   "enum": [
-                    "reobserve_after_empty_reply"
-                  ]
+                    "reobserve_after_empty_reply",
+                    "repeated_action",
+                    "no_progress",
+                    "state_loop"
+                  ],
+                  "description": "reobserve_after_empty_reply: a step's empty model reply (Kevin 2026-10-08). The others (X1-2): a stall took its one bounded recovery — a new observation of the bound target, verified; nothing sent is repeated. A further stall ends the Run with closingReason no_progress (repeated_action, no_progress) or loop_detected (state_loop)."
                 },
                 "count": {
                   "type": "integer",
@@ -5328,7 +5332,8 @@ enum RuntimeContractData {
                 "status": {
                   "enum": [
                     "matched",
-                    "contradicted"
+                    "contradicted",
+                    "inconclusive"
                   ]
                 },
                 "verifierId": {
@@ -5340,6 +5345,16 @@ enum RuntimeContractData {
                 },
                 "checkedAt": {
                   "$ref": "#/$defs/Timestamp"
+                },
+                "reason": {
+                  "enum": [
+                    "elements_partial",
+                    "elements_unavailable",
+                    "ambiguous",
+                    "target_missing",
+                    "value_unreadable"
+                  ],
+                  "description": "why an inconclusive verdict could not decide; absent otherwise"
                 }
               }
             }
@@ -6515,26 +6530,138 @@ enum RuntimeContractData {
       "additionalProperties": false
     },
     "GuiVerification": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "const": "element_text_equals"
+      "description": "a completion condition, judged three-valued (matched / contradicted / inconclusive) on one observation of the bound window. Only a complete element read can show absence. Nesting ≤ 4 levels and ≤ 16 predicates in one tree (checked at unit.run admission). value_equals_parameter names a goal.params member; its value is never written here.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "element_text_equals"
+            },
+            "role": {
+              "const": "static_text"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          },
+          "required": [
+            "kind",
+            "role",
+            "text"
+          ],
+          "additionalProperties": false
         },
-        "role": {
-          "const": "static_text"
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "element_exists"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,31}$"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          },
+          "required": [
+            "kind",
+            "role"
+          ],
+          "anyOf": [
+            {
+              "required": [
+                "label"
+              ]
+            },
+            {
+              "required": [
+                "text"
+              ]
+            }
+          ],
+          "additionalProperties": false
         },
-        "text": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1024
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "value_equals_parameter"
+            },
+            "role": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,31}$"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "param": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"
+            }
+          },
+          "required": [
+            "kind",
+            "role",
+            "label",
+            "param"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "all",
+                "any"
+              ]
+            },
+            "of": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "$ref": "#/$defs/GuiVerification"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "of"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "not"
+            },
+            "of": {
+              "$ref": "#/$defs/GuiVerification"
+            }
+          },
+          "required": [
+            "kind",
+            "of"
+          ],
+          "additionalProperties": false
         }
-      },
-      "required": [
-        "kind",
-        "role",
-        "text"
-      ],
-      "additionalProperties": false
+      ]
     },
     "ImageSize": {
       "type": "object",
@@ -8027,7 +8154,8 @@ enum RuntimeContractData {
           "enum": [
             "not_run",
             "passed",
-            "failed"
+            "failed",
+            "inconclusive"
           ]
         },
         "observationId": {
@@ -8065,6 +8193,15 @@ enum RuntimeContractData {
             {
               "type": "null"
             }
+          ]
+        },
+        "reason": {
+          "enum": [
+            "elements_partial",
+            "elements_unavailable",
+            "ambiguous",
+            "target_missing",
+            "value_unreadable"
           ]
         }
       },
@@ -9632,11 +9769,14 @@ enum RuntimeContractData {
           "type": "array",
           "items": {
             "enum": [
-              "element_text_equals"
+              "element_text_equals",
+              "element_exists",
+              "value_equals_parameter"
             ]
           },
           "minItems": 0,
-          "maxItems": 1
+          "maxItems": 3,
+          "uniqueItems": true
         },
         "guiAdapters": {
           "type": "array",

@@ -38,6 +38,8 @@ final class FakeUnitExecutor: UnitRunExecutor, @unchecked Sendable {
         onStart?(context, sink)
     }
     private(set) var handles: [UnitRunStopHandle] = []
+    private(set) var discards = 0
+    func discard(_ plan: any UnitRunPlan) { lock.withLock { discards += 1 } }
 
     var lastSink: UnitRunSink? { lock.withLock { sinks.last } }
     var lastContext: UnitRunContext? { lock.withLock { contexts.last } }
@@ -135,6 +137,7 @@ func eventTypes(_ s: RuntimeService, _ runId: String) -> [String] {
     let runId = try #require(run["runId"]?.stringValue)
     let ctx = try #require(executor.lastContext)
     #expect(ctx.runId == runId && ctx.desktopId == d && ctx.callerScope == "uid:\(getuid())")
+    #expect(executor.discards == 0, "a started plan is not given back")
     #expect(ctx.sessionId == run["sessionId"]?.stringValue)
 
     // The same requestId is the same Run, never a second one.
@@ -235,6 +238,7 @@ func eventTypes(_ s: RuntimeService, _ runId: String) -> [String] {
     let r = await offPool(s, c, "unit.run", params: unitParams(d))
     let runId = try #require(data(r)?["runId"]?.stringValue)
     #expect(executor.contexts.isEmpty, "the executor never started it")
+    #expect(executor.discards == 1, "the plan is given back")
     let ended = try #require(s.runs.find(runId))
     #expect(ended.phase == .ended && ended.outcome == .cancelled && ended.closingReason == "owner_lost")
     #expect(s.execution.holder(of: d) == nil)
@@ -408,6 +412,7 @@ func pairedUnitScene(_ capabilities: [String]) throws -> (RuntimeService, owner:
     let r = await offPool(s, app, "unit.run", params: unitParams(d))
     #expect(data(r) == nil, "\(r.json.encoded())")
     #expect(executor.contexts.isEmpty)
+    #expect(executor.discards == 1, "the plan is given back")
     #expect(s.runs.list(RunStore.ListFilter(), after: nil, limit: 10).runs.isEmpty)
 }
 
@@ -457,6 +462,7 @@ func pairedUnitScene(_ capabilities: [String]) throws -> (RuntimeService, owner:
         guard case let .failure(e) = r.result else { Issue.record("\(change): must refuse"); continue }
         #expect(e.code == "invalid_target" && e.details?["reason"]?.stringValue == "binding_changed", "\(change)")
         #expect(runCount(s, c) == 0 && executor.contexts.isEmpty, "\(change)")
+        #expect(executor.discards == 1, "\(change): the plan is given back")
         #expect(s.sessions.openCount(desktopId: d) == 0, "\(change)")
     }
 }
