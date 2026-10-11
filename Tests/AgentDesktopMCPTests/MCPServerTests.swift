@@ -272,7 +272,7 @@ func serverLimitedToOneDesktop() throws {
     #expect(!list.contains { $0["name"]?.stringValue == "desktop_create" })
     #expect(list.count == MCPTools.all.count - 1)
     for t in list {
-        #expect(!(t["inputSchema"]?["required"]?.arrayValue ?? []).contains(.string("desktopId")), "\(t["name"]?.stringValue ?? "")")
+        #expect((t["inputSchema"]?["required"]?.arrayValue ?? []).contains(.string("desktopId")) == false, "\(t["name"]?.stringValue ?? "")")
     }
     let instructions = scoped.handle(line: #"{"jsonrpc":"2.0","id":2,"method":"initialize","params":{}}"#)?["result"]?["instructions"]?.stringValue
     #expect(instructions?.contains(a) == true)
