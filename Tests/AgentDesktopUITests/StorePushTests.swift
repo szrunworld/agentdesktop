@@ -244,6 +244,21 @@ struct StorePushTests {
 
     // A pushed Run read from an old source is dropped (generations), and
     // a snapshot never moves a Run back to an older revision.
+    @Test func aNewPushedRunSurvivesAnOlderListReply() async throws {
+        let m = MockRuntime.sample()
+        let gated = GatedRuntime(m, gated: ["run.list"])
+        let store = ShellStore(runtime: gated, clock: StillClock(), allowSubscription: false)
+        let pending = Task { await store.refreshRuns() }
+        await waitFor("list in flight") { gated.waitingCount == 1 }
+        let id = m.addRun(desktopId: try #require(m.desktopIds.first))
+        await store.apply(frame: .obj([("cursor", .int(50)), ("event", .obj([("runId", .string(id))]))]))
+        gated.release(0)
+        await pending.value
+        #expect(store.runs.contains { $0["runId"]?.stringValue == id })
+        #expect(store.eventCursor == 50)
+        store.stop()
+    }
+
     @Test func lateAnswersAreDropped() async {
         let old = MockRuntime.sample()
         let gated = GatedRuntime(old, gated: ["run.show"])
