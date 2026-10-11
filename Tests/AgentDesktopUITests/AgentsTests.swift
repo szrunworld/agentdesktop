@@ -73,7 +73,10 @@ struct AgentsTests {
         #expect(AgentsText.grantState(model.grant(of: id), now: Self.now.addingTimeInterval(7200)).text == "授权已到期")
         // The code identity level is shown as the Runtime gives it.
         #expect(AgentsText.codeIdentity(client["codeIdentity"]).text.hasPrefix("same_user"))
-        #expect(AgentsText.codeIdentity(model.client("app:mock-001")?["codeIdentity"]).text.hasPrefix("verified"))
+        // Bound first: Swift 6.1's #expect expands a call whose argument holds
+        // `?` into `$0?.hasPrefix`, which does not compile on CI.
+        let verifiedText = AgentsText.codeIdentity(model.client("app:mock-001")?["codeIdentity"]).text
+        #expect(verifiedText.hasPrefix("verified"))
     }
 
     @Test func removingAnAppIsAcceptedAndSaysWhatStillRuns() async throws {
@@ -95,7 +98,8 @@ struct AgentsTests {
         #expect(r.facts.contains { $0.contains("Hub 不终止它的进程") })
         #expect(model.client(id)?["state"]?.stringValue == "revoked")
         #expect(model.connections(of: id).isEmpty)
-        #expect(model.windowGrants.filter { $0["clientId"]?.stringValue == id }.allSatisfy { $0["state"]?.stringValue == "revoked" })
+        let allRevoked = model.windowGrants.filter { $0["clientId"]?.stringValue == id }.allSatisfy { $0["state"]?.stringValue == "revoked" }
+        #expect(allRevoked)
         #expect(store.runs.first { $0["clientId"]?.stringValue == id }?["phase"]?.stringValue == "stopping")
         #expect(m.contractViolations.isEmpty, "\(m.contractViolations)")
     }
@@ -153,7 +157,8 @@ struct AgentsTests {
         #expect(model.lastResult?.accepted == true, "\(String(describing: model.lastResult))")
         let active = model.windowGrants.filter { $0["clientId"]?.stringValue == id && $0["state"]?.stringValue == "active" }
         #expect(active.isEmpty)
-        #expect(model.windowGrants.contains { $0["endedReason"]?.stringValue == "app_removed" })
+        let endedByRemoval = model.windowGrants.contains { $0["endedReason"]?.stringValue == "app_removed" }
+        #expect(endedByRemoval)
         #expect(model.connections(of: id).isEmpty, "a narrowed app's connections are cut")
     }
 
