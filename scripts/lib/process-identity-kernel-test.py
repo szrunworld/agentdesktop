@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Force the check/signal race: a stale PID version must not signal the live child."""
+import sys
+sys.dont_write_bytecode = True
 import importlib.util
 from pathlib import Path
 import subprocess
