@@ -188,7 +188,13 @@ struct ShellStoreTests {
         #expect(store.eventCursor == 1)
         m.trimEvents(through: m.latestCursor)
         await store.start()
-        await waitFor("resubscribed") { m.subscriberCount == 1 }
+        await waitFor("resubscribed and refreshed snapshot") {
+            let log = m.callLog
+            guard m.subscriberCount == 1,
+                  let subscription = log.firstIndex(of: "events.subscribe"),
+                  let snapshot = log.lastIndex(of: "run.list") else { return false }
+            return snapshot > subscription
+        }
         #expect(store.eventCursor == nil)
         let log = m.callLog
         #expect(log.filter { $0 == "events.subscribe" }.count == 2)

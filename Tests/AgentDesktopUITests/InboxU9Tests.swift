@@ -233,6 +233,15 @@ struct InboxU9Tests {
         #expect(ReconcileDraft(verdict: "executed", evidence: String(repeating: emoji, count: 129)).problem != nil)
     }
 
+    @Test func emptyDefaultInboxKeepsItsFiltersVisible() async {
+        let m = MockRuntime()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        let loader = InboxListLoader(runtime: m)
+        await loader.reload()
+        let page = InboxPage(store: store, navigation: ShellNavigation(), loader: loader)
+        guard case .loaded = page.pageState else { Issue.record("empty Inbox hides its filters"); return }
+    }
+
     @Test func words() {
         #expect(InboxText.verdict("not_executed") == "未执行")
         #expect(InboxText.source("operator_attestation") == "本人确认")

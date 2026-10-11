@@ -52,7 +52,7 @@ public struct InboxPage: View {
 
     /// The filter row stays usable while a filtered list is empty.
     var pageState: PageState {
-        if case .empty = loader.state, filter != InboxListLoader.Filter() { return .loaded }
+        if case .empty = loader.state { return .loaded }
         return loader.state
     }
 
