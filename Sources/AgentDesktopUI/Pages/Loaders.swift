@@ -221,6 +221,9 @@ public final class DesktopActivityLoader: ObservableObject {
 @MainActor
 public final class RunListLoader: ObservableObject {
     public struct Filter: Equatable, Sendable {
+        /// true: only Runs not ended (`active`); false: only ended Runs,
+        /// asked as `phase: ended` (the Runtime reads `active: false` as
+        /// "no filter").
         public var active: Bool?
         public var origin: String?
         public var desktopId: String?
@@ -239,7 +242,11 @@ public final class RunListLoader: ObservableObject {
 
         var params: [(String, JSONValue)] {
             var p: [(String, JSONValue)] = []
-            if let active { p.append(("active", .bool(active))) }
+            switch active {
+            case true?: p.append(("active", .bool(true)))
+            case false?: p.append(("phase", .string("ended")))
+            case nil: break
+            }
             if let origin { p.append(("origin", .string(origin))) }
             if let desktopId { p.append(("desktopId", .string(desktopId))) }
             if let clientId { p.append(("clientId", .string(clientId))) }
@@ -291,8 +298,7 @@ public final class RunListLoader: ObservableObject {
             let r = try await runtime.call("run.list", .obj(filter.params + [("limit", .int(limit))]))
             guard mine == ticket else { return }
             let first = r["runs"]?.arrayValue ?? []
-            let ids = Set(first.compactMap { $0["runId"]?.stringValue })
-            let rest = runs.count > limit ? runs.dropFirst(limit).filter { !ids.contains($0["runId"]?.stringValue ?? "") } : []
+            let rest = runs.count > limit ? Self.tail(after: first, of: runs, key: "runId") : []
             runs = first + rest
             if rest.isEmpty { next = r["next"]?.stringValue }
             syncedAt = Date()
@@ -301,6 +307,17 @@ public final class RunListLoader: ObservableObject {
             guard mine == ticket else { return }
             state = ShellStore.failure(error)
         }
+    }
+
+    /// The pages loaded beyond a re-read first page, by identity: what came
+    /// after the last item the new first page shares with the old list
+    /// (items pushed across the page boundary by newer ones stay; items
+    /// that left the first page's range are dropped), without repeats.
+    static func tail(after first: [JSONValue], of old: [JSONValue], key: String) -> [JSONValue] {
+        let ids = Set(first.compactMap { $0[key]?.stringValue })
+        let shared = old.lastIndex { ids.contains($0[key]?.stringValue ?? "") }
+        let from = shared.map { $0 + 1 } ?? 0
+        return old[from...].filter { !ids.contains($0[key]?.stringValue ?? "") }
     }
 
     /// The next page after `next`.
@@ -406,8 +423,7 @@ public final class ActionRecordsLoader: ObservableObject {
             let r = try await runtime.call("request.list", .obj(filter.params + [("limit", .int(limit))]))
             guard mine == ticket else { return }
             let first = r["requests"]?.arrayValue ?? []
-            let ids = Set(first.compactMap { $0["requestId"]?.stringValue })
-            let rest = records.count > limit ? records.dropFirst(limit).filter { !ids.contains($0["requestId"]?.stringValue ?? "") } : []
+            let rest = records.count > limit ? RunListLoader.tail(after: first, of: records, key: "requestId") : []
             records = first + rest
             if rest.isEmpty { next = r["next"]?.stringValue }
             syncedAt = Date()

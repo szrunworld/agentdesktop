@@ -183,6 +183,11 @@ struct RunsU5Tests {
         await loader.apply(.init(active: true))
         #expect(loader.runs.count == 2)
         #expect(port.listParams.last?["active"]?.boolValue == true)
+        // Ended Runs are asked by phase: the Runtime reads active:false as no filter.
+        await loader.apply(.init(active: false))
+        #expect(port.listParams.last?["phase"]?.stringValue == "ended")
+        #expect(port.listParams.last?["active"] == nil)
+        #expect(loader.runs.allSatisfy { $0["phase"]?.stringValue == "ended" })
         await loader.apply(.init(unknownOnly: true))
         #expect(loader.shown.map { $0["runId"]?.stringValue } == [u], "the Run with an unknown result")
         await loader.apply(.init(desktopId: "desk_none"))
@@ -229,6 +234,18 @@ struct RunsU5Tests {
         #expect(loader.events.contains { $0["type"]?.stringValue == "unit.verification" })
         #expect(RunsText.summary(loader.run!).text == "已验证成功")
         #expect(m.contractViolations.isEmpty)
+    }
+
+    // A refresh after newer items arrived keeps the item pushed across the
+    // page boundary, and drops one that left the first page's range.
+    @Test func refreshKeepsThePageBoundary() {
+        func r(_ id: String) -> JSONValue { .obj([("requestId", .string(id))]) }
+        let old = (0..<6).map { r("o\($0)") }   // first page was o0…o3, then o4, o5
+        let first = [r("n"), r("o0"), r("o1"), r("o2")]   // limit 4: o3 crossed the boundary
+        #expect(RunListLoader.tail(after: first, of: old, key: "requestId").map { $0["requestId"]!.stringValue! } == ["o3", "o4", "o5"])
+        let gone = [r("o0"), r("o2"), r("o3"), r("o4")]   // o1 left the range
+        #expect(RunListLoader.tail(after: gone, of: old, key: "requestId").map { $0["requestId"]!.stringValue! } == ["o5"])
+        #expect(RunListLoader.tail(after: [r("x")], of: old, key: "requestId").count == 6)
     }
 
     @Test func prettyJSONKeepsOrderAndParses() throws {

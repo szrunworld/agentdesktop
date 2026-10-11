@@ -287,9 +287,10 @@ public final class ShellStore: ObservableObject {
     }
 
     /// The push loop's step. The cursor moves only once the Run was read,
-    /// so after a lost connection the same frame comes again (resume after
-    /// the last applied cursor). A Run that cannot be read for any other
-    /// reason (gone, not visible) is skipped.
+    /// so after any failed read the same frame comes again (resume after
+    /// the last applied cursor). Only a Run that is gone or not visible
+    /// (`not_found`, `permission_denied`) is skipped; any other failure
+    /// (lost connection, `internal_error`, …) is thrown, leaving the cursor.
     private func applyPushed(_ frame: JSONValue, _ gen: Int) async throws {
         if let runId = frame["event"]?["runId"]?.stringValue {
             do {
@@ -297,13 +298,16 @@ public final class ShellStore: ObservableObject {
                 guard gen == generation else { return }
                 upsert(run)
             } catch {
-                if RuntimeProblem(error).isDisconnection { throw error }
+                guard Self.skippable.contains(RuntimeProblem(error).code) else { throw error }
             }
         }
         guard gen == generation else { return }
         if let c = frame["cursor"]?.intValue { eventCursor = max(eventCursor ?? 0, c) }
         tick += 1
     }
+
+    /// Failures of `run.show` that mean the Run will never be readable here.
+    static let skippable: Set<String> = ["not_found", "permission_denied"]
 
     /// Keep the newer revision of a Run.
     func upsert(_ run: JSONValue) {
@@ -413,9 +417,11 @@ public final class ShellStore: ObservableObject {
     /// - `events_cursor_expired`: from now, then a snapshot (no pause).
     /// - Runtime unreachable when subscribing: Disconnected; the poll loop
     ///   reconnects and starts the push again from the cursor.
-    /// - Stream lost while connected: pause, then subscribe again from the
-    ///   cursor (the poll loop finds out if the Runtime itself is gone).
-    /// - Anything else (no push in this Runtime, refused): poll Runs.
+    /// - Stream lost or a pushed Run not readable while connected: pause,
+    ///   then subscribe again from the cursor, so the frame comes again
+    ///   (the poll loop finds out if the Runtime itself is gone).
+    /// - Subscribing refused for any other reason (no push in this
+    ///   Runtime, refused): poll Runs.
     private func recover(from error: Error, _ gen: Int, opening: Bool) async -> Bool {
         guard !Task.isCancelled, gen == generation else { return false }
         let p = RuntimeProblem(error)
@@ -423,11 +429,11 @@ public final class ShellStore: ObservableObject {
             eventCursor = nil
             return true
         }
-        if p.isDisconnection {
-            if opening {
-                markDisconnected(p)
-                return false
-            }
+        if p.isDisconnection && opening {
+            markDisconnected(p)
+            return false
+        }
+        if !opening {
             do { try await clock.pause(milliseconds: pollMs) } catch { return false }
             return !Task.isCancelled && gen == generation
         }

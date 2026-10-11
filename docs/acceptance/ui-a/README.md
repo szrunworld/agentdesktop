@@ -72,8 +72,8 @@ Mock（`Runtime/MockLanes/MockRuntime+Runs.swift`）：新增 `request.list`、`
 | 命令 | 退出码 | 结果 |
 | --- | --- | --- |
 | `swift build --build-tests` | 0 | — |
-| `swift test --skip-build` | 0 | 1419 项通过；7 个 known issue 是原有的 ACP Mock 用例（`withKnownIssue`） |
-| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 0 | 1419 项通过（这一轮 `SingleEndpointTests` 没有超时） |
+| `swift test --skip-build` | 0 | 1421 项通过（Codex 修复后）；7 个 known issue 是原有的 ACP Mock 用例（`withKnownIssue`） |
+| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 0 | 1421 项通过（这一轮 `SingleEndpointTests` 没有超时） |
 
 之前一轮（机器重启前、负载 25 左右）出现过 `SingleEndpointTests`、`RuntimeGuiPortsTests`（磁盘 `disk_unknown`）等原有用例失败，本 PR 没有改动这些文件；重启后同一提交整套通过。那一轮还暴露了本 PR 自己的两个问题，已修：`MockRuntimeTests.answersStayInsideTheContract` 改为只核对基础方法（各线方法在各自测试里核对）；新测试的等待从 Combine 的 `.values` 改为缓冲的 `AsyncStream`（前者在两次读取之间收到变化时会崩溃）。
 

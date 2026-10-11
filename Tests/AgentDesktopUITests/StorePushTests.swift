@@ -211,6 +211,24 @@ struct StorePushTests {
         store.stop()
     }
 
+    // A pushed Run that cannot be read for a transient reason is read again
+    // after resubscribing from the cursor: the final state is not lost.
+    @Test func aFailedReadIsRetriedFromTheCursor() async {
+        let m = MockRuntime.sample()
+        let port = PushPort(m)
+        let store = ShellStore(runtime: port, clock: FastClock(), pollMs: 1)
+        await store.start()
+        await until("push live", store) { store.pushLive }
+        m.failNext("run.show", code: "internal_error")
+        m.confirmQuiescence("run_002")
+        await until("ended after the retry", store) {
+            store.runs.first { $0["runId"]?.stringValue == "run_002" }?["phase"]?.stringValue == "ended"
+        }
+        #expect(port.afters.count >= 2, "resubscribed after the failed read")
+        #expect(store.runUpdates == .subscription)
+        store.stop()
+    }
+
     // The Runtime closed the stream on its own: it is opened again.
     @Test func reopensAStreamTheRuntimeEnded() async {
         let m = MockRuntime.sample()
@@ -258,6 +276,10 @@ struct StorePushTests {
         await store.apply(frame: .obj([("cursor", .int(5)), ("event", .obj([("runId", .string("run_001"))]))]))
         #expect(store.eventCursor == 4)
         m.offline = false
+        // Any other failed read keeps the cursor too (the frame comes again).
+        m.failNext("run.show", code: "internal_error")
+        await store.apply(frame: .obj([("cursor", .int(5)), ("event", .obj([("runId", .string("run_001"))]))]))
+        #expect(store.eventCursor == 4)
         // A Run that is gone is skipped and the cursor moves on.
         await store.apply(frame: .obj([("cursor", .int(6)), ("event", .obj([("runId", .string("run_gone"))]))]))
         #expect(store.eventCursor == 6)
