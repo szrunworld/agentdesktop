@@ -116,33 +116,33 @@ extension RuntimeService {
                           action: nil, question: .obj([("reason", .string(row.reason))]), resolution: resolution)
     }
 
-    /// An item before it is loaded: enough to filter, order and page it
-    /// from one row of the store (Codex on dbbbc30: only a page is loaded).
+    /// An item before it is loaded: enough to order and page it, from one
+    /// row of the store (Codex on dbbbc30: only a page is loaded).
     struct InboxStub {
-        var inboxId: String
-        var createdAt: String
-        var open: Bool
+        var key: RunStore.InboxKey
         var unknown: RunStore.UnknownActionRow?
         var question: RunStore.QuestionRow?
     }
 
-    /// Every Inbox item the filters select, newest first, not yet loaded.
-    /// `clientId` narrows to one client's Runs (always the caller's own for
-    /// a paired client).
-    func inboxStubs(kind: String?, runId: String?, clientId: String?, desktopId: String?) -> [InboxStub] {
+    /// One page of Inbox items, newest first, not yet loaded, and the cursor
+    /// after it. Each kind's query reads at most `limit + 1` rows; the two
+    /// are merged here (Codex on 5386e9d).
+    func inboxStubs(kind: String?, _ q: RunStore.InboxQuery) -> (stubs: [InboxStub], next: String?) {
         var out: [InboxStub] = []
         if kind == nil || kind == InboxEntry.Kind.unknownReference.rawValue {
-            out += runs.unknownActionRows(runId: runId, clientId: clientId, desktopId: desktopId).map {
-                InboxStub(inboxId: RunStore.unknownInboxId(runId: $0.runId, requestId: $0.requestId), createdAt: $0.at,
-                          open: !$0.settled, unknown: $0)
+            out += runs.unknownActionRows(q).map {
+                InboxStub(key: .init(at: $0.at, tag: "u", runId: $0.runId, requestId: $0.requestId), unknown: $0)
             }
         }
         if kind == nil || kind == InboxEntry.Kind.question.rawValue {
-            out += runs.questionRows(runId: runId, clientId: clientId, desktopId: desktopId).map {
-                InboxStub(inboxId: RunStore.questionInboxId(runId: $0.runId), createdAt: $0.firstAt, open: $0.waiting, question: $0)
+            out += runs.questionRows(q).map {
+                InboxStub(key: .init(at: $0.firstAt, tag: "q", runId: $0.runId, requestId: ""), question: $0)
             }
         }
-        return out.sorted { ($0.createdAt, $0.inboxId) > ($1.createdAt, $1.inboxId) }
+        out.sort { $0.key > $1.key }
+        guard out.count > q.limit else { return (out, nil) }
+        let page = Array(out.prefix(q.limit))
+        return (page, page.last?.key.cursor)
     }
 
     /// Load one item: its Run, the events of its action, its reconciliations.
@@ -163,13 +163,19 @@ extension RuntimeService {
     func visibleInboxEntry(_ inboxId: String, _ c: ConnectionState) -> Result<InboxEntry, RuntimeError> {
         let mine = isOwner(c) ? nil : c.clientId
         var stub: InboxStub?
+        var q = RunStore.InboxQuery()
+        q.state = "all"
         if inboxId.hasPrefix("inb_q_") {
-            let runId = String(inboxId.dropFirst("inb_q_".count))
-            stub = inboxStubs(kind: InboxEntry.Kind.question.rawValue, runId: runId, clientId: nil, desktopId: nil).first
-        } else if inboxId.hasPrefix("inb_u_") {
-            // Rows only (no Run or event is loaded) until the one that matches.
-            stub = inboxStubs(kind: InboxEntry.Kind.unknownReference.rawValue, runId: nil, clientId: nil, desktopId: nil)
-                .first { $0.inboxId == inboxId }
+            q.runId = String(inboxId.dropFirst("inb_q_".count))
+            q.limit = 1
+            stub = inboxStubs(kind: InboxEntry.Kind.question.rawValue, q).stubs.first
+        } else if let runId = RunStore.runId(ofUnknownInboxId: inboxId) {
+            // The id names its Run: only that Run's unknown actions are read.
+            q.runId = runId
+            q.limit = 100_000
+            stub = inboxStubs(kind: InboxEntry.Kind.unknownReference.rawValue, q).stubs.first {
+                RunStore.unknownInboxId(runId: $0.key.runId, requestId: $0.key.requestId) == inboxId
+            }
         }
         let found = stub.flatMap(inboxEntry)
         guard let found else { return .failure(.notFound("no inbox item \(inboxId)")) }
@@ -186,22 +192,20 @@ extension RuntimeService {
         let state = p["state"]?.stringValue ?? "open"
         // A paired client: its own Runs, whatever clientId it names.
         let clientId = isOwner(c) ? p["clientId"]?.stringValue : c.clientId
-        var items = inboxStubs(kind: p["kind"]?.stringValue, runId: p["runId"]?.stringValue, clientId: clientId,
-                               desktopId: p["desktopId"]?.stringValue)
-        if state != "all" { items = items.filter { $0.open == (state == "open") } }
+        var q = RunStore.InboxQuery()
+        q.runId = p["runId"]?.stringValue
+        q.clientId = clientId
+        q.desktopId = p["desktopId"]?.stringValue
+        q.state = state
+        q.limit = limit
         if let cursor = p["cursor"]?.stringValue {
-            let parts = cursor.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 2 else {
+            guard let key = RunStore.InboxKey(cursor: cursor) else {
                 return .failure(RuntimeError("invalid_argument", "cursor is not one this Runtime gave", phase: .request, notSent: true,
                                              details: .obj([("reason", .string("bad_cursor"))])))
             }
-            items = items.filter { ($0.createdAt, $0.inboxId) < (parts[0], parts[1]) }
+            q.after = key
         }
-        var next: String?
-        if items.count > limit {
-            items = Array(items.prefix(limit))
-            next = items.last.map { "\($0.createdAt)|\($0.inboxId)" }
-        }
+        let (items, next) = inboxStubs(kind: p["kind"]?.stringValue, q)
         let full = isOwner(c)
         // Only the page is loaded.
         let page = items.compactMap(inboxEntry)

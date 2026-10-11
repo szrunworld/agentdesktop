@@ -333,3 +333,36 @@ private func storedUnknownRun(_ s: RuntimeService, clientId: String?, desktopId:
     // Each item still carries its action as the store holds it.
     #expect(page["items"]?.arrayValue?.allSatisfy { $0["action"]?["kind"]?.stringValue == "type" } == true)
 }
+
+@Test func pagesMixBothKindsInOneOrderAndAnItemIsFoundByItsId() throws {
+    let sc = try scene()
+    var expected: Set<String> = []
+    for i in 0..<4 { expected.insert(storedUnknownRun(sc.s, clientId: nil, requestId: "m-\(i)")) }
+    for _ in 0..<3 {
+        let runId = DesktopRegistry.newId(prefix: "run")
+        let at = Timestamp.string(Date())
+        sc.s.runs.create(RunRecord(runId: runId, kind: "unit", origin: .agentHub, ownership: .externalClient, lifetime: .connectionScoped,
+                                   clientId: "app:x", connectionId: nil, sessionId: "ses_x", desktopId: "d_x", phase: .waitingInput,
+                                   outcome: nil, quiescence: .notConfirmed, closingReason: nil, revision: 2, createdAt: at, endedAt: nil,
+                                   receipts: [], unknownActions: 0))
+        sc.s.runs.appendEvent(runId, "unit.needs_input", .obj([("reason", .string("login_required"))]))
+        expected.insert(runId)
+    }
+    var seen: [JSONValue] = []
+    var cursor: String?
+    repeat {
+        let extra = cursor.map { #","cursor":"\#($0)""# } ?? ""
+        let page = try #require(data(call(sc.s, sc.c, "inbox.list", params: #"{"limit":2\#(extra)}"#)))
+        #expect((page["items"]?.arrayValue?.count ?? 0) <= 2)
+        seen += page["items"]?.arrayValue ?? []
+        cursor = page["next"]?.stringValue
+    } while cursor != nil
+    #expect(seen.count == 7 && Set(seen.compactMap { $0["runId"]?.stringValue }) == expected)
+    let order = seen.compactMap { $0["createdAt"]?.stringValue }
+    #expect(order == order.sorted(by: >), "newest first across both kinds")
+    for item in seen {
+        let id = try #require(item["inboxId"]?.stringValue)
+        #expect(data(call(sc.s, sc.c, "inbox.show", params: #"{"inboxId":"\#(id)"}"#))?["inboxId"]?.stringValue == id)
+    }
+    #expect(code(call(sc.s, sc.c, "inbox.show", params: #"{"inboxId":"inb_u_run_nope_0011223344556677"}"#)) == "not_found")
+}

@@ -75,6 +75,7 @@ extension RunStore {
               at TEXT NOT NULL, request_id TEXT NOT NULL)
             """)
         try db.execute("CREATE INDEX IF NOT EXISTS events_by_type ON events (type, run_id)")
+        try db.execute("CREATE INDEX IF NOT EXISTS action_outcomes_by_time ON action_outcomes (outcome, at)")
     }
 
     /// Runs that still have an action whose delivery is unknown and that no
@@ -98,18 +99,67 @@ extension RunStore {
         var settled: Bool { latestVerdict.map { $0 != "still_unknown" } ?? false }
     }
 
-    /// Actions whose delivery is unknown, of Runs still kept, optionally of
-    /// one Run, one client's Runs or one Desktop.
-    func unknownActionRows(runId: String?, clientId: String?, desktopId: String?) -> [UnknownActionRow] {
+    /// Where an Inbox page starts and what it selects, applied inside the
+    /// store's queries (Codex on 5386e9d): a page reads at most `limit + 1`
+    /// rows of each kind, however long the history.
+    struct InboxQuery {
+        var runId: String?
+        var clientId: String?
+        var desktopId: String?
+        /// open, resolved or all.
+        var state = "open"
+        var after: InboxKey?
+        var limit = 50
+    }
+
+    /// The order of the Inbox, newest first: (createdAt, kind tag, runId,
+    /// requestId). Every part is an Id or a timestamp, none holds "|".
+    struct InboxKey: Comparable {
+        var at: String, tag: String, runId: String, requestId: String
+        var cursor: String { [at, tag, runId, requestId].joined(separator: "|") }
+        init(at: String, tag: String, runId: String, requestId: String) {
+            self.at = at; self.tag = tag; self.runId = runId; self.requestId = requestId
+        }
+        init?(cursor: String) {
+            let p = cursor.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+            guard p.count == 4, ["u", "q"].contains(p[1]) else { return nil }
+            self.init(at: p[0], tag: p[1], runId: p[2], requestId: p[3])
+        }
+        static func < (a: InboxKey, b: InboxKey) -> Bool {
+            (a.at, a.tag, a.runId, a.requestId) < (b.at, b.tag, b.runId, b.requestId)
+        }
+    }
+
+    /// `(at, tag, run, request) < after`, for a page that starts after a cursor.
+    private static func before(_ after: InboxKey, at: String, tag: String, run: String, request: String) -> (String, [SQLiteDatabase.Value]) {
+        ("(\(at) < ? OR (\(at) = ? AND (? < ? OR (? = ? AND (\(run) < ? OR (\(run) = ? AND \(request) < ?))))))",
+         [.text(after.at), .text(after.at), .text(tag), .text(after.tag), .text(tag), .text(after.tag),
+          .text(after.runId), .text(after.runId), .text(after.requestId)])
+    }
+
+    private static let latestVerdictSQL = """
+        (SELECT c.verdict FROM reconciliations c WHERE c.run_id = o.run_id AND c.request_id = o.request_id ORDER BY c.seq DESC LIMIT 1)
+        """
+
+    /// Actions whose delivery is unknown, of Runs still kept: one page, newest first.
+    func unknownActionRows(_ q: InboxQuery) -> [UnknownActionRow] {
         var sql = """
-            SELECT o.run_id, o.request_id, o.at, (SELECT c.verdict FROM reconciliations c WHERE c.run_id = o.run_id
-              AND c.request_id = o.request_id ORDER BY c.seq DESC LIMIT 1)
+            SELECT o.run_id, o.request_id, o.at, \(Self.latestVerdictSQL)
             FROM action_outcomes o JOIN runs r ON r.run_id = o.run_id WHERE o.outcome = 'unknown'
             """
         var args: [SQLiteDatabase.Value] = []
-        if let runId { sql += " AND o.run_id = ?"; args.append(.text(runId)) }
-        if let clientId { sql += " AND r.client_id = ?"; args.append(.text(clientId)) }
-        if let desktopId { sql += " AND r.desktop_id = ?"; args.append(.text(desktopId)) }
+        if let runId = q.runId { sql += " AND o.run_id = ?"; args.append(.text(runId)) }
+        if let clientId = q.clientId { sql += " AND r.client_id = ?"; args.append(.text(clientId)) }
+        if let desktopId = q.desktopId { sql += " AND r.desktop_id = ?"; args.append(.text(desktopId)) }
+        if q.state == "open" { sql += " AND COALESCE(\(Self.latestVerdictSQL), 'still_unknown') = 'still_unknown'" }
+        if q.state == "resolved" { sql += " AND COALESCE(\(Self.latestVerdictSQL), 'still_unknown') != 'still_unknown'" }
+        if let after = q.after {
+            let (cond, more) = Self.before(after, at: "o.at", tag: "u", run: "o.run_id", request: "o.request_id")
+            sql += " AND " + cond
+            args += more
+        }
+        sql += " ORDER BY o.at DESC, o.run_id DESC, o.request_id DESC LIMIT ?"
+        args.append(.int(Int64(q.limit + 1)))
         return ((try? db.query(sql, args)) ?? []).map {
             UnknownActionRow(runId: $0[0] as! String, requestId: $0[1] as! String, at: $0[2] as! String, latestVerdict: $0[3] as? String)
         }
@@ -125,18 +175,27 @@ extension RunStore {
     struct QuestionRow { var runId: String; var firstAt: String; var reason: String; var waiting: Bool }
 
     /// Runs that waited for a person (unit.needs_input), with when they first
-    /// did and the latest reason.
-    func questionRows(runId: String?, clientId: String?, desktopId: String?) -> [QuestionRow] {
+    /// did and the latest reason: one page, newest first.
+    func questionRows(_ q: InboxQuery) -> [QuestionRow] {
         var sql = """
-            SELECT e.run_id, MIN(e.at), (SELECT e2.data FROM events e2 WHERE e2.run_id = e.run_id AND e2.type = 'unit.needs_input'
-              ORDER BY e2.seq DESC LIMIT 1), r.phase
+            SELECT e.run_id, MIN(e.at) AS first_at, (SELECT e2.data FROM events e2 WHERE e2.run_id = e.run_id
+              AND e2.type = 'unit.needs_input' ORDER BY e2.seq DESC LIMIT 1), r.phase
             FROM events e JOIN runs r ON r.run_id = e.run_id WHERE e.type = 'unit.needs_input'
             """
         var args: [SQLiteDatabase.Value] = []
-        if let runId { sql += " AND e.run_id = ?"; args.append(.text(runId)) }
-        if let clientId { sql += " AND r.client_id = ?"; args.append(.text(clientId)) }
-        if let desktopId { sql += " AND r.desktop_id = ?"; args.append(.text(desktopId)) }
+        if let runId = q.runId { sql += " AND e.run_id = ?"; args.append(.text(runId)) }
+        if let clientId = q.clientId { sql += " AND r.client_id = ?"; args.append(.text(clientId)) }
+        if let desktopId = q.desktopId { sql += " AND r.desktop_id = ?"; args.append(.text(desktopId)) }
+        if q.state == "open" { sql += " AND r.phase = 'waiting_input'" }
+        if q.state == "resolved" { sql += " AND r.phase != 'waiting_input'" }
         sql += " GROUP BY e.run_id"
+        if let after = q.after {
+            let (cond, more) = Self.before(after, at: "first_at", tag: "q", run: "e.run_id", request: "''")
+            sql += " HAVING " + cond
+            args += more
+        }
+        sql += " ORDER BY first_at DESC, e.run_id DESC LIMIT ?"
+        args.append(.int(Int64(q.limit + 1)))
         return ((try? db.query(sql, args)) ?? []).map { row in
             let data = (row[2] as? String).flatMap { try? StrictJSON.parse($0) }
             return QuestionRow(runId: row[0] as! String, firstAt: row[1] as! String,
@@ -215,8 +274,17 @@ extension RunStore {
     }
 
     /// The stable id of the Inbox item for an unknown action.
+    /// "inb_u_<runId>_<hash of requestId>": the Run is read straight from
+    /// the id, so a lookup reads only that Run's unknown actions.
     static func unknownInboxId(runId: String, requestId: String) -> String {
-        "inb_u_" + SHA256.hash(data: Data("\(runId)\n\(requestId)".utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        "inb_u_\(runId)_" + SHA256.hash(data: Data(requestId.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The Run an unknown item's id names.
+    static func runId(ofUnknownInboxId id: String) -> String? {
+        guard id.hasPrefix("inb_u_"), let cut = id.lastIndex(of: "_") else { return nil }
+        let run = String(id[id.index(id.startIndex, offsetBy: 6)..<cut])
+        return run.isEmpty ? nil : run
     }
 
     static func questionInboxId(runId: String) -> String { "inb_q_" + runId }
