@@ -269,6 +269,8 @@ public final class HubStore: @unchecked Sendable {
             }
         }
         g.revision = (old?.revision ?? 0) + 1
+        let accessWithdrawn = old?.capabilities.contains("observe") == true && !g.capabilities.contains("observe")
+        let timeShortened = old.map { g.expiresAt < $0.expiresAt } ?? false
         var ended: [(id: String, reason: String)] = []
         try db.transaction {
             try putGrant(g)
@@ -278,9 +280,13 @@ public final class HubStore: @unchecked Sendable {
             // Desktop away takes back what was kept under them, so an ended
             // grant then becomes revoked.
             for w in try loadWindowGrants(where: "client_id = ? AND state IN ('active', 'ended')", [.text(g.clientId)]) {
-                let why = g.state != "active" ? "grant_revoked" : endingWindowGrants?(w)
+                // Withdrawing observe or shortening time permanently retires
+                // existing window grants, even after the parent is renewed.
+                let why = g.state != "active" ? "grant_revoked"
+                    : accessWithdrawn ? "observe_removed"
+                    : timeShortened ? "grant_shortened" : endingWindowGrants?(w)
                 guard let why else { continue }
-                let to = g.state != "active" || w.state == "ended" ? "revoked" : "ended"
+                let to = g.state != "active" || accessWithdrawn || timeShortened || w.state == "ended" ? "revoked" : "ended"
                 try endWindowGrantRow(w.windowGrantId, state: to, reason: why)
                 ended.append((w.windowGrantId, why))
             }

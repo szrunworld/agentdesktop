@@ -185,8 +185,7 @@ CLI：`agentdesktop windows request|list|revoke`。
 | 持久截图窗口关闭后可读至授权到期 | `windowArtifactRefusal`：窗口自身结束（`endingsThatKeepScreenshots`）仍可读，但不超过窗口授权的 `expiresAt` | `anEndedGrantCanStillBeRevokedAndItsKeptScreenshotsGoOutOfReach`、`aKeptScreenshotOfAClosedWindowIsReadableOnlyUntilTheGrantsTime`、`keptScreenshotsAreNotReadablePastTheGrantsTime` |
 | 撤销后立即读不到 | `hub.windows.revoke` 把授权（含已结束的）记为 `revoked` | `withPersistTheScreenshotIsKeptButNotAfterTheUserRevokes`、`anEndedGrantCanStillBeRevokedAndItsKeptScreenshotsGoOutOfReach` |
 | 客户端移除后立即读不到 | `hub.clients.revoke` 同一事务把客户端、授权和全部窗口授权记为 `revoked`；凭据随即失效 | `revokingTheParentGrantRevokesEndedWindowGrantsToo`、`removingTheClientTakesBackItsKeptScreenshots` |
-| 授权范围收窄后立即读不到 | 移出 App / Desktop：同一事务结束窗口授权（已结束的改为 `revoked`）；收回 `observe` 能力或客户端授权到期：`artifact.read` 在请求入口按客户端授权拒绝，连接被切断 | `keptScreenshotsGoOutOfReachWhenTheAppOrDesktopIsTakenAway`、`takingTheAppAwayAfterTheWindowClosedStillTakesBackKeptScreenshots`、`narrowingTheClientsGrantTakesBackKeptScreenshotsAtOnce` |
+| 授权范围收窄后立即读不到 | 移出 App / Desktop：同一事务结束窗口授权（已结束的改为 `revoked`）；收回 `observe` 能力或缩短客户端期限：同一事务撤销既有窗口授权，恢复权限不恢复旧截图；客户端到期：请求入口拒绝 | `keptScreenshotsGoOutOfReachWhenTheAppOrDesktopIsTakenAway`、`takingTheAppAwayAfterTheWindowClosedStillTakesBackKeptScreenshots`、`narrowingTheClientsGrantTakesBackKeptScreenshotsAtOnce` |
 | 临时截图按短期限删除 | 120 秒且不晚于授权到期，由定时任务删除；授权失效或收回 `observe` 时立即删除 | `withoutPersistAScreenshotIsTransientAndGoesWithTheGrant`、`aTransientScreenshotGoesAtItsExpiryWithNothingElseHappening`、`aTransientScreenshotGoesNoLaterThanItsGrant`、`takingObserveAwayDeletesTransientsAtOnce` |
 
-已知边界：收回 `observe` 能力或缩短客户端授权期限，是在请求入口拒绝，窗口授权本身不结束；owner 之后若把 `observe` 能力加回、或把授权续期，客户端可以再次读到窗口授权期限内保存的截图。移出 App / Desktop、撤销、移除客户端则是永久的。
-
+Kevin 已确认采用 B：收回 `observe` 能力或缩短客户端授权期限时，在保存客户端授权的同一事务内永久撤销其既有窗口授权（包含窗口已经关闭的授权）。即使之后恢复 `observe` 或续期，旧截图也不会恢复可读；重新逐窗确认产生新的窗口授权，新授权不能解锁旧授权下的截图。缩短到仍在未来的期限也执行这一规则。owner 仍可读取。回归测试：`restoringObserveOrRenewingTimeDoesNotRestoreOldScreenshots`。

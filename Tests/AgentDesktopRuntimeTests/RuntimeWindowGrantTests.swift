@@ -1153,3 +1153,34 @@ private func appReads(_ s: RuntimeService, _ clientId: String, _ token: String, 
         }
     }
 }
+
+@Test func restoringObserveOrRenewingTimeDoesNotRestoreOldScreenshots() throws {
+    for narrowing in ["observe", "time"] {
+        for closedFirst in [false, true] {
+            let (sc, owner, g, token) = try calculatorScene(["observe", "persist"])
+            let id = try #require(data(call(sc.s, sc.c, "observe", context: #"{"sessionId":"\#(sc.session)"}"#))?["image"]?["artifactId"]?.stringValue)
+            let original = try #require(sc.s.hub.grant(sc.c.clientId))
+            if closedFirst { sc.s.endWindowGrant(g, reason: "window_closed") }
+            var narrowed = original
+            if narrowing == "observe" {
+                narrowed.capabilities.removeAll { $0 == "observe" }
+            } else {
+                // Still in the future: shortening alone retires old grants.
+                narrowed.expiresAt = Timestamp.string(Date().addingTimeInterval(30))
+                #expect(narrowed.expiresAt < original.expiresAt)
+            }
+            _ = try sc.s.hub.setGrant(narrowed)
+            #expect(sc.s.hub.windowGrant(g.windowGrantId)?.state == "revoked")
+            #expect(!appReads(sc.s, sc.c.clientId, token, id))
+            _ = try sc.s.hub.setGrant(original)
+            #expect(!appReads(sc.s, sc.c.clientId, token, id), "renewal must not restore the old screenshot")
+            #expect(data(call(sc.s, owner, "artifact.read", params: #"{"artifactId":"\#(id)"}"#)) != nil)
+            // A freshly confirmed window grant cannot unlock old artifacts.
+            var fresh = g
+            fresh.windowGrantId = "wg_fresh_after_restore"
+            fresh.state = "active"
+            try sc.s.hub.addWindowGrant(fresh)
+            #expect(!appReads(sc.s, sc.c.clientId, token, id))
+        }
+    }
+}
