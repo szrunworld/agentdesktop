@@ -180,6 +180,7 @@ public final class AgentsModel: ObservableObject {
         detailTicket += 1
         let mine = detailTicket
         guard offers("hub.clients.show") else {
+            detail = nil
             detailProblem = Self.missing("hub.clients.show")
             return
         }
@@ -190,6 +191,7 @@ public final class AgentsModel: ObservableObject {
             detailProblem = nil
         } catch {
             guard mine == detailTicket else { return }
+            detail = nil
             detailProblem = RuntimeProblem(error)
         }
     }

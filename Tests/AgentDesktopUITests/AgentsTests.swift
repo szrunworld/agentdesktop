@@ -51,8 +51,11 @@ struct AgentsTests {
         let m = MockRuntime.agentsSample()
         let (_, model) = await loaded(m)
         let id = "app:mock-001"
+        model.clientId = id
+        await model.loadDetail(id)
         _ = try await m.call("hub.grants.revoke", .obj([("clientId", .string(id))]))
         m.failNext("hub.grants.list", code: "deadline_exceeded")
+        m.failNext("hub.clients.show", code: "deadline_exceeded")
         await model.load()
         #expect(model.grant(of: id)?["state"]?.stringValue == "revoked")
     }
@@ -174,7 +177,7 @@ struct AgentsTests {
         #expect(model.lastResult?.accepted == true, "\(String(describing: model.lastResult))")
         let active = model.windowGrants.filter { $0["clientId"]?.stringValue == id && $0["state"]?.stringValue == "active" }
         #expect(active.isEmpty)
-        let endedByRemoval = model.windowGrants.contains { $0["endedReason"]?.stringValue == "app_removed" }
+        let endedByRemoval = model.windowGrants.contains { $0["endedReason"]?.stringValue == "grant_shortened" }
         #expect(endedByRemoval)
         #expect(model.connections(of: id).isEmpty, "a narrowed app's connections are cut")
     }

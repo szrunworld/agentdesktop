@@ -72,15 +72,17 @@ extension MockRuntime {
             clients[i] = clients[i].setting("grant", grant)
             let appSet = Set((apps.arrayValue ?? []).compactMap(\.stringValue))
             let deskSet = Set((desks.arrayValue ?? []).compactMap(\.stringValue))
-            let narrowed = !Set((old["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue)).isSubset(of: Set((caps.arrayValue ?? []).compactMap(\.stringValue)))
+            let timeShortened = (grant["expiresAt"]?.stringValue ?? "") < (old["expiresAt"]?.stringValue ?? "")
+            let observeRemoved = (old["capabilities"]?.arrayValue ?? []).contains(.string("observe")) && !(caps.arrayValue ?? []).contains(.string("observe"))
+            let narrowed = timeShortened || !Set((old["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue)).isSubset(of: Set((caps.arrayValue ?? []).compactMap(\.stringValue)))
                 || !Set((old["desktops"]?.arrayValue ?? []).compactMap(\.stringValue)).isSubset(of: deskSet)
                 || !Set((old["apps"]?.arrayValue ?? []).compactMap(\.stringValue)).isSubset(of: appSet)
             for w in lane.windowGrants.indices where lane.windowGrants[w]["clientId"]?.stringValue == id
-                && lane.windowGrants[w]["state"]?.stringValue == "active" {
+                && ["active", "ended"].contains(lane.windowGrants[w]["state"]?.stringValue ?? "") {
                 let g = lane.windowGrants[w]
-                let reason = !appSet.contains(g["window"]?["bundleId"]?.stringValue ?? "") ? "app_removed"
+                let reason = observeRemoved ? "observe_removed" : timeShortened ? "grant_shortened" : !appSet.contains(g["window"]?["bundleId"]?.stringValue ?? "") ? "app_removed"
                     : !deskSet.contains(g["desktopId"]?.stringValue ?? "") ? "desktop_removed" : nil
-                if let reason { lane.windowGrants[w] = g.setting("state", .string("ended")).setting("endedReason", .string(reason)) }
+                if let reason { lane.windowGrants[w] = g.setting("state", .string(observeRemoved || timeShortened || g["state"]?.stringValue == "ended" ? "revoked" : "ended")).setting("endedReason", .string(reason)) }
             }
             if narrowed { agentsCut(id) }
             agentsStopRuns(of: id, reason: "grant_narrowed") { run in

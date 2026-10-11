@@ -516,7 +516,7 @@ struct AgentDetailView: View {
                     .font(ADFont.note).foregroundStyle(ADColor.muted).fixedSize(horizontal: false, vertical: true)
                 Rectangle().fill(ADColor.line).frame(height: 1).padding(.vertical, ADSpace.xs)
                 Text("打开的连接").font(ADFont.noteStrong).foregroundStyle(ADColor.ink)
-                let conns = model.connections(of: clientId)
+                let conns = model.partProblems["hub.connections.list"] == nil ? model.connections(of: clientId) : []
                 if conns.isEmpty {
                     Text(model.partProblems["hub.connections.list"] != nil ? "Runtime 没有回答连接列表。" : "当前没有打开的连接。")
                         .font(ADFont.note).foregroundStyle(ADColor.muted)
