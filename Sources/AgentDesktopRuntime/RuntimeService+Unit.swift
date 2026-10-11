@@ -213,6 +213,10 @@ extension RuntimeService {
         case let .failure(e): return .failure(e)
         case let .success(x): plan = x
         }
+        // From here every way out that does not start the executor gives the
+        // plan back, so what admission pinned is released.
+        var handedOver = false
+        defer { if !handedOver { executor.discard(plan) } }
 
         // Access may have been withdrawn while the executor admitted (codex
         // on 49111eb): the revocation's sweep found no Run to stop.
@@ -262,6 +266,7 @@ extension RuntimeService {
                           bindingEpoch: UInt64(binding.generation), principal: acting)
         let context = UnitRunContext(runId: runId, sessionId: session.sessionId, desktopId: desktopId,
                                      bindingEpoch: UInt64(binding.generation), callerScope: scope, params: p)
+        handedOver = true
         executor.start(plan, context: context, sink: RuntimeUnitSink(runId: runId, service: self), stop: handle)
         return .success((runs.find(runId) ?? record).json)
     }

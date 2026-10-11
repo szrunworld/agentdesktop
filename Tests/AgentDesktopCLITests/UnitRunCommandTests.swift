@@ -100,3 +100,25 @@ private let base = ["unit", "run", "--desktop", "d1", "--goal", "打开报告", 
     #expect(h.cli.run(["gui", "run", "--desktop", "d1"]) == 2)
     #expect(h.clients.isEmpty)
 }
+
+// Codex on ed056dc: a stop that is not accepted is never waited on; the
+// command says so and leaves, which ends the Delegated Run (owner_lost).
+@Test func aFailedStopIsReportedNotWaitedOn() {
+    let h = Harness()
+    var waits = 0
+    h.answer = { r in
+        switch r.method {
+        case "unit.run": return unitRun()
+        case "run.cancel": throw RuntimeError("audit_unavailable", "the request ledger is unavailable", phase: .handler)
+        case "run.wait": waits += 1; throw RuntimeError("wait_timeout", "still running", phase: .handler)
+        default: throw RuntimeError("not_found", "unexpected", phase: .handler)
+        }
+    }
+    var cli = h.cli
+    cli.interrupted = { true }
+    let code = cli.run(base)
+    #expect(code == 130)
+    #expect(h.requests.filter { $0 == "run.cancel" }.count == 1)
+    #expect(waits == 0, "no waiting on a stop that was refused")
+    #expect(h.err.joined().contains("could not stop"))
+}
