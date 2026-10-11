@@ -37,8 +37,10 @@ struct CLI {
         (try? credentialStore().load(endpoint: endpoint.path, profile: profile ?? self.profile)) ?? nil
     }
 
-    /// Trusted UI may wait 120 seconds for an answer before the Runtime
-    /// replies. Keep a margin for dispatch and post-confirmation checks.
+    /// Up to three confirmations are admitted, each with 120 seconds
+    /// once it reaches the trusted UI. Include 30 seconds for dispatch
+    /// and post-confirmation checks, matching ACPWindowRequest.
+    static let confirmationReplyTimeout: Double = 3 * 120 + 30
     // Keep the admin calls in sync with RuntimeService.confirmableMethods.
     private static let confirmedMethods: Set<String> = [
             "desktop.recoverBinding", "hub.windows.request", "hub.windows.revoke",
@@ -47,7 +49,7 @@ struct CLI {
     ]
 
     static func replyTimeout(for method: String) -> Double {
-        return confirmedMethods.contains(method) || method.hasPrefix("ai.") ? 150 : 10
+        return confirmedMethods.contains(method) || method.hasPrefix("ai.") ? confirmationReplyTimeout : 10
     }
 
     func client(_ endpoint: Endpoint, timeout: Double = 10) -> RuntimeClient {

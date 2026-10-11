@@ -76,22 +76,22 @@ final class Harness {
     }
 }
 
-@Test func confirmationCallsWaitLongerThanTrustedUI() {
+@Test func confirmationCallsCoverTheTrustedUIQueue() {
     let confirmed: [RuntimeMethod] = [
         .recoverBinding, .windowsRequest, .windowsRevoke, .enableInput,
         .clientsList, .clientsShow, .clientsRevoke, .grantsList, .grantsSet,
         .grantsRevoke, .connectionsList,
     ]
     for method in confirmed {
-        #expect(CLI.replyTimeout(for: method.rawValue) > 120, "\(method.rawValue)")
+        #expect(CLI.replyTimeout(for: method.rawValue) >= 3 * 120 + 30, "\(method.rawValue)")
     }
-    #expect(CLI.replyTimeout(for: "ai.profiles.list") > 120)
+    #expect(CLI.replyTimeout(for: "ai.profiles.list") >= 3 * 120 + 30)
     #expect(CLI.replyTimeout(for: RuntimeMethod.status.rawValue) == 10)
     #expect(CLI.replyTimeout(for: RuntimeMethod.pairingStatus.rawValue) == 10)
 
     let endpoint = Endpoint(path: "/tmp/confirmation-test.sock", source: .option)
     let client = CLI().client(endpoint, timeout: CLI.replyTimeout(for: RuntimeMethod.windowsRequest.rawValue))
-    #expect((client as? SocketRuntimeClient)?.timeout == 150)
+    #expect((client as? SocketRuntimeClient)?.timeout == 390)
     client.close()
 }
 
