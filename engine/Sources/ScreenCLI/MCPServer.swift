@@ -229,7 +229,7 @@ enum MCPServer {
                  return w
              }),
         Tool(name: "hover",
-             description: "Rest the pointer on an element or global point in the background, without clicking, to open a menu or panel a page shows on hover. Then click its options as usual.",
+             description: "Rest the pointer on an element or global point in the background with a middle-button press and release (not a plain move: it opens links, fires auxclick, and pastes in apps that paste on middle click; never use it on links or text fields). Use it to open a menu or panel a page shows on hover, then click its options as usual. Engine tool only: AgentDesktop runtime/1 refuses hover on macOS (#263).",
              properties: windowTarget.merging(elementTarget) { $1 }.merging(pointTarget) { $1 },
              required: ["screen", "pid"],
              words: { a in ["hover"] + targetWords(a) + elementWords(a) + pointWords(a) }),

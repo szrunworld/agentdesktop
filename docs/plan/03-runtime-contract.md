@@ -47,7 +47,7 @@
 | `desktop.create` 的 `launch` / `bind` 可选参数，`desktop.resize` | 一步创建并启动或绑定；调整尺寸 | Design P04–P05；旧 `screen resize` |
 | `app.quit` | 只结束本 Desktop 启动的进程 | 旧 `app quit`（07 文件） |
 | `request.list` / `request.export` | 动作记录筛选、分页、导出 | Design P19–P20、UC26–UC28 |
-| Action 增加 `hover`、`drag`、`press` | 补齐旧 CLI 能力 | 07 文件 7.2 |
+| Action 增加 `hover`、`drag`、`press` | 补齐旧 CLI 能力。A5 已定参数：`press` 可用（单元素无障碍按下）；`hover`、`drag` 在 macOS 上返回 `unsupported_backend`（见冻结文档「act 的 hover、press 与 drag」、#263） | 07 文件 7.2 |
 | observe 与 act 只给 `desktopId` 时隐式会话 | 外部 Agent 简化调用 | Design P09 CLI 示例 |
 | ActionReceipt 增加 `businessResult: "not_evaluated"`、`elapsedMs`、`clientId`、`geometryRevision`、`dispatchSequence` | 回执与业务结果分离；学习层预留 | Design 交接规则、05 文件 5.3 |
 | 目标 `kind: window \| device` | Android 设备目标 | 裁决 D19 |
