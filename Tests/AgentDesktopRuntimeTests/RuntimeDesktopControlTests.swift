@@ -283,6 +283,29 @@ private final class Box: @unchecked Sendable { var response: RuntimeResponse? }
     #expect(control(sc, sc.desktop)?["state"]?.stringValue == "ready")
 }
 
+@Test func aSupersededTakeoverDoesNotReportANewAgentRunAsPending() throws {
+    let sc = try scene()
+    let desk = try #require(sc.s.desktops.find(sc.desktop))
+    desk.lock.lock()
+    let box = Box()
+    let taking = onThread { box.response = call(sc.s, sc.c, "desktop.takeover", params: #"{"desktopId":"\#(sc.desktop)"}"#) }
+    let deadline = Date().addingTimeInterval(5)
+    while sc.s.execution.controlFacts(sc.desktop).gate != .manual, Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+    #expect(sc.s.execution.controlFacts(sc.desktop).gate == .manual)
+    // Handback wins the lock, then an agent acquires the reopened lease.
+    sc.s.execution.openDesktop(sc.desktop)
+    let agent = handshaken(sc.s)
+    let started = call(sc.s, agent, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#)
+    desk.lock.unlock()
+    taking.wait()
+    let runId = try #require(data(started)?["run"]?["runId"]?.stringValue)
+    let response = try #require(box.response)
+    #expect(code(response) == "conflict" && reason(response) == "superseded")
+    #expect(sc.s.execution.controlFacts(sc.desktop).gate == nil)
+    #expect(sc.s.execution.holder(of: sc.desktop) == runId)
+    #expect(sc.s.runs.find(runId)?.phase == .running)
+}
+
 @Test func handbackClearsADisconnectedOrUnknownDesktopWithoutAStopFirst() throws {
     let platform = FakePlatform()
     let sc = try scene(platform)
