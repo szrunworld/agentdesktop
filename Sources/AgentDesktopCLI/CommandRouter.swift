@@ -651,12 +651,14 @@ enum CommandRouter {
         return v
     }
 
-    static let actOptions: [String: Bool] = ["--session": true, "--snapshot": true, "--request-id": true]
+    static let actOptions: [String: Bool] = ["--session": true, "--desktop": true, "--snapshot": true, "--request-id": true]
 
     static func act(_ o: [String: String], _ action: [(String, JSONValue)]) throws -> RuntimeInvocation.Command {
         guard case var .call(call) = try write(.act, .obj([("snapshotId", .string(try required(o, "--snapshot"))),
                                                           ("action", .obj(action))]), o) else { fatalError() }
-        call.context = o["--session"].map { RequestContext(sessionId: $0) } ?? RequestContext()
+        // --session, or --desktop alone: the Runtime opens (or reuses) this
+        // client's session there (A7). Neither: session exec's context.
+        call.context = try contextTarget(o)
         call.usesContext = true
         return .call(call)
     }

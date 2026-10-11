@@ -13,10 +13,12 @@ extension RuntimeService {
     /// At most this many records go into one export.
     static let requestExportLimit = 10_000
 
-    /// The Desktop a write names, recorded with it: params.desktopId, else
-    /// the Desktop of its session or Run.
+    /// The Desktop a write names, recorded with it: params.desktopId or
+    /// context.desktopId (an act naming only its Desktop), else the
+    /// Desktop of its session or Run.
     func namedDesktop(_ request: RuntimeRequest, _ c: ConnectionState) -> String? {
         if let d = request.params["desktopId"]?.stringValue { return d }
+        if let d = request.context.desktopId { return d }
         if let sid = request.context.sessionId ?? request.params["sessionId"]?.stringValue,
            let s = sessions.find(sid, caller: c.clientId) { return s.desktopId }
         if let rid = request.context.runId ?? request.params["runId"]?.stringValue { return runs.find(rid)?.desktopId }

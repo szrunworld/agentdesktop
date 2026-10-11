@@ -34,6 +34,23 @@ import Testing
     }
 }
 
+/// A7: act takes --session or --desktop (or session exec's context), never both.
+@Test func actNamesItsTargetBySessionOrDesktop() {
+    let h = Harness()
+    h.answer = { _ in .obj([]) }
+    _ = h.cli.run(["act", "click", "--desktop", "d_1", "--snapshot", "obs_1", "--element", "el_2", "--format", "json"])
+    #expect(h.requests == ["act"])
+    #expect(h.clients.first?.calls.first?.context == RequestContext(desktopId: "d_1"))
+    #expect(h.clients.first?.calls.first?.params == .obj([("snapshotId", .string("obs_1")),
+                                                         ("action", .obj([("kind", .string("click")), ("target", .obj([("elementRef", .string("el_2"))]))]))]))
+    let both = Harness()
+    #expect(both.cli.run(["act", "key", "--session", "s", "--desktop", "d", "--snapshot", "o", "--key", "a"]) == 2)
+    #expect(both.clients.isEmpty)
+    let none = Harness()
+    #expect(none.cli.run(["act", "key", "--snapshot", "o", "--key", "a"]) == 2, "no target outside session exec")
+    #expect(none.clients.isEmpty)
+}
+
 @Test func badWriteArgumentsNeverConnect() {
     let cases: [[String]] = [
         ["desktop", "create", "--size", "big"], ["app", "launch", "--desktop", "d"],
@@ -227,8 +244,29 @@ final class TinyPlatform: DesktopPlatform, @unchecked Sendable {
     #expect(RuntimeContract.shared.validate(.object(members), "Observation").isEmpty)
     #expect(observed?["data"]?["elements"]?.arrayValue?.first?["label"]?.stringValue == "完成")
     #expect(FileManager.default.fileExists(atPath: png))
+    // A7: observe and act naming only the Desktop; act runs in this
+    // client's open session there (no second one is opened).
+    let (c4, byDesktop) = run(["observe", "--desktop", desktop, "--no-screenshot"])
+    #expect(c4 == 0)
+    let snap = try #require(byDesktop?["data"]?["snapshotId"]?.stringValue)
+    let el = try #require(byDesktop?["data"]?["elements"]?.arrayValue?.first?["id"]?.stringValue)
+    let (c5, clicked) = run(["act", "click", "--desktop", desktop, "--snapshot", snap, "--element", el, "--request-id", "e2e-click"])
+    #expect(c5 == 0, "\(String(describing: clicked))")
+    #expect(clicked?["data"]?["delivery"]?.stringValue == "dispatched")
+    #expect(service.sessions.openCount(desktopId: desktop) == 1)
+    #expect(run(["request", "show", "e2e-click"]).1?["data"]?["desktopId"]?.stringValue == desktop)
     #expect(run(["desktop", "destroy", desktop]).0 == 5, "an open session blocks destroy")
     #expect(run(["session", "close", sid]).0 == 0)
     #expect(run(["desktop", "destroy", desktop]).0 == 0)
     #expect(run(["request", "show", "e2e-create"]).1?["data"]?["state"]?.stringValue == "completed")
+}
+
+/// Codex P2 on #276: the text receipt names the session the act ran in, so
+/// an implicit session can be closed before desktop destroy.
+@Test func theTextReceiptNamesItsSession() {
+    let h = Harness()
+    h.answer = { _ in .obj([("receiptId", .string("rcpt_1")), ("runId", .string("run_1")), ("sessionId", .string("s_9")),
+                            ("delivery", .string("dispatched")), ("execution", .string("completed")), ("route", .string("ax.press"))]) }
+    #expect(h.cli.run(["act", "press", "--desktop", "d_1", "--snapshot", "obs_1", "--element", "el_2"]) == 0)
+    #expect(h.out.joined().contains("session s_9"), "\(h.out)")
 }
