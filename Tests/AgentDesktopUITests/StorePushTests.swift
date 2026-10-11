@@ -250,7 +250,7 @@ struct StorePushTests {
         let store = ShellStore(runtime: gated, clock: StillClock(), allowSubscription: false)
         let pending = Task { await store.refreshRuns() }
         await waitFor("list in flight") { gated.waitingCount == 1 }
-        let id = m.addRun(desktopId: try #require(m.desktopIds.first))
+        let id = m.addRun(desktopId: "desk_001")
         await store.apply(frame: .obj([("cursor", .int(50)), ("event", .obj([("runId", .string(id))]))]))
         gated.release(0)
         await pending.value
