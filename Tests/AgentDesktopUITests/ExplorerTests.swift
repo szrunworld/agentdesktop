@@ -191,6 +191,15 @@ struct ExplorerTests {
         #expect(loader.status(of: loader.timeline.allActions[0]).text == "结果未知 · 需要核实")
     }
 
+    @MainActor @Test func completedReceiptDoesNotSettleSubmittedUnitAction() async throws {
+        let loader = ExplorerRunLoader(runtime: SubmittedReceiptRuntime(), runId: "r")
+        await loader.load()
+        let action = try #require(loader.timeline.allActions.first)
+        #expect(loader.timeline.unknownInputs == 1)
+        #expect(loader.status(of: action).text == "已发出，结果未确认 · 需要核实")
+        #expect(ActionResultPresentation.make(record: loader.records["q"]!).level != .accepted)
+    }
+
     @Test func unknownKindsAndTypesAreTolerated() {
         let events: [JSONValue] = [
             .obj([("runId", .string("r")), ("sequence", .int(1)), ("at", .string("2026-10-11T00:00:00Z")),
@@ -367,4 +376,26 @@ extension MockRuntime {
     var desktopIds: [String] { lock.withLock { desktops.compactMap { $0["desktopId"]?.stringValue } } }
     var desktopsNow: [JSONValue] { lock.withLock { desktops } }
     var runsNow: [JSONValue] { lock.withLock { runs } }
+}
+
+private final class SubmittedReceiptRuntime: RuntimePort, @unchecked Sendable {
+    var isSample: Bool { true }
+    func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+    func call(_ method: String, _ params: JSONValue, context: RequestContext) async throws -> JSONValue {
+        switch method {
+        case "run.show": return .obj([("runId", .string("r"))])
+        case "run.events": return .obj([("next", .int(1)), ("events", .array([
+            .obj([("sequence", .int(1)), ("type", .string("unit.action")), ("data", .obj([
+                ("stepIndex", .int(0)), ("actionId", .string("a")), ("proposalId", .string("p")),
+                ("requestId", .string("q")), ("deliveryState", .string("submitted"))]))])
+        ]))])
+        case "request.show": return .obj([("state", .string("completed")), ("outcome", .obj([
+            ("kind", .string("success")), ("data", .obj([("delivery", .string("dispatched")),
+                ("execution", .string("completed")), ("verification", .obj([("status", .string("not_requested"))]))]))
+        ]))])
+        default: throw RuntimeError("not_found", method)
+        }
+    }
 }

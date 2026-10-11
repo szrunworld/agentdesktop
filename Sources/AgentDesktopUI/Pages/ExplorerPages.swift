@@ -90,7 +90,9 @@ public final class ExplorerRunLoader: ObservableObject {
     /// An action's result: the receipt level when request.show answered,
     /// else what `deliveryState` says.
     public func status(of a: ExplorerAction) -> StatusText {
-        guard let rec = records[a.requestId] else { return a.status }
+        // Delivery verification belongs to the unit event; an act receipt
+        // cannot settle a later failed confirmation observation.
+        guard !a.isUnresolved, let rec = records[a.requestId] else { return a.status }
         let p = ActionResultPresentation.make(record: rec)
         // A request the ledger still shows as accepted adds nothing to the
         // event's own delivery state.
