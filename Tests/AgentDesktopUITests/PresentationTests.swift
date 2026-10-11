@@ -63,8 +63,15 @@ struct ActionResultTests {
         let p = ActionResultPresentation.make(record: record)
         #expect(p.level == .notDispatched)
         #expect(p.reasonCode == "invalid_target")
-        let ok = record.setting("outcome", receipt("dispatched", "completed"))
+        // The Runtime's ledger stores a success as {data: receipt}
+        // (RequestLedger); it is the receipt, not "only accepted".
+        let ok = record.setting("state", .string("completed"))
+            .setting("outcome", .obj([("data", receipt("dispatched", "completed"))]))
         #expect(ActionResultPresentation.make(record: ok).level == .executedUnverified)
+        #expect(ActionReceiptView(record: ok).receipt?["receiptId"] != nil)
+        // An older record with the receipt itself in outcome is still read.
+        let legacy = record.setting("outcome", receipt("dispatched", "completed"))
+        #expect(ActionResultPresentation.make(record: legacy).level == .executedUnverified)
     }
 }
 
