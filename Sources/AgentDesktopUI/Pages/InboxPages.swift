@@ -383,11 +383,15 @@ struct InboxItemDetailView: View {
     }
 
     func questionPanel(_ item: JSONValue) -> some View {
-        VStack(alignment: .leading, spacing: ADSpace.m) {
-            Text("运行在等待人工处理").font(ADFont.bodyStrong).foregroundStyle(ADColor.ink)
+        let waiting = item["state"]?.stringValue == "open" && item["run"]?["phase"]?.stringValue == "waiting_input"
+        return VStack(alignment: .leading, spacing: ADSpace.m) {
+            Text(waiting ? "运行在等待人工处理" : "人工处理事项已结束等待").font(ADFont.bodyStrong).foregroundStyle(ADColor.ink)
             LabeledValue(label: "原因", value: "\(InboxText.questionReason(item["question"]?["reason"]?.stringValue))（\(item["question"]?["reason"]?.stringValue ?? "—")）",
                          labelWidth: 100)
-            Text("目前只能停止这个运行：平台还不能代替它回答问题或给出审批。请在对应的 Desktop 上完成需要人工处理的步骤后，由发起方重新运行。")
+            Text(waiting
+                 ? "目前只能停止这个运行：平台还不能代替它回答问题或给出审批。请在对应的 Desktop 上完成需要人工处理的步骤后，由发起方重新运行。"
+                 : model.stopProgress != nil ? "停止请求已受理；运行是否结束、输入是否静止，以 Runtime 返回的当前状态为准。"
+                 : "这项已不再等待人工处理。运行当前状态见上方；这里不会回答问题、给出审批或重新发起动作。")
                 .font(ADFont.note).foregroundStyle(ADColor.muted).fixedSize(horizontal: false, vertical: true)
             if let progress = model.stopProgress {
                 HStack(spacing: ADSpace.s) {
