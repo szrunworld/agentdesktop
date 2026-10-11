@@ -140,6 +140,7 @@ enum ACPEventText {
     static func recovery(_ kind: String?) -> String? {
         switch kind ?? "" {
         case "reobserve_after_empty_reply": return "模型回复为空，重新观察后再问一次"
+        case "reobserve_after_no_action_line": return "模型回复缺少 Action 行，重新观察后再问一次"
         case "repeated_action": return "重复同一动作没有带来变化，重新观察，换一种做法"
         case "no_progress": return "连续几步界面没有变化，重新观察，换一种做法"
         case "state_loop": return "界面回到了之前的状态，重新观察，换一种做法"

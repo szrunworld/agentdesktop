@@ -43,3 +43,13 @@
 基于该连接创建 `UI-TARS v1` 测试 GUI 配置和模型配置。能力测试以 `doubao-seed-2-1-pro-260628` 运行，T1 通过、T2 HTTP 404 / `UPSTREAM_PROTOCOL_ERROR`；改用“获取模型”返回的 `doubao-pro-128k-240515` 后，T2 HTTP 404 / `MODEL_NOT_FOUND`。核对账号开通状态后改用 `doubao-seed-2-1-lite-260915`，真实能力测试 T1 网络、T2 认证/模型、T3 图像输入、T4 GUI 输出全部通过，且未执行桌面输入；该模型的 GUI profile 成为默认（指针 d2）。
 
 续测发现空闲超过一分钟后，首次截图的磁盘剩余容量查询在异步刷新完成前返回 `disk_unknown` / `limit_exceeded`。修补版允许短暂等待刷新，同时在 macOS 可选容量属性缺失时回退到 `statfs`；隔离副本首个真实 Run 越过该检查，后续回归测试 `idleScreenshotWaitsForFreshCapacity` 通过。另一次观察因 Orca 窗口遮挡 Calculator 返回 `stale_observation` / `occluded`，这是窗口隔离检查；临时隐藏遮挡窗口后，`run_958627b54623` 成功观察、推理和执行 2 次点击。该 Run 最终因模型第三步输出 `invalid_action` 失败；结果不算目标完成。另一次取消演练在截图前因 Chrome 窗口遮挡 Calculator 被拒绝，未形成有效的取消验收。两次遮挡均未造成额外桌面输入。
+
+## 2026-10-11 再次完整验收尝试
+
+使用独立副本 `/tmp/adt-e2e-full-20261011/Agent Desktop.app`（二进制 UUID `d23f2e66-7292-3e3e-8a66-ac9eb3af04a6`）、独立 Runtime 数据目录和 socket。首次配对 `ACP-E2E` / `app:ab6809551ba3`，用户批准虚拟 Desktop `d_85d72ab62c33`、物理 Desktop `d_cbeb22fc3d6b` 和 Calculator 窗口 6364 的 observe、act 授权。W2 两种无效 `pair` 参数均退出 2。W4 在未授权窗口返回 `grant_missing` / `window_grant_missing`；W8 授权外 Desktop 返回 `not_found`。W6 首次误批的授权 `wg_10f23499aa66` 已撤销，随后用户拒绝申请，桥收到 `permission_denied`，审计为 `user_denied`。W7 的新授权 `wg_0ca6506ecccc` 允许真实 `unit.run` 进入观察和推理；`run_a3c3db1574ee` 的模型请求成功，但响应缺少 Action 行，最终 `failed` / `invalid_action`，没有任何点击。因此本轮 Calculator 的 15 结果未验收。W9 的第二个 Calculator 窗口 6474 请求因 120 秒未答复而 `confirmation_timeout`，未验证窗口不匹配检查。
+
+在桥与 Runtime 的 fake editor 链路，`/help` 列出 `/unit-run`，`requests.sqlite` 中 `ai.profiles.list` 请求数为 0；Zed 内的 `/help` 仍未执行。为恢复误关的测试副本主窗口，重启了**仅此**隔离进程；原窗口授权在 `hub.sqlite` 中变为 `ended` / `runtime_restarted`，物理 Desktop 消失。新建空 Desktop `d_be2721ae1339` 后两次申请更新配对，配对码分别为 923362、154194；两次均在可信确认的 120 秒窗口内无人答复，审计为 `confirmation_timeout`，没有新增授权。该重启后的 W1 前置步骤阻断了 W9–W13 的继续验收。另有正在运行的其他 Agent Desktop/ACP 测试进程，未触碰它们。
+
+本次仍不能宣称 W1–W13 完整通过：W3 的 Zed UI、W7 Calculator 目标、W9 第二窗口检查、W10 独立 observe/act、W12 本轮完整成功与取消、W13 本轮重新授权均未完成。先前本地中立表单的成功和取消证据仍有效，但不能替代上述未完成项。
+
+本轮隔离测试副本已退出，`hub.sqlite` 中没有 active 窗口授权；其他正在运行的测试进程未停止。

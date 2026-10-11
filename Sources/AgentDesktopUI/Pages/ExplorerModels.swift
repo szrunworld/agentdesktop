@@ -335,6 +335,7 @@ public enum ExplorerText {
     public static func recovery(_ k: String) -> String {
         switch k {
         case "reobserve_after_empty_reply": return "恢复 · 模型空回复后重新观察"
+        case "reobserve_after_no_action_line": return "恢复 · 模型回复缺少 Action 行后重新观察"
         case "repeated_action": return "恢复 · 停滞：重复同一动作"
         case "no_progress": return "恢复 · 停滞：长期无进展"
         case "state_loop": return "恢复 · 停滞：界面来回循环"

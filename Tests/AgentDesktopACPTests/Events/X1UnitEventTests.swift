@@ -100,6 +100,7 @@ import Testing
     @Test func recoveryKinds() {
         let cases: [(String, String)] = [
             ("reobserve_after_empty_reply", "恢复：模型回复为空，重新观察后再问一次（第 1 次）"),
+            ("reobserve_after_no_action_line", "恢复：模型回复缺少 Action 行，重新观察后再问一次（第 1 次）"),
             ("repeated_action", "恢复：重复同一动作没有带来变化，重新观察，换一种做法（第 1 次）"),
             ("no_progress", "恢复：连续几步界面没有变化，重新观察，换一种做法（第 1 次）"),
             ("state_loop", "恢复：界面回到了之前的状态，重新观察，换一种做法（第 1 次）"),
