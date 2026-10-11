@@ -53,11 +53,17 @@ public struct InboxPage: View {
     /// The filter row stays usable while a filtered list is empty.
     var pageState: PageState {
         if case .empty = loader.state { return .loaded }
+        if !loader.items.isEmpty { return .loaded }
         return loader.state
     }
 
     var content: some View {
         VStack(alignment: .leading, spacing: ADSpace.m) {
+            if case let .failed(p) = loader.state {
+                InboxNotice(title: "读取失败：\(p.title)", text: "显示上次同步内容。" + p.advice, tone: .danger)
+            } else if case let .disconnected(p) = loader.state {
+                InboxNotice(title: "Runtime 未连接", text: "显示上次同步内容。" + p.advice, tone: .danger)
+            }
             filters
             HStack(alignment: .top, spacing: ADSpace.l) {
                 list.frame(width: 360)
@@ -190,18 +196,19 @@ struct InboxItemDetailView: View {
         _model = StateObject(wrappedValue: model)
     }
 
-    var connected: Bool { if case .connected = store.connection { return true }; return false }
+    var connected: Bool { if case .connected = store.connection, case .loaded = model.state { return true }; return false }
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: ADSpace.m) {
             switch model.state {
             case .loading:
                 Text("正在读取…").font(ADFont.note).foregroundStyle(ADColor.muted).padding(ADSpace.l)
             case let .failed(p), let .disconnected(p):
                 InboxNotice(title: "读取失败：\(p.title)（\(p.code)）", text: p.advice, tone: .danger)
             default:
-                if let item = model.item { content(item) }
+                EmptyView()
             }
+            if let item = model.item { content(item) }
         }
         .task(id: store.tick) { await model.load() }
         .confirmationDialog("记录这条核实？", isPresented: $confirmReconcile) {
@@ -476,6 +483,9 @@ struct SettingsVerificationPage: View {
             case let .failed(p), let .disconnected(p):
                 InboxNotice(title: "读取失败：\(p.title)（\(p.code)）", text: p.advice, tone: .danger)
             default:
+                EmptyView()
+            }
+            if loader.syncedAt != nil {
                 HStack(alignment: .top, spacing: ADSpace.l) {
                     VStack(spacing: 0) {
                         if loader.items.isEmpty {

@@ -272,11 +272,13 @@ public final class InboxItemModel: ObservableObject {
     var revision: Int { item?["revision"]?.intValue ?? 0 }
 
     public var canReconcile: Bool {
+        guard case .loaded = state else { return false }
         guard let item, item["kind"]?.stringValue == "unknown_reference", item["state"]?.stringValue == "open" else { return false }
         return InboxText.quiescent(item) && !submitting
     }
 
     public var canStop: Bool {
+        guard case .loaded = state else { return false }
         guard let item, item["kind"]?.stringValue == "question", item["state"]?.stringValue == "open" else { return false }
         return item["run"]?["phase"]?.stringValue == "waiting_input" && !submitting
     }

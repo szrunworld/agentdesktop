@@ -242,6 +242,20 @@ struct InboxU9Tests {
         guard case .loaded = page.pageState else { Issue.record("empty Inbox hides its filters"); return }
     }
 
+    @Test func failedDetailRefreshRetainsCachedHistoryButDisablesWrites() async throws {
+        let (m, _, run, _) = await scenario()
+        let id = try await unknownItemId(m, run: run)
+        let model = InboxItemModel(runtime: m, inboxId: id)
+        await model.load()
+        let cached = model.item
+        model.draft = ReconcileDraft(verdict: "not_executed", note: "保留草稿")
+        m.failNext("inbox.show", code: "runtime_offline")
+        await model.load()
+        #expect(model.item == cached && model.syncedAt != nil)
+        #expect(!model.canReconcile && !model.canStop)
+        #expect(model.draft.note == "保留草稿")
+    }
+
     @Test func words() {
         #expect(InboxText.verdict("not_executed") == "未执行")
         #expect(InboxText.source("operator_attestation") == "本人确认")
