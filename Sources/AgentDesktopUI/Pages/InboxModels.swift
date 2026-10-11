@@ -183,6 +183,8 @@ public final class InboxListLoader: ObservableObject {
             let known = Set(items.compactMap { $0["inboxId"]?.stringValue })
             items += (r["items"]?.arrayValue ?? []).filter { !known.contains($0["inboxId"]?.stringValue ?? "") }
             next = r["next"]?.stringValue
+            syncedAt = Date()
+            state = items.isEmpty ? .empty : .loaded
         } catch {
             guard mine == ticket else { return }
             state = ShellStore.failure(error)

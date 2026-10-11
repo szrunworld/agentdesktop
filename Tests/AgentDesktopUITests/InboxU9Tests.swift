@@ -280,6 +280,19 @@ struct InboxU9Tests {
         #expect(!loader.items.contains { $0["inboxId"]?.stringValue == "inb_100" })
     }
 
+    @Test func successfulPaginationRetryClearsTheOldFailure() async {
+        let (runtime, _, _, _) = await scenario()
+        let loader = InboxListLoader(runtime: runtime, pageSize: 1)
+        await loader.reload()
+        #expect(loader.next != nil)
+        runtime.failNext("inbox.list", code: "runtime_offline")
+        await loader.loadMore()
+        guard case .disconnected = loader.state else { Issue.record("expected failed pagination"); return }
+        await loader.loadMore()
+        guard case .loaded = loader.state else { Issue.record("successful retry retained failure"); return }
+        #expect(loader.items.count == 2 && loader.syncedAt != nil)
+    }
+
     @Test func words() {
         #expect(InboxText.verdict("not_executed") == "未执行")
         #expect(InboxText.source("operator_attestation") == "本人确认")
