@@ -5697,6 +5697,517 @@
           "description": "more records matched than one export holds (10000): narrow the filter"
         }
       }
+    },
+    "inbox_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "approval",
+            "question",
+            "unknown_reference",
+            "external_reference"
+          ]
+        },
+        "state": {
+          "enum": [
+            "open",
+            "resolved",
+            "all"
+          ],
+          "description": "default open"
+        },
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner only: one caller's items; ignored for a paired client, which sees only its own"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "inbox_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inboxId"
+      ],
+      "properties": {
+        "inboxId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "inbox_resolve_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inboxId",
+        "resolution",
+        "expectedRevision"
+      ],
+      "properties": {
+        "inboxId": {
+          "$ref": "#/$defs/Id"
+        },
+        "resolution": {
+          "enum": [
+            "cancel_run"
+          ],
+          "description": "question: stop the waiting Run (run.cancel's stop). Answers and approvals are not accepted yet"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "the item's revision as last read; another one is conflict (reason revision_conflict)"
+        }
+      }
+    },
+    "run_reconcile_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "actionRequestId",
+        "verdict",
+        "expectedRevision"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "actionRequestId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Id"
+            }
+          ],
+          "description": "the requestId of the act whose delivery is unknown"
+        },
+        "verdict": {
+          "enum": [
+            "executed",
+            "not_executed",
+            "still_unknown"
+          ]
+        },
+        "source": {
+          "enum": [
+            "operator_attestation",
+            "external_reference"
+          ],
+          "description": "default operator_attestation. runtime_observation (the Runtime checked it itself) is not accepted yet"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "how many reconciliations the action had when last read (the item's revision); another count is conflict (reason revision_conflict)"
+        }
+      }
+    },
+    "Reconciliation": {
+      "description": "one append-only finding about an action whose delivery is unknown; it never changes the action's receipt, the request's outcome or the Run's outcome",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reconciliationId",
+        "runId",
+        "actionRequestId",
+        "sequence",
+        "verdict",
+        "source",
+        "evidenceRefs",
+        "by",
+        "at",
+        "requestId"
+      ],
+      "properties": {
+        "reconciliationId": {
+          "$ref": "#/$defs/Id"
+        },
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "actionRequestId": {
+          "$ref": "#/$defs/Id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "verdict": {
+          "enum": [
+            "executed",
+            "not_executed",
+            "still_unknown"
+          ]
+        },
+        "source": {
+          "enum": [
+            "runtime_observation",
+            "operator_attestation",
+            "external_reference"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "by": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the principal that recorded it"
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "requestId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Id"
+            }
+          ],
+          "description": "the run.reconcile request that recorded it"
+        }
+      }
+    },
+    "UnknownAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "becameUnknownAt"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/Id"
+        },
+        "receiptId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Id"
+            }
+          ],
+          "description": "absent when the Runtime stopped before the receipt was written"
+        },
+        "kind": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "the action's kind (click, type, ...); never what was typed"
+        },
+        "dispatchedAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "becameUnknownAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "reasonCode": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      }
+    },
+    "InboxRunState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "outcome",
+        "quiescence",
+        "revision",
+        "closingReason"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "queued",
+            "running",
+            "waiting_approval",
+            "waiting_input",
+            "stopping",
+            "ended"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "success",
+            "failed",
+            "cancelled",
+            "unknown",
+            null
+          ]
+        },
+        "quiescence": {
+          "enum": [
+            "not_confirmed",
+            "pending",
+            "confirmed"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "closingReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "InboxItem": {
+      "description": "one thing on the platform Inbox (W06), derived from the Run records: unknown_reference is an action of a Run whose delivery is unknown (reconciled with run.reconcile); question is a Run waiting for a person (phase waiting_input). approval and external_reference are reserved: nothing makes them yet",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inboxId",
+        "kind",
+        "state",
+        "runId",
+        "clientId",
+        "desktopId",
+        "createdAt",
+        "revision",
+        "run"
+      ],
+      "properties": {
+        "inboxId": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "enum": [
+            "approval",
+            "question",
+            "unknown_reference",
+            "external_reference"
+          ]
+        },
+        "state": {
+          "enum": [
+            "open",
+            "resolved"
+          ]
+        },
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the client whose Run it is; null for a platform Run"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "unknown_reference: how many reconciliations it has; question: the Run's revision"
+        },
+        "run": {
+          "$ref": "#/$defs/InboxRunState"
+        },
+        "action": {
+          "$ref": "#/$defs/UnknownAction"
+        },
+        "question": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "the unit executor's reason code"
+            }
+          }
+        },
+        "resolution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "how",
+            "at"
+          ],
+          "properties": {
+            "how": {
+              "enum": [
+                "reconciled",
+                "run_cancelled",
+                "run_ended"
+              ]
+            },
+            "verdict": {
+              "enum": [
+                "executed",
+                "not_executed"
+              ]
+            },
+            "by": {
+              "type": "string",
+              "minLength": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            }
+          }
+        },
+        "reconciliations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Reconciliation"
+          },
+          "description": "inbox.show only: every reconciliation, oldest first"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "unknown_reference"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "action"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "question"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "question"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "resolved"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "resolution"
+            ]
+          }
+        }
+      ]
+    },
+    "InboxList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "next"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InboxItem"
+          }
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "InboxResolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "stop"
+      ],
+      "properties": {
+        "item": {
+          "$ref": "#/$defs/InboxItem"
+        },
+        "stop": {
+          "$ref": "#/$defs/CancelReceipt"
+        }
+      }
+    },
+    "RunReconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reconciliation",
+        "item",
+        "run"
+      ],
+      "properties": {
+        "reconciliation": {
+          "$ref": "#/$defs/Reconciliation"
+        },
+        "item": {
+          "$ref": "#/$defs/InboxItem"
+        },
+        "run": {
+          "$ref": "#/$defs/Run",
+          "description": "as it is: its outcome stays what it was (unknown)"
+        }
+      }
     }
   }
 }

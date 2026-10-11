@@ -51,7 +51,7 @@ let contract = RuntimeContract.shared
                                    "hub.pairing.deny", "hub.clients.revoke", "hub.grants.set", "hub.grants.revoke",
                                    "desktop.recoverBinding", "hub.windows.request", "hub.windows.revoke", "hub.displays.attach", "hub.displays.detach",
                                    "app.quit", "desktop.resize" ,
-                                   "desktop.stop", "desktop.takeover", "desktop.handback"]
+                                   "desktop.stop", "desktop.takeover", "desktop.handback", "inbox.resolve", "run.reconcile"]
         #expect(m.mutation == writes.contains(m.method), "\(m.method)")
     }
     // Methods the AI service answers on the same endpoint: every operation

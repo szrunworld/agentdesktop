@@ -111,8 +111,9 @@ public struct RunUnit: Equatable, Sendable {
 /// a per-Run sequence number; a reader resumes after the last one it saw.
 public final class RunStore: @unchecked Sendable {
     public static let retentionDays = 7
-    private let db: SQLiteDatabase
-    private let now: @Sendable () -> Date
+    /// Internal for the reconciliations beside the Runs (Inbox/).
+    let db: SQLiteDatabase
+    let now: @Sendable () -> Date
     private let changed = NSCondition()
     private let healthLock = NSLock()
     private var writeFailure: Error?
@@ -121,6 +122,12 @@ public final class RunStore: @unchecked Sendable {
     /// Callers must close input admission rather than keep executing.
     func checkWritable() throws {
         if let failure = healthLock.withLock({ writeFailure }) { throw failure }
+    }
+
+    /// A write outside `write` failed (reconciliations): the store is
+    /// unhealthy from now on, as if `write` had failed.
+    func latchWriteFailure(_ error: Error) {
+        healthLock.withLock { if writeFailure == nil { writeFailure = error } }
     }
 
     private func write<T>(_ body: () throws -> T) -> T? {
@@ -168,10 +175,18 @@ public final class RunStore: @unchecked Sendable {
             CREATE TABLE IF NOT EXISTS action_outcomes (run_id TEXT NOT NULL, request_id TEXT NOT NULL, at TEXT NOT NULL,
               outcome TEXT NOT NULL CHECK (outcome IN ('completed', 'unknown')), PRIMARY KEY (run_id, request_id))
             """)
+        // PR4: reconciliations of unknown actions, append-only (Inbox/).
+        try Self.createReconciliationTables(db)
         try recoverAfterRestart()
+        // A Run with an action still unreconciled is kept, with its events,
+        // past the retention: an unknown is not forgotten by age (Hub v1 §8).
         let cutoff = Timestamp.string(now().addingTimeInterval(-Double(Self.retentionDays) * 86400))
-        try db.execute("DELETE FROM events WHERE run_id IN (SELECT run_id FROM runs WHERE created_at < ? AND ended_at IS NOT NULL)", [.text(cutoff)])
-        try db.execute("DELETE FROM runs WHERE created_at < ? AND ended_at IS NOT NULL", [.text(cutoff)])
+        try db.execute("""
+            DELETE FROM events WHERE run_id IN (SELECT run_id FROM runs WHERE created_at < ? AND ended_at IS NOT NULL)
+              AND run_id NOT IN (\(Self.unresolvedRunsSQL))
+            """, [.text(cutoff)])
+        try db.execute("DELETE FROM runs WHERE created_at < ? AND ended_at IS NOT NULL AND run_id NOT IN (\(Self.unresolvedRunsSQL))",
+                       [.text(cutoff)])
     }
 
     /// The host that ran them is gone, and its input with it: every Run not
