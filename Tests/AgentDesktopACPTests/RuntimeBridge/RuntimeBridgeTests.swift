@@ -78,16 +78,26 @@ import Testing
     /// Codex on d10d83b / Kevin's ruling on #246: a paired bridge never asks
     /// for ai.profiles.list (a verified one would open a confirmation in the
     /// owner's window on every listing); it offers the default-profile task.
-    @Test(arguments: ["paired", nil] as [String?])
-    func aPairedBridgeNeverAsksForProfiles(role: String?) async throws {
+    @Test func aPairedBridgeNeverAsksForProfiles() async throws {
         let server = RTestRuntime()
         server.methods += ["unit.run", "ai.profiles.list"]
-        server.principalRole = role
+        server.principalRole = "paired"
         server.profiles = [.obj([("guiProfileId", .string("gp_a")), ("revision", .int(3)), ("name", .string("A")), ("state", .string("enabled"))])]
         let port = try RTest.port(server)
         let tasks = try await port.tasks()
         #expect(tasks.map(\.taskType) == ["unit.run"])
         #expect(!server.with { server.calls.map(\.method) }.contains("ai.profiles.list"))
+    }
+
+    @Test(arguments: ["unpaired", nil] as [String?])
+    func anUnpairedOrUnidentifiedBridgeOffersNoTasks(role: String?) async throws {
+        let server = RTestRuntime()
+        server.methods += ["unit.run", "ai.profiles.list"]
+        server.principalRole = role
+        let port = try RTest.port(server)
+        #expect(try await port.tasks().isEmpty)
+        #expect(server.methodCalls("ai.profiles.list").isEmpty)
+        #expect(server.methodCalls("unit.run").isEmpty)
     }
 
     /// #246: only a definite refusal falls back; any other failure of

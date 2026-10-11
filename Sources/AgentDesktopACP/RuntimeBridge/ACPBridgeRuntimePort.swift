@@ -75,7 +75,14 @@ public final class ACPBridgeRuntimePort: ACPRuntimePort, @unchecked Sendable {
     }
 
     public func tasks() async throws -> [ACPExposedTask] {
-        try await onControl { c in try self.catalogEntries(c).map(\.task) }
+        try await onControl { c in
+            let entries = try self.catalogEntries(c)
+            // runtime.capabilities is public before pairing, but that does
+            // not make its unit.run method an editor task for this caller.
+            guard let role = c.principal?["role"]?.stringValue,
+                  role == "owner" || role == "paired" else { return [] }
+            return entries.map(\.task)
+        }
     }
 
     private func catalogEntries(_ c: RuntimeClient) throws -> [ACPTaskCatalog.Entry] {

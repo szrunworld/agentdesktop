@@ -43,7 +43,7 @@ CLI="/tmp/adt-acp/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
 
 Zed 1.23.2 支持自定义 ACP agent（`agent_servers`，`"type": "custom"`）。在 Zed 的用户设置（`zed: open settings`，即 `~/.config/zed/settings.json`）里加一项，**测试结束后删除**。本线没有改动 Zed 的任何设置。
 
-**先配对（A4 之后必需，2026-10-10）。** A4（#137）合入后，Runtime 只对已配对的客户端提供服务。ACP 桥用钥匙串里 profile 为 `acp` 的凭据连接，没有凭据时只会得到 `pairing_required`：启动时 stderr 会提示 `not paired with …`，每次提交都是确定拒绝。
+**先配对（A4 之后必需，2026-10-10）。** A4（#137）合入后，Runtime 只对已配对的客户端提供服务。ACP 桥用钥匙串里 profile 为 `acp` 的凭据连接；没有凭据时，启动时 stderr 会提示 `not paired with …`，编辑器任务列表为空。直接提交任务仍会被确定拒绝。
 
 **ACP 桥自己配对**（`docs/security/a4-identity.md`：ACP 桥是外部 App，必须自己配对、自己保管凭据）。配对和服务必须是**同一个程序**：确认窗口显示的才是 ACP 桥本身的代码身份；钥匙串条目只信任创建它的程序，换一个程序读取会弹出钥匙串授权框（按 §一，出现就中止测试）。所以 dev 入口用 `agentdesktop-acp-dev pair`，不用 `agentdesktop agents pair`。
 
