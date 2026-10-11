@@ -310,7 +310,7 @@ struct UnknownResultDialog: View {
                     Text("已结束：运行 \(review.entry.runId) 的结果仍为 \(r["outcome"]?.stringValue ?? "—")，原始记录保留。")
                         .font(ADFont.note).foregroundStyle(ADColor.ink)
                 }
-                Text(canEndHere ? "先读取新画面，再检查是否产生预期变化。" : "这个动作所在的运行仍在进行，结束要在它结束后进行。")
+                Text(canEndHere ? "先读取新画面，再检查是否产生预期变化。" : "只能结束 Desktop 当前标为结果未知的那次运行；这个动作所在的运行不是它（或仍在进行）。")
                     .font(ADFont.note).foregroundStyle(ADColor.muted)
             }
             .padding(ADSpace.xl)

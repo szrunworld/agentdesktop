@@ -86,9 +86,11 @@ public struct DesktopControlInfo: Equatable, Sendable {
 
     /// The owner may ask for a stop: not while one is already under way or
     /// done (P14, P15 grey the button out).
-    public var canStop: Bool { state != "stopping" && state != "stopped" && state != "creating" }
+    /// An unknown result is reviewed first (P17): stop and takeover would
+    /// clear it without the new observation (Codex P1 on 11595f9).
+    public var canStop: Bool { !["stopping", "stopped", "creating", "unknown"].contains(state ?? "") }
     /// Takeover is offered while an agent or nobody holds the Desktop.
-    public var canTakeover: Bool { state != "manual" && state != "creating" }
+    public var canTakeover: Bool { !["manual", "creating", "unknown"].contains(state ?? "") }
     /// Handback means something only after a takeover or a stop, or after a
     /// last Run that left the Desktop disconnected or unknown.
     public var canHandback: Bool { ["manual", "stopped", "disconnected", "unknown"].contains(state ?? "") }
@@ -518,9 +520,15 @@ public final class DesktopStops: ObservableObject {
         objectWillChange.send()
     }
 
-    /// Re-reads pending stops (each update round).
+    /// Re-reads pending stops and drops answers the Desktop has moved past
+    /// (each update round; Codex P2 on 11595f9).
     public func refresh() async {
-        for f in flows.values { await f.refresh() }
+        for (id, f) in flows {
+            await f.refresh()
+            if let d = store.desktops.first(where: { $0["desktopId"]?.stringValue == id }) {
+                f.settle(state: DesktopControlInfo.make(desktop: d, activeRuns: store.activeRuns).state)
+            }
+        }
         objectWillChange.send()
     }
 

@@ -457,3 +457,65 @@ struct DesktopControlReviewFixTests {
         #expect(TakeoverDialog.canSend(flow))
     }
 }
+
+/// Codex findings on 11595f9.
+@MainActor
+@Suite("Desktop control review fixes 2")
+struct DesktopControlReviewFixTests2 {
+    func unknownDesktop() -> (MockRuntime, String, String) {
+        let m = MockRuntime()
+        let a = m.addDesktop(name: "A", app: "Safari")
+        let run = m.addRun(desktopId: a)
+        m.addAction(runId: run, delivery: "unknown", execution: "unknown")
+        m.endWithUnknownAction(run)
+        m.enableDesktopControl()
+        return (m, a, run)
+    }
+
+    func info(_ m: MockRuntime, _ id: String) async throws -> DesktopControlInfo {
+        DesktopControlInfo.make(desktop: try await m.call("desktop.show", .obj([("desktopId", .string(id))])), activeRuns: [])
+    }
+
+    // P1: stop and takeover do not bypass the unknown-result review.
+    @Test func unknownIsReviewedFirst() async throws {
+        let (m, a, _) = unknownDesktop()
+        let i = try await info(m, a)
+        #expect(i.state == "unknown" && !i.canStop && !i.canTakeover)
+        #expect(DesktopInspectorView.stopBlocked(i, methods: .all, connected: true) == "先核对上一个动作的结果")
+        #expect(DesktopInspectorView.takeoverBlocked(i, methods: .all, connected: true) == "先核对上一个动作的结果")
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        #expect(!DesktopStops(store: store).canStop(a, info: i, methods: .all))
+    }
+
+    // P2: ending is bound to the reviewed Run.
+    @Test func endingIsBoundToTheReviewedRun() async throws {
+        let (m, a, run) = unknownDesktop()
+        let i = try await info(m, a)
+        let old = ActionEntry(runId: run, requestId: "req_001", at: nil, receipt: nil, errorCode: nil)
+        #expect(DesktopInspectorView.canEnd(info: i, review: old, methods: .all))
+        let other = ActionEntry(runId: "run_999", requestId: "req_999", at: nil, receipt: nil, errorCode: nil)
+        #expect(!DesktopInspectorView.canEnd(info: i, review: other, methods: .all))
+    }
+
+    // P2: a surface's "已停止" goes once the Desktop runs again.
+    @Test func overviewStopNoteGoesWhenControlMovesOn() async throws {
+        let m = MockRuntime()
+        let a = m.addDesktop(name: "A")
+        _ = m.addRun(desktopId: a)
+        m.enableDesktopControl()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start()
+        store.stop()
+        let stops = DesktopStops(store: store)
+        await stops.stop(a)
+        #expect(stops.note(a) == "已停止")
+        _ = try await m.call("desktop.handback", .obj([("desktopId", .string(a))]))
+        _ = try m.agentStartsRun(a)
+        await store.refreshDesktops()
+        await store.refreshRuns()
+        await stops.refresh()
+        #expect(stops.note(a) == nil)
+    }
+}

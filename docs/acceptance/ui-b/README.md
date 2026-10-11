@@ -86,3 +86,13 @@
 | `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 1 | 只有已知的 `SingleEndpointTests` 两项超时（`aiMethodsAnswer…`、`aKeyReused…`） |
 
 修复：关闭计划重读前先清空，读失败就不能关闭；关闭前再读一次计划，与所显示的不同就显示新计划、不关闭；P17 必须拿到可显示的新画面才开放结束；stop_pending 之后要等被停运行静止才能再次接管；关闭对话框的「先停止输入」「关闭 Desktop」按 `runtime.capabilities` 置灰。新增 `DesktopControlReviewFixTests`（4 项）与 `DesktopControlAnswerTests`（1 项，旧回答在状态变化后撤下）。渲染图已按修复后的代码重出。
+
+第三轮（Codex 在 11595f9 上的 1 个 P1、2 个 P2 修复后）：
+
+| 命令 | 退出码 | 结果 |
+| --- | --- | --- |
+| `swift build --build-tests` | 0 | — |
+| `swift test --skip-build` | 0 | 1396 项通过（7 个原有 known issue） |
+| `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --skip-build` | 1 | 已知的 `SingleEndpointTests` 两项超时；另有 `AgentDesktopAIUITests.ui004_capabilityTest` 在整套负载下一次时序失败（取消前测试已完成），严格模式下单独重跑 3 次都通过，本 PR 没有改动它 |
+
+修复：结果未知时停止和接管都不可用（提示「先核对上一个动作的结果」），只能经过 P17 核对；P17 的结束只对 Desktop.control 当前指向的那次运行有效；总览、并排、预览窗口每轮刷新都会撤下状态已经过去的「已停止」。新增 `DesktopControlReviewFixTests2`（3 项）。

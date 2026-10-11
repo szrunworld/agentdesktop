@@ -248,6 +248,7 @@ public struct DesktopInspectorView: View {
     static func stopBlocked(_ info: DesktopControlInfo, methods: DesktopControlMethods, connected: Bool) -> String? {
         if !connected { return "Runtime 未连接" }
         if !methods.has("desktop.stop") { return DesktopControlMethods.missing("desktop.stop") }
+        if info.state == "unknown" { return "先核对上一个动作的结果" }
         if !info.canStop { return info.state == "stopping" ? "停止已受理，正在等待静止" : "输入已停止" }
         return nil
     }
@@ -255,6 +256,7 @@ public struct DesktopInspectorView: View {
     static func takeoverBlocked(_ info: DesktopControlInfo, methods: DesktopControlMethods, connected: Bool) -> String? {
         if !connected { return "Runtime 未连接" }
         if !methods.has("desktop.takeover") { return DesktopControlMethods.missing("desktop.takeover") }
+        if info.state == "unknown" { return "先核对上一个动作的结果" }
         if !info.canTakeover { return "你已在控制这个 Desktop" }
         return nil
     }
@@ -364,6 +366,13 @@ public struct DesktopInspectorView: View {
         }
     }
 
+    /// Ending applies only to the Run the dialog reviews: a newer unknown
+    /// Run on the same Desktop is not cleared with old evidence (Codex P2
+    /// on 11595f9).
+    static func canEnd(info: DesktopControlInfo, review: ActionEntry, methods: DesktopControlMethods) -> Bool {
+        info.state == "unknown" && info.controllerRunId == review.runId && methods.has("desktop.handback")
+    }
+
     func takeoverBlocked(_ info: DesktopControlInfo) -> String? {
         if control.working != nil { return "正在处理上一个请求" }
         return Self.takeoverBlocked(info, methods: methods, connected: connected)
@@ -392,7 +401,7 @@ public struct DesktopInspectorView: View {
                 case .unknown:
                     if let review {
                         UnknownResultDialog(review: review, flow: control, name: name,
-                                            canEndHere: info.state == "unknown" && methods.has("desktop.handback"))
+                                            canEndHere: Self.canEnd(info: info, review: review.entry, methods: methods))
                     }
                 }
             }
