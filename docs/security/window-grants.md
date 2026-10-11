@@ -168,7 +168,7 @@ CLI：`agentdesktop windows request|list|revoke`。
 - owner 绑定的窗口 + Desktop 授权给客户端：客户端仍无法观察或操作；
 - 封印开关保持原样：产品默认值不变（`physicalDesktopsEnabled == false`，`bindsOnlyLaunchedProcesses == true`）。
 
-真机部分（Touch ID 确认）由 Kevin 本人执行：`scripts/window-grant-touchid-acceptance.sh`。它用测试副本、独立钥匙串文件，只打开并关闭一个自己的 TextEdit 实例。因为物理 Desktop 在产品里仍是关的，授权只能建在虚拟 Desktop 上，会创建一个虚拟显示器，所以脚本要求显式设置 `ALLOW_VIRTUAL_DISPLAY=1` 才运行。
+真机部分（Touch ID 确认）由 Kevin 本人执行：`scripts/window-grant-touchid-acceptance.sh`。它用测试副本、独立钥匙串文件，只打开并关闭一个自己的 TextEdit 实例。这个脚本写于物理 Desktop 仍关闭的时期，把授权建在虚拟 Desktop 上，会创建一个虚拟显示器，所以要求显式设置 `ALLOW_VIRTUAL_DISPLAY=1` 才运行。物理 Desktop 已按 Kevin 2026-10-10 裁决打开（#216）后，真机验收改走 `scripts/owner-attach-acceptance.sh` 与 `scripts/physical-desktop-acceptance.sh`，不再需要虚拟显示器。
 
 ## 决定记录
 
@@ -188,4 +188,4 @@ CLI：`agentdesktop windows request|list|revoke`。
 | 授权范围收窄后立即读不到 | 移出 App / Desktop：同一事务结束窗口授权（已结束的改为 `revoked`）；收回 `observe` 能力或缩短客户端期限：同一事务撤销既有窗口授权，恢复权限不恢复旧截图；客户端到期：请求入口拒绝 | `keptScreenshotsGoOutOfReachWhenTheAppOrDesktopIsTakenAway`、`takingTheAppAwayAfterTheWindowClosedStillTakesBackKeptScreenshots`、`narrowingTheClientsGrantTakesBackKeptScreenshotsAtOnce` |
 | 临时截图按短期限删除 | 120 秒且不晚于授权到期，由定时任务删除；授权失效或收回 `observe` 时立即删除 | `withoutPersistAScreenshotIsTransientAndGoesWithTheGrant`、`aTransientScreenshotGoesAtItsExpiryWithNothingElseHappening`、`aTransientScreenshotGoesNoLaterThanItsGrant`、`takingObserveAwayDeletesTransientsAtOnce` |
 
-Kevin 已确认采用 B：收回 `observe` 能力或缩短客户端授权期限时，在保存客户端授权的同一事务内永久撤销其既有窗口授权（包含窗口已经关闭的授权）。即使之后恢复 `observe` 或续期，旧截图也不会恢复可读；重新逐窗确认产生新的窗口授权，新授权不能解锁旧授权下的截图。缩短到仍在未来的期限也执行这一规则。owner 仍可读取。回归测试：`restoringObserveOrRenewingTimeDoesNotRestoreOldScreenshots`。
+采用 B（2026-10-11：Kevin 授权本会话自行判断，本会话选 B；理由：每一次收窄都是用户撤回同意，撤回后不应因后来的另一次授权自动恢复，与 A4「撤销即永久」一致，fail closed）：收回 `observe` 能力或缩短客户端授权期限时，在保存客户端授权的同一事务内永久撤销其既有窗口授权（包含窗口已经关闭的授权）。即使之后恢复 `observe` 或续期，旧截图也不会恢复可读；重新逐窗确认产生新的窗口授权，新授权不能解锁旧授权下的截图。缩短到仍在未来的期限也执行这一规则。owner 仍可读取。回归测试：`restoringObserveOrRenewingTimeDoesNotRestoreOldScreenshots`。
