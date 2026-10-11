@@ -233,6 +233,14 @@ public struct InputAction: Codable {
         self.kind = kind
     }
 
+    /// Why `hover` is refused on macOS, the same text from every entry (the
+    /// engine's input, its CLI and MCP, TarsAgent). The only background
+    /// hover that reached Chrome was a middle-button press and release:
+    /// links open, pages get auxclick, apps that paste on middle click
+    /// paste. A plain posted mouse move reaches neither Chrome nor AppKit
+    /// tracking areas (phase-0 spike). Kevin chose to refuse it (#263, B-2).
+    public static let hoverRefusal = "hover is refused on macOS: the only background hover is a middle-button press and release, which opens links, fires auxclick and pastes in some apps, and a plain posted mouse move reaches neither Chrome nor AppKit tracking areas (#263); nothing was sent"
+
     public var point: CGPoint? {
         guard let x, let y else { return nil }
         return CGPoint(x: x, y: y)

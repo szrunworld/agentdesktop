@@ -32,7 +32,7 @@
 | 窗口状态与 AX 元素、查询过滤 | `state --query` | R（observe 含 elements） | 查询过滤 A5 | 是 | 无 |
 | 截图（含 `--windows` 窗口合成） | `screenshot` | R（observe image） | 已完成 | — | 无 |
 | 点击（索引、文本、坐标、右键、双击） | `click` | R（act click，button、count） | 已完成 | — | 无 |
-| 悬停 | `hover` | E | A5 Action `hover` 已定参数；runtime/1 的 `act` 在 macOS 上拒绝（`unsupported_backend`）。引擎层的 hover 仍是中键点击（产品宿主不开引擎 control socket，只经 runtime/1 到达引擎，故产品里不可达；是否让引擎层也拒绝见 #263 B-2），只发移动事件的方式 Chrome 与 AppKit 都收不到（#263 第 0 阶段实验）。Kevin 2026-10-11 选 B，有「独立浏览器中必须 hover」的场景时再评估 CDP 方案 | 否 | 不得以按键事件代替悬停 |
+| 悬停 | `hover` | E | A5 Action `hover` 已定参数；runtime/1 的 `act` 在 macOS 上拒绝（`unsupported_backend`）。引擎层在输入入口也直接拒绝 hover；CLI、MCP、TarsAgent 不再提供 hover，中键模拟路径已删除（#288），只发移动事件的方式 Chrome 与 AppKit 都收不到（#263 第 0 阶段实验）。Kevin 2026-10-11 选 B，有「独立浏览器中必须 hover」的场景时再评估 CDP 方案 | 否 | 不得以按键事件代替悬停 |
 | AX 按压 | `ax-press` | R（act press） | 已完成（A5） | — | 无 |
 | 输入文本（替换） | `type --replace` | R | 已完成 | — | 无 |
 | 按键与修饰键 | `key` | R | 已完成 | — | 无 |

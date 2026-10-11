@@ -300,7 +300,7 @@ unit Run 的 `closingReason`：`goal_verified`（success）；Explorer 失败时
 - `drag {target, to}`：参数已定稿。但 macOS 引擎只有前台拖动（会把应用拉到前台、移动用户的真实指针），所以 Runtime 在派发前就拒绝：`unsupported_backend`，`notSent: true`，`details.reason: background_drag_unsupported`，dispatch=0，不会改用前台执行（RT-11）。有后台拖动能力的后端出现之后再开放。`unsupported_backend` 因此不再是预留错误码。
 - 所有回执的 `businessResult` 都是 `not_evaluated`（RT-22）。
 - 入口：CLI 新增 `act press`，MCP 新增 `act_press`；hover 和 drag 都不提供入口。
-- **决定（Kevin 2026-10-11，#263 选 B）**：macOS 上明确拒绝 hover，不实现替代方案。**范围**：本节的拒绝在 runtime/1 的 `act`；引擎层（`engine/Sources/SecondScreenCore/BackgroundInput.swift` 的 hover、`InputEngine` 的 `.hover`）仍是中键按下和抬起。产品宿主只以 `startInProcess` 运行引擎、不开它的 control socket，打包也不含引擎 CLI，因此产品里只能经 runtime/1 到达引擎；引擎层是否也直接拒绝，见 #263 的 B-2。第 0 阶段实验结论：只发 `mouseMoved` 的后台投递，Chrome 网页收到 0 个事件，原生 AppKit 的 tracking area 也不响应（tracking area 由 WindowServer 按真实鼠标位置驱动）；只有 Chrome DevTools Protocol 能做到不发按键事件的悬停，但它需要 Runtime 自己拉起带调试管道的浏览器，是一条新的控制通道。将来出现「独立浏览器中必须使用 hover」的明确场景时，再按该场景的收益重新评估（方案 A，设计草案见 #263）。drag 仍按 fail-closed 处理，恢复须另提设计并经批准。
+- **决定（Kevin 2026-10-11，#263 选 B）**：macOS 上明确拒绝 hover，不实现替代方案。**范围**：本节的拒绝在 runtime/1 的 `act`；引擎层也在输入入口直接拒绝 hover（#288），已删除中键模拟路径；CLI、MCP、TarsAgent 同样拒绝。产品宿主只以 `startInProcess` 运行引擎、不开它的 control socket，打包也不含引擎 CLI，因此产品里只能经 runtime/1 到达引擎；B-2 的实现见 #288。第 0 阶段实验结论：只发 `mouseMoved` 的后台投递，Chrome 网页收到 0 个事件，原生 AppKit 的 tracking area 也不响应（tracking area 由 WindowServer 按真实鼠标位置驱动）；只有 Chrome DevTools Protocol 能做到不发按键事件的悬停，但它需要 Runtime 自己拉起带调试管道的浏览器，是一条新的控制通道。将来出现「独立浏览器中必须使用 hover」的明确场景时，再按该场景的收益重新评估（方案 A，设计草案见 #263）。drag 仍按 fail-closed 处理，恢复须另提设计并经批准。
 
 ### 动作记录（A5）
 

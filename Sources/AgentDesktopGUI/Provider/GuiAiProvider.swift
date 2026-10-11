@@ -14,6 +14,28 @@ public struct GuiHistoryTurn: Sendable {
     }
 }
 
+/// A note for the next model call after a stall took its recovery (X1-3):
+/// the previous action brought no change, of this kind, so try another
+/// way. Only the stall kind goes in, worded by a fixed string per kind:
+/// never screen text, typed text, a window title, a goal or parameter
+/// value, or anything the model wrote.
+public enum GuiRecoveryHint: String, Sendable, CaseIterable {
+    case repeatedAction = "repeated_action"
+    case noProgress = "no_progress"
+    case stateLoop = "state_loop"
+
+    /// The text part the next request carries, after the task line.
+    public var promptText: String {
+        let what: String
+        switch self {
+        case .repeatedAction: what = "The same action was repeated and changed nothing in the window."
+        case .noProgress: what = "The last few actions changed nothing in the window."
+        case .stateLoop: what = "The last actions brought the window back to an earlier state."
+        }
+        return "Note (no progress: \(rawValue)): \(what) Do not repeat that; try a different approach."
+    }
+}
+
 public struct GuiInferenceInput: Sendable {
     public let binding: GuiRunBinding
     /// The observation to suggest from, with its authorized image bytes.
@@ -25,11 +47,14 @@ public struct GuiInferenceInput: Sendable {
     /// The run's single monotonic deadline.
     public let deadlineNs: UInt64
     public let callerScope: String
+    /// Set only on the inference right after a stall's recovery (X1-3).
+    public let recoveryHint: GuiRecoveryHint?
 
     public init(binding: GuiRunBinding, bundle: ObservationBundle, history: [GuiHistoryTurn], stepIndex: Int,
-                budget: AttemptBudget, deadlineNs: UInt64, callerScope: String) {
+                budget: AttemptBudget, deadlineNs: UInt64, callerScope: String, recoveryHint: GuiRecoveryHint? = nil) {
         self.binding = binding; self.bundle = bundle; self.history = history; self.stepIndex = stepIndex
         self.budget = budget; self.deadlineNs = deadlineNs; self.callerScope = callerScope
+        self.recoveryHint = recoveryHint
     }
 }
 
@@ -97,7 +122,7 @@ public struct GuiAiProvider: Sendable {
             throw ContractError(.staleObservation, "the observation has no authorized screenshot")
         }
         let (request, sent, dropped) = try Self.buildRequest(binding: binding, codec: codec, current: current,
-                                                             history: input.history)
+                                                             history: input.history, hint: input.recoveryHint)
         let stamp = observation.stamp
         let purpose = GuiStepCallPurpose(runId: binding.runId, stepIndex: input.stepIndex, snapshotId: stamp.snapshotId,
                                          bindingEpoch: stamp.bindingEpoch, currentGeneration: stamp.runGeneration)
@@ -134,9 +159,11 @@ public struct GuiAiProvider: Sendable {
     /// kept history (oldest first), then the current screenshot. History
     /// images are dropped newest-last until both the image count and the
     /// base64 byte budget fit; the current image is never dropped (if it
-    /// alone is too large, AiService refuses with LIMIT_EXCEEDED).
+    /// alone is too large, AiService refuses with LIMIT_EXCEEDED). A
+    /// recovery hint is one more text part of the last user message, between
+    /// the task line and the current screenshot; it adds no call.
     static func buildRequest(binding: GuiRunBinding, codec: GuiActionCodec, current: AiImageContent,
-                             history: [GuiHistoryTurn]) throws -> (AiInferenceRequest, sent: Int, dropped: Int) {
+                             history: [GuiHistoryTurn], hint: GuiRecoveryHint? = nil) throws -> (AiInferenceRequest, sent: Int, dropped: Int) {
         let limits = binding.limits
         var budget = limits.maxImageEncodedBytes - current.encodedByteCount
         var slots = limits.maxScreenshots - 1
@@ -159,7 +186,10 @@ public struct GuiAiProvider: Sendable {
             }
             messages.append(.text(.assistant, turn.reply))
         }
-        messages.append(AiMessage(role: .user, content: [.text("Task: \(binding.goal)"), .image(current)]))
+        var last: [AiMessageContent] = [.text("Task: \(binding.goal)")]
+        if let hint { last.append(.text(hint.promptText)) }
+        last.append(.image(current))
+        messages.append(AiMessage(role: .user, content: last))
         let model = binding.primary.resolvedModel.model
         let request = AiInferenceRequest(messages: messages, options: model.requestOptions,
                                          maxOutputTokens: min(limits.maxOutputTokens, model.maxOutputTokens),

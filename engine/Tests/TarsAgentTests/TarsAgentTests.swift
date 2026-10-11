@@ -83,10 +83,15 @@ func stopReason(_ steps: [Step]) -> (Outcome, String)? {
         #expect(stopReason(Planner.plan(ParsedAction(type: "click"), context))?.0 == .user)
     }
 
-    @Test func hoverRestsOnThePoint() {
-        let steps = inputs(Planner.plan(action("hover(start_box='[500, 500, 500, 500]')"), context))
-        #expect(steps.count == 1 && steps[0].kind == .hover && steps[0].x == 2560 && steps[0].y == 400)
-        #expect(Planner.plan(ParsedAction(type: "hover"), context).isEmpty)
+    @Test func hoverIsNotOfferedAndStopsWithTheEnginesReason() {
+        // #263 B-2: no hover in the action space; a model that answers with
+        // one anyway stops, and nothing is sent.
+        #expect(!TarsAgent.actionSpaces.contains("hover("))
+        for answer in ["hover(start_box='[500, 500, 500, 500]')", "mouse_move(start_box='[500, 500, 500, 500]')"] {
+            let steps = Planner.plan(action(answer), context)
+            #expect(inputs(steps).isEmpty, "\(answer)")
+            #expect(stopReason(steps)?.0 == .user && stopReason(steps)?.1 == InputAction.hoverRefusal, "\(answer)")
+        }
     }
 
     @Test func typingThatWouldSubmitStops() {
@@ -282,7 +287,7 @@ func field(index: Int, x: Double, y: Double, width: Double, height: Double, labe
 
     @Test func oldScreenshotsLeaveTheHistory() {
         let screen = FakeScreen()
-        let model = ScriptedModel(Array(repeating: "Action: hover(start_box='[1, 1, 1, 1]')", count: 8))
+        let model = ScriptedModel(Array(repeating: "Action: scroll(start_box='[1, 1, 1, 1]', direction='down')", count: 8))
         var options = TarsAgent.Options()
         options.maxSteps = 8
         let result = TarsAgent(screen: screen, model: model, options: options).run("x")
@@ -389,7 +394,7 @@ func field(index: Int, x: Double, y: Double, width: Double, height: Double, labe
     @Test func onlyTheLatestListStays() {
         let screen = FakeScreen()
         screen.fields = [field(index: 2, x: 1920, y: 0, width: 128, height: 80, label: "A", role: "AXButton")]
-        let model = ScriptedModel(["Action: hover(start_box='[1, 1, 1, 1]')", "Action: finished(content='ok')"])
+        let model = ScriptedModel(["Action: scroll(start_box='[1, 1, 1, 1]', direction='down')", "Action: finished(content='ok')"])
         _ = TarsAgent(screen: screen, model: model).run("x")
         let lists = model.seen[1].filter { if case .user(let text) = $0 { text.hasPrefix(TarsAgent.elementsHeading) } else { false } }
         #expect(lists.count == 1)
