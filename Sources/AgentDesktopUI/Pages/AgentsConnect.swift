@@ -221,7 +221,7 @@ struct AgentsCheckResult: View {
                 } ?? "Runtime 没有报告控制状态", labelWidth: 120)
             }
             LabeledValue(label: "授权列出它的应用", value: check.clients.isEmpty ? "没有"
-                         : check.clients.map { "\($0.name)（\($0.connections) 条连接）" }.joined(separator: "、"), labelWidth: 120)
+                         : check.clients.map { "\($0.name)（\($0.connections.map { "\($0) 条连接" } ?? "连接数未知：Runtime 未提供 hub.connections.list")）" }.joined(separator: "、"), labelWidth: 120)
             Text("只读检查：没有开始运行，没有接管或替换控制者。").font(ADFont.note).foregroundStyle(ADColor.muted)
         }
         .padding(ADSpace.l).frame(maxWidth: .infinity, alignment: .leading).adPanel()

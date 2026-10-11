@@ -30,7 +30,8 @@ public struct AgentsConnectionCheck: Equatable, Sendable {
     public struct Entry: Equatable, Sendable {
         public let clientId: String
         public let name: String
-        public let connections: Int
+        /// nil when the Runtime does not offer hub.connections.list.
+        public let connections: Int?
     }
 }
 
@@ -220,13 +221,17 @@ public final class AgentsModel: ObservableObject {
             }
             guard offers("hub.clients.list") else { throw RuntimeError.capabilityMissing("hub.clients.list") }
             let list = try await runtime.call("hub.clients.list")
-            let conns = offers("hub.connections.list") ? (try await runtime.call("hub.connections.list"))["connections"]?.arrayValue ?? [] : []
+            let conns: [JSONValue]? = offers("hub.connections.list")
+                ? (try await runtime.call("hub.connections.list"))["connections"]?.arrayValue ?? [] : nil
+            let at = now()
             for c in list["clients"]?.arrayValue ?? [] where c["state"]?.stringValue == "active" {
+                // An active grant past expiresAt is refused (grant_expired): not access (Codex P2).
                 guard let g = c["grant"], g["state"]?.stringValue == "active",
+                      let end = g["expiresAt"]?.stringValue.flatMap(Timestamp.date), end > at,
                       (g["desktops"]?.arrayValue ?? []).contains(.string(desktopId)),
                       let id = c["clientId"]?.stringValue else { continue }
                 entries.append(.init(clientId: id, name: c["agentName"]?.stringValue ?? id,
-                                     connections: conns.filter { $0["clientId"]?.stringValue == id }.count))
+                                     connections: conns.map { $0.filter { $0["clientId"]?.stringValue == id }.count }))
             }
         } catch {
             problem = RuntimeProblem(error)
@@ -255,8 +260,28 @@ public final class AgentsModel: ObservableObject {
         }
     }
 
-    /// hub.grants.set with params built by `GrantNarrowing` (never wider).
-    public func narrowGrant(_ id: String, params: JSONValue) async {
+    /// hub.grants.set for a narrowing the user confirmed. The params are
+    /// rebuilt from the grant as the Runtime has it right now, and only if
+    /// it is still the revision the user looked at: owner calls carry no
+    /// expected revision, so stale arrays could bring back what someone
+    /// removed meanwhile, and a duration computed before the dialog would
+    /// count from the later call (Codex P1 on e38c3d6).
+    public func narrowGrant(_ id: String, intent: GrantNarrowing.Intent) async {
+        guard canChange("hub.grants.set"), offers("hub.grants.list") else { return }
+        let current: JSONValue?
+        do {
+            current = (try await runtime.call("hub.grants.list"))["grants"]?.arrayValue?.first { $0["clientId"]?.stringValue == id }
+        } catch {
+            lastResult = AgentsActionResult(title: "Runtime 没有受理这次操作", facts: [], problem: RuntimeProblem(error))
+            await load()
+            return
+        }
+        guard let g = current, g["revision"]?.intValue == intent.revision,
+              let params = GrantNarrowing.params(clientId: id, grant: g, intent: intent, now: now()) else {
+            lastResult = AgentsActionResult(title: "没有发送：授权在确认期间变了", facts: [], problem: Self.changedMeanwhile)
+            await load()
+            return
+        }
         await change("hub.grants.set", params) { [self] r in
             AgentsActionResult(title: "已受理：收紧 \(name(of: id)) 的授权", facts: [
                 "Runtime 返回的授权：版本 \(r["revision"]?.intValue.map(String.init) ?? "—")，状态 \(r["state"]?.stringValue ?? "—")，到期 \(TimeText.clock(r["expiresAt"]?.stringValue))",
@@ -335,6 +360,10 @@ public final class AgentsModel: ObservableObject {
         ]
     }
 
+    static let changedMeanwhile = RuntimeProblem(code: "conflict", title: "授权已经变了",
+                                                 advice: "确认期间这个应用的授权被改动、撤销或已到期，收紧没有发送。请重新查看后再决定。",
+                                                 notSent: true)
+
     static func missing(_ method: String) -> RuntimeProblem {
         let (t, a) = RuntimeProblem.text("capability_missing")
         return RuntimeProblem(code: "capability_missing", title: t, advice: "\(a)（\(method)）")
@@ -355,6 +384,32 @@ public enum GrantNarrowing {
     /// Choices for a shorter period, in seconds (Hub W02: 1 h / 8 h / 7 d).
     public static let periods: [(String, Int)] = [("1 小时", 3600), ("8 小时", 28800), ("7 天", 604_800)]
 
+    /// Seconds kept back from what is left, so the time between building the
+    /// params and the Runtime applying them can never move the end later.
+    public static let safetyMargin = 5
+
+    /// What the user chose, bound to the grant revision they saw.
+    public struct Intent: Equatable, Sendable {
+        public let keepCapabilities: Set<String>
+        public let keepDesktops: Set<String>
+        public let keepApps: Set<String>
+        public let period: Int?
+        public let revision: Int
+
+        public init(keepCapabilities: Set<String>, keepDesktops: Set<String>, keepApps: Set<String>, period: Int?, revision: Int) {
+            self.keepCapabilities = keepCapabilities
+            self.keepDesktops = keepDesktops
+            self.keepApps = keepApps
+            self.period = period
+            self.revision = revision
+        }
+    }
+
+    public static func params(clientId: String, grant: JSONValue, intent: Intent, now: Date) -> JSONValue? {
+        params(clientId: clientId, grant: grant, keepCapabilities: intent.keepCapabilities, keepDesktops: intent.keepDesktops,
+               keepApps: intent.keepApps, period: intent.period, now: now)
+    }
+
     public static func strings(_ v: JSONValue?) -> [String] { (v?.arrayValue ?? []).compactMap(\.stringValue) }
 
     /// Seconds left on `grant`, rounded down; nil when it is not active or has ended.
@@ -371,9 +426,11 @@ public enum GrantNarrowing {
         guard let left = remaining(grant, now: now) else { return nil }
         let caps = strings(grant["capabilities"]), desks = strings(grant["desktops"]), apps = strings(grant["apps"])
         guard keepCapabilities.isSubset(of: caps), keepDesktops.isSubset(of: desks), keepApps.isSubset(of: apps) else { return nil }
-        let seconds = min(left, period ?? left)
+        let usable = left - safetyMargin
+        guard usable >= 1 else { return nil }
+        let seconds = min(usable, period ?? usable)
         let changed = keepCapabilities.count < caps.count || keepDesktops.count < desks.count || keepApps.count < apps.count
-            || seconds < left
+            || (period.map { $0 < usable } ?? false)
         guard changed else { return nil }
         return .obj([
             ("clientId", .string(clientId)),
@@ -393,7 +450,7 @@ public enum GrantNarrowing {
                 out.append("去掉\(label)：" + gone.map { key == "capabilities" ? AgentsText.capability($0) : $0 }.joined(separator: "、"))
             }
         }
-        if let left = remaining(grant, now: now), let s = params["durationSeconds"]?.intValue, s < left {
+        if let left = remaining(grant, now: now), let s = params["durationSeconds"]?.intValue, s < left - safetyMargin {
             out.append("期限缩短为 \(AgentsText.duration(s))（原来还剩 \(AgentsText.duration(left))）")
         }
         return out

@@ -118,7 +118,7 @@ struct AgentsTests {
         let p = try #require(GrantNarrowing.params(clientId: id, grant: g, keepCapabilities: ["observe", "run"], keepDesktops: desks,
                                                    keepApps: apps, period: 604_800, now: Self.now))
         let left = try #require(GrantNarrowing.remaining(g, now: Self.now))
-        #expect(p["durationSeconds"]?.intValue == left)
+        #expect(p["durationSeconds"]?.intValue == left - GrantNarrowing.safetyMargin)
         #expect(GrantNarrowing.strings(p["capabilities"]) == ["observe", "run"])
         #expect(RuntimeContract.shared.validate(p, "hub_grants_set_params").isEmpty)
         #expect(GrantNarrowing.removed(grant: g, params: p, now: Self.now) == ["去掉能力：操作 act"])
@@ -132,7 +132,9 @@ struct AgentsTests {
         #expect(GrantNarrowing.params(clientId: id, grant: g, keepCapabilities: [], keepDesktops: [], keepApps: [], period: nil,
                                       now: Self.now.addingTimeInterval(7200)) == nil)
 
-        await model.narrowGrant(id, params: p)
+        let intent = GrantNarrowing.Intent(keepCapabilities: ["observe", "run"], keepDesktops: desks, keepApps: apps,
+                                           period: 604_800, revision: g["revision"]?.intValue ?? -1)
+        await model.narrowGrant(id, intent: intent)
         let r = try #require(model.lastResult)
         #expect(r.accepted && r.title.hasPrefix("已受理"), "\(r)")
         #expect(GrantNarrowing.strings(model.grant(of: id)?["capabilities"]) == ["observe", "run"])
@@ -145,10 +147,10 @@ struct AgentsTests {
         let (_, model) = await loaded(m)
         let id = "app:mock-001"
         let g = try #require(model.grant(of: id))
-        let p = try #require(GrantNarrowing.params(clientId: id, grant: g, keepCapabilities: Set(GrantNarrowing.strings(g["capabilities"])),
-                                                   keepDesktops: Set(GrantNarrowing.strings(g["desktops"])), keepApps: [],
-                                                   period: nil, now: Self.now))
-        await model.narrowGrant(id, params: p)
+        await model.narrowGrant(id, intent: .init(keepCapabilities: Set(GrantNarrowing.strings(g["capabilities"])),
+                                                  keepDesktops: Set(GrantNarrowing.strings(g["desktops"])), keepApps: [],
+                                                  period: nil, revision: g["revision"]?.intValue ?? -1))
+        #expect(model.lastResult?.accepted == true, "\(String(describing: model.lastResult))")
         let active = model.windowGrants.filter { $0["clientId"]?.stringValue == id && $0["state"]?.stringValue == "active" }
         #expect(active.isEmpty)
         #expect(model.windowGrants.contains { $0["endedReason"]?.stringValue == "app_removed" })
@@ -284,6 +286,44 @@ struct AgentsTests {
         #expect(!called.contains("run.start") && !called.contains { $0.hasPrefix("desktop.takeover") })
         // Grants that name "created" only are not counted as naming this Desktop.
         #expect(check.clients.allSatisfy { $0.clientId != "app:mock-003" })
+    }
+
+    @Test func aNarrowingIsRebuiltAtConfirmationAndNotSentIfTheGrantChanged() async throws {
+        // Codex P1 on e38c3d6: the dialog may stay open; what is sent comes
+        // from the grant as it is then, and only for the revision shown.
+        let m = MockRuntime.agentsSample()
+        let (_, model) = await loaded(m)
+        let id = "app:mock-002"
+        let g = try #require(model.grant(of: id))
+        let intent = GrantNarrowing.Intent(keepCapabilities: ["observe", "act", "run"], keepDesktops: ["created"],
+                                           keepApps: ["com.google.Chrome"], period: 600, revision: g["revision"]?.intValue ?? -1)
+        // Someone else narrows it meanwhile (revision 2): our stale arrays would bring "act" back.
+        _ = try await m.call("hub.grants.set", .obj([("clientId", .string(id)), ("capabilities", .array([.string("observe")])),
+                                                     ("desktops", .array([.string("created")])), ("apps", .array([])),
+                                                     ("durationSeconds", .int(1800))]))
+        let sets = m.callLog.filter { $0 == "hub.grants.set" }.count
+        await model.narrowGrant(id, intent: intent)
+        #expect(m.callLog.filter { $0 == "hub.grants.set" }.count == sets, "a stale narrowing is not sent")
+        let r = try #require(model.lastResult)
+        #expect(!r.accepted && r.problem?.notSent == true)
+        #expect(GrantNarrowing.strings(model.grant(of: id)?["capabilities"]) == ["observe"])
+    }
+
+    @Test func theCheckLeavesOutExpiredGrantsAndSaysWhenConnectionsAreUnknown() async throws {
+        // Codex P2s on e38c3d6.
+        let m = MockRuntime.agentsSample()
+        let store = ShellStore(runtime: m, clock: StillClock(), allowSubscription: false)
+        await store.start(); store.stop()
+        let later = AgentsModel(store: store, now: { Self.now.addingTimeInterval(7200) })
+        let desk = "desk_001"
+        _ = try await m.call("hub.grants.set", .obj([("clientId", .string("app:mock-002")), ("capabilities", .array([.string("observe")])),
+                                                     ("desktops", .array([.string(desk)])), ("apps", .array([])), ("durationSeconds", .int(3600))]))
+        await later.checkConnection(desktopId: desk)
+        #expect(later.check?.clients.isEmpty == true, "an expired grant is not access")
+        let (_, model) = await loaded(NarrowCapabilitiesRuntime(m, hiding: ["hub.connections.list"]))
+        await model.checkConnection(desktopId: desk)
+        let entry = try #require(model.check?.clients.first { $0.clientId == "app:mock-002" })
+        #expect(entry.connections == nil)
     }
 
     @Test func aRefusedChangeIsShownAsNotAccepted() async throws {

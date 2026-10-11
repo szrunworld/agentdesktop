@@ -76,10 +76,10 @@ struct AgentsRenderTests {
         try write("W03-agent-detail", page(store, model))
         // The narrowing confirmation (二次确认) over the detail.
         let g = try #require(model.grant(of: "app:mock-001"))
-        let p = try #require(GrantNarrowing.params(clientId: "app:mock-001", grant: g, keepCapabilities: ["observe"],
-                                                   keepDesktops: ["created"], keepApps: ["com.tencent.xinWeChat"],
-                                                   period: 3600 - 600, now: Self.now))
-        try write("W03-narrow-confirm", page(store, model, confirming: .narrowGrant("app:mock-001", p)))
+        let intent = GrantNarrowing.Intent(keepCapabilities: ["observe"], keepDesktops: ["created"], keepApps: ["com.tencent.xinWeChat"],
+                                           period: 3600 - 600, revision: g["revision"]?.intValue ?? -1)
+        #expect(GrantNarrowing.params(clientId: "app:mock-001", grant: g, intent: intent, now: Self.now) != nil)
+        try write("W03-narrow-confirm", page(store, model, confirming: .narrowGrant("app:mock-001", intent)))
         try write("W03-revoke-client-confirm", page(store, model, confirming: .revokeClient("app:mock-001")))
         // After the removal: 已受理, the facts, and the HB-UI-04 banner.
         await model.revokeClient("app:mock-001")

@@ -9,7 +9,7 @@ import SwiftUI
 public enum AgentsConfirmation: Equatable, Sendable {
     case revokeClient(String)
     case revokeGrant(String)
-    case narrowGrant(String, JSONValue)
+    case narrowGrant(String, GrantNarrowing.Intent)
     case revokeWindowGrant(JSONValue)
 }
 
@@ -38,8 +38,11 @@ public struct AgentsConfirmationText: Equatable, Sendable {
                                         n > 0 ? "\(n) 个未结束的平台运行进入停止流程，要等执行端确认静止" : "Runtime 目前没有报告它未结束的平台运行"],
                          preserved: ["外部应用本身继续运行：Hub 不结束它的进程", "登记记录保留，状态如实显示为已撤销"],
                          confirmTitle: "撤销授权")
-        case let .narrowGrant(id, params):
-            let removed = model.grant(of: id).map { GrantNarrowing.removed(grant: $0, params: params, now: model.currentNow) } ?? []
+        case let .narrowGrant(id, intent):
+            let removed = model.grant(of: id).flatMap { g in
+                GrantNarrowing.params(clientId: id, grant: g, intent: intent, now: model.currentNow)
+                    .map { GrantNarrowing.removed(grant: g, params: $0, now: model.currentNow) }
+            } ?? []
             return .init(title: "收紧 \(model.name(of: id)) 的授权？", message: "只能去掉已有的项目或缩短期限，不会扩大或延长授权。",
                          consequences: removed + ["新范围从下一个请求、下一个动作起生效", "新范围之外的平台运行由 Runtime 停止；它的连接被切断，需要重连"],
                          preserved: ["保留的能力、Desktop 和 App 不变", "外部应用本身继续运行"],
@@ -118,7 +121,7 @@ public struct AgentsPageView: View {
         switch c {
         case let .revokeClient(id): await model.revokeClient(id)
         case let .revokeGrant(id): await model.revokeGrant(id)
-        case let .narrowGrant(id, params): await model.narrowGrant(id, params: params)
+        case let .narrowGrant(id, intent): await model.narrowGrant(id, intent: intent)
         case let .revokeWindowGrant(w):
             if let id = w["windowGrantId"]?.stringValue { await model.revokeWindowGrant(id) }
         }
@@ -461,10 +464,11 @@ struct AgentDetailView: View {
                 Spacer()
                 Button("取消") { editing = false }.buttonStyle(ADButtonStyle(.secondary))
                 Button("检查并确认…") {
-                    if let p = GrantNarrowing.params(clientId: clientId, grant: g, keepCapabilities: keepCaps, keepDesktops: keepDesks,
-                                                     keepApps: keepApps, period: period, now: model.currentNow) {
+                    let intent = GrantNarrowing.Intent(keepCapabilities: keepCaps, keepDesktops: keepDesks, keepApps: keepApps,
+                                                       period: period, revision: g["revision"]?.intValue ?? -1)
+                    if GrantNarrowing.params(clientId: clientId, grant: g, intent: intent, now: model.currentNow) != nil {
                         editing = false
-                        confirm(.narrowGrant(clientId, p))
+                        confirm(.narrowGrant(clientId, intent))
                     } else {
                         noChange = true
                     }
