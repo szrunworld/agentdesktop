@@ -5777,6 +5777,10 @@ enum RuntimeContractData {
               "items": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "a limit cut the section short (Runs: 500; requests: 100000 scanned): narrow since"
               }
             }
           }

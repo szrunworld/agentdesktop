@@ -37,8 +37,9 @@ private func export(_ s: RuntimeService, _ c: ConnectionState, _ params: String 
     for name in RuntimeService.diagnosticsSections { #expect(sections[name] != nil, "\(name)") }
     #expect(sections["clients"]?.arrayValue?.contains { $0["clientId"]?.stringValue == appId } == true)
     #expect(sections["clients"]?.arrayValue?.first { $0["clientId"]?.stringValue == appId }?["agentName"]?.stringValue == "agent [redacted]")
-    #expect(sections["runs"]?.arrayValue?.isEmpty == false)
-    #expect(sections["runs"]?.arrayValue?.first?["stop"]?["quiescentAt"] != nil, "stop evidence")
+    #expect(sections["runs"]?["runs"]?.arrayValue?.isEmpty == false)
+    #expect(sections["runs"]?["truncated"] == .bool(false))
+    #expect(sections["runs"]?["runs"]?.arrayValue?.first?["stop"]?["quiescentAt"] != nil, "stop evidence")
     let requestRows = sections["requests"]?["byMethodAndState"]?.arrayValue ?? []
     #expect(requestRows.contains { $0["method"]?.stringValue == "act" })
     #expect(document["manifest"]?["excluded"]?.arrayValue?.isEmpty == false)
@@ -81,7 +82,7 @@ private func export(_ s: RuntimeService, _ c: ConnectionState, _ params: String 
     let sections = try #require(doc?["sections"])
     #expect(sections["clients"]?.arrayValue?.compactMap { $0["clientId"]?.stringValue } == [appId])
     #expect(sections["connections"]?.arrayValue?.allSatisfy { $0["clientId"]?.stringValue == appId } == true)
-    #expect(sections["runs"]?.arrayValue?.isEmpty == true, "the owner's Runs are not its")
+    #expect(sections["runs"]?["runs"]?.arrayValue?.isEmpty == true, "the owner's Runs are not its")
     #expect(sections["desktops"]?.arrayValue?.isEmpty == true, "no Desktop in its grant")
     #expect(sections["requests"]?["byMethodAndState"]?.arrayValue?.isEmpty == true)
     let text = doc?.encoded() ?? ""
@@ -94,7 +95,7 @@ private func export(_ s: RuntimeService, _ c: ConnectionState, _ params: String 
     let (runner, _) = try pairedConnection(sc.s, capabilities: ["run"], name: "runner")
     #expect(code(call(sc.s, runner, "diagnostics.export")) == "grant_missing")
     let (observer, _) = try pairedConnection(sc.s, capabilities: ["observe"], name: "observer")
-    #expect(try export(sc.s, observer).1?["sections"]?["runs"]?.arrayValue?.isEmpty == true)
+    #expect(try export(sc.s, observer).1?["sections"]?["runs"]?["runs"]?.arrayValue?.isEmpty == true)
 }
 
 @Test func diagnosticsWorkWithoutADesktopPlatform() throws {
@@ -110,4 +111,35 @@ private func export(_ s: RuntimeService, _ c: ConnectionState, _ params: String 
     let out = RuntimeService.redacted(v).encoded()
     #expect(!out.contains("\"token\"") && !out.contains("apiKey"))
     #expect(!out.contains("adt1_abcdefghijkl") && !out.contains("sk-abc") && !out.contains("abc.def.ghi"))
+}
+
+@Test func anotherClientsLeaseIsNotNamedAndUnitRunIsOnlyListedWithAnExecutor() throws {
+    let sc = try scene()
+    let started = try #require(data(call(sc.s, sc.c, "run.start", context: #"{"sessionId":"\#(sc.session)"}"#))?["run"]?["runId"]?.stringValue)
+    let (app, _) = try pairedConnection(sc.s, capabilities: ["observe"], desktops: [sc.desktop])
+    let theirs = try #require(try export(sc.s, app).1?["sections"]?["desktops"]?.arrayValue?.first)
+    #expect(theirs["leaseHeld"] == .bool(true) && theirs["leaseRunId"] == .null)
+    #expect(!(try export(sc.s, app).1?.encoded().contains(started) ?? true))
+    let owners = try #require(try export(sc.s, sc.c).1?["sections"]?["desktops"]?.arrayValue?.first { $0["desktopId"]?.stringValue == sc.desktop })
+    #expect(owners["leaseRunId"]?.stringValue == started)
+    // No GUI executor registered here: unit.run is not offered, as in runtime.capabilities.
+    let methods = try export(sc.s, sc.c).1?["sections"]?["capabilities"]?["methods"]?.arrayValue?.compactMap(\.stringValue) ?? []
+    #expect(!methods.contains("unit.run") && methods.contains("act"))
+}
+
+@Test func theRunsSectionSaysWhenItIsCutShortAndFindsLateStopEvidence() throws {
+    let sc = try scene()
+    let at = Timestamp.string(Date())
+    for i in 0..<(RuntimeService.diagnosticsRunLimit + 3) {
+        sc.s.runs.create(RunRecord(runId: "run_bulk\(i)", kind: "act", origin: .agentHub, ownership: .externalClient,
+                                   lifetime: .connectionScoped, clientId: "app:x", connectionId: nil, sessionId: "ses_x", desktopId: "d_x",
+                                   phase: .ended, outcome: .success, quiescence: .confirmed, closingReason: "completed", revision: 2,
+                                   createdAt: at, endedAt: at, receipts: [], unknownActions: 0))
+    }
+    for _ in 0..<150 { sc.s.runs.appendEvent("run_bulk0", "action.accepted", .obj([("requestId", .string("r")), ("kind", .string("click"))])) }
+    sc.s.runs.appendEvent("run_bulk0", "run.quiescent", .obj([("revision", .int(3))]))
+    let (r, doc) = try export(sc.s, sc.c, #"{"sections":["runs"]}"#)
+    #expect(doc?["sections"]?["runs"]?["truncated"] == .bool(true))
+    #expect(r["manifest"]?["sections"]?.arrayValue?.first?["truncated"] == .bool(true))
+    #expect(sc.s.runs.events("run_bulk0", types: ["run.quiescent"]).count == 1)
 }

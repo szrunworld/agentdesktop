@@ -40,16 +40,16 @@ extension RuntimeService {
         let since = Timestamp.string(from)
 
         var sections: [(String, JSONValue)] = []
-        var counts: [(String, Int)] = []
+        var counts: [(String, Int, Bool)] = []
         for name in Self.diagnosticsSections where chosen.contains(name) {
-            let (value, items) = diagnosticsSection(name, since: since, mine: mine, c)
+            let (value, items, truncated) = diagnosticsSection(name, since: since, mine: mine, c)
             sections.append((name, value))
-            counts.append((name, items))
+            counts.append((name, items, truncated))
         }
         let manifest = JSONValue.obj([
             ("scope", .obj([("role", .string(owner ? "owner" : "paired")), ("clientId", .string(c.clientId))])),
             ("since", .string(since)),
-            ("sections", .array(counts.map { .obj([("name", .string($0.0)), ("items", .int($0.1))]) })),
+            ("sections", .array(counts.map { .obj([("name", .string($0.0)), ("items", .int($0.1)), ("truncated", .bool($0.2))]) })),
             ("excluded", .array(Self.diagnosticsExcluded.map(JSONValue.string))),
         ])
         if p["preview"]?.boolValue == true {
@@ -83,7 +83,8 @@ extension RuntimeService {
     }
 
     /// One section and how many items it holds.
-    private func diagnosticsSection(_ name: String, since: String, mine: String?, _ c: ConnectionState) -> (JSONValue, Int) {
+    /// One section, how many items it holds, and whether a limit cut it short.
+    private func diagnosticsSection(_ name: String, since: String, mine: String?, _ c: ConnectionState) -> (JSONValue, Int, Bool) {
         switch name {
         case "runtime":
             let perms = backend.permissions()
@@ -98,12 +99,14 @@ extension RuntimeService {
                 ("permissions", .obj([("screenRecording", .string(perms.screenRecording.rawValue)),
                                       ("accessibility", .string(perms.accessibility.rawValue))])),
                 ("features", .array(backend.features().map(JSONValue.string))),
-            ]), 1)
+            ]), 1, false)
         case "capabilities":
             let served = extensions.names
             let names = contract.methods
-                .filter { RuntimeMethod(rawValue: $0.method).map(implemented) ?? served.contains($0.method) }.map(\.method)
-            return (.obj([("methods", .array(names.map(JSONValue.string)))]), names.count)
+                .filter { RuntimeMethod(rawValue: $0.method).map(implemented) ?? served.contains($0.method) }
+                // As runtime.capabilities: unit.run only with a GUI executor (Codex on ca649dc).
+                .filter { $0.method != RuntimeMethod.unitRun.rawValue || unitRunAvailable }.map(\.method)
+            return (.obj([("methods", .array(names.map(JSONValue.string)))]), names.count, false)
         case "connections":
             let open = openConnections.all.filter { mine == nil || $0.connection.clientId == mine }
             return (.array(open.map { e in
@@ -111,7 +114,7 @@ extension RuntimeService {
                       ("role", .string(e.connection.role.rawValue)), ("since", .string(e.since)),
                       ("codeIdentityLevel", .string(e.connection.codeIdentity.level.rawValue)),
                       ("subscribed", .bool(e.connection.isSubscribed))])
-            }), open.count)
+            }), open.count, false)
         case "clients":
             let clients = hub.clients().filter { mine == nil || $0.clientId == mine }
             return (.array(clients.map { cl in
@@ -128,17 +131,24 @@ extension RuntimeService {
                                              ("desktopCount", .int(g.desktops.count)), ("appCount", .int(g.apps.count))])))
                 }
                 return .obj(m)
-            }), clients.count)
+            }), clients.count, false)
         case "desktops":
             let visible = desktops.list().filter { desktopAllowed(c, $0.desktopId) }
             return (.array(visible.map { d in
-                .obj([("desktopId", .string(d.desktopId)), ("kind", .string(d.kind.rawValue)), ("createdAt", .string(d.createdAt)),
-                      ("bound", .bool(d.boundPID != nil)), ("lease", execution.holder(of: d.desktopId).map(JSONValue.string) ?? .null)])
-            }), visible.count)
+                // Another client's Run id is not this caller's to see (as
+                // Desktop.control omits controllerRunId; Codex on ca649dc).
+                let holder = execution.holder(of: d.desktopId)
+                let mineToName = holder.map { mine == nil || runs.find($0)?.clientId == mine } ?? false
+                return .obj([("desktopId", .string(d.desktopId)), ("kind", .string(d.kind.rawValue)), ("createdAt", .string(d.createdAt)),
+                             ("bound", .bool(d.boundPID != nil)), ("leaseHeld", .bool(holder != nil)),
+                             ("leaseRunId", mineToName ? .string(holder!) : .null)])
+            }), visible.count, false)
         case "runs":
             // A paired client without the run capability sees no Runs here
             // either (it may export with observe alone, as request.export).
-            if mine != nil, hub.grant(c.clientId)?.capabilities.contains("run") != true { return (.array([]), 0) }
+            if mine != nil, hub.grant(c.clientId)?.capabilities.contains("run") != true {
+                return (.obj([("truncated", .bool(false)), ("runs", .array([]))]), 0, false)
+            }
             var f = RunStore.ListFilter()
             f.clientId = mine
             var out: [RunRecord] = []
@@ -149,9 +159,12 @@ extension RuntimeService {
                 out += fresh
                 // Newest first: once a page is all older and ended, the rest is too.
                 cursor = fresh.isEmpty ? nil : page.next
-            } while cursor != nil && out.count < Self.diagnosticsRunLimit
+            } while cursor != nil && out.count <= Self.diagnosticsRunLimit
+            // Said, not hidden (Codex on ca649dc): more Runs matched than one
+            // export holds; narrow since.
+            let truncated = out.count > Self.diagnosticsRunLimit
             out = Array(out.prefix(Self.diagnosticsRunLimit))
-            return (.array(out.map(diagnosticsRun)), out.count)
+            return (.obj([("truncated", .bool(truncated)), ("runs", .array(out.map(diagnosticsRun)))]), out.count, truncated)
         case "requests":
             var f = RequestLedger.Filter()
             f.caller = mine
@@ -168,14 +181,14 @@ extension RuntimeService {
             let rows = counts.values.sorted { ($0.0, $0.1) < ($1.0, $1.1) }
             return (.obj([("truncated", .bool(cursor != nil)),
                           ("byMethodAndState", .array(rows.map { .obj([("method", .string($0.0)), ("state", .string($0.1)),
-                                                                        ("count", .int($0.2))]) }))]), rows.count)
+                                                                        ("count", .int($0.2))]) }))]), rows.count, cursor != nil)
         case "authorization":
             let rows = hub.refusalCounts(since: since, clientId: mine)
             return (.obj([("refusals", .array(rows.map { .obj([("method", .string($0.method)), ("decision", .string($0.decision)),
                                                                ("reason", .string($0.reason)), ("count", .int($0.count))]) }))]),
-                    rows.count)
+                    rows.count, false)
         default:
-            return (.null, 0)
+            return (.null, 0, false)
         }
     }
 
@@ -183,7 +196,9 @@ extension RuntimeService {
     /// was accepted, when it became quiescent, when it ended.
     private func diagnosticsRun(_ r: RunRecord) -> JSONValue {
         var stop: [(String, JSONValue)] = []
-        for e in runs.events(r.runId, after: 0, limit: 100_000) {
+        // Only the stop events, read by type: a long Run's later ones are
+        // never past a read limit (Codex on ca649dc).
+        for e in runs.events(r.runId, types: ["stop.accepted", "run.finishing", "run.quiescent"]) {
             guard let at = e["at"]?.stringValue else { continue }
             switch e["type"]?.stringValue {
             case "stop.accepted", "run.finishing": if !stop.contains(where: { $0.0 == "acceptedAt" }) { stop.append(("acceptedAt", .string(at))) }

@@ -345,6 +345,18 @@ public final class RunStore: @unchecked Sendable {
         }
     }
 
+    /// Only the events of these types, of one Run, in order (read straight
+    /// from the store, however many other events the Run has).
+    func events(_ runId: String, types: [String]) -> [JSONValue] {
+        guard !types.isEmpty else { return [] }
+        let marks = types.map { _ in "?" }.joined(separator: ", ")
+        return ((try? db.query("SELECT seq, at, type FROM events WHERE run_id = ? AND type IN (\(marks)) ORDER BY seq",
+                               [.text(runId)] + types.map { .text($0) })) ?? []).map { r in
+            .obj([("runId", .string(runId)), ("sequence", .int(Int(r[0] as! Int64))), ("at", .string(r[1] as! String)),
+                  ("type", .string(r[2] as! String))])
+        }
+    }
+
     /// Events of every Run in the order they were written, after a global
     /// cursor (the event's rowid), optionally only Runs of one principal.
     public func eventsSince(_ cursor: Int, clientId: String?, limit: Int) -> [(cursor: Int, event: JSONValue)] {
