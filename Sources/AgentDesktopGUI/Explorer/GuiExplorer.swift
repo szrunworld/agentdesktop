@@ -184,11 +184,11 @@ public final class GuiRunDriver: Sendable {
         progress.start(bundle)
 
         var history: [GuiHistoryTurn] = []
-        // After a stall's recovery: told to the next inference only (X1-3).
-        // Kept across an empty-reply retry, cleared once a reply arrives.
+        // After a stall or missing-action recovery: told to the next inference only.
+        // Kept across a reply-format retry, cleared once a valid reply arrives.
         var hint: GuiRecoveryHint?
         var stepIndex = 0
-        // The step whose empty reply was already recovered from once.
+        // The step whose empty or missing-action reply was recovered once.
         var recoveredStep: Int?
         while true {
             try await checkProceed()
@@ -213,20 +213,25 @@ public final class GuiRunDriver: Sendable {
             } catch let failure as GuiSuggestionFailure {
                 await recorder.inference(failure.receipt, discarded: false)
                 try await audited { try await ports.audit.recordInference(failure.receipt) }
-                // An empty reply: once per step, observe the bound target
-                // again and ask again on that new observation. Nothing the
-                // run already sent is repeated; the second call is its own
-                // attempt within the step's attempt limit. A target that is
-                // no longer valid ends the run in observe() before any call.
-                guard failure.isEmptyReply, recoveredStep != stepIndex,
+                // An empty reply or a reply without an Action line: once per
+                // step, observe and verify the bound target before asking
+                // again. No input is guessed or repeated. The second model
+                // call uses the same step's attempt budget.
+                let noActionLine = failure.rejectionReason == "no_action_line"
+                guard (failure.isEmptyReply || noActionLine), recoveredStep != stepIndex,
                       await budget.attempts(step: stepIndex) < budget.maxAttemptsPerStep else {
                     await recorder.rejected(stepIndex: stepIndex, reason: failure.rejectionReason)
                     throw failure.error
                 }
                 recoveredStep = stepIndex
-                await recorder.recovered(stepIndex: stepIndex)
-                try await move(.validating, "empty model reply")
-                try await move(.observing, "observing again after an empty reply")
+                if noActionLine {
+                    await recorder.recovery(stepIndex: stepIndex, kind: "reobserve_after_no_action_line", count: 1)
+                    hint = .noActionLine
+                } else {
+                    await recorder.recovered(stepIndex: stepIndex)
+                }
+                try await move(.validating, "invalid model reply")
+                try await move(.observing, "observing again after an invalid reply")
                 bundle = try await observe()
                 if try await verifyFresh(bundle) { return }
                 continue

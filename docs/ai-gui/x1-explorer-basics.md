@@ -151,7 +151,7 @@ X1 分三个 PR，按顺序合入，各自验收：
 
 X1-2 的恢复只重新观察、重新验证；模型下一次推理看到的上下文和恢复前一样，很可能再提同一个动作。X1-3 在恢复后的下一次推理里加一句提示，让模型换一种做法。
 
-- **内容**：只有停滞类型。`GuiRecoveryHint`（`Provider/GuiAiProvider.swift`）三个取值与 `ProgressTracker.Stall` 一一对应，每个取值是一句固定的英文：
+- **内容**：停滞恢复只带停滞类型。`GuiRecoveryHint`（`Provider/GuiAiProvider.swift`）的三个停滞取值与 `ProgressTracker.Stall` 一一对应，每个取值是一句固定的英文：
 
   | kind | 提示 |
   | --- | --- |
@@ -181,6 +181,8 @@ ACP 原来只认冻结目录里的 11 个平台事件，所有 `unit.*` 都显�
 inconclusive 的原因：`elements_partial` 界面元素只读到一部分；`elements_unavailable` 没有读到界面元素；`ambiguous` 目标控件不止一个；`target_missing` 没有找到目标控件；`value_unreadable` 目标控件的值读不出。
 
 `unit.recovery` 的类型：`reobserve_after_empty_reply` 模型回复为空，重新观察后再问一次；`repeated_action` 重复同一动作没有带来变化；`no_progress` 连续几步界面没有变化；`state_loop` 界面回到了之前的状态（后三种加「重新观察，换一种做法」）。
+
+真机续测后增加 `reobserve_after_no_action_line`：模型有回复但缺少 `Action:` 行时，同一步最多恢复一次。恢复先重新观察并验证目标，再用固定的格式提示询问模型；不解析自由文本为动作，不重放输入，额外推理计入原有每步 2 次和 Run 总预算。第二次仍缺少动作行则以 `invalid_action` 结束。这个恢复类型在 ACP 中只显示固定文案，不包含模型原文。
 
 `run.ended` 的结束原因另认 `no_progress`（没有进展）和 `loop_detected`（界面来回循环）。
 

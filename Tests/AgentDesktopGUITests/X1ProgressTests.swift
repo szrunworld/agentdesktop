@@ -171,13 +171,18 @@ private func hintTexts(_ r: AiInferenceRequest) -> [String] {
 
 @Suite("X1 recovery hint")
 struct X1RecoveryHintTests {
-    // The hint is a fixed string per stall kind: it names the kind and
-    // nothing else, and every kind maps to its own hint.
+    // Every recovery hint is fixed; stall hints name their stall kind, while
+    // the format hint only names the missing Action line.
     @Test func hintTextIsFixedPerKind() {
-        #expect(Set(GuiRecoveryHint.allCases.map(\.promptText)).count == 3)
+        #expect(Set(GuiRecoveryHint.allCases.map(\.promptText)).count == 4)
         for h in GuiRecoveryHint.allCases {
-            #expect(h.promptText.contains(h.rawValue))
-            #expect(h.promptText.contains("different approach"))
+            if h == .noActionLine {
+                #expect(h.promptText.contains("no Action: line"))
+                #expect(h.promptText.contains("exactly one Action: call"))
+            } else {
+                #expect(h.promptText.contains(h.rawValue))
+                #expect(h.promptText.contains("different approach"))
+            }
             let ascii = h.promptText.unicodeScalars.allSatisfy { $0.isASCII }
             #expect(ascii, "no screen or user text can be in a fixed ASCII line")
         }

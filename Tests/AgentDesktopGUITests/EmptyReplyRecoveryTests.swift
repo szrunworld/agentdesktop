@@ -11,8 +11,74 @@ import Testing
 
 private let empty: StubAiService.Reply = .text(" \n ")
 
-@Suite("Empty model reply recovery")
+@Suite("Unusable model reply recovery")
 struct EmptyReplyRecoveryTests {
+
+    @Test func missingActionLineReobservesWithFixedCorrectionAndContinues() async throws {
+        let h = try GuiHarness([.text("I should click the name field."), click(200, 100),
+                                typeText("Ada"), click(200, 300)])
+        try await h.setUpProfile()
+        let runId = try await h.start()
+        await h.finished(runId)
+        let run = h.run(runId)
+        #expect(run.ending == .verified)
+        #expect(h.form.submissions == 1)
+        #expect(await h.executor.executed.count == 3)
+        #expect(h.ai.callCount == 4)
+        #expect(run.modelAttempts == 4)
+        #expect(run.steps == 3)
+        #expect(await h.audit.inferences.count == 4)
+        #expect(run.events.first { $0["type"]?.stringValue == "unit.recovery" }?["data"]?["kind"]?.stringValue
+                == "reobserve_after_no_action_line")
+        let snapshots = h.ai.contexts.prefix(2).map { ctx -> String in
+            if case let .guiStep(p) = ctx.purpose { return p.snapshotId }; return ""
+        }
+        #expect(snapshots[0] != snapshots[1])
+        let retryText = h.ai.requests[1].messages.last?.content.compactMap { part -> String? in
+            if case let .text(text) = part { return text }; return nil
+        }.joined(separator: "\n") ?? ""
+        #expect(retryText.contains("previous reply had no Action: line"))
+        #expect(!retryText.contains("I should click"), "raw model output is not fed back")
+        #expect(unitEventsClean(run.events))
+    }
+
+    @Test func secondMissingActionLineFailsWithoutInput() async throws {
+        let h = try GuiHarness([.text("click the name"), .text("still no call"), click(200, 100)])
+        try await h.setUpProfile()
+        let runId = try await h.start()
+        await h.finished(runId)
+        let run = h.run(runId)
+        #expect(run.ending == .failed(reason: "invalid_action"))
+        #expect(run.events.first { $0["type"]?.stringValue == "unit.step.rejected" }?["data"]?["reason"]?.stringValue
+                == "no_action_line")
+        #expect(h.ai.callCount == 2)
+        #expect(await h.executor.executed.isEmpty)
+        #expect(unitEventsClean(run.events))
+    }
+
+    @Test func missingActionLineDoesNotRetryAfterTheStepBudgetIsSpent() async throws {
+        let h = try GuiHarness([.error(ContractError(.upstreamUnavailable, "503", retryable: true)),
+                                .text("click the name"), click(200, 100)])
+        try await h.setUpProfile()
+        let runId = try await h.start()
+        await h.finished(runId)
+        #expect(h.run(runId).ending == .failed(reason: "invalid_action"))
+        #expect(h.ai.callCount == 2)
+        #expect(await h.executor.executed.isEmpty)
+    }
+
+    @Test func missingActionLineReobservationRejectsChangedTarget() async throws {
+        let h = try GuiHarness([.late("click the name"), click(200, 100)])
+        try await h.setUpProfile()
+        let runId = try await h.start()
+        await eventually("the model call is out") { h.ai.isLate }
+        await h.observation.set(session: "another-session")
+        h.ai.releaseLate()
+        await h.finished(runId)
+        #expect(h.run(runId).ending == .failed(reason: "stale_observation"))
+        #expect(h.ai.callCount == 1)
+        #expect(await h.executor.executed.isEmpty)
+    }
 
     @Test func oneEmptyReplyObservesAgainAndContinues() async throws {
         let h = try GuiHarness([click(200, 100), empty, typeText("Ada"), click(200, 300)])
