@@ -8,7 +8,8 @@ import Testing
 /// Lane UI-E (U7 GUI Explorer, P27–P29). Component-level checks only: the
 /// Mock Runtime, the presentation derived from contract data, and off-screen
 /// renders. No real Runtime, window, model or input is involved.
-@MainActor
+/// Only the tests that touch views or loaders run on the main actor: the
+/// mock's contract checks are slow and must not hold it for other suites.
 @Suite("GUI Explorer (U7)", .serialized)
 struct ExplorerTests {
     // MARK: Mock: one RunStore, two ways in
@@ -172,7 +173,7 @@ struct ExplorerTests {
         #expect(run["outcome"]?.stringValue != "success")
     }
 
-    @Test func unknownActionNeedsVerification() async throws {
+    @MainActor @Test func unknownActionNeedsVerification() async throws {
         let m = MockRuntime.sample()
         let id = try #require(m.addUnitRun(desktopId: m.desktopIds.last!, scenario: .unknownAction))
         let t = try await timeline(m, id)
@@ -208,7 +209,7 @@ struct ExplorerTests {
 
     // MARK: Stop and page lifetime
 
-    @Test func stopWaitsForQuiescenceAndKeepsTheDesktop() async throws {
+    @MainActor @Test func stopWaitsForQuiescenceAndKeepsTheDesktop() async throws {
         let m = MockRuntime.sample()
         let calc = m.desktopIds.last!
         let id = try #require(m.addUnitRun(desktopId: calc, scenario: .verified, steps: 1))
@@ -231,7 +232,7 @@ struct ExplorerTests {
         #expect(stillRunning.allSatisfy { $0["phase"]?.stringValue == "running" })
     }
 
-    @Test func closingThePageNeverStopsTheRun() async throws {
+    @MainActor @Test func closingThePageNeverStopsTheRun() async throws {
         let m = MockRuntime.sample()
         let id = try #require(m.addUnitRun(desktopId: m.desktopIds.last!, scenario: .verified, steps: 2))
         let store = ShellStore(runtime: m, clock: StillClock())
@@ -248,7 +249,7 @@ struct ExplorerTests {
         #expect(m.runsNow.first { $0["runId"]?.stringValue == id }?["outcome"]?.stringValue == "success")
     }
 
-    @Test func historyListsOnlyUnitRunsFromBothSources() throws {
+    @MainActor @Test func historyListsOnlyUnitRunsFromBothSources() throws {
         let m = MockRuntime.explorerSample()
         let runs = m.runsNow
         let all = ExplorerHistoryView.unitRuns(runs)
@@ -267,7 +268,7 @@ struct ExplorerTests {
         return FileManager.default.temporaryDirectory.appendingPathComponent("agentdesktop-ui-e-\(getpid())", isDirectory: true)
     }()
 
-    func write<V: View>(_ name: String, _ view: V) throws {
+    @MainActor func write<V: View>(_ name: String, _ view: V) throws {
         let png = try #require(SnapshotRenderer.png(view), "render \(name)")
         let rep = try #require(NSBitmapImageRep(data: png))
         #expect(rep.pixelsWide == 1440 && rep.pixelsHigh == 1000)
@@ -275,7 +276,7 @@ struct ExplorerTests {
         try png.write(to: Self.outDir.appendingPathComponent(name + ".png"))
     }
 
-    func frame<V: View>(_ store: ShellStore, @ViewBuilder _ page: () -> V) -> some View {
+    @MainActor func frame<V: View>(_ store: ShellStore, @ViewBuilder _ page: () -> V) -> some View {
         MainFrame(selection: .constant(.explorer), runtime: StatusText("本机服务就绪", .running), stopAll: {},
                   desktopNames: store.desktops.map { d in
                       (id: d["desktopId"]!.stringValue!, name: d["name"]!.stringValue!,
@@ -286,7 +287,7 @@ struct ExplorerTests {
                   statusRight: "样例数据", isSample: true, page: page)
     }
 
-    func page(_ m: MockRuntime, _ store: ShellStore, route: ExplorerPage.Route = .history, composing: Bool = false,
+    @MainActor func page(_ m: MockRuntime, _ store: ShellStore, route: ExplorerPage.Route = .history, composing: Bool = false,
               draft: ExplorerDraft = ExplorerDraft(), starter: Bool = true) async -> some View {
         var loader: ExplorerRunLoader?
         if case let .run(id) = route {
@@ -300,7 +301,7 @@ struct ExplorerTests {
         }
     }
 
-    @Test func rendersAgainstWireframes() async throws {
+    @MainActor @Test func rendersAgainstWireframes() async throws {
         let m = MockRuntime.explorerSample()
         let calc = m.desktopIds.last!
         let store = ShellStore(runtime: m, clock: StillClock())
