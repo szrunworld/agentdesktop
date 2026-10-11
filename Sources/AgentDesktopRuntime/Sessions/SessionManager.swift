@@ -64,9 +64,8 @@ public final class SessionManager: @unchecked Sendable {
         }
     }
 
-    /// Implicit sessions opened for an act and not yet handed to another
-    /// request: the act that opened one may close it again if it fails.
-    private var unshared: Set<String> = []
+    /// In-flight acts on implicit sessions not yet exposed by a success.
+    private var pendingImplicit: [String: Int] = [:]
 
     /// `caller`'s oldest open session on a Desktop, else a new one, in one
     /// step (act's implicit session); whether it was opened now.
@@ -75,34 +74,39 @@ public final class SessionManager: @unchecked Sendable {
             if let s = sessions.values.filter({ $0.desktopId == desktopId && $0.caller == caller && $0.state == "open" })
                 .min(by: { ($0.createdAt, $0.sessionId) < ($1.createdAt, $1.sessionId) }) {
                 // Reused: from now on another request may be acting in it.
-                unshared.remove(s.sessionId)
+                if let count = pendingImplicit[s.sessionId] { pendingImplicit[s.sessionId] = count + 1 }
                 return (s, false)
             }
             let s = RuntimeSession(sessionId: DesktopRegistry.newId(prefix: "s"), desktopId: desktopId, caller: caller,
                                    state: "open", createdAt: at)
             sessions[s.sessionId] = s
-            unshared.insert(s.sessionId)
+            pendingImplicit[s.sessionId] = 1
             return (s, true)
         }
     }
 
-    /// Close an implicit session its failed act opened, unless another
-    /// request has reused it meanwhile; whether it was closed. One step, so
-    /// a concurrent act either reused it before (it stays open) or finds it
-    /// closed and opens its own.
+    /// Release one implicit act. A successful response exposes the session
+    /// to the caller; otherwise the last failed act closes the hidden session.
     @discardableResult
-    func closeIfUnshared(_ id: String, at: String) -> Bool {
+    func finishImplicit(_ id: String, succeeded: Bool, at: String) -> Bool {
         lock.withLock {
-            guard unshared.remove(id) != nil, var s = sessions[id], s.state == "open" else { return false }
+            guard let count = pendingImplicit[id] else { return false }
+            if succeeded {
+                pendingImplicit.removeValue(forKey: id)
+                return false
+            }
+            if count > 1 {
+                pendingImplicit[id] = count - 1
+                return false
+            }
+            pendingImplicit.removeValue(forKey: id)
+            guard var s = sessions[id], s.state == "open" else { return false }
             s.state = "closed"
             s.closedAt = at
             sessions[id] = s
             return true
         }
     }
-
-    /// The act that opened it succeeded: an ordinary session from now on.
-    func keep(_ id: String) { lock.withLock { _ = unshared.remove(id) } }
 
     /// Whether a session of this id exists at all, whoever's.
     func exists(_ id: String) -> Bool { lock.withLock { sessions[id] != nil } }

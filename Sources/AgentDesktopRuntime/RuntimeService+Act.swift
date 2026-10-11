@@ -12,23 +12,18 @@ extension RuntimeService {
         // A5/A7: context.desktopId alone opens an implicit session: the
         // caller's open session on that Desktop, else a new one, opened as
         // session.open would (same capability, same checks under the lock).
-        // Input still never goes out without a session. A session opened
-        // here for an act that then fails is closed again: the failure names
-        // no session, so the caller could not close it, and an open session
-        // blocks desktop.destroy (Codex P1 on #276) — unless another act
-        // reused it meanwhile and may still be acting in it.
+        // A hidden session stays open while any implicit act is in flight.
+        // The last failure closes it; any success makes it caller-accessible.
         if request.context.sessionId == nil, let desktopId = request.context.desktopId {
             switch implicitSession(desktopId: desktopId, c) {
             case let .failure(e): return .failure(e)
-            case let .success((sid, opened)):
+            case let .success((sid, _)):
                 var scoped = request
                 scoped.context.sessionId = sid
                 let result = act(scoped, c)
-                if opened {
-                    // Closed only if no other act reused it meanwhile
-                    // (Codex P1 on 1c2be21).
-                    if case .failure = result { sessions.closeIfUnshared(sid, at: nowString) } else { sessions.keep(sid) }
-                }
+                let succeeded: Bool
+                if case .success = result { succeeded = true } else { succeeded = false }
+                sessions.finishImplicit(sid, succeeded: succeeded, at: nowString)
                 return result
             }
         }

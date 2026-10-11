@@ -387,15 +387,30 @@ func testRun(_ id: String, lifetime: RunRecord.Lifetime) -> RunRecord {
     #expect(opened)
     let (again, reopened) = store.firstOpenOrOpen(desktopId: "d_1", caller: "app:x", at: "t1")
     #expect(again.sessionId == s.sessionId && !reopened)
-    #expect(!store.closeIfUnshared(s.sessionId, at: "t2"), "reused: stays open")
+    #expect(!store.finishImplicit(s.sessionId, succeeded: false, at: "t2"), "reused: stays open")
     #expect(store.openCount(desktopId: "d_1") == 1)
+    #expect(store.finishImplicit(s.sessionId, succeeded: false, at: "t3"))
+    #expect(store.openCount(desktopId: "d_1") == 0, "all concurrent acts failed: no orphan")
     // Unshared: closed; the next act opens its own.
     let (b, _) = store.firstOpenOrOpen(desktopId: "d_2", caller: "app:x", at: "t3")
-    #expect(store.closeIfUnshared(b.sessionId, at: "t4"))
+    #expect(store.finishImplicit(b.sessionId, succeeded: false, at: "t4"))
     #expect(store.openCount(desktopId: "d_2") == 0)
     let (c, openedC) = store.firstOpenOrOpen(desktopId: "d_2", caller: "app:x", at: "t5")
     #expect(openedC && c.sessionId != b.sessionId)
     // Kept after a success: no later failure of someone else closes it.
-    store.keep(c.sessionId)
-    #expect(!store.closeIfUnshared(c.sessionId, at: "t6"))
+    store.finishImplicit(c.sessionId, succeeded: true, at: "t6")
+    #expect(!store.finishImplicit(c.sessionId, succeeded: false, at: "t7"))
+}
+
+@Test func successfulImplicitActKeepsSessionWhenConcurrentActFails() {
+    let store = SessionManager()
+    let (s, _) = store.firstOpenOrOpen(desktopId: "d_1", caller: "app:x", at: "t0")
+    _ = store.firstOpenOrOpen(desktopId: "d_1", caller: "app:x", at: "t1")
+    #expect(!store.finishImplicit(s.sessionId, succeeded: true, at: "t2"))
+    #expect(!store.finishImplicit(s.sessionId, succeeded: false, at: "t3"))
+    #expect(store.openCount == 1)
+    let explicit = store.open(desktopId: "d_2", caller: "app:x", at: "t0")
+    _ = store.firstOpenOrOpen(desktopId: "d_2", caller: "app:x", at: "t1")
+    #expect(!store.finishImplicit(explicit.sessionId, succeeded: false, at: "t2"))
+    #expect(store.openCount == 2, "a failed implicit act never closes an explicit session")
 }
