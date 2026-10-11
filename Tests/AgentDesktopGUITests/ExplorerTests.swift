@@ -154,9 +154,16 @@ struct ExplorerTests {
         #expect(unitEventsClean(run.events))
     }
 
+    /// Inputs that change the window every step (focus the name field, then
+    /// one more letter each time), so stall detection (X1-2) never ends the
+    /// run before the budget does.
+    static func progressingInputs(_ n: Int) -> [StubAiService.Reply] {
+        [click(200, 100)] + Array(repeating: typeText("x"), count: n - 1)
+    }
+
     // GUI-006: the 21st step never starts; attempts per step and in total are capped.
     @Test func gui006_stepBudget() async throws {
-        let h = try GuiHarness(Array(repeating: click(600, 600), count: 25))
+        let h = try GuiHarness(Self.progressingInputs(25))
         try await h.setUpProfile()
         let runId = try await h.start()
         await h.finished(runId)
@@ -179,8 +186,7 @@ struct ExplorerTests {
     }
 
     @Test func gui006_totalAttemptsCapped() async throws {
-        let h = try GuiHarness(Array(repeating: click(600, 600), count: 40),
-                               limits: [("maxTotalModelAttempts", .int(5))])
+        let h = try GuiHarness(Self.progressingInputs(40), limits: [("maxTotalModelAttempts", .int(5))])
         try await h.setUpProfile()
         let runId = try await h.start()
         await h.finished(runId)
