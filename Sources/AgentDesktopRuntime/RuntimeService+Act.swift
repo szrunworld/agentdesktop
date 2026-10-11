@@ -9,15 +9,22 @@ extension RuntimeService {
     /// platform → ActionReceipt.
     func act(_ request: RuntimeRequest, _ c: ConnectionState) -> Result<JSONValue, RuntimeError> {
         guard let platform else { return .failure(.capabilityMissing("no desktop platform")) }
-        var request = request
         // A5/A7: context.desktopId alone opens an implicit session: the
         // caller's open session on that Desktop, else a new one, opened as
         // session.open would (same capability, same checks under the lock).
-        // Input still never goes out without a session.
+        // Input still never goes out without a session. A session opened
+        // here for an act that then fails is closed again: the failure names
+        // no session, so the caller could not close it, and an open session
+        // blocks desktop.destroy (Codex P1 on #276).
         if request.context.sessionId == nil, let desktopId = request.context.desktopId {
             switch implicitSession(desktopId: desktopId, c) {
             case let .failure(e): return .failure(e)
-            case let .success(sid): request.context.sessionId = sid
+            case let .success((sid, opened)):
+                var scoped = request
+                scoped.context.sessionId = sid
+                let result = act(scoped, c)
+                if opened, case .failure = result { _ = sessions.close(sid, at: nowString) }
+                return result
             }
         }
         guard request.context.sessionId != nil else {
@@ -403,16 +410,23 @@ extension RuntimeService {
         return pa
     }
 
-    /// The session an act naming only its Desktop runs in: the caller's
-    /// open session there (the oldest, so repeated calls agree), else one
-    /// opened now through `openSession`.
-    func implicitSession(desktopId: String, _ c: ConnectionState) -> Result<String, RuntimeError> {
-        if let s = sessions.firstOpen(desktopId: desktopId, caller: c.clientId) { return .success(s.sessionId) }
-        return openSession(.obj([("desktopId", .string(desktopId))]), c).flatMap { opened in
-            guard let sid = opened["sessionId"]?.stringValue else {
-                return .failure(RuntimeError("internal_error", "session.open returned no sessionId", phase: .handler))
+    /// The session an act naming only its Desktop runs in, and whether it
+    /// was opened now: the caller's oldest open session there (so repeated
+    /// calls agree), else a new one. Under the Desktop's lock, with the same
+    /// checks as session.open, and the lookup and the creation in one step
+    /// of the session store, so concurrent acts share one session (Codex P2
+    /// on #276).
+    func implicitSession(desktopId: String, _ c: ConnectionState) -> Result<(String, Bool), RuntimeError> {
+        var opened = false
+        return withDesktop(.string(desktopId), as: c, method: "session.open") { d in
+            let (s, created) = sessions.firstOpenOrOpen(desktopId: d.desktopId, caller: c.clientId, at: nowString)
+            opened = created
+            return .string(s.sessionId)
+        }.flatMap { v in
+            guard let sid = v.stringValue else {
+                return .failure(RuntimeError("internal_error", "no implicit session", phase: .handler))
             }
-            return .success(sid)
+            return .success((sid, opened))
         }
     }
 

@@ -131,6 +131,10 @@ let clickContinue = #"{"kind":"click","target":{"elementRef":"el_0"}}"#
     // With no open session of the caller there, one is opened.
     _ = call(sc.s, sc.c, "session.close", params: #"{"sessionId":"\#(sc.session)"}"#)
     #expect(sc.s.sessions.openCount(desktopId: sc.desktop) == 0)
+    // ...but closed again when the act fails: the failure names no session
+    // the caller could close, and it would block desktop.destroy.
+    #expect(code(answer(sc.s, line("implicit-stale", "obs_gone", desktop: sc.desktop), sc.c)) == "stale_observation")
+    #expect(sc.s.sessions.openCount(desktopId: sc.desktop) == 0)
     let obs2 = try #require(data(call(sc.s, sc.c, "observe", context: #"{"desktopId":"\#(sc.desktop)"}"#))?["snapshotId"]?.stringValue)
     #expect(data(answer(sc.s, line("implicit-2", obs2, desktop: sc.desktop), sc.c))?["delivery"]?.stringValue == "dispatched")
     #expect(sc.s.sessions.openCount(desktopId: sc.desktop) == 1)
@@ -358,4 +362,19 @@ func testRun(_ id: String, lifetime: RunRecord.Lifetime) -> RunRecord {
     #expect(data(r)?["delivery"]?.stringValue == "dispatched", "\(r.json.encoded())")
     #expect(s.sessions.openCount(desktopId: sc.desktop) == 1)
     #expect(sc.platform.performed.count == 1)
+}
+
+/// A7 (Codex P2 on #276): The session store's lookup-or-open is one step: racing callers get the
+/// same session.
+@Test func firstOpenOrOpenIsAtomic() {
+    let store = SessionManager()
+    let ids = NSLock()
+    var seen: Set<String> = []
+    var created = 0
+    DispatchQueue.concurrentPerform(iterations: 32) { _ in
+        let (s, opened) = store.firstOpenOrOpen(desktopId: "d_1", caller: "app:x", at: "2026-10-11T00:00:00Z")
+        ids.withLock { seen.insert(s.sessionId); if opened { created += 1 } }
+    }
+    #expect(seen.count == 1 && created == 1)
+    #expect(store.openCount(desktopId: "d_1") == 1)
 }
