@@ -34,7 +34,8 @@ struct SettingsTestLevel: Identifiable, Equatable {
 
 @MainActor
 final class SettingsCapabilityTestModel: ObservableObject {
-    enum Phase: Equatable { case idle, starting, running, cancelling, finished(String) }
+    /// `lost`: reading the operation failed; it may still be running.
+    enum Phase: Equatable { case idle, starting, running, cancelling, lost, finished(String) }
 
     @Published var guiProfileId: String?
     @Published private(set) var profiles: [AIGuiProfileItem] = []
@@ -47,6 +48,12 @@ final class SettingsCapabilityTestModel: ObservableObject {
     @Published private(set) var performedDesktopInput: Bool?
     @Published private(set) var failure: SettingsFailure?
     @Published private(set) var loaded = false
+    /// Why no profile is selected after a connection's 测试 (no GUI profile uses it).
+    @Published private(set) var selectionNote: String?
+    /// Set by a connection's 测试: the next load selects a profile on it.
+    var pendingConnectionId: String?
+    /// The phase the lost poll was in, for resuming.
+    private var lostFrom: Phase = .running
 
     static let costNotice = "测试使用固定的合成素材，不截取桌面、不执行输入；会向模型发送最多 3 次请求，可能产生费用。"
 
@@ -69,13 +76,16 @@ final class SettingsCapabilityTestModel: ObservableObject {
     var canStart: Bool {
         guard profile?.enabled == true else { return false }
         switch phase {
-        case .idle, .finished: return true
+        case .idle, .finished, .lost: return true
         default: return false
         }
     }
 
     var isActive: Bool { [.starting, .running, .cancelling].contains(phase) }
 
+    /// Reads the profiles again (every time the entry opens, so profiles
+    /// made elsewhere are there). A selection survives unless a
+    /// connection's 测试 asked for a profile on that connection.
     func load() async {
         do {
             let p = try await runtime.call("ai.profiles.list", .obj([("limit", .int(100))]))
@@ -84,7 +94,17 @@ final class SettingsCapabilityTestModel: ObservableObject {
             profiles = (p["items"]?.arrayValue ?? []).map(AIGuiProfileItem.init)
             modelProfiles = (m["items"]?.arrayValue ?? []).map(AIModelProfileItem.init)
             connections = (c["items"]?.arrayValue ?? []).map(AIConnectionItem.init)
-            if guiProfileId == nil || profile == nil {
+            selectionNote = nil
+            if let conn = pendingConnectionId, !isActive {
+                pendingConnectionId = nil
+                let onConn = profiles.filter { p in modelProfiles.contains { $0.id == p.modelProfileId && $0.connectionId == conn } }
+                if let id = onConn.first(where: \.enabled)?.id ?? onConn.first?.id {
+                    guiProfileId = id
+                } else {
+                    guiProfileId = nil
+                    selectionNote = "这条连接还没有 GUI 配置。请先在「GUI 配置」里为它选择模型，再测试。"
+                }
+            } else if guiProfileId == nil || profile == nil {
                 let d = try? await runtime.call("ai.profiles.default.get")
                 guiProfileId = d?["default"]?["guiProfileId"]?.stringValue ?? profiles.first?.id
             }
@@ -137,8 +157,11 @@ final class SettingsCapabilityTestModel: ObservableObject {
                 return
             } catch {
                 guard g == generation else { return }
-                // A failed read leaves the test's state unknown, not ended.
+                // A failed read leaves the test's state unknown, not ended:
+                // the page says so and offers to read it again.
                 failure = SettingsFailure(error)
+                lostFrom = phase
+                phase = .lost
                 return
             }
         }
@@ -165,15 +188,29 @@ final class SettingsCapabilityTestModel: ObservableObject {
         }
     }
 
+    /// Reads the operation again after a lost read, and keeps polling.
+    func resume() async {
+        guard phase == .lost, operationId != nil else { return }
+        failure = nil
+        phase = lostFrom
+        await poll(generation)
+    }
+
     /// Asks to cancel; the test ends only when the operation says it did.
     func cancel() async {
-        guard let op = operationId, isActive else { return }
+        guard let op = operationId, isActive || phase == .lost else { return }
         let g = generation
+        let wasLost = phase == .lost
         phase = .cancelling
         do {
             let r = try await runtime.call("ai.operations.cancel", .obj([("operationId", .string(op))]))
             guard g == generation else { return }
-            if r["terminal"]?.boolValue == true { phase = .finished(r["state"]?.stringValue ?? "cancelled") }
+            if r["terminal"]?.boolValue == true {
+                phase = .finished(r["state"]?.stringValue ?? "cancelled")
+            } else if wasLost {
+                // No loop is running after a lost read; follow the cancel.
+                await poll(g)
+            }
         } catch {
             guard g == generation else { return }
             failure = SettingsFailure(error)
@@ -186,7 +223,9 @@ final class SettingsCapabilityTestModel: ObservableObject {
         case .starting: return StatusText("正在开始", .attention)
         case .running: return StatusText("测试中", .attention)
         case .cancelling: return StatusText("正在取消", .attention)
+        case .lost: return StatusText("状态未知", .attention)
         case .finished(let s):
+            if performedDesktopInput == true { return StatusText("异常：报告发生了桌面输入", .danger) }
             switch s {
             case "succeeded":
                 return levels.allSatisfy { $0.status == .passed } ? StatusText("全部通过", .running) : StatusText("部分未通过", .danger)
@@ -210,7 +249,10 @@ struct SettingsCapabilityTestPage: View {
                     ForEach(model.profiles) { p in Text("\(p.name) · r\(p.revision)").tag(String?.some(p.id)) }
                 }
                 .labelsHidden().frame(width: 220).disabled(model.isActive)
-                if model.isActive {
+                if model.phase == .lost {
+                    Button("重新查询状态") { Task { await model.resume() } }.buttonStyle(ADButtonStyle(.secondary))
+                }
+                if model.isActive || model.phase == .lost {
                     Button("取消测试") { Task { await model.cancel() } }.buttonStyle(ADButtonStyle(.secondary))
                         .disabled(model.phase == .cancelling || model.operationId == nil)
                 }
@@ -218,6 +260,11 @@ struct SettingsCapabilityTestPage: View {
                     .buttonStyle(ADButtonStyle(.primary)).disabled(!model.canStart)
             }
             if let f = model.failure { SettingsFailureView(failure: f) }
+            if model.phase == .lost {
+                Text("读取测试状态失败。测试可能仍在运行并向模型发送请求；可以重新查询或取消。现在开始新的测试会另起一次。")
+                    .font(ADFont.note).foregroundStyle(StatusTone.attention.foreground)
+            }
+            if let n = model.selectionNote { Text(n).font(ADFont.note).foregroundStyle(StatusTone.attention.foreground) }
             if model.loaded && model.profiles.isEmpty {
                 EmptyState(title: "还没有 GUI 配置", detail: "先在「GUI 配置」里选择连接与模型，再回来测试。", action: nil).adPanel()
             }
@@ -236,7 +283,7 @@ struct SettingsCapabilityTestPage: View {
                             LabeledValue(label: "连接", value: model.connection?.name ?? "—", labelWidth: 90)
                             LabeledValue(label: "模型", value: model.modelProfile?.modelId ?? "—", labelWidth: 90)
                             LabeledValue(label: "GUI 配置", value: (model.testedRevision ?? model.profile?.revision).map { "r\($0)" } ?? "—", labelWidth: 90)
-                            LabeledValue(label: "真实输入", value: model.performedDesktopInput == false ? "0 次" : "0 次（测试不发送输入）", labelWidth: 90)
+                            LabeledValue(label: "真实输入", value: Self.inputText(model.performedDesktopInput), labelWidth: 90)
                             LabeledValue(label: "数据", value: "合成图与固定文本", labelWidth: 90)
                             if let op = model.operationId { LabeledValue(label: "操作编号", value: op, monospaced: true, labelWidth: 90) }
                         }
@@ -253,7 +300,17 @@ struct SettingsCapabilityTestPage: View {
                 .frame(width: 300)
             }
         }
-        .task { if !model.loaded { await model.load() } }
+        .task { await model.load() }
+    }
+
+    /// Reported desktop input: none, unknown until the result, or the
+    /// safety violation it would be.
+    static func inputText(_ performed: Bool?) -> String {
+        switch performed {
+        case false?: return "0 次"
+        case true?: return "异常：结果报告发生了桌面输入"
+        case nil: return "尚无结果（测试不应发送输入）"
+        }
     }
 
     func level(_ n: Int, _ l: SettingsTestLevel) -> some View {

@@ -176,16 +176,20 @@ public struct SettingsPageView: View {
                 onAdd: { editor = SettingsConnectionEditorModel(runtime: store.runtime, mode: .create) },
                 onEdit: { c in editor = SettingsConnectionEditorModel(runtime: store.runtime, mode: .edit(c.id)) },
                 onTest: { c in
-                    if let p = models.profiles.profiles.first(where: { p in
-                        models.connections.modelProfiles.contains { $0.id == p.modelProfileId && $0.connectionId == c.id }
-                    }) { models.test.guiProfileId = p.id }
+                    // Resolved from a fresh read when the test entry opens,
+                    // never from a list that may not be loaded yet.
+                    models.test.pendingConnectionId = c.id
                     navigation.settingsPage = .capabilityTest
                 },
                 confirm: { confirmation = $0 })
         case .guiProfiles:
             SettingsProfilesPage(
                 model: models.profiles,
-                onTest: { p in models.test.guiProfileId = p.id; navigation.settingsPage = .capabilityTest },
+                onTest: { p in
+                    models.test.pendingConnectionId = nil
+                    models.test.guiProfileId = p.id
+                    navigation.settingsPage = .capabilityTest
+                },
                 onDiagnose: { navigation.open(.explorer) },
                 onConnections: { navigation.settingsPage = .aiConnections },
                 confirm: { confirmation = $0 })

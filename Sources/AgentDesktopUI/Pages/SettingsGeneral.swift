@@ -57,7 +57,7 @@ public final class SettingsPreferences: ObservableObject {
         defaults.set(draft.showAgentCursor, forKey: Self.showAgentCursorKey)
         defaults.set("\(draft.defaultDesktopSize.width)x\(draft.defaultDesktopSize.height)", forKey: Self.defaultDesktopSizeKey)
         saved = draft
-        savedNotice = "已保存。默认尺寸只用于之后新建的 Desktop，已有的 Desktop 不会改变。"
+        savedNotice = "已保存为本机偏好。光标开关与默认尺寸尚未接入预览和新建 Desktop，接入后生效；已有的 Desktop 不会改变。"
     }
 
     public func revert() {
@@ -76,14 +76,14 @@ struct SettingsGeneralPage: View {
                               isOn: .constant(true))
                 .disabled(true)
                 .accessibilityHint("固定开启")
-            SettingsToggleRow(title: "在预览中显示 Agent 光标", detail: "只影响画面显示，不改变输入路由。",
+            SettingsToggleRow(title: "在预览中显示 Agent 光标", detail: "只影响画面显示，不改变输入路由。目前只保存偏好，尚未接入预览。",
                               isOn: $preferences.draft.showAgentCursor)
             SettingsToggleRow(title: "登录时启动 AgentDesktop",
                               detail: "尚未提供：将在后续版本支持。开启后也只启动本机服务，不自动启动 Agent 或业务任务。",
                               isOn: .constant(false))
                 .disabled(true)
             HStack(alignment: .top, spacing: ADSpace.l) {
-                SettingsChoiceRow(title: "新 Desktop 默认尺寸", options: SettingsDesktopSize.choices.map(\.label),
+                SettingsChoiceRow(title: "新 Desktop 默认尺寸（尚未接入新建表单）", options: SettingsDesktopSize.choices.map(\.label),
                                   selection: Binding(
                                     get: { preferences.draft.defaultDesktopSize.label },
                                     set: { label in

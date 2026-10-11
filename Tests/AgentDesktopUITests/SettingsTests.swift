@@ -329,6 +329,61 @@ struct SettingsTests {
         #expect(model.levels.allSatisfy { $0.status == .pending })
     }
 
+    @Test func aConnectionsTestPicksAProfileOnThatConnectionFromAFreshRead() async throws {
+        let m = MockRuntime()
+        m.seedSettingsSample()
+        let other = m.addAIConnection(name: "第三个", baseUrl: "https://c.example.invalid/v1")
+        let mp = m.addAIModelProfile(connectionId: other, modelId: "third-model")
+        let gid = m.addAIGuiProfile(name: "第三个配置", modelProfileId: mp)
+        let model = SettingsCapabilityTestModel(runtime: m, clock: FastClock(), pollMs: 1)
+        await model.load()
+        #expect(model.profile?.name == "默认 GUI 配置")
+        model.pendingConnectionId = other
+        await model.load()
+        #expect(model.guiProfileId == gid)
+        // A connection no GUI profile uses selects nothing and says why.
+        let bare = m.addAIConnection(name: "空", baseUrl: "https://d.example.invalid/v1")
+        model.pendingConnectionId = bare
+        await model.load()
+        #expect(model.guiProfileId == nil)
+        #expect(model.selectionNote != nil)
+        #expect(!model.canStart)
+    }
+
+    @Test func profilesMadeAfterTheFirstVisitAreTestable() async throws {
+        let m = MockRuntime()
+        m.seedSettingsSample()
+        let model = SettingsCapabilityTestModel(runtime: m, clock: FastClock(), pollMs: 1)
+        await model.load()
+        let mp = m.addAIModelProfile(connectionId: "conn_001", modelId: "late-model")
+        let late = m.addAIGuiProfile(name: "后来的配置", modelProfileId: mp)
+        model.guiProfileId = late
+        await model.load()
+        #expect(model.profile?.name == "后来的配置")
+        #expect(model.canStart)
+    }
+
+    @Test func aLostStatusReadCanBeResumed() async throws {
+        let m = MockRuntime()
+        m.seedSettingsSample()
+        m.setAIOperationReads(1)
+        m.failNext("ai.operations.get", code: "internal_error")
+        let model = SettingsCapabilityTestModel(runtime: m, clock: FastClock(), pollMs: 1)
+        await model.load()
+        await model.start()
+        #expect(model.phase == .lost)
+        #expect(model.summaryBadge?.text == "状态未知")
+        await model.resume()
+        #expect(model.phase == .finished("succeeded"))
+        #expect(model.failure == nil)
+    }
+
+    @Test func reportedDesktopInputIsShownAsAnError() {
+        #expect(SettingsCapabilityTestPage.inputText(false) == "0 次")
+        #expect(SettingsCapabilityTestPage.inputText(true).contains("异常"))
+        #expect(!SettingsCapabilityTestPage.inputText(nil).hasPrefix("0"))
+    }
+
     // MARK: P30 usage
 
     @Test func unreportedUsageStaysUnknown() async throws {
