@@ -220,6 +220,7 @@ public final class GuiRunDriver: Sendable {
                 // no longer valid ends the run in observe() before any call.
                 guard failure.isEmptyReply, recoveredStep != stepIndex,
                       await budget.attempts(step: stepIndex) < budget.maxAttemptsPerStep else {
+                    await recorder.rejected(stepIndex: stepIndex, reason: failure.rejectionReason)
                     throw failure.error
                 }
                 recoveredStep = stepIndex

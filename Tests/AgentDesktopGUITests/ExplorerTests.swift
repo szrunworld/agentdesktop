@@ -361,6 +361,7 @@ struct ExplorerTests {
         #expect(run.ending == .failed(reason: "invalid_action"))
         #expect(await h.executor.executed.isEmpty)
         #expect(run.modelAttempts == 1 && run.count("unit.step.proposed") == 0)
+        #expect(run.events.first { $0["type"]?.stringValue == "unit.step.rejected" }?["data"]?["reason"]?.stringValue == "multiple_action_lines")
         #expect(unitEventsClean(run.events))
     }
 

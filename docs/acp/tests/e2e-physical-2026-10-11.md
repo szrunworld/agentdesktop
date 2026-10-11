@@ -22,6 +22,20 @@
 
 **结论**：物理 Desktop 的配对、绑定、窗口申请和拒绝链路已验证；真实模型现在可进入执行并在 Calculator 完成窗口级输入。ACP 编辑器填写 `desktopId`、owner UI 物理 Desktop 的绑定与撤销、AI 连接 URL 编辑、空闲后首次截图容量检查均有修复。W3 的 Zed 部分、W7 的目标完成、W12 的正常完成与取消，以及 W10 的独立 observe/act 操作仍待验收；不能宣称 W1–W13 全通过。
 
+## 2026-10-11 后续诊断：本地表单完成与取消
+
+本段更新上面的 W7、W12 状态，不改写原始 Calculator 证据。测试提交为 `45cf0a9`，独立测试副本 `/tmp/adt-e2e-completion-live`，物理 Desktop `d_1d9971fb1da3`，桥身份 `ACP-E2E` / `app:06ce9c46f121`。Kevin 核对并批准配对、显示器开放及 Chrome 窗口 `4883` 的 observe、act 授权。桥授权含这块 Desktop 及 `com.google.Chrome`；Runtime 窗口授权为 `wg_2e2bee8206fa`。目标是仓库的离线 `fixtures/neutral-form.html`，独立 Chrome 进程 PID `5947`。测试前该页面的辅助功能树有 `static_text` 计数 `0`，因此可用 `element_text_equals` 校验点击后的 `1`。Calculator 窗口 `3452` 的辅助功能树没有结果显示的 `static_text`，原先针对 `8` / `15` 的谓词不能证明目标完成。
+
+真正的 Run 结果须以 Runtime 为准；fake editor 的 `PASS` 只证明 ACP 请求和权限对话符合预期。前两次提交 `run_d94f13aabae4`、`run_9cac54b5c49f` 在首次观察时以 `stale_observation` 结束，未调用模型，也未输入。把绑定窗口置于物理桌面前台后，`run_468a88f6d3bc` 成功观察并进行一次 HTTP 200 模型推理，但输出没有 `Action` 行；新的 `unit.step.rejected` 只记录固定类别 `no_action_line`，Run 以 `invalid_action` 结束，未输入。不保存原始模型回复，因此无法进一步判定模型为何偏离协议。
+
+重新提交相同的单次计数任务后，`run_96f9e3f79132` 通过：初次验证 `contradicted`，模型给出一次 `click`，Runtime 记录一次 `action.completed` 和回执 `rcpt_c51ca5a74989`，新观察的验证为 `matched`，最终 `ended / success / goal_verified / confirmed`；`unknown_actions=0`。页面辅助功能树随后显示计数 `1`，并仍显示“尚未应用”。ACP transcript 含 `available_commands_update`、动作卡片的受理与完成更新，以及成功结果。这个结果证明授权后的真实 `unit.run` 能执行并完成可核对目标；它是本地表单证据，不能替代手册要求的 Calculator 结果 `15` 或 Zed 真机界面证据。
+
+取消路径用同一窗口提交“计数从 1 到 9”的任务，并在推理期间由 fake editor 发送 ACP `cancel`。`run_a5aa731d48bc` 先有观察与矛盾验证，随后记录 `stop.accepted`，最终 `ended / cancelled / stopped / confirmed`；没有 `action.accepted` 或 `action.dispatched`，`unknown_actions=0`。ACP transcript 显示停止中和取消终态。这证明本次 Run 在取消后没有继续输入；尚未覆盖动作已派发后的取消。W12 的提交、事件订阅、正常结束和推理中取消现已在 fake editor → 桥 → 真 Runtime → 物理 Desktop 链路验证；独立的 Run 查询和 Zed UI 仍待补齐。W3 的 Zed `/help`、W10 的独立 observe/act 拒绝及 Calculator 指定结果仍未通过，不能宣称 W1–W13 全通过。
+
+一次按通用 bundle ID 启动测试副本时，LaunchServices 选中了另一份旧 `Agent Desktop.app` 并崩溃；崩溃二进制 UUID 为 `dc82896b-57f2-3a8f-abfc-58f54dacd27b`，本轮构建为 `d23f2e66-7292-3e3e-8a66-ac9eb3af04a6`。随后按测试副本的精确可执行文件路径启动，未将该崩溃计入本轮构建的结果。其他正在运行的 Agent Desktop/ACP 进程未被终止或改动。
+
+收尾时，窗口授权 `wg_2e2bee8206fa` 已从 owner UI 撤销，`hub.sqlite` 显示 `revoked / window_grant_revoked`；物理 Desktop 已解除挂接，空的 bootstrap Desktop 已关闭，测试副本及其独立 Chrome 进程已退出。只删除本轮 endpoint 的 `acp` Keychain 条目；其余正在运行的 Agent Desktop/ACP 进程保持原状。测试记录仍保留在隔离目录，未复制 API 密钥内容。
+
 ## 专用模型连接续测
 
 在第二个隔离测试副本 `/tmp/adt-url-fix` 中，用户亲自输入并保存专用 API 密钥；密钥未进入报告或源码。Base URL 为 `https://ark.cn-beijing.volces.com/api/v3`。旧表单在输入框显示完整 URL 时仍保留“请输入完整的 URL”错误；修补版让保存按钮先结束输入框编辑并等待一次 UI 状态同步，还会在 URL 编辑后清掉旧错误。真机验证中，使用相同 URL、未填写密钥时只出现“需要填写 API 密钥”；用户随后在修补版保存成功。“获取模型”返回的列表含该账号不可调用的旧模型，不能用作权限证明。

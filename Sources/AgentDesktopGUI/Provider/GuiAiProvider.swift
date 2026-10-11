@@ -79,6 +79,19 @@ public struct GuiSuggestionFailure: Error, Sendable {
     /// The model answered with nothing at all (or only whitespace).
     public var isEmptyReply: Bool { error.details?["reasonCode"]?.stringValue == Self.emptyReplyReason }
 
+    /// A fixed, non-content category for the Run event. Model text and
+    /// parser messages can contain screen data, so neither is persisted.
+    public var rejectionReason: String {
+        if isEmptyReply { return "model_empty_response" }
+        switch error.message {
+        case "reply has no Action line": return "no_action_line"
+        case "reply has more than one Action line": return "multiple_action_lines"
+        case "reply is too long": return "reply_too_long"
+        default:
+            return error.message.hasSuffix(" is not in uitars_v1") ? "unsupported_action" : "malformed_action"
+        }
+    }
+
     public static let emptyReplyReason = "MODEL_EMPTY_RESPONSE"
 
     /// INVALID_ACTION with reasonCode MODEL_EMPTY_RESPONSE: an existing code,

@@ -47,6 +47,7 @@ struct EmptyReplyRecoveryTests {
         await h.finished(runId)
         let run = h.run(runId)
         #expect(run.ending == .failed(reason: "model_empty_response"))
+        #expect(run.events.first { $0["type"]?.stringValue == "unit.step.rejected" }?["data"]?["reason"]?.stringValue == "model_empty_response")
         #expect(await h.executor.executed.count == 1, "nothing after the first click; nothing repeated")
         #expect(h.ai.callCount == 3)
         #expect(unitEventsClean(run.events))
