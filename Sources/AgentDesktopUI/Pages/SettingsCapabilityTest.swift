@@ -214,6 +214,10 @@ final class SettingsCapabilityTestModel: ObservableObject {
         } catch {
             guard g == generation else { return }
             failure = SettingsFailure(error)
+            if wasLost {
+                lostFrom = .cancelling
+                phase = .lost
+            }
         }
     }
 

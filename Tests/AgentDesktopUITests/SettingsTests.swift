@@ -378,6 +378,23 @@ struct SettingsTests {
         #expect(model.failure == nil)
     }
 
+    @Test func aFailedCancelAfterLostReadCanBeResumed() async throws {
+        let m = MockRuntime()
+        m.seedSettingsSample()
+        m.setAIOperationReads(1)
+        m.failNext("ai.operations.get", code: "internal_error")
+        let model = SettingsCapabilityTestModel(runtime: m, clock: FastClock(), pollMs: 1)
+        await model.load()
+        await model.start()
+        #expect(model.phase == .lost)
+        m.failNext("ai.operations.cancel", code: "connection_lost")
+        await model.cancel()
+        #expect(model.phase == .lost)
+        #expect(model.failure != nil)
+        await model.resume()
+        #expect(model.phase == .finished("succeeded"))
+    }
+
     @Test func reportedDesktopInputIsShownAsAnError() {
         #expect(SettingsCapabilityTestPage.inputText(false) == "0 次")
         #expect(SettingsCapabilityTestPage.inputText(true).contains("异常"))

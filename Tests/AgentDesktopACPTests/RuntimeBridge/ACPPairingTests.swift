@@ -44,7 +44,7 @@ struct ACPPairingTests {
     static let endpoint = "/tmp/adt-x/side.runtime.sock"
     static let approved = JSONValue.obj([("state", .string("approved")),
                                          ("credential", .obj([("clientId", .string("app:abc")), ("token", .string("secret"))])),
-                                         ("grant", ACPPairing.grant())])
+                                         ("grant", ACPPairing.grant(desktops: ["desk_A"]))])
 
     /// A clock that moves only when the flow sleeps.
     final class Clock: @unchecked Sendable {
@@ -54,22 +54,33 @@ struct ACPPairingTests {
         func sleep(_ s: Double) { sleeps += 1; t.addTimeInterval(s) }
     }
 
-    func run(_ client: PairingClient, _ store: MemoryCredentialStore, grant: JSONValue = ACPPairing.grant(),
+    func run(_ client: PairingClient, _ store: MemoryCredentialStore, grant: JSONValue = ACPPairing.grant(desktops: ["desk_A"]),
              timeout: Double = 5, clock: Clock = Clock()) throws -> ACPPairing.Outcome {
         try ACPPairing.pair(client: client, store: store, endpoint: Self.endpoint, name: "ACP", grant: grant,
                             timeout: timeout, now: clock.now, sleep: clock.sleep) { _ in }
     }
 
-    @Test("[Mock] the grant covers every capability the bridge calls, on Desktops it creates")
+    @Test("[Mock] the grant is what the bridge calls, on exactly the Desktops named (#246)")
     func grantCoversTheBridgesMethods() {
-        let g = ACPPairing.grant(apps: ["com.example.app"])
+        let g = ACPPairing.grant(desktops: ["desk_A", "desk_B"], apps: ["com.example.app"])
         let caps = Set(g["capabilities"]?.arrayValue?.compactMap(\.stringValue) ?? [])
-        // unit.run submits; run.show / run.cancel / events.subscribe need `run`.
-        #expect(caps == ["observe", "act", "desktop.manage", "unit.run", "run"])
-        #expect(g["desktops"]?.arrayValue?.compactMap(\.stringValue) == ["created"])
+        // unit.run submits; run.show / run.cancel / events.subscribe need `run`;
+        // the A6 executor's observe and act run under the bridge's grant.
+        #expect(caps == ["observe", "act", "unit.run", "run"])
+        #expect(!caps.contains("desktop.manage"))
+        #expect(g["desktops"]?.arrayValue?.compactMap(\.stringValue) == ["desk_A", "desk_B"])
         #expect(g["apps"]?.arrayValue?.compactMap(\.stringValue) == ["com.example.app"])
         #expect(g["durationSeconds"] == nil)
-        #expect(ACPPairing.grant()["apps"]?.arrayValue?.isEmpty == true)
+        #expect(ACPPairing.grant(desktops: ["desk_A"])["apps"]?.arrayValue?.isEmpty == true)
+    }
+
+    @Test("[Mock] --desktops takes explicit ids only: never created, never empty")
+    func desktopIdsAreExplicit() {
+        #expect(ACPPairing.desktopIds("desk_A") == ["desk_A"])
+        #expect(ACPPairing.desktopIds("desk_A, desk-B") == ["desk_A", "desk-B"])
+        for bad in ["", "created", "desk_A,created", "desk_A,", ",desk_A", "desk A", "desk/../x", "*"] {
+            #expect(ACPPairing.desktopIds(bad) == nil, "\(bad)")
+        }
     }
 
     @Test("[Mock] --duration reads like agents pair: 1s to 7d, into the requested grant")
@@ -81,16 +92,16 @@ struct ACPPairingTests {
         for bad in ["8", "0h", "-1h", "8x", "h", "8d", "1e309s", "0.5s", ""] {
             #expect(ACPPairing.durationSeconds(bad) == nil, "\(bad)")
         }
-        #expect(ACPPairing.grant(durationSeconds: 28800)["durationSeconds"] == .int(28800))
+        #expect(ACPPairing.grant(desktops: ["desk_A"], durationSeconds: 28800)["durationSeconds"] == .int(28800))
     }
 
     @Test("[Mock] approval stores the credential under profile acp for that endpoint")
     func approvalStoresTheCredential() throws {
         let client = PairingClient(statuses: [Self.approved])
         let store = MemoryCredentialStore()
-        let grant = ACPPairing.grant(apps: ["com.example.app"])
+        let grant = ACPPairing.grant(desktops: ["desk_A"], apps: ["com.example.app"])
         let outcome = try run(client, store, grant: grant)
-        #expect(outcome == .paired(clientId: "app:abc", grant: ACPPairing.grant()))
+        #expect(outcome == .paired(clientId: "app:abc", grant: ACPPairing.grant(desktops: ["desk_A"])))
         #expect(try store.load(endpoint: Self.endpoint, profile: "acp") == ClientCredential(clientId: "app:abc", token: "secret"))
         #expect(client.handshakes == 1)
         #expect(client.methods == ["hub.pairing.start", "hub.pairing.status"])
@@ -107,7 +118,7 @@ struct ACPPairingTests {
         let clock = Clock()
         let store = MemoryCredentialStore()
         let outcome = try run(client, store, clock: clock)
-        #expect(outcome == .paired(clientId: "app:abc", grant: ACPPairing.grant()))
+        #expect(outcome == .paired(clientId: "app:abc", grant: ACPPairing.grant(desktops: ["desk_A"])))
         #expect(client.methods == ["hub.pairing.start", "hub.pairing.status", "hub.pairing.status", "hub.pairing.status"])
         #expect(clock.sleeps == 2)
     }

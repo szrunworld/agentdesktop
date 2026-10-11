@@ -71,14 +71,23 @@ public struct ActionResultPresentation: Equatable, Sendable {
                      needsReconciliation: false, businessResult: businessNotEvaluated)
     }
 
-    /// From a RequestRecord: `outcome` is the receipt, or `{error}` whose
-    /// `details.receipt` carries it; no outcome means only accepted.
+    /// From a RequestRecord: the Runtime's ledger stores `outcome` as
+    /// `{data}` (the receipt) or `{error}` (whose `details.receipt` carries
+    /// it); no outcome means only accepted.
     public static func make(record: JSONValue) -> ActionResultPresentation {
         guard let outcome = record["outcome"], !outcome.isNull else { return make(receipt: nil) }
         if let error = outcome["error"] {
             return make(receipt: error["details"]?["receipt"], errorCode: error["code"]?.stringValue)
         }
-        return make(receipt: outcome)
+        return make(receipt: receipt(inSuccess: outcome))
+    }
+
+    /// The receipt of a successful outcome: `outcome.data` as the ledger
+    /// stores it; an older record that put the receipt itself in `outcome`
+    /// is still read.
+    public static func receipt(inSuccess outcome: JSONValue) -> JSONValue? {
+        if let data = outcome["data"], !data.isNull { return data }
+        return outcome["receiptId"] != nil ? outcome : nil
     }
 
     /// The line under the title for `notDispatched`: the reason, or that the

@@ -1,0 +1,1 @@
+{"def":"InboxItem","instance":{"inboxId":"inb_u_00112233445566778899aabbccddeeff","kind":"unknown_reference","state":"open","runId":"run_0123456789ab","clientId":"app:abc","desktopId":"d_0123456789ab","createdAt":"2026-10-11T10:00:00.300Z","revision":0,"run":{"phase":"ended","outcome":"unknown","quiescence":"confirmed","revision":5,"closingReason":"completed"}}}

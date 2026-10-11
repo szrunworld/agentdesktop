@@ -20,7 +20,6 @@ usage:
 
   agentdesktop state --screen NAME --pid PID [--window-id ID] [--query TEXT] [--screenshot FILE.png]
   agentdesktop click --screen NAME --pid PID (--index N | --text TEXT | --x X --y Y) [--right | --double]
-  agentdesktop hover --screen NAME --pid PID (--index N | --text TEXT | --x X --y Y)
   agentdesktop ax-press --screen NAME --pid PID [--window-id ID] --index N
   agentdesktop type  --screen NAME --pid PID --value TEXT [--index N | --text TEXT] [--replace]
   agentdesktop key   --screen NAME --pid PID --key NAME [--modifiers cmd,shift]

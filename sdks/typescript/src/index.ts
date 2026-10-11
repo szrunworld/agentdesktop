@@ -12,7 +12,7 @@ const MAX_FRAME = 1_048_576;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const PHASES = new Set(["local", "connect", "transport", "handshake", "request", "handler"]);
 const WRITES = new Set(["desktop.create", "desktop.destroy", "app.launch", "window.bind", "window.unbind",
-  "session.open", "session.close", "act", "run.finish", "run.cancel"]);
+  "session.open", "session.close", "act", "run.start", "run.finish", "run.cancel"]);
 
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 export type Obj = { [k: string]: Json };
@@ -198,14 +198,21 @@ export class RuntimeClient {
     const deadline = Date.now() + (opts.timeoutMs ?? 600_000);
     for (;;) {
       const st = await this.call("hub.pairing.status", { pairingId: started.pairingId });
-      if (st.state === "approved" && st.credential) {
-        const c = st.credential as Obj;
-        this.credential = { clientId: String(c.clientId), token: String(c.token) };
+      // Same outcomes as `agentdesktop agents pair` (A7, SDK-01).
+      if (st.state === "approved") {
+        const c = st.credential as Obj | undefined;
+        if (!c || typeof c !== "object" || typeof c.clientId !== "string" || !c.clientId || typeof c.token !== "string" || !c.token) {
+          // The plaintext is handed out once; asking again cannot get it.
+          throw new RuntimeApiError("execution_failed", "approved, but the credential was already collected", "handler",
+                                    false, undefined, { pairingId: started.pairingId as string });
+        }
+        this.credential = { clientId: c.clientId, token: c.token };
         this.close();
         return this.credential;
       }
       if (st.state === "denied" || st.state === "expired") {
-        throw new RuntimeApiError("permission_denied", `pairing ${started.pairingId} was ${st.state}`, "handler");
+        throw new RuntimeApiError("permission_denied", `pairing ${started.pairingId} was ${st.state}`, "handler",
+                                  false, undefined, { pairingId: started.pairingId as string });
       }
       if (Date.now() >= deadline) throw new RuntimeApiError("wait_timeout", "the owner has not answered the pairing request", "local");
       await new Promise((r) => setTimeout(r, opts.pollMs ?? 1000));
@@ -290,8 +297,15 @@ export class RuntimeClient {
   async handshake(): Promise<Obj> {
     if (this.identity) return this.identity;
     await this.connect();
-    const id = await this.exchange({ apiVersion: API_VERSION, requestId: newRequestId("hs"), method: "runtime.handshake",
-      params: this.handshakeParams() });
+    let id: Obj;
+    try {
+      id = await this.exchange({ apiVersion: API_VERSION, requestId: newRequestId("hs"), method: "runtime.handshake",
+        params: this.handshakeParams() });
+    } catch (e) {
+      // A refused handshake (revoked, unknown credential…) leaves no connection, as in the Python SDK.
+      this.close();
+      throw e;
+    }
     if (id.product !== "AgentDesktop") { this.close(); throw new RuntimeApiError("instance_mismatch", `${this.endpoint} is not an AgentDesktop Runtime`, "handshake"); }
     this.identity = id;
     return id;

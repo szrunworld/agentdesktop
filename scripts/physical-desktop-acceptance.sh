@@ -39,6 +39,7 @@
 #   scripts/bundle-app.sh && scripts/physical-desktop-acceptance.sh                 (step 2 waits for you in the window)
 #   PD_DESKTOP=d_... scripts/physical-desktop-acceptance.sh                         (a Desktop you already opened to pd-cli)
 set -u
+. "$(dirname "$0")/lib/process-identity.sh"
 APP="${APP:-build/Agent Desktop.app}"
 DIR=/tmp/adt-pd-acc
 EP="$DIR/side.runtime.sock"
@@ -76,12 +77,14 @@ print("" if d is None else d)' "$1" "$2" 2>/dev/null; }
 cleanup() {
     [ -n "${DESK:-}" ] && [ -z "${OWNED:-}" ] && "$B" desktop destroy "$DESK" --format json > /dev/null 2>&1
     # Only the processes this script started, while their pid still has the
-    # start time recorded at launch (a pid may be reused).
-    if [ -n "${PROBE:-}" ] && [ -n "${PROBE_START:-}" ] && [ "$(ps -o lstart= -p "$PROBE" 2>/dev/null)" = "$PROBE_START" ]; then
-        kill "$PROBE" 2>/dev/null
+    # identity recorded at launch (a pid may be reused).
+    if [ -n "${PROBE:-}" ]; then
+        proc_stop "$PROBE" "${PROBE_ID:-}" || true
+        proc_left "$PROBE" "${PROBE_ID:-}" "the probe Chess"
     fi
-    if [ -n "${HOST:-}" ] && [ -n "${HOST_START:-}" ] && [ "$(ps -o lstart= -p "$HOST" 2>/dev/null)" = "$HOST_START" ]; then
-        kill "$HOST" 2>/dev/null
+    if [ -n "${HOST:-}" ]; then
+        proc_stop "$HOST" "${HOST_ID:-}" || true
+        proc_left "$HOST" "${HOST_ID:-}" "the test Agent Desktop"
     fi
     [ -s "$DIR/search-list" ] && restore_search_list
     security delete-keychain "$KC" 2>/dev/null
@@ -109,7 +112,8 @@ DISPLAYS_BEFORE=$(displays)
 echo "== start Agent Desktop (test copy)"
 AGENTDESKTOP_SOCKET="$DIR/side.sock" AGENTDESKTOP_MAIN_WINDOW=1 "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
 HOST=$!
-HOST_START=$(ps -o lstart= -p "$HOST" 2>/dev/null)
+HOST_ID=$(proc_record "$HOST" "$APP/Contents/MacOS/Agent Desktop") || HOST_ID=""
+[ -n "$HOST_ID" ] || { bad "cannot record the test host's identity (pid $HOST)"; exit 1; }
 i=0; while [ ! -S "$EP" ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
 [ -S "$EP" ] && ok "Runtime listening at $EP" || { bad "Runtime did not start"; exit 1; }
 
@@ -159,8 +163,8 @@ while [ -z "$PROBE" ] && [ $i -lt 40 ]; do
     PROBE="$NEW"
 done
 [ -n "$PROBE" ] && ok "probe Chess pid $PROBE (new, started by this script)" || { bad "no new Chess"; exit 1; }
-PROBE_START=$(ps -o lstart= -p "$PROBE" 2>/dev/null)
-[ -n "$PROBE_START" ] || { bad "cannot read the probe's start time"; PROBE=""; exit 1; }
+PROBE_ID=$(proc_identity "$PROBE")
+[ -n "$PROBE_ID" ] || { bad "cannot record the probe's identity"; PROBE=""; exit 1; }
 WIN=$(swift - "$PROBE" 2>/dev/null <<'SWIFT'
 import CoreGraphics
 let pid = Int32(CommandLine.arguments[1])!

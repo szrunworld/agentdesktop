@@ -252,10 +252,25 @@ public final class ExecutionCoordinator: @unchecked Sendable {
     /// action of it is unknown — unknown is never overwritten.
     @discardableResult
     func stop(runId: String, reason: String, endAs: RunRecord.Outcome, finishing: Bool? = nil) -> StopOutcome {
-        let outcome: (StopOutcome, quiesceNow: Bool, first: Bool) = lock.withLock {
+        stop(runId: runId, reason: reason, endAs: endAs, finishing: finishing, onlyIf: nil)!
+    }
+
+    /// Stop the Run only if `holds` is true of it, checked under the same
+    /// lock as the stop (inbox.resolve's compare-and-stop: two decisions on
+    /// one revision never both succeed). nil: the Run is live and it did not
+    /// hold, or the Run is no longer live; nothing was changed.
+    func stop(runId: String, reason: String, endAs: RunRecord.Outcome, onlyIf holds: @escaping (RunRecord) -> Bool) -> StopOutcome? {
+        stop(runId: runId, reason: reason, endAs: endAs, finishing: nil, onlyIf: Optional(holds))
+    }
+
+    private func stop(runId: String, reason: String, endAs: RunRecord.Outcome, finishing: Bool?,
+                      onlyIf holds: ((RunRecord) -> Bool)?) -> StopOutcome? {
+        let checked: (StopOutcome, quiesceNow: Bool, first: Bool)? = lock.withLock {
             guard var l = live[runId] else {
+                if holds != nil { return nil }
                 return (runs.find(runId).map { .alreadyTerminal($0) } ?? .notFound, false, false)
             }
+            if let holds, !holds(l.record) { return nil }
             let first = l.record.phase != .stopping
             if first {
                 l.record.phase = .stopping
@@ -267,6 +282,7 @@ public final class ExecutionCoordinator: @unchecked Sendable {
             }
             return (.accepted(l.record), l.inFlight == 0, first)
         }
+        guard let outcome = checked else { return nil }
         if case let .accepted(r) = outcome.0 {
             runs.update(r)
             let finish = finishing ?? (["finished", "completed"].contains(reason) || reason.hasPrefix("exit"))

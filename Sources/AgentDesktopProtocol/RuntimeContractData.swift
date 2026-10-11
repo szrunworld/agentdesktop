@@ -5701,6 +5701,679 @@ enum RuntimeContractData {
           "description": "more records matched than one export holds (10000): narrow the filter"
         }
       }
+    },
+    "inbox_list_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "approval",
+            "question",
+            "unknown_reference",
+            "external_reference"
+          ]
+        },
+        "state": {
+          "enum": [
+            "open",
+            "resolved",
+            "all"
+          ],
+          "description": "default open"
+        },
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "owner only: one caller's items; ignored for a paired client, which sees only its own"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "inbox_ref_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inboxId"
+      ],
+      "properties": {
+        "inboxId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "inbox_resolve_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inboxId",
+        "resolution",
+        "expectedRevision"
+      ],
+      "properties": {
+        "inboxId": {
+          "$ref": "#/$defs/Id"
+        },
+        "resolution": {
+          "enum": [
+            "cancel_run"
+          ],
+          "description": "question: stop the waiting Run (run.cancel's stop). Answers and approvals are not accepted yet"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "the item's revision as last read; another one is conflict (reason revision_conflict)"
+        }
+      }
+    },
+    "run_reconcile_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "actionRequestId",
+        "verdict",
+        "expectedRevision"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "actionRequestId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Id"
+            }
+          ],
+          "description": "the requestId of the act whose delivery is unknown"
+        },
+        "verdict": {
+          "enum": [
+            "executed",
+            "not_executed",
+            "still_unknown"
+          ]
+        },
+        "source": {
+          "enum": [
+            "operator_attestation",
+            "external_reference"
+          ],
+          "description": "default operator_attestation. runtime_observation (the Runtime checked it itself) is not accepted yet"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "how many reconciliations the action had when last read (the item's revision); another count is conflict (reason revision_conflict)"
+        }
+      }
+    },
+    "Reconciliation": {
+      "description": "one append-only finding about an action whose delivery is unknown; it never changes the action's receipt, the request's outcome or the Run's outcome",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reconciliationId",
+        "runId",
+        "actionRequestId",
+        "sequence",
+        "verdict",
+        "source",
+        "evidenceRefs",
+        "by",
+        "at",
+        "requestId"
+      ],
+      "properties": {
+        "reconciliationId": {
+          "$ref": "#/$defs/Id"
+        },
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "actionRequestId": {
+          "$ref": "#/$defs/Id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "verdict": {
+          "enum": [
+            "executed",
+            "not_executed",
+            "still_unknown"
+          ]
+        },
+        "source": {
+          "enum": [
+            "runtime_observation",
+            "operator_attestation",
+            "external_reference"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "by": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the principal that recorded it"
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "requestId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Id"
+            }
+          ],
+          "description": "the run.reconcile request that recorded it"
+        }
+      }
+    },
+    "UnknownAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "becameUnknownAt"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/Id"
+        },
+        "receiptId": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Id"
+            }
+          ],
+          "description": "absent when the Runtime stopped before the receipt was written"
+        },
+        "kind": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "the action's kind (click, type, ...); never what was typed"
+        },
+        "dispatchedAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "becameUnknownAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "reasonCode": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      }
+    },
+    "InboxRunState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "outcome",
+        "quiescence",
+        "revision",
+        "closingReason"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "queued",
+            "running",
+            "waiting_approval",
+            "waiting_input",
+            "stopping",
+            "ended"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "success",
+            "failed",
+            "cancelled",
+            "unknown",
+            null
+          ]
+        },
+        "quiescence": {
+          "enum": [
+            "not_confirmed",
+            "pending",
+            "confirmed"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "closingReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "InboxItem": {
+      "description": "one thing on the platform Inbox (W06), derived from the Run records: unknown_reference is an action of a Run whose delivery is unknown (reconciled with run.reconcile); question is a Run waiting for a person (phase waiting_input). approval and external_reference are reserved: nothing makes them yet",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inboxId",
+        "kind",
+        "state",
+        "runId",
+        "clientId",
+        "desktopId",
+        "createdAt",
+        "revision",
+        "run"
+      ],
+      "properties": {
+        "inboxId": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "enum": [
+            "approval",
+            "question",
+            "unknown_reference",
+            "external_reference"
+          ]
+        },
+        "state": {
+          "enum": [
+            "open",
+            "resolved"
+          ]
+        },
+        "runId": {
+          "$ref": "#/$defs/Id"
+        },
+        "clientId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the client whose Run it is; null for a platform Run"
+        },
+        "desktopId": {
+          "$ref": "#/$defs/Id"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "unknown_reference: how many reconciliations it has; question: the Run's revision"
+        },
+        "run": {
+          "$ref": "#/$defs/InboxRunState"
+        },
+        "action": {
+          "$ref": "#/$defs/UnknownAction"
+        },
+        "question": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string",
+              "maxLength": 128,
+              "description": "the unit executor's reason code"
+            }
+          }
+        },
+        "resolution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "how",
+            "at"
+          ],
+          "properties": {
+            "how": {
+              "enum": [
+                "reconciled",
+                "run_cancelled",
+                "run_ended"
+              ]
+            },
+            "verdict": {
+              "enum": [
+                "executed",
+                "not_executed"
+              ]
+            },
+            "by": {
+              "type": "string",
+              "minLength": 1
+            },
+            "at": {
+              "$ref": "#/$defs/Timestamp"
+            }
+          }
+        },
+        "reconciliations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Reconciliation"
+          },
+          "description": "inbox.show only: every reconciliation, oldest first"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "unknown_reference"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "action"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "question"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "question"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "resolved"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "resolution"
+            ]
+          }
+        }
+      ]
+    },
+    "InboxList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "next"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InboxItem"
+          }
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "InboxResolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "stop"
+      ],
+      "properties": {
+        "item": {
+          "$ref": "#/$defs/InboxItem"
+        },
+        "stop": {
+          "$ref": "#/$defs/CancelReceipt"
+        }
+      }
+    },
+    "RunReconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reconciliation",
+        "item",
+        "run"
+      ],
+      "properties": {
+        "reconciliation": {
+          "$ref": "#/$defs/Reconciliation"
+        },
+        "item": {
+          "$ref": "#/$defs/InboxItem"
+        },
+        "run": {
+          "$ref": "#/$defs/Run",
+          "description": "as it is: its outcome stays what it was (unknown)"
+        }
+      }
+    },
+    "diagnostics_export_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "runtime",
+              "capabilities",
+              "connections",
+              "clients",
+              "desktops",
+              "runs",
+              "requests",
+              "authorization"
+            ]
+          },
+          "description": "default all; authorization is the owner's (a paired client gets its own refusals only)"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "runs, requests and refusals from this time on; default 24 h ago, never more than 7 days"
+        },
+        "preview": {
+          "type": "boolean",
+          "description": "true: say what an export would hold (the manifest), write nothing"
+        }
+      }
+    },
+    "DiagnosticsManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "since",
+        "sections",
+        "excluded"
+      ],
+      "properties": {
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "clientId"
+          ],
+          "properties": {
+            "role": {
+              "enum": [
+                "owner",
+                "paired"
+              ]
+            },
+            "clientId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "items"
+            ],
+            "properties": {
+              "name": {
+                "enum": [
+                  "runtime",
+                  "capabilities",
+                  "connections",
+                  "clients",
+                  "desktops",
+                  "runs",
+                  "requests",
+                  "authorization"
+                ]
+              },
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "a limit cut the section short (Runs: 500; requests: 100000 scanned), or retention already removed refusals inside the window: narrow since"
+              },
+              "unavailable": {
+                "type": "boolean",
+                "description": "the section could not be read (the request ledger is unreadable); its contents say why"
+              }
+            }
+          }
+        },
+        "excluded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "what an export never holds"
+        }
+      }
+    },
+    "DiagnosticsExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preview",
+        "manifest"
+      ],
+      "properties": {
+        "preview": {
+          "type": "boolean"
+        },
+        "manifest": {
+          "$ref": "#/$defs/DiagnosticsManifest"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "preview": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "artifact"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "preview": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "artifact"
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }
@@ -10746,40 +11419,55 @@ enum RuntimeContractData {
       "result": "RequestExport",
       "status": "implemented",
       "note": "observe; the same records and filters as request.list, at most 10000, newest first, written as one JSON document (apiVersion, exportedAt, filter, count, truncated, requests) into an application/json artifact of the caller: read it with artifact.read; kept like any artifact (24 h) and counted against the store's limits (limit_exceeded)"
+    },
+    {
+      "method": "inbox.list",
+      "stage": "P0",
+      "mutation": false,
+      "params": "inbox_list_params",
+      "result": "InboxList",
+      "status": "implemented",
+      "note": "run; the platform Inbox (W06), derived from the Run records, newest first: unknown_reference for each action whose delivery is unknown (open until a reconciliation says executed or not_executed), question for each unit Run that waited for a person (open while it is waiting_input). Filters kind, state (default open), runId, desktopId, and for the owner clientId; the owner sees every item, a paired client only those of its own Runs (another client's runId is not_found); limit 1-100 (default 50), cursor from next. approval and external_reference items are reserved: nothing makes them yet"
+    },
+    {
+      "method": "inbox.show",
+      "stage": "P0",
+      "mutation": false,
+      "params": "inbox_ref_params",
+      "result": "InboxItem",
+      "status": "implemented",
+      "note": "run; one item with all its reconciliations; another client's item is not_found"
+    },
+    {
+      "method": "inbox.resolve",
+      "stage": "P0",
+      "mutation": true,
+      "params": "inbox_resolve_params",
+      "result": "InboxResolution",
+      "status": "implemented",
+      "note": "owner; an open question item: cancel_run stops its Run as run.cancel does (closingReason inbox_cancel), nothing else is sent. expectedRevision is the item's revision (conflict, reason revision_conflict, otherwise); a resolved item is conflict, reason already_resolved; an unknown_reference item is invalid_argument, reason use_run_reconcile; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "run.reconcile",
+      "stage": "P0",
+      "mutation": true,
+      "params": "run_reconcile_params",
+      "result": "RunReconciliation",
+      "status": "implemented",
+      "note": "owner; appends one reconciliation to an action whose delivery is unknown, of a Run that has ended (else conflict, reason not_quiescent). It changes nothing else: the receipt, the request's outcome (the same requestId still answers action_delivery_unknown) and the Run's outcome (unknown) stay; nothing is retried or replayed, and any new action takes a new requestId. executed or not_executed resolves the Inbox item; still_unknown keeps it open. expectedRevision is the number of reconciliations the action has (conflict, reason revision_conflict, otherwise); an action that is not unknown is invalid_argument, reason not_unknown; a paired client gets permission_denied, reason owner_only"
+    },
+    {
+      "method": "diagnostics.export",
+      "stage": "P0",
+      "mutation": false,
+      "params": "diagnostics_export_params",
+      "result": "DiagnosticsExport",
+      "status": "implemented",
+      "note": "observe; read-only: repairs nothing, removes no socket, restarts nothing, changes no grant and creates no Run. Writes the chosen sections (runtime identity, admission and permissions; method names; open connections; clients and grant summaries; Desktops; Runs with their stop evidence; request counts by method and state; authorization refusals counted by reason) as one JSON document into an application/json artifact of the caller (read with artifact.read, kept like any artifact), or with preview only says what it would hold. Never in it: credentials or tokens (any adt1_ value is redacted), screenshots or other artifacts, typed text or action parameters, request outcomes, window titles or app content, peer process facts, free-text notes, the endpoint path. The owner sees every client; a paired client only itself, its own connections, Runs (with the run capability), requests and refusals, and Desktops in its grant"
     }
   ],
   "freeze": "docs/architecture/runtime-api-v1-freeze.md",
   "catalog": [
-    {
-      "method": "inbox.list",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "inbox.show",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "inbox.resolve",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "run.reconcile",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
-    {
-      "method": "diagnostics.export",
-      "status": "reserved",
-      "pr": "PR4",
-      "stage": "P0"
-    },
     {
       "method": "gui.knowledge.get",
       "status": "reserved",

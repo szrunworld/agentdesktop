@@ -91,7 +91,7 @@ Mirroring 当前声明（摘要，详见代码）：
 | deadline | 信封 `deadline`（只限受理等待）；Run 执行限额 | 复用：设备动作的总时限来自 Run 限额，粘贴等待、OCR、许可点按都计入同一 deadline，不按尝试续期 |
 | cancelGeneration | 线上无；`docs/ai-gui/interfaces` 有 `ObservationStamp.runGeneration` / `currentGeneration` | **增量（内部为主）**：Runtime 在每次投递前比对当前取消代次，不由客户端传；回执记录 `cancelGeneration`。客户端仍只用 `run.cancel` |
 | 坐标 | `action.target.imagePoint`（相对该观察图像） | 复用；必须落在 `device.contentRect` 内，否则 `invalid_target` |
-| 动作种类 | `Action.kind = click \| type \| key \| scroll`；计划 `hover \| drag \| press` | tap=`click`；type=`type`；Return/Delete=`key`；**增量**设备导航键名 `key = home \| app_switcher \| spotlight`（由后端翻译：Mirroring 为 ⌘1/2/3，WDA 为 pressButton 等），客户端不直接发 ⌘ 组合；swipe/drag 用计划中的 `drag`（起止点 + 时长）；longPress 用计划中的 `press` 加 `durationMs`（**f1 确认 press 的语义**） |
+| 动作种类 | `Action.kind = click \| type \| key \| scroll \| press`（A5 起；`hover`、`drag` 也已在 Schema 中，macOS 窗口目标上返回 `unsupported_backend`）。注意：A5 的 `press` 是对一个元素的**无障碍按下**，不是长按，设备上的 longPress 需要另定义 | tap=`click`；type=`type`；Return/Delete=`key`；**增量**设备导航键名 `key = home \| app_switcher \| spotlight`（由后端翻译：Mirroring 为 ⌘1/2/3，WDA 为 pressButton 等），客户端不直接发 ⌘ 组合；swipe/drag 用计划中的 `drag`（起止点 + 时长）；longPress 用计划中的 `press` 加 `durationMs`（**f1 确认 press 的语义**） |
 | 提交 | `type` 文本末尾换行即发 Return | **建议**设备目标上提交为显式 `key=return` 动作，`type` 不隐式提交（审查 4.1） |
 
 ## 5. ActionReceipt：投递与确认分离

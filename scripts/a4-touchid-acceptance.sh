@@ -20,6 +20,7 @@
 # management (its code is not verified before S4). On a release candidate
 # (Developer ID CLI) that step is expected to differ.
 set -u
+. "$(dirname "$0")/lib/process-identity.sh"
 ROUND="${1:-all}"
 case "$ROUND" in all|deny|cancel|timeout) ;; *) echo "usage: $0 [deny|cancel|timeout]"; exit 2 ;; esac
 APP="${APP:-build/Agent Desktop.app}"
@@ -32,7 +33,12 @@ ok()  { echo "PASS  $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
 
 cleanup() {
-    [ -n "${HOST:-}" ] && kill "$HOST" 2>/dev/null
+    # Only the test host this script started, while its pid still has the
+    # identity recorded at launch (a pid may be reused).
+    if [ -n "${HOST:-}" ]; then
+        proc_stop "$HOST" "${HOST_ID:-}" || true
+        proc_left "$HOST" "${HOST_ID:-}" "the test Agent Desktop"
+    fi
     [ -s "$DIR/search-list" ] && restore_search_list
     security delete-keychain "$KC" 2>/dev/null
     rm -rf "$DIR"
@@ -56,6 +62,8 @@ export AGENTDESKTOP_ENDPOINT="$EP" AGENTDESKTOP_KEYCHAIN="$KC"
 echo "== 1. start Agent Desktop (test copy)"
 AGENTDESKTOP_SOCKET="$DIR/side.sock" "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
 HOST=$!
+HOST_ID=$(proc_record "$HOST" "$APP/Contents/MacOS/Agent Desktop") || HOST_ID=""
+[ -n "$HOST_ID" ] || { bad "cannot record the test host's identity (pid $HOST)"; exit 1; }
 i=0; while [ ! -S "$EP" ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
 [ -S "$EP" ] && ok "Runtime listening at $EP" || { bad "Runtime did not start"; exit 1; }
 

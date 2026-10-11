@@ -22,6 +22,7 @@
 # Usage, from the repository:
 #   scripts/bundle-app.sh && scripts/owner-attach-acceptance.sh
 set -u
+. "$(dirname "$0")/lib/process-identity.sh"
 APP="${APP:-build/Agent Desktop.app}"
 DIR=/tmp/adt-oa-acc
 EP="$DIR/side.runtime.sock"
@@ -38,8 +39,9 @@ for k in sys.argv[2].split("."):
 print("" if d is None else d)' "$1" "$2" 2>/dev/null; }
 
 cleanup() {
-    if [ -n "${HOST:-}" ] && [ -n "${HOST_START:-}" ] && [ "$(ps -o lstart= -p "$HOST" 2>/dev/null)" = "$HOST_START" ]; then
-        kill "$HOST" 2>/dev/null
+    if [ -n "${HOST:-}" ]; then
+        proc_stop "$HOST" "${HOST_ID:-}" || true
+        proc_left "$HOST" "${HOST_ID:-}" "the test Agent Desktop"
     fi
     [ -s "$DIR/search-list" ] && restore_search_list
     security delete-keychain "$KC" 2>/dev/null
@@ -65,7 +67,8 @@ DISPLAYS_BEFORE=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -c "Reso
 echo "== start Agent Desktop (test copy) with its main window on your main display"
 AGENTDESKTOP_SOCKET="$DIR/side.sock" AGENTDESKTOP_MAIN_WINDOW=1 "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
 HOST=$!
-HOST_START=$(ps -o lstart= -p "$HOST" 2>/dev/null)
+HOST_ID=$(proc_record "$HOST" "$APP/Contents/MacOS/Agent Desktop") || HOST_ID=""
+[ -n "$HOST_ID" ] || { bad "cannot record the test host's identity (pid $HOST)"; exit 1; }
 i=0; while [ ! -S "$EP" ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i + 1)); done
 [ -S "$EP" ] && ok "Runtime listening at $EP" || { bad "Runtime did not start"; exit 1; }
 
