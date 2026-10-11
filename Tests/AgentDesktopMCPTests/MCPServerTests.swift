@@ -301,6 +301,9 @@ func serverLimitedToOneDesktop() throws {
     #expect(refused(call(scoped, "run_cancel", [("runId", .string(runB))])))
     _ = try direct.call(RuntimeRequest(.windowUnbind, requestId: "unbind-b", params: .obj([("desktopId", .string(b))])))
     #expect(refused(call(scoped, "request_show", [("requestId", .string("unbind-b"))])))
+    // A record tied to no Desktop (desktop.create) is refused too.
+    _ = try direct.call(RuntimeRequest(.desktopCreate, requestId: "create-c", params: .obj([("name", .string("c"))])))
+    #expect(refused(call(scoped, "request_show", [("requestId", .string("create-c"))])))
     // B's session is still open: nothing reached it.
     #expect(try direct.call(RuntimeRequest(.sessionShow, params: .obj([("sessionId", .string(sessionB))])))["state"]?.stringValue == "open")
     #expect(h.platform.lock.withLock { h.platform.performed.count } == launchesBefore)

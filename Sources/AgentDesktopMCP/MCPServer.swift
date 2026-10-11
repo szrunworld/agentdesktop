@@ -211,15 +211,18 @@ public final class MCPServer {
     }
 
     /// What a read returns about other Desktops is left out (desktop_list)
-    /// or refused (request_show of another Desktop's request).
+    /// or refused (request_show of a request not recorded on this Desktop).
     static func limit(_ tool: MCPTools.Tool, _ data: JSONValue, to scope: String) throws -> JSONValue {
         switch tool.name {
         case "desktop_list":
             let mine = (data["desktops"]?.arrayValue ?? []).filter { $0["desktopId"]?.stringValue == scope }
             return data.setting("desktops", .array(mine))
         case "request_show":
-            if let d = data["desktopId"]?.stringValue, d != scope {
-                throw outOfScope(scope, "request \(data["requestId"]?.stringValue ?? "") was made on another Desktop")
+            // Only a record positively tied to the scope: one with no Desktop
+            // (desktop.create, records older than the ledger's desktop
+            // column) may be about any Desktop (Codex P1 on #271).
+            guard data["desktopId"]?.stringValue == scope else {
+                throw outOfScope(scope, "request \(data["requestId"]?.stringValue ?? "") is not recorded on this Desktop")
             }
             return data
         default:
