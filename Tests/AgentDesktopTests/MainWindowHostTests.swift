@@ -126,7 +126,15 @@ struct MainWindowHostTests {
         }
         #expect(store.runUpdates == .subscription)
         #expect(store.eventCursor != nil)
+        let before = try await port.call("hub.connections.list", .obj([]))["connections"]?.arrayValue?.count ?? 0
         store.stop()
+        var after = before
+        for _ in 0..<100 {
+            after = try await port.call("hub.connections.list", .obj([]))["connections"]?.arrayValue?.count ?? 0
+            if after < before { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(after == before - 1, "stopping the stream removes its registered connection")
     }
 
     @Test func unavailableRuntimeShowsDisconnected() async {

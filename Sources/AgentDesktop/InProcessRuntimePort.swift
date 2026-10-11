@@ -58,13 +58,20 @@ final class InProcessRuntimePort: RuntimePort, @unchecked Sendable {
     /// it never affects a Run (ADR-02).
     func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> {
         let sub = ConnectionState(peerUID: getuid())
-        _ = try await send("runtime.handshake", .obj([
-            ("apiVersions", .array([.string(RuntimeAPI.version)])),
-            ("client", .obj([("name", .string("AgentDesktop main window events")), ("version", .string(RuntimeAPI.productVersion))])),
-        ]), on: sub)
-        var params: [(String, JSONValue)] = []
-        if let after { params.append(("after", .int(after))) }
-        _ = try await send("events.subscribe", .obj(params), on: sub)
+        do {
+            _ = try await send("runtime.handshake", .obj([
+                ("apiVersions", .array([.string(RuntimeAPI.version)])),
+                ("client", .obj([("name", .string("AgentDesktop main window events")), ("version", .string(RuntimeAPI.productVersion))])),
+            ]), on: sub)
+            var params: [(String, JSONValue)] = []
+            if let after { params.append(("after", .int(after))) }
+            _ = try await send("events.subscribe", .obj(params), on: sub)
+        } catch {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                self.queue.async { self.service.connectionClosed(sub); c.resume() }
+            }
+            throw error
+        }
         let service = self.service
         let queue = self.queue
         return PulledEventStream.make(pull: {
@@ -77,7 +84,7 @@ final class InProcessRuntimePort: RuntimePort, @unchecked Sendable {
         }, close: {
             let line = RuntimeRequest(requestId: RuntimeRequest.newId(prefix: "ui"), method: "events.unsubscribe",
                                       context: RequestContext(), params: .obj([])).json.encodedData()
-            queue.async { _ = service.respond(to: line, on: sub) }
+            queue.async { _ = service.respond(to: line, on: sub); service.connectionClosed(sub) }
         })
     }
 

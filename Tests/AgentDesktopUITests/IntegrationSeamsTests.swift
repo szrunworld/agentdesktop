@@ -70,6 +70,24 @@ struct IntegrationSeamsTests {
         #expect(count == 1)
     }
 
+    @Test func aNewProfileDraftDoesNotReuseAFailedCreatesRequestId() async throws {
+        let m = MockRuntime()
+        m.seedSettingsSample()
+        let model = SettingsProfilesModel(runtime: m, gui: nil)
+        await model.refresh()
+        model.newProfile()
+        model.modelId = "gui-model-v2"
+        m.failNext("ai.profiles.create", code: "deadline_exceeded")
+        await model.save()
+        #expect(model.failure != nil)
+        model.newProfile()
+        model.modelId = "gui-model-v2"
+        await model.save()
+        #expect(model.failure == nil)
+        let ids = m.requestIds.filter { $0.method == "ai.profiles.create" }.map(\.id)
+        #expect(ids.count == 2 && ids[0] != ids[1])
+    }
+
     // A port that knows no requestId still serves the call.
     @Test func portsWithoutALedgerIgnoreTheRequestId() async throws {
         final class Plain: RuntimePort, @unchecked Sendable {

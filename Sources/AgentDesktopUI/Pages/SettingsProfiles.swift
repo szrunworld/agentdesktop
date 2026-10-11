@@ -74,6 +74,7 @@ final class SettingsProfilesModel: ObservableObject {
     }
 
     func select(_ p: AIGuiProfileItem) {
+        pendingCreateId = nil
         selectedId = p.id
         name = p.name
         adapterId = p.adapterId
@@ -85,6 +86,7 @@ final class SettingsProfilesModel: ObservableObject {
     }
 
     func newProfile() {
+        pendingCreateId = nil
         selectedId = nil
         name = profiles.isEmpty ? "默认 GUI 配置" : "新 GUI 配置"
         adapterId = "uitars_v1"
