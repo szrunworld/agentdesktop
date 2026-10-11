@@ -68,7 +68,7 @@ private func serving() async throws -> (RuntimeServer, SocketRuntimeClient, Runt
     runtime.registerCapabilitySection("gui") { RuntimeBridge.guiCapabilities(service) }
     let server = RuntimeServer(path: path, service: runtime)
     try server.start()
-    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+    let client = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"), timeout: 30,
                                       credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
     return (server, client, runtime, dir)
 }
@@ -206,7 +206,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
     let ids = try await withThrowingTaskGroup(of: String.self) { group in
         for _ in 0..<6 {
             group.addTask { try await offPool {
-                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"),
+                let c = SocketRuntimeClient(endpoint: Endpoint(path: path, source: .option), info: ClientInfo(name: "t", version: "1"), timeout: 30,
                                       credential: ClientCredential(clientId: "local:\(getuid())", token: "adt1_test-owner-credential"))
                 defer { c.close() }
                 return try c.call(RuntimeRequest(requestId: "idem-race-0001", method: "ai.connections.create",

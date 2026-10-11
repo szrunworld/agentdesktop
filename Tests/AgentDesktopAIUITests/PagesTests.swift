@@ -225,7 +225,9 @@ struct PagesTests {
         #expect(!f.allPassed)
 
         h.upstream.colorAnswer = SyntheticGuiFixture.colorAnswer
-        h.upstream.delayMs = 300
+        // Leave enough time to cancel even when the full parallel suite
+        // briefly starves this test's actor on a busy CI runner.
+        h.upstream.delayMs = 5_000
         let c = CapabilityTestModel(client: h.client, guiProfileId: id, clock: FastClock(), pollMs: 5)
         let running = Task { await c.start() }
         try await waitUntil("the test to run") { c.phase == .running }
