@@ -111,7 +111,8 @@ public struct RunUnit: Equatable, Sendable {
 /// a per-Run sequence number; a reader resumes after the last one it saw.
 public final class RunStore: @unchecked Sendable {
     public static let retentionDays = 7
-    private let db: SQLiteDatabase
+    /// Internal so tests can make it unreadable.
+    let db: SQLiteDatabase
     private let now: @Sendable () -> Date
     private let changed = NSCondition()
     private let healthLock = NSLock()
@@ -272,6 +273,12 @@ public final class RunStore: @unchecked Sendable {
 
     /// Newest first; `after` is the last item's cursor ("createdAt|runId").
     public func list(_ f: ListFilter, after: String?, limit: Int) -> (runs: [RunRecord], next: String?) {
+        (try? listChecked(f, after: after, limit: limit)) ?? ([], nil)
+    }
+
+    /// `list`, or the read's failure (diagnostics must not show an
+    /// unreadable store as no Runs).
+    func listChecked(_ f: ListFilter, after: String?, limit: Int) throws -> (runs: [RunRecord], next: String?) {
         var sql = "SELECT \(Self.columns) FROM runs WHERE 1 = 1"
         var args: [SQLiteDatabase.Value] = []
         if let c = f.clientId { sql += " AND client_id = ?"; args.append(.text(c)) }
@@ -289,7 +296,7 @@ public final class RunStore: @unchecked Sendable {
         }
         sql += " ORDER BY created_at DESC, run_id DESC LIMIT ?"
         args.append(.int(Int64(limit + 1)))
-        var rows = ((try? db.query(sql, args)) ?? []).map(Self.record)
+        var rows = try db.query(sql, args).map(Self.record)
         var next: String?
         if rows.count > limit {
             rows.removeLast()
@@ -347,11 +354,11 @@ public final class RunStore: @unchecked Sendable {
 
     /// Only the events of these types, of one Run, in order (read straight
     /// from the store, however many other events the Run has).
-    func events(_ runId: String, types: [String]) -> [JSONValue] {
+    func events(_ runId: String, types: [String]) throws -> [JSONValue] {
         guard !types.isEmpty else { return [] }
         let marks = types.map { _ in "?" }.joined(separator: ", ")
-        return ((try? db.query("SELECT seq, at, type FROM events WHERE run_id = ? AND type IN (\(marks)) ORDER BY seq",
-                               [.text(runId)] + types.map { .text($0) })) ?? []).map { r in
+        return try db.query("SELECT seq, at, type FROM events WHERE run_id = ? AND type IN (\(marks)) ORDER BY seq",
+                            [.text(runId)] + types.map { .text($0) }).map { r in
             .obj([("runId", .string(runId)), ("sequence", .int(Int(r[0] as! Int64))), ("at", .string(r[1] as! String)),
                   ("type", .string(r[2] as! String))])
         }

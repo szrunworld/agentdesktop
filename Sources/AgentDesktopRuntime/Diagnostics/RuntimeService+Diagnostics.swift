@@ -122,7 +122,9 @@ extension RuntimeService {
                       ("subscribed", .bool(e.connection.isSubscribed))])
             }), open.count, false)
         case "clients":
-            let clients = hub.clients().filter { mine == nil || $0.clientId == mine }
+            // An unreadable store is said, not shown as no clients (Codex on b60700c).
+            guard let all = try? hub.clientsChecked() else { return (.obj([("available", .bool(false)), ("reason", .string("hub_store_unreadable"))]), 0, false) }
+            let clients = all.filter { mine == nil || $0.clientId == mine }
             return (.array(clients.map { cl in
                 var m: [(String, JSONValue)] = [
                     ("clientId", .string(cl.clientId)), ("agentName", .string(String(cl.agentName.prefix(64)))),
@@ -158,6 +160,8 @@ extension RuntimeService {
             // Every Run still active, however old (Codex on 9e6118c: age and
             // ended are not monotonic across pages), then the Runs created
             // since, newest first, until past since or the limit.
+            // An unreadable store is said, not shown as fewer Runs (Codex on b60700c).
+            do {
             var f = RunStore.ListFilter()
             f.clientId = mine
             var out: [RunRecord] = []
@@ -167,13 +171,13 @@ extension RuntimeService {
             active.activeOnly = true
             var cursor: String?
             repeat {
-                let page = runs.list(active, after: cursor, limit: 200)
+                let page = try runs.listChecked(active, after: cursor, limit: 200)
                 page.runs.forEach(take)
                 cursor = page.next
             } while cursor != nil && out.count <= Self.diagnosticsRunLimit
             cursor = nil
             repeat {
-                let page = runs.list(f, after: cursor, limit: 200)
+                let page = try runs.listChecked(f, after: cursor, limit: 200)
                 page.runs.filter { $0.createdAt >= since }.forEach(take)
                 // Ordered by creation time: once one is older than since, so is the rest.
                 cursor = page.runs.contains { $0.createdAt < since } ? nil : page.next
@@ -182,7 +186,10 @@ extension RuntimeService {
             // export holds; narrow since.
             let truncated = out.count > Self.diagnosticsRunLimit
             out = Array(out.prefix(Self.diagnosticsRunLimit))
-            return (.obj([("truncated", .bool(truncated)), ("runs", .array(out.map(diagnosticsRun)))]), out.count, truncated)
+            return (.obj([("truncated", .bool(truncated)), ("runs", .array(try out.map(diagnosticsRun)))]), out.count, truncated)
+            } catch {
+                return (.obj([("available", .bool(false)), ("reason", .string("run_store_unreadable"))]), 0, false)
+            }
         case "requests":
             var f = RequestLedger.Filter()
             f.caller = mine
@@ -204,7 +211,7 @@ extension RuntimeService {
                           ("byMethodAndState", .array(rows.map { .obj([("method", .string($0.0)), ("state", .string($0.1)),
                                                                         ("count", .int($0.2))]) }))]), rows.count, cursor != nil)
         case "authorization":
-            let rows = hub.refusalCounts(since: since, clientId: mine)
+            guard let rows = try? hub.refusalCounts(since: since, clientId: mine) else { return (.obj([("available", .bool(false)), ("reason", .string("hub_store_unreadable"))]), 0, false) }
             // Retention may already have pruned refusals inside the window
             // (Codex on 9e6118c): then the counts are not the whole story.
             let pruned = hub.refusalsPrunedSince(since)
@@ -219,11 +226,11 @@ extension RuntimeService {
 
     /// A Run's metadata and its stop evidence, from its events: when a stop
     /// was accepted, when it became quiescent, when it ended.
-    private func diagnosticsRun(_ r: RunRecord) -> JSONValue {
+    private func diagnosticsRun(_ r: RunRecord) throws -> JSONValue {
         var stop: [(String, JSONValue)] = []
         // Only the stop events, read by type: a long Run's later ones are
         // never past a read limit (Codex on ca649dc).
-        for e in runs.events(r.runId, types: ["stop.accepted", "run.finishing", "run.quiescent"]) {
+        for e in try runs.events(r.runId, types: ["stop.accepted", "run.finishing", "run.quiescent"]) {
             guard let at = e["at"]?.stringValue else { continue }
             switch e["type"]?.stringValue {
             case "stop.accepted", "run.finishing": if !stop.contains(where: { $0.0 == "acceptedAt" }) { stop.append(("acceptedAt", .string(at))) }

@@ -141,7 +141,7 @@ private func export(_ s: RuntimeService, _ c: ConnectionState, _ params: String 
     let (r, doc) = try export(sc.s, sc.c, #"{"sections":["runs"]}"#)
     #expect(doc?["sections"]?["runs"]?["truncated"] == .bool(true))
     #expect(r["manifest"]?["sections"]?.arrayValue?.first?["truncated"] == .bool(true))
-    #expect(sc.s.runs.events("run_bulk0", types: ["run.quiescent"]).count == 1)
+    #expect(try sc.s.runs.events("run_bulk0", types: ["run.quiescent"]).count == 1)
 }
 
 @Test func anOldActiveRunBehindManyEndedOnesIsStillExported() throws {
@@ -179,4 +179,17 @@ private func export(_ s: RuntimeService, _ c: ConnectionState, _ params: String 
     #expect(r["manifest"]?["sections"]?.arrayValue?.first?["truncated"] == .bool(true))
     let fresh = try scene()
     #expect(try export(fresh.s, fresh.c, #"{"sections":["authorization"]}"#).1?["sections"]?["authorization"]?["truncated"] == .bool(false))
+}
+
+@Test func unreadableRunAndHubStoresAreSaidNotShownAsEmpty() throws {
+    let sc = try scene()
+    _ = act(sc, clickContinue)
+    try sc.s.runs.db.execute("DROP TABLE runs")
+    try sc.s.hub.db.execute("ALTER TABLE clients RENAME TO clients_gone")
+    try sc.s.hub.db.execute("ALTER TABLE auth_events RENAME TO auth_events_gone")
+    let (r, doc) = try export(sc.s, sc.c, #"{"sections":["clients","runs","authorization"]}"#)
+    for name in ["clients", "runs", "authorization"] {
+        #expect(doc?["sections"]?[name]?["available"] == .bool(false), "\(name)")
+        #expect(r["manifest"]?["sections"]?.arrayValue?.first { $0["name"]?.stringValue == name }?["unavailable"] == .bool(true), "\(name)")
+    }
 }

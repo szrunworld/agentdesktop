@@ -111,7 +111,8 @@ public final class HubStore: @unchecked Sendable {
         }
     }
 
-    private let db: SQLiteDatabase
+    /// Internal so tests can make it unreadable.
+    let db: SQLiteDatabase
     private let now: @Sendable () -> Date
     private let lock = NSLock()
     /// Credentials issued and not yet collected, by pairingId.
@@ -204,11 +205,19 @@ public final class HubStore: @unchecked Sendable {
 
     public func clients() -> [Client] { clients(where: "1 = 1", []) }
 
+    /// Every client, or the read's failure (diagnostics must not show an
+    /// unreadable store as no clients).
+    func clientsChecked() throws -> [Client] { try clientsOrThrow(where: "1 = 1", []) }
+
     private func clients(where clause: String, _ args: [SQLiteDatabase.Value]) -> [Client] {
-        ((try? db.query("""
+        (try? clientsOrThrow(where: clause, args)) ?? []
+    }
+
+    private func clientsOrThrow(where clause: String, _ args: [SQLiteDatabase.Value]) throws -> [Client] {
+        try db.query("""
             SELECT client_id, agent_name, publisher, caller_facts, state, registered_at, revoked_at, code_identity FROM clients
             WHERE \(clause) ORDER BY registered_at DESC
-            """, args)) ?? []).map { r in
+            """, args).map { r in
             var c = Client(clientId: r[0] as! String, agentName: r[1] as! String, publisher: r[2] as? String,
                    callerFacts: (try? StrictJSON.parse(r[3] as! String)) ?? .obj([]), state: r[4] as! String,
                    registeredAt: r[5] as! String, revokedAt: r[6] as? String)
@@ -630,11 +639,11 @@ public final class HubStore: @unchecked Sendable {
     /// and reason, optionally of one client (diagnostics.export). Only the
     /// reason's leading code is kept: what follows it may quote what a
     /// caller claimed.
-    func refusalCounts(since: String, clientId: String?) -> [(method: String, decision: String, reason: String, count: Int)] {
-        let rows = (try? db.query("""
+    func refusalCounts(since: String, clientId: String?) throws -> [(method: String, decision: String, reason: String, count: Int)] {
+        let rows = try db.query("""
             SELECT method, decision, reason FROM auth_events WHERE at >= ? AND decision IN ('denied', 'withheld')
               AND (? IS NULL OR client_id = ?)
-            """, [.text(since), clientId.map { .text($0) } ?? .null, clientId.map { .text($0) } ?? .null])) ?? []
+            """, [.text(since), clientId.map { .text($0) } ?? .null, clientId.map { .text($0) } ?? .null])
         var counts: [String: (String, String, String, Int)] = [:]
         for r in rows {
             let raw = r[2] as? String ?? ""
