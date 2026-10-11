@@ -352,7 +352,11 @@ public struct RunInspectorView: View {
         let unknown = r["unknownActions"]?.intValue ?? 0
         if r["outcome"]?.stringValue == "unknown" || unknown > 0 {
             banner(r["phase"]?.stringValue == "ended" ? "平台输入已静止；\(unknown) 个动作结果仍需核实" : "\(unknown) 个动作结果未知，需要核实",
-                   "停止完成与历史动作结果未知是两件事。结果未知的动作不会重发；核实入口随 PR4（run.reconcile）提供。")
+                   "停止完成与历史动作结果未知是两件事。结果未知的动作不会重发；运行结束、输入静止后可在 Inbox 记录核实结论，运行的最终结果仍保持未知。")
+            if store.offers("inbox.list") {
+                Button { navigation.open(.inbox) } label: { Label("去 Inbox 核实", systemImage: "tray") }
+                    .buttonStyle(ADButtonStyle(.secondary))
+            }
         }
     }
 
