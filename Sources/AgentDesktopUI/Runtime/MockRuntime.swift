@@ -297,6 +297,16 @@ public final class MockRuntime: RuntimePort, @unchecked Sendable {
         return try lock.withLock { try callLocked(method, params, context: context) }
     }
 
+    /// The mock has no request ledger: a requestId is recorded (tests read
+    /// `requestIds`) and the call runs as usual.
+    public func call(_ method: String, _ params: JSONValue, context: RequestContext, requestId: String?) async throws -> JSONValue {
+        if let requestId { lock.withLock { requestIds.append((method, requestId)) } }
+        return try await call(method, params, context: context)
+    }
+
+    /// requestIds the pages sent with their writes, in order.
+    public private(set) var requestIds: [(method: String, id: String)] = []
+
     public func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> {
         try lock.withLock {
             callLog.append("events.subscribe")

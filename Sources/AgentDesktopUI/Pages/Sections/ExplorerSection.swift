@@ -11,7 +11,14 @@ struct ExplorerSection: View {
     @Environment(\.explorerDurableStart) private var starter
 
     var body: some View {
-        ExplorerPage(store: context.store, navigation: context.navigation, connectionState: context.connectionState,
-                     retry: context.retry, starter: starter)
+        // The navigation's target (a Run from elsewhere, or P27 for a
+        // Desktop) seeds the page; a new target makes a new page.
+        let n = context.navigation
+        ExplorerPage(store: context.store, navigation: n, connectionState: context.connectionState,
+                     retry: context.retry, starter: starter,
+                     route: n.explorerRunId.map { .run($0) } ?? .history,
+                     composing: n.explorerDesktopId != nil,
+                     draft: ExplorerDraft(desktopId: n.explorerDesktopId))
+            .id("\(n.explorerRunId ?? "")|\(n.explorerDesktopId ?? "")")
     }
 }

@@ -63,6 +63,13 @@ final class TestFaultRuntimePort: RuntimePort, @unchecked Sendable {
         return try await base.call(method, params, context: context)
     }
 
+    func call(_ method: String, _ params: JSONValue, context: RequestContext, requestId: String?) async throws -> JSONValue {
+        let f = faults()
+        if f.offline { throw RuntimeError.runtimeOffline("test fault: the Runtime is offline", endpoint: file) }
+        if let ms = f.delay(for: method) { try await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000) }
+        return try await base.call(method, params, context: context, requestId: requestId)
+    }
+
     func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error> {
         if faults().offline { throw RuntimeError.runtimeOffline("test fault: the Runtime is offline", endpoint: file) }
         return try await base.subscribe(after: after)

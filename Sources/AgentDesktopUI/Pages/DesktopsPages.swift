@@ -316,6 +316,11 @@ public struct DesktopInspectorView: View {
                     }
                     .buttonStyle(ADButtonStyle(.secondary)).disabled(desktop == nil)
                     .help("只隐藏画面；Desktop、控制者和运行不受影响")
+                    // U7: a GUI diagnostic on this Desktop (P27 preselected);
+                    // the Explorer page itself decides whether it can start.
+                    Button { navigation.startExplorer(desktopId: desktopId) } label: { Label("GUI Explorer", systemImage: "wand.and.stars") }
+                        .buttonStyle(ADButtonStyle(.secondary)).disabled(desktop == nil)
+                        .help("在 GUI Explorer 中对这个 Desktop 发起一次诊断")
                     let stopWhy = info.flatMap { Self.stopBlocked($0, methods: methods, connected: connected) } ?? "Desktop 不在列表中"
                     Button { Task { await control.stop() } } label: { Label("停止输入", systemImage: "stop.fill") }
                         .buttonStyle(ADButtonStyle(.danger))

@@ -22,6 +22,9 @@ final class SettingsProfilesModel: ObservableObject {
     /// nil: a new profile.
     @Published private(set) var selectedId: String?
     @Published var name = "默认 GUI 配置"
+    /// requestIds of creates whose answer has not arrived (idempotency).
+    private var pendingCreateId: String?
+    private var pendingModelCreateIds: [String: String] = [:]
     @Published var connectionId: String?
     @Published var modelId = ""
     @Published var adapterId = "uitars_v1"
@@ -127,13 +130,16 @@ final class SettingsProfilesModel: ObservableObject {
                     ("guiProfileId", .string(p.id)), ("expectedRevision", .int(p.revision)), ("patch", .obj(patch)),
                 ]))
             } else {
+                let createId = pendingCreateId ?? RuntimeRequest.newId(prefix: "ui")
+                pendingCreateId = createId
                 saved = try await runtime.call("ai.profiles.create", .obj([
                     ("name", .string(n)), ("modelProfileId", .string(mp.id)), ("modelProfileRevision", .int(mp.revision)),
                     ("adapterId", .string(adapterId)), ("adapterVersion", .string("1.0.0")),
                     ("promptVersion", .string(codec.0)), ("parserVersion", .string(codec.1)),
                     ("coordinateProtocol", .string(coordinateProtocol)), ("limits", limits),
                     ("allowedFallbackProfileRefs", .array([])),
-                ]))
+                ]), requestId: createId)
+                pendingCreateId = nil
             }
             selectedId = saved["guiProfileId"]?.stringValue
             failure = nil
@@ -160,10 +166,14 @@ final class SettingsProfilesModel: ObservableObject {
         if let mp = modelProfiles.first(where: { $0.enabled && $0.connectionId == c.id && $0.modelId == modelId && $0.connectionRevision == c.revision }) {
             return mp
         }
+        let key = "\(c.id)@\(c.revision)/\(modelId)"
+        let createId = pendingModelCreateIds[key] ?? RuntimeRequest.newId(prefix: "ui")
+        pendingModelCreateIds[key] = createId
         let created = try await runtime.call("ai.modelProfiles.create", .obj([
             ("name", .string(modelId)), ("connectionId", .string(c.id)), ("connectionRevision", .int(c.revision)),
             ("modelId", .string(modelId)), ("requestOptions", .obj([])), ("maxOutputTokens", .int(1024)),
-        ]))
+        ]), requestId: createId)
+        pendingModelCreateIds[key] = nil
         let item = AIModelProfileItem(created)
         modelProfiles.append(item)
         return item
