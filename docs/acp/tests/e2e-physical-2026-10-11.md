@@ -53,3 +53,13 @@
 本次仍不能宣称 W1–W13 完整通过：W3 的 Zed UI、W7 Calculator 目标、W9 第二窗口检查、W10 独立 observe/act、W12 本轮完整成功与取消、W13 本轮重新授权均未完成。先前本地中立表单的成功和取消证据仍有效，但不能替代上述未完成项。
 
 本轮隔离测试副本已退出，`hub.sqlite` 中没有 active 窗口授权；其他正在运行的测试进程未停止。
+
+## 2026-10-12 Calculator 完整 Run 与单实例核对
+
+在提交 `7ce6ab9` 的签名隔离副本 `/tmp/adt-e2e-303-recovery-20261012/Agent Desktop.app` 上复测。测试副本仅监听其独立 Runtime endpoint；用户批准 `ACP-E2E`（`app:beb6da2ebd49`）配对、内建物理显示器 `d_09bbec0ad764` 的开放，以及 Calculator 窗口 7535 的 observe、act 授权 `wg_0cad8bb7ded4`。空虚拟 Desktop `d_39de87f01962` 只用于配对。模型为先前通过 T1–T4 的专用测试配置；密钥内容未写入此记录。
+
+从 Calculator 显示 `0` 开始，第一次 Run `run_9a3d6118cd37` 在任何 `unit.observation` 或动作之前以 `internal_error` 结束，原因尚未定位；不能算通过。保持同一授权、窗口和模型后重新提交，`run_270185cdfadc` 在**同一个 Run** 内记录四次 `action.completed`（依次为 7、加号、8、等号）和每次后的重新观察。最终 `unit.verification` 为 `matched`，Runtime 记录 `ended / success / goal_verified / confirmed`，`unknown_actions=0`；Calculator 辅助功能树显示表达式 `7+8` 与结果 `15`。本轮 W7 的 Calculator 目标与 W12 的正常完成路径因此通过；此前记录的取消路径仍是另一测试副本的证据。本次第二次提交没有触发空回复恢复分支，`7ce6ab9` 的恢复改动只由自动测试覆盖。
+
+W2 的缺省 Desktop 与 `created` 参数均在 CLI 本地以退出码 2 拒绝。W8 授权外 Desktop 的提交在 ACP 记录为 Runtime `not_found`。ACP 的任务列表含 `unit-run`，没有调用 `ai.profiles.list`。Zed UI 的 `/help`、W10 的独立 observe/act 拒绝仍未实测，故 W1–W13 仍不能整体标为通过。
+
+检查重复宿主时发现一份 2026-10-11 构建的 `.ios-ci/accept/Agent Desktop.app` 在隔离副本**之后**启动。该旧二进制不含 #305 的 `instance.lock`，且产品 Runtime 当时没有进行中的 Run；已将其退出，并从 LaunchServices 取消该旧包注册。当前签名测试包的重复启动探针立即退出 1，明确报告现有测试副本 PID 50689。收尾时已撤销窗口授权、退出本轮测试副本并删除本轮临时钥匙串。另一个 `.claude/worktrees/.../Agent Desktop.app` 旧构建由其他进程在本轮测试后期启动，未改动；因此不能声称整台机器始终只有一个宿主。旧二进制若被直接打开仍可绕过新锁，验收前检查存活宿主是必要条件。

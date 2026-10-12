@@ -224,6 +224,10 @@ public final class GuiRunDriver: Sendable {
                     throw failure.error
                 }
                 recoveredStep = stepIndex
+                // A fresh observation must also start a fresh model context.
+                // Replaying earlier screenshots and replies can reproduce the
+                // unusable answer even when the current window is actionable.
+                history.removeAll()
                 if noActionLine {
                     await recorder.recovery(stepIndex: stepIndex, kind: "reobserve_after_no_action_line", count: 1)
                     hint = .noActionLine
