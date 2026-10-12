@@ -21,8 +21,14 @@ final class QuitController: NSObject, NSWindowDelegate {
     /// NSApp.terminate, injectable for tests.
     var terminate: () -> Void = { NSApp.terminate(nil) }
     /// Runs the terminate on a later turn of the main run loop, injectable
-    /// for tests.
-    var later: (@escaping @MainActor () -> Void) -> Void = { body in DispatchQueue.main.async { body() } }
+    /// for tests. A run loop block, not the main dispatch queue: AppKit
+    /// waits for the answer inside NSApp.terminate, and from inside a main
+    /// queue block that wait never drains the main queue again, so the
+    /// Task that shows the dialog never ran and the app hung without one
+    /// (2026-10-12 on the machine, after #304).
+    var later: (@escaping @MainActor () -> Void) -> Void = { body in
+        RunLoop.main.perform(inModes: [.default]) { MainActor.assumeIsolated { body() } }
+    }
     /// A terminate is scheduled and has not run yet.
     private var terminatePending = false
     var clock: PollClock = SystemPollClock()
