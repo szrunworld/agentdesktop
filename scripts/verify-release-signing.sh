@@ -33,10 +33,25 @@ check() { # path expected-identifier
         # Present and true (a key set to false is fine).
         printf '%s' "$ents" | tr -d '\n\t ' | grep -q "<key>$e</key><true/>" && { echo "FAIL $1: entitlement $e lets other code run inside it"; fail=1; }
     done
+    if [ -n "${TEAM:-}" ]; then
+        printf '%s' "$ents" | python3 -c '
+import plistlib, sys
+try:
+    e = plistlib.loads(sys.stdin.buffer.read())
+    assert sys.argv[1] + ".com.agentdesktop.client-credential" in e.get("keychain-access-groups", [])
+except Exception:
+    sys.exit(1)
+' "$TEAM" || { echo "FAIL $1: missing product credential access group"; fail=1; }
+    fi
     codesign --verify --strict --deep "$1" 2>/dev/null || { echo "FAIL $1: signature does not verify"; fail=1; }
 }
 check "$APP" "$APP_ID"
 check "$CLI" "$CLI_ID"
+WRAPPER="$APP/Contents/Helpers/AgentDesktopCLI.app"
+[ -f "$APP/Contents/embedded.provisionprofile" ] || { echo "FAIL $APP: missing provisioning profile"; fail=1; }
+[ -f "$WRAPPER/Contents/embedded.provisionprofile" ] || { echo "FAIL $CLI: missing wrapper provisioning profile"; fail=1; }
+[ -L "$CLI" ] && [ "$(readlink "$CLI")" = "../../Helpers/AgentDesktopCLI.app/Contents/MacOS/agentdesktop" ]     || { echo "FAIL $CLI: CLI must resolve inside its provisioned wrapper"; fail=1; }
+check "$WRAPPER" "$CLI_ID"
 spctl -a -vv -t exec "$APP" 2>&1 | grep -q "source=Notarized Developer ID" || { echo "FAIL $APP: not notarized (spctl)"; fail=1; }
 [ $fail -eq 0 ] && echo "OK release signing: Developer ID, Team ID, hardened runtime, no injection entitlements, notarized"
 exit $fail

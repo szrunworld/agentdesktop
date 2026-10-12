@@ -254,12 +254,12 @@ public final class RuntimeServer: @unchecked Sendable {
                 guard state.send({ channel.writeLine(response) }) else { return }
                 if state.isSubscribed, !push(channel, state) { return }
             case .tooLarge:
-                channel.writeLine(RuntimeResponse.failure(nil, RuntimeError(
-                    "frame_too_large", "a message exceeds \(RuntimeAPI.maxFrameBytes) bytes", phase: .request)).json.encodedData())
+                _ = state.send { channel.writeLine(RuntimeResponse.failure(nil, RuntimeError(
+                    "frame_too_large", "a message exceeds \(RuntimeAPI.maxFrameBytes) bytes", phase: .request)).json.encodedData()) }
                 return
             case .truncated:
-                channel.writeLine(RuntimeResponse.failure(nil, .schemaInvalid(
-                    "the stream ended inside a message")).json.encodedData())
+                _ = state.send { channel.writeLine(RuntimeResponse.failure(nil, .schemaInvalid(
+                    "the stream ended inside a message")).json.encodedData()) }
                 return
             case .eof, .timedOut, .ioError:
                 return
