@@ -141,6 +141,12 @@ enum SingleInstance {
         alert.messageText = "\(HostRole.productName) 已在运行"
         alert.informativeText = message
         alert.addButton(withTitle: confirmTitle)
+        // macOS may refuse the activation while the user is in another app;
+        // the alert then sat behind that app's windows and the launch
+        // seemed to do nothing (2026-10-12 on the machine). Above normal
+        // windows it is seen either way.
+        alert.window.level = .floating
+        alert.window.orderFrontRegardless()
         alert.runModal()
         if let holder, holder.role == "product", !holder.bundlePath.isEmpty {
             // Reopen, not just activate: the running one shows its main
