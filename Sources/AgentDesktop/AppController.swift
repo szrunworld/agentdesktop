@@ -66,12 +66,20 @@ final class AppController: NSObject, NSApplicationDelegate {
         runtime.startInProcess()
         startRuntimeServer()
 
-        // In process, polling for now (U1b-1); event push is U1b-2.
+        // In process; Runs follow events.subscribe (U1b-2), Desktops poll.
         let port: RuntimePort = TestFaultRuntimePort.wrap(
             runtimeService.map(InProcessRuntimePort.init(service:))
                 ?? UnavailableRuntimePort(reason: "the Runtime did not start in this host"), role: role)
-        store = ShellStore(runtime: port, allowSubscription: false)
+        store = ShellStore(runtime: port)
         mainWindow = MainWindowController(store: store, frames: ScreenCaptureFrameSource.hub())
+        // GUI Explorer starts unit Runs in-process as Durable Runs (never
+        // unit.run on the wire); off the cooperative pool, the Runtime
+        // answers synchronously.
+        mainWindow.explorerStart = runtimeService.map { rt in
+            ExplorerDurableStart { params in
+                await withCheckedContinuation { cont in DispatchQueue.global().async { cont.resume(returning: rt.startDurableUnitRun(params: params)) } }
+            }
+        }
         Task { await store.start() }
 
         quit = QuitController(store: store)

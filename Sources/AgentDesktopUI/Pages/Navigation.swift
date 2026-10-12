@@ -33,6 +33,10 @@ public final class ShellNavigation: ObservableObject {
     @Published public var settingsPage: SettingsPage
     /// Desktops: the side-by-side view (P07) instead of the overview.
     @Published public var sideBySide = false
+    /// GUI Explorer: nil shows the history, an ID shows that Run's detail.
+    @Published public var explorerRunId: String?
+    /// GUI Explorer: open P27 with this Desktop preselected.
+    @Published public var explorerDesktopId: String?
 
     public init(section: MainSection = .desktops, desktopId: String? = nil, runId: String? = nil,
                 settingsPage: SettingsPage = .general) {
@@ -48,8 +52,23 @@ public final class ShellNavigation: ObservableObject {
         switch section {
         case .desktops: desktopId = nil; sideBySide = false
         case .runs: runId = nil
+        case .explorer: explorerRunId = nil; explorerDesktopId = nil
         default: break
         }
+    }
+
+    /// GUI Explorer: one Run's detail (from Runs, a Desktop, or a notice).
+    public func showExplorerRun(_ id: String) {
+        section = .explorer
+        explorerDesktopId = nil
+        explorerRunId = id
+    }
+
+    /// GUI Explorer: P27 for this Desktop (from its detail page).
+    public func startExplorer(desktopId: String) {
+        section = .explorer
+        explorerRunId = nil
+        explorerDesktopId = desktopId
     }
 
     public func showDesktop(_ id: String) {
@@ -67,6 +86,7 @@ public final class ShellNavigation: ObservableObject {
         switch section {
         case .desktops: desktopId = nil
         case .runs: runId = nil
+        case .explorer: explorerRunId = nil; explorerDesktopId = nil
         default: break
         }
     }

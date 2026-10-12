@@ -21,6 +21,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private(set) var window: NSWindow?
     /// Times the window was closed; tests read it.
     private(set) var closeCount = 0
+    /// GUI Explorer's in-process Durable start (A6 / U7): the host sets it
+    /// from the Runtime before the window is first shown; nil keeps 发起
+    /// as "pending" on the page.
+    var explorerStart: ExplorerDurableStart?
 
     /// `frames` is explicit: the app passes ScreenCaptureKit, tests a fake.
     init(store: ShellStore, frames: DesktopFrameHub) {
@@ -97,7 +101,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // the AI/GUI entries call ai.* on runtime/1 and appear once
         // runtime.capabilities lists them, so the host supplies no pages.
         NSHostingView(rootView: MainWindowView(store: store, navigation: navigation, previews: previews)
-            .environment(\.desktopFrames, frames))
+            .environment(\.desktopFrames, frames)
+            .environment(\.explorerDurableStart, explorerStart))
     }
 
     /// Hide, never quit, never stop anything.

@@ -25,9 +25,24 @@ public protocol RuntimePort: AnyObject, Sendable {
     /// `events_cursor_expired`) or when the caller stops iterating.
     /// Closing it never affects a Run (ADR-02).
     func subscribe(after: Int?) async throws -> AsyncThrowingStream<JSONValue, Error>
+
+    /// The same call with the caller's own requestId: the Runtime's
+    /// idempotency key, so a write whose answer was lost (a "create" after
+    /// a timeout) can be sent again without running twice. Ports that have
+    /// no ledger ignore it (the default forwards to `call`).
+    func call(_ method: String, _ params: JSONValue, context: RequestContext, requestId: String?) async throws -> JSONValue
 }
 
 extension RuntimePort {
+    public func call(_ method: String, _ params: JSONValue, context: RequestContext, requestId: String?) async throws -> JSONValue {
+        try await call(method, params, context: context)
+    }
+
+    /// A write with its own requestId (see above).
+    public func call(_ method: String, _ params: JSONValue, requestId: String?) async throws -> JSONValue {
+        try await call(method, params, context: RequestContext(), requestId: requestId)
+    }
+
     public func call(_ method: String) async throws -> JSONValue {
         try await call(method, .obj([]), context: RequestContext())
     }

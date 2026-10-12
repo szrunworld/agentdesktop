@@ -95,6 +95,9 @@ final class SettingsConnectionEditorModel: ObservableObject {
     @Published var secretInput = ""
     /// Create only: a model to set up on the new connection (a model profile).
     @Published var modelId = ""
+    /// requestIds of creates whose answer has not arrived (idempotency).
+    private var pendingCreateId: String?
+    private var pendingModelCreateId: String?
 
     @Published private(set) var revision: Int?
     @Published private(set) var credentialSet = false
@@ -170,19 +173,27 @@ final class SettingsConnectionEditorModel: ObservableObject {
                 ("baseUrl", .string(baseUrl)), ("timeoutMs", .int(timeoutMs)),
                 ("credential", .obj([("apiKey", .string(key))])),
             ])
+            // One requestId per attempt at this draft: a repeat after a lost
+            // answer gets the ledger's record instead of a second connection.
+            let createId = pendingCreateId ?? RuntimeRequest.newId(prefix: "ui")
+            pendingCreateId = createId
             let created = await submit {
-                let c = try await self.runtime.call("ai.connections.create", params)
+                let c = try await self.runtime.call("ai.connections.create", params, requestId: createId)
+                self.pendingCreateId = nil
                 self.apply(c)
                 if let id = c["connectionId"]?.stringValue { self.mode = .edit(id) }
                 self.notice = "已保存（r\(c["revision"]?.intValue ?? 0)）。密钥只提交了一次，界面没有保留。"
             }
             let model = modelId.trimmingCharacters(in: .whitespaces)
             guard created, !model.isEmpty, let id = savedId, let rev = revision else { return created }
+            let modelCreateId = pendingModelCreateId ?? RuntimeRequest.newId(prefix: "ui")
+            pendingModelCreateId = modelCreateId
             let modelSaved = await submit {
                 _ = try await self.runtime.call("ai.modelProfiles.create", .obj([
                     ("name", .string(model)), ("connectionId", .string(id)), ("connectionRevision", .int(rev)),
                     ("modelId", .string(model)), ("requestOptions", .obj([])), ("maxOutputTokens", .int(1024)),
-                ]))
+                ]), requestId: modelCreateId)
+                self.pendingModelCreateId = nil
                 self.modelId = ""
             }
             if !modelSaved { notice = "连接已保存，但模型配置没有建立；可以在「GUI 配置」里再选择模型。" }

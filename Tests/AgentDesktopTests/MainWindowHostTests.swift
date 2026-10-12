@@ -41,12 +41,51 @@ struct EmptyBackend: RuntimeBackend {
     func executablePath(_ pid: Int32) -> String? { "/test/bin/process" }
 }
 
+/// A platform that has no screens: every screen call is refused. Enough
+/// for the Runtime to serve its platform methods (events.subscribe, runs).
+struct NoScreenPlatform: DesktopPlatform {
+    struct Refused: Error {}
+    func createScreen(name: String, width: Int?, height: Int?) throws -> ScreenHandle { throw Refused() }
+    func destroyScreen(name: String) throws { throw Refused() }
+    func resizeScreen(name: String, width: Int, height: Int) throws -> ScreenHandle { throw Refused() }
+    func attachDisplay(_ displayId: UInt32?) throws -> ScreenHandle { throw Refused() }
+    func displays() -> [PlatformDisplay] { [] }
+    func launch(on screen: ScreenHandle, bundleId: String?, path: String?, newInstance: Bool) throws
+        -> (pid: Int32, windows: [PlatformWindow]) { throw Refused() }
+    func moveWindows(to screen: ScreenHandle, pid: Int32, windowId: UInt32?) throws -> [PlatformWindow] { throw Refused() }
+    func window(on screen: ScreenHandle, pid: Int32, windowId: UInt32) -> PlatformWindow? { nil }
+    func screenshot(_ screen: ScreenHandle, to path: String) throws -> (width: Int, height: Int) { throw Refused() }
+    func stack(on screen: ScreenHandle) -> [PlatformWindow] { [] }
+    func windowScreenshot(_ screen: ScreenHandle, pid: Int32, windowId: UInt32, to path: String) throws -> (width: Int, height: Int) { throw Refused() }
+    func overlays(on screen: ScreenHandle, boundPid: Int32) -> [PlatformWindow] { [] }
+    func elements(on screen: ScreenHandle, pid: Int32, windowId: UInt32, query: String?, deadline: Date) throws -> ElementRead { throw Refused() }
+    func quit(pid: Int32) -> Bool { false }
+    func perform(_ action: PlatformAction, on screen: ScreenHandle, pid: Int32, windowId: UInt32) throws -> String { throw Refused() }
+}
+
 struct FastClock: PollClock {
     func pause(milliseconds: Int) async throws { try await Task.sleep(nanoseconds: 2_000_000) }
 }
 
 struct StillClock: PollClock {
     func pause(milliseconds: Int) async throws { try await Task.sleep(nanoseconds: 3_600_000_000_000) }
+}
+
+/// Waits on the Store's update rounds; the timer only ends a hung test.
+@MainActor
+func hostUntil(_ what: String, _ store: ShellStore, _ check: @escaping @MainActor () -> Bool) async {
+    if check() { return }
+    let ok = await withTaskGroup(of: Bool.self) { group in
+        group.addTask { @MainActor in
+            for await _ in store.$tick.values { if check() { return true } }
+            return false
+        }
+        group.addTask { try? await Task.sleep(nanoseconds: 60_000_000_000); return false }
+        let first = await group.next() ?? false
+        group.cancelAll()
+        return first
+    }
+    if !ok { Issue.record("timed out waiting for \(what); updates \(store.runUpdates), fallback \(String(describing: store.pushFallback))") }
 }
 
 @MainActor
@@ -80,12 +119,46 @@ struct MainWindowHostTests {
         } catch let e as RuntimeError {
             #expect(e.code == "handshake_required")
         }
-        let store = ShellStore(runtime: port, clock: StillClock(), allowSubscription: false)
+        let store = ShellStore(runtime: port, clock: StillClock())
         await store.start()
         #expect(store.connection == .connected(instanceId: "rt_ui", productVersion: RuntimeAPI.productVersion))
         #expect(store.desktopsState == .empty)
-        #expect(store.runUpdates == .polling, "U1b-1 polls even though the Runtime offers events.subscribe")
+        // This Runtime has no platform, so it lists no events.subscribe:
+        // Runs are polled (the push case is the next test).
+        #expect(store.runUpdates == .polling)
         store.stop()
+    }
+
+    // U1b-2: a Run started in the Runtime reaches the window through the
+    // in-process subscription, then its stop, without polling run.list;
+    // the stream's own connection never controls the Run.
+    @Test func inProcessPortPushesRunEvents() async throws {
+        let service = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_push", pid: getpid(), startedAt: Timestamp.string(Date()),
+                                                               endpoint: "/tmp/none.sock", buildSource: "unknown"),
+                                     backend: EmptyBackend(), platform: NoScreenPlatform()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
+        let port = InProcessRuntimePort(service: service)
+        let store = ShellStore(runtime: port, clock: StillClock())
+        await store.start()
+        await hostUntil("push live", store) { store.pushLive }
+        #expect(store.pushFallback == nil, "\(String(describing: store.pushFallback))")
+        let session = service.sessions.open(desktopId: "desk_push", caller: "local:\(getuid())", at: Timestamp.string(Date()))
+        let run = try service.execution.startDurable(kind: "unit", session: session, origin: .guiExplorer).get()
+        await hostUntil("pushed run", store) { store.runs.contains { $0["runId"]?.stringValue == run.runId } }
+        _ = service.execution.stop(runId: run.runId, reason: "stopped", endAs: .cancelled)
+        await hostUntil("stop pushed", store) {
+            store.runs.first { $0["runId"]?.stringValue == run.runId }?["phase"]?.stringValue != "running"
+        }
+        #expect(store.runUpdates == .subscription)
+        #expect(store.eventCursor != nil)
+        let before = try await port.call("hub.connections.list", .obj([]))["connections"]?.arrayValue?.count ?? 0
+        store.stop()
+        var after = before
+        for _ in 0..<100 {
+            after = try await port.call("hub.connections.list", .obj([]))["connections"]?.arrayValue?.count ?? 0
+            if after < before { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(after == before - 1, "stopping the stream removes its registered connection")
     }
 
     @Test func unavailableRuntimeShowsDisconnected() async {

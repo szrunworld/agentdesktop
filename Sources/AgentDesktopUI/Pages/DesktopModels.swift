@@ -115,7 +115,19 @@ public final class CreateDesktopFlow: ObservableObject {
 
     private let runtime: RuntimePort
 
-    public init(runtime: RuntimePort) { self.runtime = runtime }
+    /// Whether the size came from the saved preference (P21): then it is
+    /// sent even when the size field is folded away.
+    public private(set) var sizeFromPreference = false
+
+    public init(runtime: RuntimePort, defaults: UserDefaults = .standard) {
+        self.runtime = runtime
+        let size = SettingsPreferences(defaults: defaults).saved.defaultDesktopSize
+        if size != SettingsDesktopSize.standard {
+            width = size.width
+            height = size.height
+            sizeFromPreference = true
+        }
+    }
 
     public var desktopId: String? { desktop?["desktopId"]?.stringValue }
     public var isWorking: Bool { createStep == .running || attachStep == .running }
@@ -182,7 +194,7 @@ public final class CreateDesktopFlow: ObservableObject {
     private func runCreate() async {
         createStep = .running
         var p: [(String, JSONValue)] = [("name", .string(name.trimmingCharacters(in: .whitespacesAndNewlines)))]
-        if showSize { p += [("width", .int(width)), ("height", .int(height))] }
+        if showSize || sizeFromPreference { p += [("width", .int(width)), ("height", .int(height))] }
         do {
             desktop = try await runtime.call("desktop.create", .obj(p))
             createStep = .done

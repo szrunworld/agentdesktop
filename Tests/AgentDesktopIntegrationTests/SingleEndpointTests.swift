@@ -219,7 +219,7 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
     #expect(try await offPool { try count(client) } == 1)
 }
 
-@Test func anUnknownOutcomeStaysUnknownAndIsNeverRunAgain() throws {
+@Test func anUnknownCreateOutcomeIsResolvedByTheServiceWithoutClaimingSuccess() throws {
     let runtime = { let s = RuntimeService(identity: RuntimeIdentity(instanceId: "rt_unk", pid: getpid(), startedAt: Timestamp.string(Date()),
                                                            endpoint: "/tmp/x.sock", buildSource: "unknown"),
                                  backend: Backend()); s.bindsOnlyLaunchedProcesses = false; s.refusesScreenCaptureWithoutBinding = false; return s }()
@@ -236,5 +236,5 @@ private func count(_ client: SocketRuntimeClient) throws -> Int {
         if case let .failure(e) = runtime.respond(to: line, on: c).result { #expect(e.code == "request_acceptance_unknown") }
         else { Issue.record("an unknown outcome is not a success") }
     }
-    #expect(calls.n == 1, "the retry is answered from the ledger, not run again")
+    #expect(calls.n == 2, "the same create key reaches the service for idempotent resolution")
 }

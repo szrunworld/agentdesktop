@@ -53,3 +53,20 @@ UI 线需要新的通用组件时，先放在自己的文件里。几条线都�
 - 不写登录钥匙串。
 - 组件验收和页面验收分开记录：只有真实 Runtime、真实窗口、交互验证这一级才算页面交付（02 §2.2）。
 - 每条线只用一个 worktree：磁盘紧张。
+
+## 集成（各线合入 main 之后，2026-10-11）
+
+各线留下的、需要改公共文件的事项，由协调者在集成 PR 里统一处理。
+
+| 事项 | 来源 | 处理 |
+| --- | --- | --- |
+| 宿主打开事件推送（`InProcessRuntimePort.subscribe`，去掉 `allowSubscription: false`） | UI-A | 集成① |
+| 宿主把 Durable 发起入口交给 Explorer 页（`\.explorerDurableStart`） | UI-E | 集成① |
+| `RuntimePort.call` 可带 requestId；设置页的三种「创建」在重试时沿用同一个 requestId | UI-D | 集成①（可选扩展，默认转发到原来的 `call`，各 Port 不必实现） |
+| `ShellNavigation` 增加 Explorer 的 runId / 预选 Desktop；Desktop 详情加「GUI Explorer」按钮 | UI-E、UI-B | 集成① |
+| 默认 Desktop 尺寸偏好进新建表单 | UI-D | 集成①（非标准尺寸即使折叠尺寸栏也会发送） |
+| 光标开关偏好接到引擎的光标叠加层 | UI-D | 集成②：需要引擎暴露开关 |
+| P02 首次使用页的显示时机 | UI-D | 集成②：产品行为，需先定规则（两项权限都未授权且没有 Desktop？） |
+| 基础 MockRuntime 重算 `Desktop.control`、`desktop.destroy` 检查阻止项 | UI-B | 集成②（只影响模拟） |
+| 旧 AgentDesktopAIUI 模块下线 | UI-D | 各页都走新页面后单独 PR 删除 |
+| 契约请求：`run.list` 按 kind 筛选、`Desktop.control.transport`、观察者数量、按 runId 汇总用量（F40-04）、按画面 ID 取图（F1-05）、Desktop 级事件 | 各线 | Runtime 线，逐项开 issue |

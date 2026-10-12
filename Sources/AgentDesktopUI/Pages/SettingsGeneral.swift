@@ -57,7 +57,7 @@ public final class SettingsPreferences: ObservableObject {
         defaults.set(draft.showAgentCursor, forKey: Self.showAgentCursorKey)
         defaults.set("\(draft.defaultDesktopSize.width)x\(draft.defaultDesktopSize.height)", forKey: Self.defaultDesktopSizeKey)
         saved = draft
-        savedNotice = "已保存为本机偏好。光标开关与默认尺寸尚未接入预览和新建 Desktop，接入后生效；已有的 Desktop 不会改变。"
+        savedNotice = "已保存为本机偏好。默认尺寸对之后新建的 Desktop 生效，已有的 Desktop 不会改变；光标开关尚未接入预览，接入后生效。"
     }
 
     public func revert() {
