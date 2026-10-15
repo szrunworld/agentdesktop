@@ -14,15 +14,14 @@ public struct GuiHistoryTurn: Sendable {
     }
 }
 
-/// A note for the next model call after a stall took its recovery (X1-3):
-/// the previous action brought no change, of this kind, so try another
-/// way. Only the stall kind goes in, worded by a fixed string per kind:
-/// never screen text, typed text, a window title, a goal or parameter
-/// value, or anything the model wrote.
+/// A fixed note for the next model call after a bounded recovery. It names
+/// only a stall or the missing Action line; it never includes screen text,
+/// typed text, a window title, goal, parameter or raw model reply.
 public enum GuiRecoveryHint: String, Sendable, CaseIterable {
     case repeatedAction = "repeated_action"
     case noProgress = "no_progress"
     case stateLoop = "state_loop"
+    case noActionLine = "no_action_line"
 
     /// The text part the next request carries, after the task line.
     public var promptText: String {
@@ -31,6 +30,8 @@ public enum GuiRecoveryHint: String, Sendable, CaseIterable {
         case .repeatedAction: what = "The same action was repeated and changed nothing in the window."
         case .noProgress: what = "The last few actions changed nothing in the window."
         case .stateLoop: what = "The last actions brought the window back to an earlier state."
+        case .noActionLine:
+            return "Your previous reply had no Action: line. Reply with exactly one Action: call from the action space. Do not explain the format or add another action."
         }
         return "Note (no progress: \(rawValue)): \(what) Do not repeat that; try a different approach."
     }
@@ -47,7 +48,7 @@ public struct GuiInferenceInput: Sendable {
     /// The run's single monotonic deadline.
     public let deadlineNs: UInt64
     public let callerScope: String
-    /// Set only on the inference right after a stall's recovery (X1-3).
+    /// Set only on the inference right after a stall or reply-format recovery.
     public let recoveryHint: GuiRecoveryHint?
 
     public init(binding: GuiRunBinding, bundle: ObservationBundle, history: [GuiHistoryTurn], stepIndex: Int,
@@ -78,6 +79,19 @@ public struct GuiSuggestionFailure: Error, Sendable {
 
     /// The model answered with nothing at all (or only whitespace).
     public var isEmptyReply: Bool { error.details?["reasonCode"]?.stringValue == Self.emptyReplyReason }
+
+    /// A fixed, non-content category for the Run event. Model text and
+    /// parser messages can contain screen data, so neither is persisted.
+    public var rejectionReason: String {
+        if isEmptyReply { return "model_empty_response" }
+        switch error.message {
+        case "reply has no Action line": return "no_action_line"
+        case "reply has more than one Action line": return "multiple_action_lines"
+        case "reply is too long": return "reply_too_long"
+        default:
+            return error.message.hasSuffix(" is not in uitars_v1") ? "unsupported_action" : "malformed_action"
+        }
+    }
 
     public static let emptyReplyReason = "MODEL_EMPTY_RESPONSE"
 

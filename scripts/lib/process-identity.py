@@ -23,11 +23,16 @@ def version(pid):
     return info.version
 
 def identity(pid):
-    first = version(pid)
-    value = subprocess.check_output(['ps', '-o', 'lstart=', '-o', 'comm=', '-p', str(pid)], text=True).rstrip('\n')
-    if first != version(pid):
-        raise ProcessLookupError(pid)
-    return f'{first}:{value}'
+    # exec bumps the PID version, so a version that changed while ps ran
+    # means the process became another image (or the PID was reused), not
+    # that it is gone: read again. Only a PID with no process is gone
+    # (version() raises). A version that never settles is an error.
+    for _ in range(20):
+        first = version(pid)
+        value = subprocess.check_output(['ps', '-o', 'lstart=', '-o', 'comm=', '-p', str(pid)], text=True).rstrip('\n')
+        if first == version(pid):
+            return f'{first}:{value}'
+    raise RuntimeError(f'identity of pid {pid} kept changing')
 
 def stop(pid, recorded):
     if not recorded or identity(pid) != recorded:

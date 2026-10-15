@@ -55,7 +55,7 @@ public enum ACPUnitEventType: String, Sendable, CaseIterable {
     /// The verdict on one observation: matched / contradicted / inconclusive
     /// (with a reason, X1-1).
     case verification = "unit.verification"
-    /// One bounded recovery: an empty reply, or a stall (X1-2).
+    /// One bounded recovery: an unusable reply or a stall (X1-2).
     case recovery = "unit.recovery"
 
     /// Closed vocabularies and counts only: normal. A payload the Runtime
@@ -68,7 +68,8 @@ public enum ACPUnitEventType: String, Sendable, CaseIterable {
     public static let inconclusiveReasons: Set<String> = ["elements_partial", "elements_unavailable", "ambiguous",
                                                           "target_missing", "value_unreadable"]
     /// `unit.recovery` data.kind values.
-    public static let recoveryKinds: Set<String> = ["reobserve_after_empty_reply", "repeated_action", "no_progress", "state_loop"]
+    public static let recoveryKinds: Set<String> = ["reobserve_after_empty_reply", "reobserve_after_no_action_line",
+                                                    "repeated_action", "no_progress", "state_loop"]
 }
 
 /// One Runtime event with its `data` and time pulled out, whichever way the

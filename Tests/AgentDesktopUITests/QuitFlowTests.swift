@@ -81,6 +81,28 @@ struct QuitFlowTests {
         #expect(MenuBarPanelView.status(store) == StatusText("输入已停止", .attention))
     }
 
+    // Kevin 2026-10-12: quitting asks for confirmation. 停止输入并退出 only
+    // opens a confirmation step; nothing stops until 确认退出, and the step
+    // says what it will do, including Runs that may still be going.
+    @Test func stopAndQuitAsksForConfirmation() throws {
+        #expect(QuitDialogView.confirmLine(.known(0)).hasPrefix("确认退出？将停止所有输入"))
+        #expect(QuitDialogView.confirmLine(.known(2)).contains("2 个运行进行中，它们会被停止"))
+        #expect(QuitDialogView.confirmLine(.unavailable("x")).contains("可能仍有运行在进行"))
+        #expect(QuitDialogView.confirmLine(.reading).contains("不会强制结束"))
+        let flow = QuitFlow(runtime: MockRuntime.sample(), clock: FastClock())
+        var chosen: [QuitChoice] = []
+        let asking = QuitDialogView(flow: flow) { chosen.append($0) }
+        let confirming = QuitDialogView(flow: flow, confirming: true) { chosen.append($0) }
+        let a = try #require(SnapshotRenderer.png(asking, size: CGSize(width: 600, height: 320)))
+        let c = try #require(SnapshotRenderer.png(confirming, size: CGSize(width: 600, height: 320)))
+        #expect(c.count > 5_000 && a != c, "the confirmation step is its own view")
+        #expect(chosen.isEmpty, "showing either step chooses nothing")
+        if let dir = ProcessInfo.processInfo.environment["AGENTDESKTOP_SNAPSHOT_DIR"] {
+            try a.write(to: URL(fileURLWithPath: dir + "/quit-asking.png"))
+            try c.write(to: URL(fileURLWithPath: dir + "/quit-confirm.png"))
+        }
+    }
+
     // A Runtime that cannot be reached: the count says so (never zero) and
     // fills in once the Runtime is back.
     @Test func countWhileDisconnectedThenRecovered() async throws {

@@ -21,6 +21,8 @@
 
 ## 二、测试副本
 
+启动前先用 `pgrep -fl 'Agent Desktop.app/Contents/MacOS/Agent Desktop'` 核对现存宿主，并退出旧测试包或产品宿主。启动后再核对只剩这一个测试副本。#305 起的新构建有跨产品与测试副本的单实例锁；旧构建没有这个锁，若在新测试副本之后由 LaunchServices 启动，仍可能并存。始终用测试副本的完整路径启动，不用 bundle ID 让 LaunchServices 从多个同 ID 的旧包中任选。若出现第二个实例，先核对它的路径、版本和进行中的 Run，再停止测试；不要把 fake editor 的 `PASS` 当成 Run 成功。
+
 ```sh
 cd ~/orca/agentdesktop               # 被测提交；记下 git rev-parse HEAD
 scripts/bundle-app.sh                # 产物 build/Agent Desktop.app

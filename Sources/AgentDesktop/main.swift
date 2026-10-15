@@ -9,13 +9,29 @@ signal(SIGPIPE, SIG_IGN)
 
 let role = HostRole.current
 
-// One product host only: a second would try to create the same virtual
-// display (macOS refuses a duplicate) and add a second preview. Side
-// instances keep to the background on their own sockets and do not count.
-// (A listener check, not atomic ownership; the Runtime server's lock file
-// is the atomic one.) The Runtime endpoint is the host's only listener.
-if case .product = role, ControlProtocol.isListening(role.runtimeEndpoint) {
-    exit(0)
+// One Agent Desktop process at a time, the product and test copies alike
+// (SingleInstance), decided before anything starts. The lock's descriptor
+// stays open for the life of the process.
+let instanceLock: Int32 = MainActor.assumeIsolated {
+    let me = SingleInstance.Holder(pid: getpid(), role: role.isSideInstance ? "test" : "product",
+                                   bundlePath: Bundle.main.bundlePath)
+    switch SingleInstance.acquire(at: SingleInstance.lockPath, as: me) {
+    case .acquired(let fd):
+        // A build from before the lock holds none: another process of
+        // this bundle, or a listening product Runtime, tells it is there.
+        if let other = SingleInstance.otherRunning() {
+            SingleInstance.refuse(role: role, holder: other)
+        }
+        if ControlProtocol.isListening(HostRole.product.runtimeEndpoint) {
+            SingleInstance.refuse(role: role, holder: SingleInstance.legacyProduct())
+        }
+        return fd
+    case .held(let holder):
+        SingleInstance.refuse(role: role, holder: holder)
+    case .failed(let why):
+        FileHandle.standardError.write(Data("\(HostRole.productName) cannot start: \(why)\n".utf8))
+        exit(1)
+    }
 }
 
 // The product has a Dock icon and the one main window; a test copy keeps to

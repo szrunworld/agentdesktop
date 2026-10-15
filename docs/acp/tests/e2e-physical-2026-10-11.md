@@ -22,6 +22,20 @@
 
 **结论**：物理 Desktop 的配对、绑定、窗口申请和拒绝链路已验证；真实模型现在可进入执行并在 Calculator 完成窗口级输入。ACP 编辑器填写 `desktopId`、owner UI 物理 Desktop 的绑定与撤销、AI 连接 URL 编辑、空闲后首次截图容量检查均有修复。W3 的 Zed 部分、W7 的目标完成、W12 的正常完成与取消，以及 W10 的独立 observe/act 操作仍待验收；不能宣称 W1–W13 全通过。
 
+## 2026-10-11 后续诊断：本地表单完成与取消
+
+本段更新上面的 W7、W12 状态，不改写原始 Calculator 证据。测试提交为 `45cf0a9`，独立测试副本 `/tmp/adt-e2e-completion-live`，物理 Desktop `d_1d9971fb1da3`，桥身份 `ACP-E2E` / `app:06ce9c46f121`。Kevin 核对并批准配对、显示器开放及 Chrome 窗口 `4883` 的 observe、act 授权。桥授权含这块 Desktop 及 `com.google.Chrome`；Runtime 窗口授权为 `wg_2e2bee8206fa`。目标是仓库的离线 `fixtures/neutral-form.html`，独立 Chrome 进程 PID `5947`。测试前该页面的辅助功能树有 `static_text` 计数 `0`，因此可用 `element_text_equals` 校验点击后的 `1`。Calculator 窗口 `3452` 的辅助功能树没有结果显示的 `static_text`，原先针对 `8` / `15` 的谓词不能证明目标完成。
+
+真正的 Run 结果须以 Runtime 为准；fake editor 的 `PASS` 只证明 ACP 请求和权限对话符合预期。前两次提交 `run_d94f13aabae4`、`run_9cac54b5c49f` 在首次观察时以 `stale_observation` 结束，未调用模型，也未输入。把绑定窗口置于物理桌面前台后，`run_468a88f6d3bc` 成功观察并进行一次 HTTP 200 模型推理，但输出没有 `Action` 行；新的 `unit.step.rejected` 只记录固定类别 `no_action_line`，Run 以 `invalid_action` 结束，未输入。不保存原始模型回复，因此无法进一步判定模型为何偏离协议。
+
+重新提交相同的单次计数任务后，`run_96f9e3f79132` 通过：初次验证 `contradicted`，模型给出一次 `click`，Runtime 记录一次 `action.completed` 和回执 `rcpt_c51ca5a74989`，新观察的验证为 `matched`，最终 `ended / success / goal_verified / confirmed`；`unknown_actions=0`。页面辅助功能树随后显示计数 `1`，并仍显示“尚未应用”。ACP transcript 含 `available_commands_update`、动作卡片的受理与完成更新，以及成功结果。这个结果证明授权后的真实 `unit.run` 能执行并完成可核对目标；它是本地表单证据，不能替代手册要求的 Calculator 结果 `15` 或 Zed 真机界面证据。
+
+取消路径用同一窗口提交“计数从 1 到 9”的任务，并在推理期间由 fake editor 发送 ACP `cancel`。`run_a5aa731d48bc` 先有观察与矛盾验证，随后记录 `stop.accepted`，最终 `ended / cancelled / stopped / confirmed`；没有 `action.accepted` 或 `action.dispatched`，`unknown_actions=0`。ACP transcript 显示停止中和取消终态。这证明本次 Run 在取消后没有继续输入；尚未覆盖动作已派发后的取消。W12 的提交、事件订阅、正常结束和推理中取消现已在 fake editor → 桥 → 真 Runtime → 物理 Desktop 链路验证；独立的 Run 查询和 Zed UI 仍待补齐。W3 的 Zed `/help`、W10 的独立 observe/act 拒绝及 Calculator 指定结果仍未通过，不能宣称 W1–W13 全通过。
+
+一次按通用 bundle ID 启动测试副本时，LaunchServices 选中了另一份旧 `Agent Desktop.app` 并崩溃；崩溃二进制 UUID 为 `dc82896b-57f2-3a8f-abfc-58f54dacd27b`，本轮构建为 `d23f2e66-7292-3e3e-8a66-ac9eb3af04a6`。随后按测试副本的精确可执行文件路径启动，未将该崩溃计入本轮构建的结果。其他正在运行的 Agent Desktop/ACP 进程未被终止或改动。
+
+收尾时，窗口授权 `wg_2e2bee8206fa` 已从 owner UI 撤销，`hub.sqlite` 显示 `revoked / window_grant_revoked`；物理 Desktop 已解除挂接，空的 bootstrap Desktop 已关闭，测试副本及其独立 Chrome 进程已退出。只删除本轮 endpoint 的 `acp` Keychain 条目；其余正在运行的 Agent Desktop/ACP 进程保持原状。测试记录仍保留在隔离目录，未复制 API 密钥内容。
+
 ## 专用模型连接续测
 
 在第二个隔离测试副本 `/tmp/adt-url-fix` 中，用户亲自输入并保存专用 API 密钥；密钥未进入报告或源码。Base URL 为 `https://ark.cn-beijing.volces.com/api/v3`。旧表单在输入框显示完整 URL 时仍保留“请输入完整的 URL”错误；修补版让保存按钮先结束输入框编辑并等待一次 UI 状态同步，还会在 URL 编辑后清掉旧错误。真机验证中，使用相同 URL、未填写密钥时只出现“需要填写 API 密钥”；用户随后在修补版保存成功。“获取模型”返回的列表含该账号不可调用的旧模型，不能用作权限证明。
@@ -29,3 +43,23 @@
 基于该连接创建 `UI-TARS v1` 测试 GUI 配置和模型配置。能力测试以 `doubao-seed-2-1-pro-260628` 运行，T1 通过、T2 HTTP 404 / `UPSTREAM_PROTOCOL_ERROR`；改用“获取模型”返回的 `doubao-pro-128k-240515` 后，T2 HTTP 404 / `MODEL_NOT_FOUND`。核对账号开通状态后改用 `doubao-seed-2-1-lite-260915`，真实能力测试 T1 网络、T2 认证/模型、T3 图像输入、T4 GUI 输出全部通过，且未执行桌面输入；该模型的 GUI profile 成为默认（指针 d2）。
 
 续测发现空闲超过一分钟后，首次截图的磁盘剩余容量查询在异步刷新完成前返回 `disk_unknown` / `limit_exceeded`。修补版允许短暂等待刷新，同时在 macOS 可选容量属性缺失时回退到 `statfs`；隔离副本首个真实 Run 越过该检查，后续回归测试 `idleScreenshotWaitsForFreshCapacity` 通过。另一次观察因 Orca 窗口遮挡 Calculator 返回 `stale_observation` / `occluded`，这是窗口隔离检查；临时隐藏遮挡窗口后，`run_958627b54623` 成功观察、推理和执行 2 次点击。该 Run 最终因模型第三步输出 `invalid_action` 失败；结果不算目标完成。另一次取消演练在截图前因 Chrome 窗口遮挡 Calculator 被拒绝，未形成有效的取消验收。两次遮挡均未造成额外桌面输入。
+
+## 2026-10-11 再次完整验收尝试
+
+使用独立副本 `/tmp/adt-e2e-full-20261011/Agent Desktop.app`（二进制 UUID `d23f2e66-7292-3e3e-8a66-ac9eb3af04a6`）、独立 Runtime 数据目录和 socket。首次配对 `ACP-E2E` / `app:ab6809551ba3`，用户批准虚拟 Desktop `d_85d72ab62c33`、物理 Desktop `d_cbeb22fc3d6b` 和 Calculator 窗口 6364 的 observe、act 授权。W2 两种无效 `pair` 参数均退出 2。W4 在未授权窗口返回 `grant_missing` / `window_grant_missing`；W8 授权外 Desktop 返回 `not_found`。W6 首次误批的授权 `wg_10f23499aa66` 已撤销，随后用户拒绝申请，桥收到 `permission_denied`，审计为 `user_denied`。W7 的新授权 `wg_0ca6506ecccc` 允许真实 `unit.run` 进入观察和推理；`run_a3c3db1574ee` 的模型请求成功，但响应缺少 Action 行，最终 `failed` / `invalid_action`，没有任何点击。因此本轮 Calculator 的 15 结果未验收。W9 的第二个 Calculator 窗口 6474 请求因 120 秒未答复而 `confirmation_timeout`，未验证窗口不匹配检查。
+
+在桥与 Runtime 的 fake editor 链路，`/help` 列出 `/unit-run`，`requests.sqlite` 中 `ai.profiles.list` 请求数为 0；Zed 内的 `/help` 仍未执行。为恢复误关的测试副本主窗口，重启了**仅此**隔离进程；原窗口授权在 `hub.sqlite` 中变为 `ended` / `runtime_restarted`，物理 Desktop 消失。新建空 Desktop `d_be2721ae1339` 后两次申请更新配对，配对码分别为 923362、154194；两次均在可信确认的 120 秒窗口内无人答复，审计为 `confirmation_timeout`，没有新增授权。该重启后的 W1 前置步骤阻断了 W9–W13 的继续验收。另有正在运行的其他 Agent Desktop/ACP 测试进程，未触碰它们。
+
+本次仍不能宣称 W1–W13 完整通过：W3 的 Zed UI、W7 Calculator 目标、W9 第二窗口检查、W10 独立 observe/act、W12 本轮完整成功与取消、W13 本轮重新授权均未完成。先前本地中立表单的成功和取消证据仍有效，但不能替代上述未完成项。
+
+本轮隔离测试副本已退出，`hub.sqlite` 中没有 active 窗口授权；其他正在运行的测试进程未停止。
+
+## 2026-10-12 Calculator 完整 Run 与单实例核对
+
+在提交 `7ce6ab9` 的签名隔离副本 `/tmp/adt-e2e-303-recovery-20261012/Agent Desktop.app` 上复测。测试副本仅监听其独立 Runtime endpoint；用户批准 `ACP-E2E`（`app:beb6da2ebd49`）配对、内建物理显示器 `d_09bbec0ad764` 的开放，以及 Calculator 窗口 7535 的 observe、act 授权 `wg_0cad8bb7ded4`。空虚拟 Desktop `d_39de87f01962` 只用于配对。模型为先前通过 T1–T4 的专用测试配置；密钥内容未写入此记录。
+
+从 Calculator 显示 `0` 开始，第一次 Run `run_9a3d6118cd37` 在任何 `unit.observation` 或动作之前以 `internal_error` 结束，原因尚未定位；不能算通过。保持同一授权、窗口和模型后重新提交，`run_270185cdfadc` 在**同一个 Run** 内记录四次 `action.completed`（依次为 7、加号、8、等号）和每次后的重新观察。最终 `unit.verification` 为 `matched`，Runtime 记录 `ended / success / goal_verified / confirmed`，`unknown_actions=0`；Calculator 辅助功能树显示表达式 `7+8` 与结果 `15`。本轮 W7 的 Calculator 目标与 W12 的正常完成路径因此通过；此前记录的取消路径仍是另一测试副本的证据。本次第二次提交没有触发空回复恢复分支，`7ce6ab9` 的恢复改动只由自动测试覆盖。
+
+W2 的缺省 Desktop 与 `created` 参数均在 CLI 本地以退出码 2 拒绝。W8 授权外 Desktop 的提交在 ACP 记录为 Runtime `not_found`。ACP 的任务列表含 `unit-run`，没有调用 `ai.profiles.list`。Zed UI 的 `/help`、W10 的独立 observe/act 拒绝仍未实测，故 W1–W13 仍不能整体标为通过。
+
+检查重复宿主时发现一份 2026-10-11 构建的 `.ios-ci/accept/Agent Desktop.app` 在隔离副本**之后**启动。该旧二进制不含 #305 的 `instance.lock`，且产品 Runtime 当时没有进行中的 Run；已将其退出，并从 LaunchServices 取消该旧包注册。当前签名测试包的重复启动探针立即退出 1，明确报告现有测试副本 PID 50689。收尾时已撤销窗口授权、退出本轮测试副本并删除本轮临时钥匙串。另一个 `.claude/worktrees/.../Agent Desktop.app` 旧构建由其他进程在本轮测试后期启动，未改动；因此不能声称整台机器始终只有一个宿主。旧二进制若被直接打开仍可绕过新锁，验收前检查存活宿主是必要条件。

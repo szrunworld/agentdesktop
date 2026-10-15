@@ -20,6 +20,17 @@ final class QuitController: NSObject, NSWindowDelegate {
     var activates = true
     /// NSApp.terminate, injectable for tests.
     var terminate: () -> Void = { NSApp.terminate(nil) }
+    /// Runs the terminate on a later turn of the main run loop, injectable
+    /// for tests. A run loop block, not the main dispatch queue: AppKit
+    /// waits for the answer inside NSApp.terminate, and from inside a main
+    /// queue block that wait never drains the main queue again, so the
+    /// Task that shows the dialog never ran and the app hung without one
+    /// (2026-10-12 on the machine, after #304).
+    var later: (@escaping @MainActor () -> Void) -> Void = { body in
+        RunLoop.main.perform(inModes: [.default]) { MainActor.assumeIsolated { body() } }
+    }
+    /// A terminate is scheduled and has not run yet.
+    private var terminatePending = false
     var clock: PollClock = SystemPollClock()
     private(set) var flow: QuitFlow?
     /// Reading the active count; tests wait on it.
@@ -42,8 +53,31 @@ final class QuitController: NSObject, NSWindowDelegate {
     /// ("Unexpected call to terminate: while still determining whether to
     /// terminate"), which skips stopping input and waiting for quiet Runs.
     /// So a request then only brings the dialog forward.
+    ///
+    /// The terminate itself runs on a later turn of the run loop. AppKit
+    /// waits for the answer (terminateLater) inside NSApp.terminate; called
+    /// straight from a SwiftUI button action (the menu bar panel's 退出),
+    /// that action never returns, and SwiftUI holds back every later button
+    /// action until it does, so no button of the dialog did anything and
+    /// the app could not quit.
     func requestQuit() {
-        guard isAsking else { terminate(); return }
+        guard isAsking else {
+            guard !terminatePending else { return }
+            terminatePending = true
+            later { [weak self] in
+                guard let self else { return }
+                self.terminatePending = false
+                // Another request (the Dock, say) may have opened the
+                // dialog meanwhile: a terminate now would be the second
+                // one while it waits, so only bring it forward.
+                if self.isAsking {
+                    if let window = self.window { self.bringForward(window) }
+                } else {
+                    self.terminate()
+                }
+            }
+            return
+        }
         guard let window else { return }
         bringForward(window)
     }
