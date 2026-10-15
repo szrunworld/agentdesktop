@@ -17,6 +17,8 @@ AI/GUI 服务（`agentdesktop.ai/1`）在同目录的 `ai.sock`；`agentdesktop 
 
 ```bash
 agentdesktop runtime start
+# 第一次使用先配对：在 Agent Desktop 弹出的确认窗口里确认（未配对时其他命令返回 pairing_required，退出码 4）
+agentdesktop agents pair --name demo --capabilities observe,act,desktop.manage,run --desktops created
 D=$(agentdesktop desktop create --size 1280x800 --format json | jq -r .data.desktopId)
 PID=$(agentdesktop app launch --desktop $D --bundle-id com.apple.calculator --format json | jq -r .data.process.pid)
 agentdesktop window bind --desktop $D --pid $PID

@@ -80,7 +80,7 @@ cat > "$APP/Contents/Resources/build.json" <<JSON
   "version": "$VERSION",
   "build": "$BUILD_LABEL",
   "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "source": "$(git rev-parse --verify -q HEAD || echo unknown)$([[ -z "$(git status --porcelain --untracked-files=all 2>/dev/null)" ]] || echo -dirty)",
+  "source": "$SOURCE_REVISION",
   "swift": "$(swift --version 2>&1 | head -1)",
   "engine": {
     "kind": "local",

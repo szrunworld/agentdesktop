@@ -114,6 +114,10 @@ jobs:
           python3 -c 'import json; d=json.load(open("status.json")); assert d["error"]["code"] == "runtime_offline", d'
       - name: The packaged CLI exposes only the current command surface
         run: python3 scripts/verify-command-surface.py "build/Agent Desktop.app/Contents/Resources/bin/agentdesktop"
+      - name: Release smoke (the archive unpacked as a new user meets it)
+        run: |
+          ./scripts/release-smoke.sh build/Agent\ Desktop-*.zip build/Agent\ Desktop-*.manifest.json --report release-smoke.json
+          ./scripts/release-smoke.sh build/Agent\ Desktop-*.zip build/Agent\ Desktop-*.manifest.json --gui-execution --report release-smoke-gui.json
       - name: Keep the archive and manifest
         uses: actions/upload-artifact@v4
         with:
