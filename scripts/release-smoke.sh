@@ -8,6 +8,7 @@
 #    signature still verifies; its signing level is reported. With --release
 #    the Developer ID gate (scripts/verify-release-signing.sh) must pass too.
 # 3. The packaged command surface (scripts/verify-command-surface.py).
+#    Host and CLI are arm64 only, as the support matrix promises.
 # 4. The CLI's build provenance equals the manifest's source revision.
 # 5. The unpacked host starts as a side instance (AGENTDESKTOP_SOCKET in that
 #    directory, never the product endpoint) and the CLI, with a fresh empty
@@ -18,8 +19,8 @@
 #      - runtime capabilities: every method the frozen contract marks
 #        implemented is served, except unit.run, which the product serves
 #        only with the GUI executor turned on (defaults guiExecution; here
-#        --gui-execution, then it must be served); nothing outside the
-#        contract is served;
+#        --gui-execution): served then, refused otherwise; nothing outside
+#        the contract is served;
 #      - runtime status, desktop list and desktop create are refused with
 #        pairing_required (exit 4): an unpaired client reads nothing and
 #        creates nothing.
@@ -50,12 +51,19 @@ MANIFEST="$(cd -- "$(dirname -- "$MANIFEST")" && pwd)/$(basename -- "$MANIFEST")
 # sun_path holds 104 bytes: keep the directory short.
 DIR="$(mktemp -d /tmp/adt-rel-XXXXXX)"
 chmod 700 "$DIR"
-HOST_PID=""
+# The host is signalled only while its pid still has the identity recorded
+# at launch (start time, executable, PID version): a reused pid is left alone.
+. "$(dirname "$0")/lib/process-identity.sh"
+HOST_PID=""; HOST_ID=""
 cleanup() {
-    if [[ -n "$HOST_PID" ]] && kill -0 "$HOST_PID" 2>/dev/null; then
-        kill -TERM "$HOST_PID" 2>/dev/null || true
-        for _ in $(seq 1 100); do kill -0 "$HOST_PID" 2>/dev/null || break; sleep 0.1; done
-        kill -0 "$HOST_PID" 2>/dev/null && kill -KILL "$HOST_PID" 2>/dev/null || true
+    if [[ -n "$HOST_PID" ]]; then
+        proc_stop "$HOST_PID" "$HOST_ID" || true
+        proc_left "$HOST_PID" "$HOST_ID" "the side instance"
+        # Never remove the directory under a host that is still running.
+        if [[ -n "$HOST_ID" ]] && proc_same "$HOST_PID" "$HOST_ID"; then
+            echo "CLEANUP: left $DIR in place" >&2
+            return
+        fi
     fi
     rm -rf "$DIR"
 }
@@ -104,10 +112,11 @@ step "provenance and side instance"
 if [[ $GUI == 1 ]]; then export AGENTDESKTOP_GUI_EXECUTION=1; else unset AGENTDESKTOP_GUI_EXECUTION; fi
 AGENTDESKTOP_SOCKET="$DIR/side.sock" "$APP/Contents/MacOS/Agent Desktop" > "$DIR/host.log" 2>&1 &
 HOST_PID=$!
+HOST_ID=$(proc_record "$HOST_PID" "$APP/Contents/MacOS/Agent Desktop") || { echo "error: the host did not start as $APP" >&2; exit 1; }
 # runtime.capabilities is one of the few methods an unpaired client may call.
 for _ in $(seq 1 200); do
     "$CLI" runtime capabilities --endpoint "$EP" --format json > "$DIR/capabilities.json" 2>/dev/null && break
-    kill -0 "$HOST_PID" 2>/dev/null || { cat "$DIR/host.log" >&2; echo "error: the host exited" >&2; exit 1; }
+    proc_same "$HOST_PID" "$HOST_ID" || { cat "$DIR/host.log" >&2; echo "error: the host exited" >&2; exit 1; }
     sleep 0.1
 done
 "$CLI" version --format json > "$DIR/version.json"
@@ -139,14 +148,26 @@ if str(identity.get('pid')) != host_pid:
 if identity.get('build', {}).get('source') != src:
     bad.append(f"Runtime build {identity.get('build', {}).get('source')} != manifest {src}")
 
+# The first release supports Apple silicon only (docs/release/support-matrix.md);
+# host and CLI must carry the same architectures.
+SUPPORTED_ARCHS = {'arm64'}
+host_archs, cli_archs_set = set(archs.split()), set(cli_archs.split())
+if not host_archs or not host_archs <= SUPPORTED_ARCHS:
+    bad.append(f'host architectures {sorted(host_archs)} outside the supported {sorted(SUPPORTED_ARCHS)}')
+if host_archs != cli_archs_set:
+    bad.append(f'host {sorted(host_archs)} and CLI {sorted(cli_archs_set)} architectures differ')
+
 # Public commands are backed by what the packaged Runtime really serves.
 contract = {x['method'] for x in json.load(open(f'{root}/contracts/runtime/v1/methods.json'))['methods']
             if x['status'] == 'implemented'}
 cdata = caps['data']
 served = {x['method'] for x in cdata['interface']['methods']}
-# Served only with the GUI executor on (HostRole.guiExecutionEnabled).
+# Served only with the GUI executor on (HostRole.guiExecutionEnabled), and
+# never without it: model-driven execution is opt-in.
 optional = set() if gui == '1' else {'unit.run'}
 missing, extra = sorted(contract - served - optional), sorted(served - contract)
+leaked = sorted(optional & served)
+if leaked: bad.append(f'served although the GUI executor is off: {leaked}')
 if missing: bad.append(f'contract methods the Runtime does not serve: {missing}')
 if extra: bad.append(f'Runtime serves methods outside the contract: {extra}')
 
@@ -191,9 +212,7 @@ sys.exit(1 if bad else 0)
 PY
 
 step "stop the side instance"
-kill -TERM "$HOST_PID"
-for _ in $(seq 1 100); do kill -0 "$HOST_PID" 2>/dev/null || break; sleep 0.1; done
-if kill -0 "$HOST_PID" 2>/dev/null; then echo "error: the side instance did not exit within 10 s of SIGTERM" >&2; exit 1; fi
-HOST_PID=""
+if ! proc_stop "$HOST_PID" "$HOST_ID"; then echo "error: the side instance did not exit within 10 s of the stop request" >&2; exit 1; fi
+HOST_PID=""; HOST_ID=""
 [[ ! -S "$EP" ]] || echo "note: the side instance left its socket behind (taken over on next start)"
 echo "release smoke passed"
