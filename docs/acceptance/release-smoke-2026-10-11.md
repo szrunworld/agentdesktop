@@ -34,3 +34,16 @@
 - Developer ID 签名、公证、`verified` 握手（S4，缺证书；PR #300）。
 - 干净用户账户上的首次权限授予、带隔离属性的下载、配对确认窗口：需要人操作。
 - Desktop 创建、真实输入与并发（E2E-09 等，属于门禁 G 的其他套件）。
+
+## 复验（2026-10-15，Codex 9ce4735 三条 P2 修复后）
+
+分支合入 main `2bafe60` 后，在 `92f5591` 干净工作区重新打包（退出码 0）。
+
+| 检查 | 结果 |
+| --- | --- |
+| 默认模式 | passed：95/96，`notServed = [unit.run]`，来源 `92f5591…` 四处一致 |
+| `--gui-execution` | passed：96/96 |
+| 反向：默认模式下让宿主开着 GUI 执行器（脚本临时副本） | 如预期失败，退出码 1：`served although the GUI executor is off: ['unit.run']`；失败路径照常停掉测试副本并删除目录 |
+| 清理 | 三次运行后没有残留的 `/tmp/adt-rel-*` 目录或进程；宿主经 `scripts/lib/process-identity.sh` 按启动时记录的身份停止 |
+
+架构检查：宿主与 CLI 必须都是 arm64 且一致，否则失败（本机构建为 arm64，正向通过；没有 Intel 构建可做反向实测）。
